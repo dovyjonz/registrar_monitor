@@ -1,0 +1,65 @@
+Previous Snapshot: 2025-08-14 16:02:15
+Current Snapshot:  2025-08-14 16:45:04
+Overall Fill: 88% → 88% [+0%]
+
+ANT 333 NEAR
+  Avg Fill: 76% → 80% [+4%]
+  Comps: L (1: 1 NEAR)
+    2L: 76% → 80% [+4%] (19/25 → 20/25) NEAR
+
+BUS 101
+  Avg Fill: 13% → 13% [+0%]
+  Comps: L (1: all OPEN), R (12: 1 FULL)
+    8R: 2% → 4% [+2%] (1/49 → 2/49)
+    9R: 4% → 2% [-2%] (2/49 → 1/49)
+
+CHEM 101L
+  Avg Fill: 59% → 59% [+0%]
+  Comps: B (13: 3 FULL, 3 NEAR)
+    5ChLb: 67% → 71% [+4%] (16/24 → 17/24)
+
+CSCI 344 NEAR
+  Avg Fill: 100% → 97% [-3%]
+  Comps: L (1: 1 NEAR)
+    1L: 100% → 97% [-3%] (32/32 → 31/32) NEAR
+
+ELCE 306
+  Avg Fill: 49% → 47% [-1%]
+  Comps: L (1: all OPEN)
+    1L: 49% → 47% [-1%] (34/70 → 33/70)
+
+ELCE 466
+  Avg Fill: 48% → 50% [+3%]
+  Comps: L (1: all OPEN)
+    1L: 48% → 50% [+3%] (19/40 → 20/40)
+
+KAZ 202
+  Avg Fill: 70% → 71% [+1%]
+  Comps: L (10: 4 FULL, 1 NEAR)
+    9L: 6% → 12% [+6%] (1/16 → 2/16)
+    10L: 50% → 56% [+6%] (8/16 → 9/16)
+
+LING 479
+  Avg Fill: 21% → 25% [+4%]
+  Comps: L (1: all OPEN)
+    1L: 21% → 25% [+4%] (5/24 → 6/24)
+
+SMG 200/ECON 220 NEAR
+  Avg Fill: 100% → 98% [-2%]
+  Comps: L (2: 1 FULL, 1 NEAR)
+    1L: 100% → 97% [-3%] (30/30 → 29/30) NEAR
+
+SOC 203
+  Avg Fill: 72% → 73% [+1%]
+  Comps: L (4: 2 NEAR)
+    4L: 68% → 72% [+4%] (17/25 → 18/25)
+
+WLL 400
+  Avg Fill: 10% → 17% [+7%]
+  Comps: Int (3: all OPEN)
+    3Int: 20% → 40% [+20%] (1/5 → 2/5)
+
+WLL 498 NEAR
+  Avg Fill: 0% → 85% [+85%]
+  Comps: R (1: 1 NEAR)
+    1R: 0% → 85% [+85%] (0/20 → 17/20) NEAR

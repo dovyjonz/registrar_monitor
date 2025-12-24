@@ -1,0 +1,34 @@
+Previous Snapshot: 2025-08-05 13:02:58
+Current Snapshot:  2025-08-05 14:25:39
+Overall System Fill: 0% -> 0% [+0%]
+
+BIOL 101
+  Avg Fill: 0% -> 0% [+0%]
+  Comps: L (1 Mod: OPEN)
+    1L: 0% -> 1% [+1%] (0/90 -> 1/90)
+
+CSCI 341
+  Avg Fill: 0% -> 1% [+0%]
+  Comps: L (1 Mod: OPEN)
+    2L: 1% -> 2% [+1%] (1/94 -> 2/94)
+
+CSCI 361
+  Avg Fill: 0% -> 1% [+0%]
+  Comps: L (1 Mod: OPEN), Lb (1 Mod: OPEN)
+    1L: 1% -> 1% [+1%] (1/140 -> 2/140)
+    2Lb: 0% -> 1% [+1%] (0/75 -> 1/75)
+
+CSCI 390
+  Avg Fill: 0% -> 1% [+0%]
+  Comps: L (1 Mod: OPEN)
+    2L: 0% -> 1% [+1%] (0/94 -> 1/94)
+
+HST 399
+  New. Avg Fill: 0%
+  Comps: L (1 New: 1 OPEN)
+    1L: 0% (0/5) New
+
+PLS 210
+  Avg Fill: 0% -> 2% [+2%]
+  Comps: L (1 Mod: OPEN)
+    1L: 0% -> 3% [+3%] (0/29 -> 1/29)

@@ -1,0 +1,19 @@
+Previous Snapshot: 2025-08-12 13:20:04
+Current Snapshot:  2025-08-12 13:40:19
+Overall Fill: 55% → 55% [+0%]
+
+ANT 482/SOC 482 NEAR
+  Avg Fill: 84% → 86% [+2%]
+  Comps: S (2: 1 FULL)
+    2S: 68% → 72% [+4%] (17/25 → 18/25)
+
+ENG 200 NEAR
+  Avg Fill: 75% → 76% [+0%]
+  Comps: B (5: 2 NEAR), L (5: 2 FULL, 1 NEAR)
+    1Lb: 93% → 94% [+1%] (65/70 → 66/70) NEAR
+    5L: 34% → 36% [+2%] (17/50 → 18/50)
+
+SOC 399 NEAR
+  Avg Fill: 80% → 82% [+2%]
+  Comps: L (2: 1 FULL)
+    1L: 60% → 64% [+4%] (15/25 → 16/25)

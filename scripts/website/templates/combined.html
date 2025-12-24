@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>__TITLE__</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='8' fill='%23ff9100'/></svg>">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        __CSS__
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>📊 Enrollment Monitor</h1>
+        <div class="semester-toggle" id="semesterToggle"></div>
+        <p id="lastUpdated">Last updated N/A</p>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="totalCourses">0</div>
+                <div class="stat-label">Courses</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="totalSections">0</div>
+                <div class="stat-label">Sections</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="fullSections">0</div>
+                <div class="stat-label">Full</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="snapshotCount">0</div>
+                <div class="stat-label">Snapshots</div>
+            </div>
+        </div>
+    </header>
+
+    <nav class="jump-to-nav" id="jumpToNav"></nav>
+
+    <div class="course-grid" id="courseGrid"></div>
+
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <h2 id="modalTitle">Course Details</h2>
+                </div>
+                <button type="button" class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="section-type-selector" id="sectionTypeSelector"></div>
+                <div class="section-list" id="sectionList"></div>
+                <div class="chart-container" id="chartContainer">
+                    <div class="chart-placeholder" id="chartPlaceholder">
+                        Click a section to view enrollment history
+                    </div>
+                    <canvas id="enrollment-chart" class="chart-hidden"></canvas>
+                    <div class="chart-legend" id="chartLegend">
+                        <div class="chart-legend-item">
+                            <div class="chart-legend-dot capacity-changed"></div>
+                            <span>Capacity changed</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const COMBINED_DATA = __DATA__;
+    </script>
+    <script>
+        __JS__
+    </script>
+</body>
+
+</html>

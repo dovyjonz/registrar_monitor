@@ -1,0 +1,82 @@
+[project]
+name = "registrar-monitor"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "toml",
+    "pandas",
+    "xlrd",
+    "python-telegram-bot",
+    "fpdf",
+    "requests",
+    "urllib3",
+    "httpx",
+    "types-requests>=2.32.4.20250611",
+    "types-toml>=0.10.8.20240310",
+    "types-urllib3>=1.26.25.14",
+    "schedule>=1.2.2",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+monitor = "registrarmonitor.main:cli_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/registrarmonitor"]
+
+[tool.uv]
+package = true
+
+[tool.mypy]
+mypy_path = "src"
+packages = ["registrarmonitor"]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.ty.environment]
+extra-paths = ["scripts"]
+
+[[tool.mypy.overrides]]
+module = "xlrd"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings",
+    "--cov=src/registrarmonitor",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-fail-under=10",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17.1",
+    "ruff>=0.12.7",
+    "ty>=0.0.1a16",
+    "pandas-stubs",
+    "types-fpdf2",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+]
