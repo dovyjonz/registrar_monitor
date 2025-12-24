@@ -1,0 +1,30 @@
+Previous Snapshot: 2025-08-14 10:25:23
+Current Snapshot:  2025-08-14 10:47:48
+Overall Fill: 81% → 81% [+0%]
+
+ANT 101 NEAR
+  Avg Fill: 95% → 95% [+1%]
+  Comps: L (1: 1 NEAR)
+    1L: 95% → 95% [+1%] (142/150 → 143/150) NEAR
+
+BIOL 363 NEAR
+  Avg Fill: 88% → 83% [-4%]
+  Comps: B (1: 1 NEAR), L (1: 1 NEAR)
+    1L: 88% → 83% [-4%] (21/24 → 20/24) NEAR
+    1Lb: 88% → 83% [-4%] (21/24 → 20/24) NEAR
+
+BUS 101
+  Avg Fill: 13% → 13% [+0%]
+  Comps: L (1: all OPEN), R (12: 1 FULL)
+    1L: 9% → 9% [+0%] (49/561 → 50/561)
+    11R: 20% → 22% [+2%] (10/49 → 11/49)
+
+CHEM 211L
+  Avg Fill: 17% → 18% [+1%]
+  Comps: B (5: all OPEN)
+    2Lb: 17% → 21% [+4%] (4/24 → 5/24)
+
+LING 278 NEAR
+  Avg Fill: 71% → 75% [+4%]
+  Comps: L (1: 1 NEAR)
+    1L: 71% → 75% [+4%] (20/28 → 21/28) NEAR

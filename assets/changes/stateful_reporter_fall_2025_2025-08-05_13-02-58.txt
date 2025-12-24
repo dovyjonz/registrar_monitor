@@ -1,0 +1,47 @@
+Previous Snapshot: 2025-08-04 23:07:34
+Current Snapshot:  2025-08-05 13:02:58
+Overall System Fill: 0% -> 0% [+0%]
+
+CSCI 341
+  Avg Fill: 0% -> 0% [+0%]
+  Comps: L (1 Mod: OPEN)
+    2L: 0% -> 1% [+1%] (0/94 -> 1/94)
+
+CSCI 361
+  Avg Fill: 0% -> 0% [+0%]
+  Comps: L (1 Mod: OPEN), Lb (1 Mod: OPEN)
+    1L: 0% -> 1% [+1%] (0/140 -> 1/140)
+    4Lb: 0% -> 1% [+1%] (0/75 -> 1/75)
+
+CSCI 390
+  Avg Fill: 0% -> 0% [+0%]
+  Comps: L (1 Mod: OPEN)
+    3L: 0% -> 1% [+1%] (0/94 -> 1/94)
+
+GEOL 201
+  Avg Fill: 0% -> 0% [+0%]
+  Comps: L (1 Mod: OPEN)
+    1L: 0% -> 0% [+0%] (0/25 -> 0/35)
+
+GEOL 402
+  Avg Fill: 0% -> 0% [+0%]
+  Comps: L (1 Mod: OPEN)
+    1L: 0% -> 0% [+0%] (0/20 -> 0/17)
+
+KAZ 313
+  Avg Fill: 0% -> 1% [+1%]
+  Comps: S (1 Mod: OPEN)
+    2S: 0% -> 3% [+3%] (0/30 -> 1/30)
+
+PHIL 210
+  Avg Fill: 0% -> 0% [+0%]
+  Comps: L (1 Rem: was OPEN, 1 Rem: was OPEN, 1 Rem: was OPEN, 1 Rem: was OPEN)
+    15L: Prev. 0% (0/40) Removed
+    2L: Prev. 0% (0/40) Removed
+    4L: Prev. 0% (0/40) Removed
+    6L: Prev. 0% (0/40) Removed
+
+PHYS 201
+  Avg Fill: 0% -> 2% [+2%]
+  Comps: L (1 Mod: OPEN)
+    1L: 0% -> 2% [+2%] (0/55 -> 1/55)

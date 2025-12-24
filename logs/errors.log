@@ -1,0 +1,144 @@
+2025-08-04 22:59:00 - src.registrarmonitor.services.reporting_service - [31mERROR[0m - _generate_pdf_report:293 - Failed to generate PDF report: 'NoneType' object has no attribute 'semester'
+2025-08-04 22:59:00 - src.registrarmonitor.services.reporting_service - [31mERROR[0m - generate_and_send_reports:101 - Failed to generate/send reports: PDF generation failed: 'NoneType' object has no attribute 'semester' Caused by: 'NoneType' object has no attribute 'semester'
+2025-08-04 22:59:00 - __main__ - [31mERROR[0m - run_complete_process:82 - Reporting error in complete process: Report generation failed: PDF generation failed: 'NoneType' object has no attribute 'semester' Caused by: 'NoneType' object has no attribute 'semester' Caused by: PDF generation failed: 'NoneType' object has no attribute 'semester' Caused by: 'NoneType' object has no attribute 'semester'
+2025-08-05 13:03:06 - registrarmonitor.cli.commands - [31mERROR[0m - run:74 - Unexpected error in polling: 'EnrollmentSnapshot' object has no attribute 'snapshot_id'
+2025-08-05 13:05:26 - registrarmonitor.cli.commands - [31mERROR[0m - run:249 - Unexpected error in reporting: 'EnrollmentSnapshot' object has no attribute 'snapshot_id'
+2025-08-05 14:44:30 - registrarmonitor.reporter - [31mERROR[0m - run_stateful_reporter:238 - Stateful reporter failed: asyncio.run() cannot be called from a running event loop
+2025-08-05 15:45:03 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-05 15:45:03 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-05 15:45:03 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-05 15:47:05 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-05 15:47:05 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-05 15:47:05 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-05 15:47:40 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-05 15:47:40 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-05 15:47:40 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-06 09:03:26 - registrarmonitor.cli.commands - [31mERROR[0m - run:261 - Scheduler error: '<' not supported between instances of 'ZoneType' and 'str'
+2025-08-06 11:00:29 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-06 11:00:29 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-06 11:00:29 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-06 11:01:11 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-06 11:01:11 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-06 11:01:11 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-06 11:01:53 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-06 11:01:53 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-06 11:01:53 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-13 09:00:05 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-13 09:00:05 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-13 09:00:05 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-13 09:00:47 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-13 09:00:47 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-13 09:00:47 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-13 09:01:29 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-13 09:01:29 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-13 09:01:29 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-13 09:02:11 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-13 09:02:11 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-13 09:02:11 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-13 09:02:54 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-13 09:02:54 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-13 09:02:54 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-13 09:03:36 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-13 09:03:36 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-13 09:03:36 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-14 13:00:35 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-14 13:00:35 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-14 13:00:35 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-14 13:13:06 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-14 13:13:06 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-14 13:13:06 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-14 13:15:30 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-14 13:15:30 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-14 13:15:30 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-14 14:59:46 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-14 14:59:46 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-14 14:59:46 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-14 15:00:28 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-14 15:00:28 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-14 15:00:28 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-15 09:00:29 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-15 09:00:29 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-15 09:00:29 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-15 19:30:20 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-15 19:30:20 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-15 19:30:20 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-18 09:42:38 - registrarmonitor.automation.downloader - [31mERROR[0m - download:53 - Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-08-18 09:42:38 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-08-18 09:42:38 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-08-18 10:09:22 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-08-18 10:09:22 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Download timeout: 
+2025-08-18 10:09:22 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Download timeout: 
+2025-08-20 11:57:53 - registrarmonitor.automation.downloader - [31mERROR[0m - download:53 - Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-08-20 11:57:53 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-08-20 11:57:53 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-05 19:21:37 - registrarmonitor.automation.downloader - [31mERROR[0m - download:53 - Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-05 19:21:37 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:277 - Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-05 19:21:37 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:78 - Failed to download and process data: Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-16 00:37:30 - registrarmonitor.cli.commands - [31mERROR[0m - run:235 - Unexpected error in reporting: 'telegram'
+2025-12-17 08:26:43 - registrarmonitor.cli.commands - [31mERROR[0m - run:326 - Scheduler error: 'tuple' object has no attribute 'upper'
+2025-12-17 09:00:26 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 09:00:26 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 09:00:26 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 09:01:08 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 09:01:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 09:01:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 11:00:35 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 11:00:35 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 11:00:35 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 11:01:18 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 11:01:18 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 11:01:18 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 13:00:02 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 13:00:02 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 13:00:02 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 13:00:44 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 13:00:44 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 13:00:44 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 13:01:26 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 13:01:26 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 13:01:26 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 13:02:08 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 13:02:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 13:02:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 14:59:59 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 14:59:59 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 14:59:59 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 15:00:42 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 15:00:42 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 15:00:42 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 15:01:24 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 15:01:24 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 15:01:24 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 15:02:06 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-17 15:02:06 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-17 15:02:06 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-17 22:07:08 - registrarmonitor.automation.downloader - [31mERROR[0m - download:53 - Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-17 22:07:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-17 22:07:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-18 20:41:38 - registrarmonitor.automation.downloader - [31mERROR[0m - download:53 - Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-18 20:41:38 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-18 20:41:38 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-19 09:00:30 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-19 09:00:30 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-19 09:00:30 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-20 11:03:12 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-20 11:03:12 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-20 11:03:12 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-20 11:04:07 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-20 11:04:07 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-20 11:04:07 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-20 11:05:38 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-20 11:05:38 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-20 11:05:38 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-20 11:06:11 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-20 11:06:11 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-20 11:06:11 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-20 14:28:19 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-20 14:28:19 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-20 14:28:19 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-20 19:39:23 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-20 19:39:23 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-20 19:39:23 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2025-12-20 19:42:32 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
+2025-12-20 19:42:32 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
+2025-12-20 19:42:32 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 

@@ -1,0 +1,859 @@
+{
+  "timestamp": "2025-05-12 13:03:00",
+  "semester": "Summer 2025",
+  "overall_fill": 0.48,
+  "courses": {
+    "ANT 110": {
+      "department": "ANT",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 50,
+          "capacity": 50,
+          "fill": 1.0
+        }
+      }
+    },
+    "ANT 314": {
+      "department": "ANT",
+      "average_fill": 0.28,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 7,
+          "capacity": 25,
+          "fill": 0.28
+        }
+      }
+    },
+    "ANT 345": {
+      "department": "ANT",
+      "average_fill": 0.0,
+      "sections": {
+        "1ActLearn": {
+          "section_type": "ActLearn",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "ANT 400": {
+      "department": "ANT",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        },
+        "2Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "ANT 483": {
+      "department": "ANT",
+      "average_fill": 0.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 0,
+          "capacity": 6,
+          "fill": 0.0
+        }
+      }
+    },
+    "BIOL 392": {
+      "department": "BIOL",
+      "average_fill": 0.0,
+      "sections": {
+        "1Wsh": {
+          "section_type": "Wsh",
+          "enrollment": 0,
+          "capacity": 10,
+          "fill": 0.0
+        }
+      }
+    },
+    "BIOL 399": {
+      "department": "BIOL",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 10,
+          "fill": 0.0
+        }
+      }
+    },
+    "BIOL 490": {
+      "department": "BIOL",
+      "average_fill": 0.0,
+      "sections": {
+        "1R": {
+          "section_type": "R",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "BUS 101": {
+      "department": "BUS",
+      "average_fill": 0.02,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 4,
+          "capacity": 196,
+          "fill": 0.02
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 0,
+          "capacity": 49,
+          "fill": 0.0
+        },
+        "2R": {
+          "section_type": "R",
+          "enrollment": 3,
+          "capacity": 49,
+          "fill": 0.06
+        },
+        "3R": {
+          "section_type": "R",
+          "enrollment": 0,
+          "capacity": 49,
+          "fill": 0.0
+        },
+        "4R": {
+          "section_type": "R",
+          "enrollment": 1,
+          "capacity": 49,
+          "fill": 0.02
+        }
+      }
+    },
+    "CHEM 101L": {
+      "department": "CHEM",
+      "average_fill": 0.04,
+      "sections": {
+        "1ChLb": {
+          "section_type": "ChLb",
+          "enrollment": 1,
+          "capacity": 25,
+          "fill": 0.04
+        }
+      }
+    },
+    "CHEM 102": {
+      "department": "CHEM",
+      "average_fill": 0.75,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 36,
+          "capacity": 48,
+          "fill": 0.75
+        }
+      }
+    },
+    "CHEM 189c": {
+      "department": "CHEM",
+      "average_fill": 0.87,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 13,
+          "capacity": 15,
+          "fill": 0.87
+        }
+      }
+    },
+    "CHEM 211": {
+      "department": "CHEM",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 35,
+          "capacity": 35,
+          "fill": 1.0
+        }
+      }
+    },
+    "CHEM 211L": {
+      "department": "CHEM",
+      "average_fill": 0.71,
+      "sections": {
+        "1Lb": {
+          "section_type": "Lb",
+          "enrollment": 17,
+          "capacity": 24,
+          "fill": 0.71
+        }
+      }
+    },
+    "CHME 400": {
+      "department": "CHME",
+      "average_fill": 0.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 0,
+          "capacity": 1,
+          "fill": 0.0
+        },
+        "1Lb": {
+          "section_type": "Lb",
+          "enrollment": 0,
+          "capacity": 1,
+          "fill": 0.0
+        }
+      }
+    },
+    "CSCI 152": {
+      "department": "CSCI",
+      "average_fill": 0.84,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 47,
+          "capacity": 90,
+          "fill": 0.52
+        },
+        "1Lb": {
+          "section_type": "Lb",
+          "enrollment": 45,
+          "capacity": 45,
+          "fill": 1.0
+        }
+      }
+    },
+    "CSCI 299": {
+      "department": "CSCI",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 120,
+          "fill": 0.0
+        }
+      }
+    },
+    "CSCI 398": {
+      "department": "CSCI",
+      "average_fill": 0.0,
+      "sections": {
+        "1CP": {
+          "section_type": "CP",
+          "enrollment": 0,
+          "capacity": 8,
+          "fill": 0.0
+        }
+      }
+    },
+    "CSCI 399": {
+      "department": "CSCI",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 50,
+          "fill": 0.0
+        }
+      }
+    },
+    "ELCE 203": {
+      "department": "ELCE",
+      "average_fill": 0.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 0,
+          "capacity": 20,
+          "fill": 0.0
+        }
+      }
+    },
+    "ELCE 301": {
+      "department": "ELCE",
+      "average_fill": 0.05,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 20,
+          "fill": 0.05
+        }
+      }
+    },
+    "GEOL 206": {
+      "department": "GEOL",
+      "average_fill": 0.06,
+      "sections": {
+        "1OCA": {
+          "section_type": "OCA",
+          "enrollment": 1,
+          "capacity": 18,
+          "fill": 0.06
+        }
+      }
+    },
+    "HST 100": {
+      "department": "HST",
+      "average_fill": 0.01,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 72,
+          "fill": 0.01
+        },
+        "1S": {
+          "section_type": "S",
+          "enrollment": 1,
+          "capacity": 24,
+          "fill": 0.04
+        },
+        "2S": {
+          "section_type": "S",
+          "enrollment": 0,
+          "capacity": 24,
+          "fill": 0.0
+        },
+        "3S": {
+          "section_type": "S",
+          "enrollment": 0,
+          "capacity": 24,
+          "fill": 0.0
+        }
+      }
+    },
+    "HST 206": {
+      "department": "HST",
+      "average_fill": 1.0,
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 20,
+          "capacity": 20,
+          "fill": 1.0
+        }
+      }
+    },
+    "HST 400": {
+      "department": "HST",
+      "average_fill": 0.0,
+      "sections": {
+        "1P": {
+          "section_type": "P",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "KAZ 150": {
+      "department": "KAZ",
+      "average_fill": 1.0,
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 90,
+          "capacity": 90,
+          "fill": 1.0
+        }
+      }
+    },
+    "KAZ 201": {
+      "department": "KAZ",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 16,
+          "capacity": 16,
+          "fill": 1.0
+        }
+      }
+    },
+    "KAZ 202": {
+      "department": "KAZ",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 16,
+          "capacity": 16,
+          "fill": 1.0
+        }
+      }
+    },
+    "KAZ 312": {
+      "department": "KAZ",
+      "average_fill": 1.0,
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 30,
+          "capacity": 30,
+          "fill": 1.0
+        }
+      }
+    },
+    "KAZ 350": {
+      "department": "KAZ",
+      "average_fill": 1.0,
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 30,
+          "capacity": 30,
+          "fill": 1.0
+        },
+        "2S": {
+          "section_type": "S",
+          "enrollment": 30,
+          "capacity": 30,
+          "fill": 1.0
+        }
+      }
+    },
+    "KAZ 378": {
+      "department": "KAZ",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 30,
+          "capacity": 30,
+          "fill": 1.0
+        },
+        "2L": {
+          "section_type": "L",
+          "enrollment": 30,
+          "capacity": 30,
+          "fill": 1.0
+        }
+      }
+    },
+    "MAE 353": {
+      "department": "MAE",
+      "average_fill": 0.1,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 3,
+          "capacity": 30,
+          "fill": 0.1
+        }
+      }
+    },
+    "MATH 161": {
+      "department": "MATH",
+      "average_fill": 0.1,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 9,
+          "capacity": 90,
+          "fill": 0.1
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 9,
+          "capacity": 90,
+          "fill": 0.1
+        }
+      }
+    },
+    "MATH 162": {
+      "department": "MATH",
+      "average_fill": 0.75,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 157,
+          "capacity": 210,
+          "fill": 0.75
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 103,
+          "capacity": 105,
+          "fill": 0.98
+        },
+        "2R": {
+          "section_type": "R",
+          "enrollment": 54,
+          "capacity": 105,
+          "fill": 0.51
+        }
+      }
+    },
+    "MATH 251": {
+      "department": "MATH",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 120,
+          "capacity": 120,
+          "fill": 1.0
+        }
+      }
+    },
+    "MATH 273": {
+      "department": "MATH",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 60,
+          "capacity": 60,
+          "fill": 1.0
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 60,
+          "capacity": 60,
+          "fill": 1.0
+        }
+      }
+    },
+    "PHIL 210": {
+      "department": "PHIL",
+      "average_fill": 0.28,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 28,
+          "capacity": 100,
+          "fill": 0.28
+        },
+        "1S": {
+          "section_type": "S",
+          "enrollment": 12,
+          "capacity": 50,
+          "fill": 0.24
+        },
+        "2S": {
+          "section_type": "S",
+          "enrollment": 16,
+          "capacity": 50,
+          "fill": 0.32
+        }
+      }
+    },
+    "PHIL 398": {
+      "department": "PHIL",
+      "average_fill": 0.0,
+      "sections": {
+        "1IS": {
+          "section_type": "IS",
+          "enrollment": 0,
+          "capacity": 1,
+          "fill": 0.0
+        }
+      }
+    },
+    "PHYS 161": {
+      "department": "PHYS",
+      "average_fill": 0.03,
+      "sections": {
+        "1PLb": {
+          "section_type": "PLb",
+          "enrollment": 0,
+          "capacity": 36,
+          "fill": 0.0
+        },
+        "2PLb": {
+          "section_type": "PLb",
+          "enrollment": 1,
+          "capacity": 36,
+          "fill": 0.03
+        },
+        "3PLb": {
+          "section_type": "PLb",
+          "enrollment": 2,
+          "capacity": 36,
+          "fill": 0.06
+        },
+        "1L": {
+          "section_type": "L",
+          "enrollment": 3,
+          "capacity": 108,
+          "fill": 0.03
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 3,
+          "capacity": 108,
+          "fill": 0.03
+        }
+      }
+    },
+    "PHYS 162": {
+      "department": "PHYS",
+      "average_fill": 0.44,
+      "sections": {
+        "1PLb": {
+          "section_type": "PLb",
+          "enrollment": 10,
+          "capacity": 36,
+          "fill": 0.28
+        },
+        "2PLb": {
+          "section_type": "PLb",
+          "enrollment": 11,
+          "capacity": 36,
+          "fill": 0.31
+        },
+        "3PLb": {
+          "section_type": "PLb",
+          "enrollment": 26,
+          "capacity": 36,
+          "fill": 0.72
+        },
+        "1L": {
+          "section_type": "L",
+          "enrollment": 47,
+          "capacity": 108,
+          "fill": 0.44
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 47,
+          "capacity": 108,
+          "fill": 0.44
+        }
+      }
+    },
+    "PHYS 299": {
+      "department": "PHYS",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 30,
+          "fill": 0.0
+        }
+      }
+    },
+    "PHYS 399": {
+      "department": "PHYS",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 30,
+          "fill": 0.0
+        }
+      }
+    },
+    "PLS 120": {
+      "department": "PLS",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 40,
+          "capacity": 40,
+          "fill": 1.0
+        }
+      }
+    },
+    "PLS 395": {
+      "department": "PLS",
+      "average_fill": 0.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 0,
+          "capacity": 10,
+          "fill": 0.0
+        },
+        "2L": {
+          "section_type": "L",
+          "enrollment": 0,
+          "capacity": 4,
+          "fill": 0.0
+        },
+        "3L": {
+          "section_type": "L",
+          "enrollment": 0,
+          "capacity": 4,
+          "fill": 0.0
+        }
+      }
+    },
+    "PLS 422": {
+      "department": "PLS",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 12,
+          "capacity": 12,
+          "fill": 1.0
+        }
+      }
+    },
+    "PLS 495": {
+      "department": "PLS",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        },
+        "2Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        },
+        "3Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "ROBT 399": {
+      "department": "ROBT",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 32,
+          "fill": 0.0
+        }
+      }
+    },
+    "SOC 400": {
+      "department": "SOC",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "SOC 401": {
+      "department": "SOC",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "SOC 402": {
+      "department": "SOC",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "SSH 300": {
+      "department": "SSH",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 100,
+          "fill": 0.0
+        }
+      }
+    },
+    "SSH 301": {
+      "department": "SSH",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 60,
+          "fill": 0.0
+        }
+      }
+    },
+    "WCS 240": {
+      "department": "WCS",
+      "average_fill": 1.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 24,
+          "capacity": 24,
+          "fill": 1.0
+        }
+      }
+    },
+    "WLL 399": {
+      "department": "WLL",
+      "average_fill": 0.0,
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 0,
+          "capacity": 24,
+          "fill": 0.0
+        }
+      }
+    },
+    "WLL 400": {
+      "department": "WLL",
+      "average_fill": 0.0,
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        },
+        "2Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        },
+        "3Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    }
+  }
+}

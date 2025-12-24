@@ -1,0 +1,36 @@
+Previous Snapshot: 2025-08-14 17:09:46
+Current Snapshot:  2025-08-14 17:32:13
+Overall Fill: 88% → 88% [+0%]
+
+CSCI 231 NEAR
+  Avg Fill: 82% → 82% [+0%]
+  Comps: B (4: 1 FULL, 2 NEAR), L (3: 1 FULL, 1 NEAR)
+    2L: 100% → 99% [-1%] (100/100 → 99/100) NEAR
+    2Lb: 88% → 89% [+1%] (66/75 → 67/75) NEAR
+    3L: 45% → 46% [+1%] (45/100 → 46/100)
+    4Lb: 96% → 95% [-1%] (72/75 → 71/75) NEAR
+
+ECON 302 NEAR
+  Avg Fill: 88% → 87% [-2%]
+  Comps: L (2: 1 FULL)
+    1L: 77% → 73% [-3%] (23/30 → 22/30)
+
+GER 101 NEAR
+  Avg Fill: 77% → 79% [+2%]
+  Comps: L (2: 1 FULL)
+    2L: 54% → 58% [+4%] (13/24 → 14/24)
+
+LING 131
+  Avg Fill: 70% → 72% [+2%]
+  Comps: L (1: all OPEN)
+    1L: 70% → 72% [+2%] (70/100 → 72/100)
+
+SPA 201 NEAR
+  Avg Fill: 73% → 75% [+2%]
+  Comps: L (2: 1 FULL)
+    2L: 96% → 100% [+4%] (23/24 → 24/24) FULL
+
+TUR 231 NEAR
+  Avg Fill: 93% → 90% [-3%]
+  Comps: L (1: 1 NEAR)
+    1L: 93% → 90% [-3%] (28/30 → 27/30) NEAR

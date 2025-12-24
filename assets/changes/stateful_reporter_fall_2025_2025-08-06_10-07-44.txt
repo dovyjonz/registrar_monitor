@@ -1,0 +1,256 @@
+Previous Snapshot: 2025-08-06 09:41:05
+Current Snapshot:  2025-08-06 10:07:44
+Overall Fill: 15% → 15% [+0%]
+
+ANT 482/SOC 482
+  Avg Fill: 72% → 74% [+2%]
+  Comps: S (2: 1 NEAR)
+    1S: 92% → 96% [+4%] (23/25 → 24/25) NEAR
+
+BIOL 101
+  Avg Fill: 20% → 21% [+0%]
+  Comps: L (4: all OPEN)
+    2L: 16% → 17% [+1%] (14/90 → 15/90)
+
+BIOL 305L
+  Avg Fill: 23% → 25% [+2%]
+  Comps: B (3: all OPEN)
+    1Lb: 15% → 20% [+5%] (3/20 → 4/20)
+
+BIOL 320 NEAR
+  Avg Fill: 92% → 96% [+4%]
+  Comps: L (1: 1 NEAR)
+    1L: 92% → 96% [+4%] (22/24 → 23/24) NEAR
+
+BIOL 380
+  Avg Fill: 69% → 67% [-3%]
+  Comps: L (1: all OPEN)
+    1L: 69% → 67% [-3%] (25/36 → 24/36)
+
+BIOL 456 NEAR
+  Avg Fill: 83% → 85% [+2%]
+  Comps: S (2: 1 FULL)
+    2S: 67% → 71% [+4%] (16/24 → 17/24)
+
+BIOL 470
+  Avg Fill: 29% → 33% [+4%]
+  Comps: L (1: all OPEN)
+    1L: 29% → 33% [+4%] (7/24 → 8/24)
+
+ECON 120
+  Avg Fill: 68% → 68% [+1%]
+  Comps: L (1: all OPEN)
+    1L: 68% → 68% [+1%] (135/200 → 136/200)
+
+ECON 403 NEAR
+  Avg Fill: 90% → 92% [+2%]
+  Comps: L (2: 1 FULL, 1 NEAR)
+    1L: 80% → 83% [+3%] (24/30 → 25/30) NEAR
+
+GEOL 310
+  Avg Fill: 20% → 25% [+5%]
+  Comps: OCA (1: all OPEN)
+    1OCA: 20% → 25% [+5%] (4/20 → 5/20)
+
+GEOL 401
+  Avg Fill: 32% → 35% [+2%]
+  Comps: L (1: all OPEN)
+    1L: 32% → 35% [+2%] (13/40 → 14/40)
+
+GEOL 402
+  Avg Fill: 24% → 29% [+6%]
+  Comps: L (1: all OPEN)
+    1L: 24% → 29% [+6%] (4/17 → 5/17)
+
+GEOL 404
+  Avg Fill: 20% → 25% [+5%]
+  Comps: P (1: all OPEN)
+    1P: 20% → 25% [+5%] (4/20 → 5/20)
+
+KAZ 313
+  Avg Fill: 14% → 15% [+1%]
+  Comps: S (5: all OPEN)
+    2S: 33% → 37% [+3%] (10/30 → 11/30)
+
+KAZ 356
+  Avg Fill: 67% → 73% [+7%]
+  Comps: S (1: all OPEN)
+    1S: 67% → 73% [+7%] (20/30 → 22/30)
+
+KAZ 363
+  Avg Fill: 12% → 13% [+2%]
+  Comps: S (2: all OPEN)
+    1S: 17% → 20% [+3%] (5/30 → 6/30)
+
+KAZ 366 NEAR
+  Avg Fill: 73% → 80% [+7%]
+  Comps: S (1: 1 NEAR)
+    1S: 73% → 80% [+7%] (22/30 → 24/30) NEAR
+
+MATH 301 NEAR
+  Avg Fill: 89% → 91% [+2%]
+  Comps: L (1: 1 NEAR)
+    1L: 89% → 91% [+2%] (48/54 → 49/54) NEAR
+
+MATH 302
+  Avg Fill: 8% → 9% [+1%]
+  Comps: L (2: all OPEN)
+    2L: 17% → 18% [+2%] (10/60 → 11/60)
+
+MATH 323
+  Avg Fill: 70% → 72% [+2%]
+  Comps: L (1: all OPEN)
+    1L: 70% → 72% [+2%] (42/60 → 43/60)
+
+MATH 361
+  Avg Fill: 23% → 25% [+2%]
+  Comps: L (1: all OPEN)
+    1L: 23% → 25% [+2%] (14/60 → 15/60)
+
+MATH 371
+  Avg Fill: 65% → 67% [+2%]
+  Comps: L (1: all OPEN)
+    1L: 65% → 67% [+2%] (39/60 → 40/60)
+
+MATH 417
+  Avg Fill: 18% → 17% [-2%]
+  Comps: L (1: all OPEN)
+    1L: 18% → 17% [-2%] (11/60 → 10/60)
+
+MATH 471
+  Avg Fill: 45% → 43% [-2%]
+  Comps: L (1: all OPEN)
+    1L: 45% → 43% [-2%] (27/60 → 26/60)
+
+MATH 480
+  Avg Fill: 68% → 70% [+2%]
+  Comps: L (1: all OPEN)
+    1L: 68% → 70% [+2%] (41/60 → 42/60)
+
+MINE 401
+  Avg Fill: 40% → 45% [+5%]
+  Comps: L (1: all OPEN)
+    1L: 40% → 45% [+5%] (8/20 → 9/20)
+
+MINE 402
+  Avg Fill: 40% → 45% [+5%]
+  Comps: L (1: all OPEN)
+    1L: 40% → 45% [+5%] (8/20 → 9/20)
+
+MINE 403
+  Avg Fill: 53% → 60% [+7%]
+  Comps: L (1: all OPEN)
+    1L: 53% → 60% [+7%] (8/15 → 9/15)
+
+MINE 405
+  Avg Fill: 40% → 45% [+5%]
+  Comps: L (1: all OPEN)
+    1L: 40% → 45% [+5%] (8/20 → 9/20)
+
+MINE 489
+  Avg Fill: 53% → 60% [+7%]
+  Comps: S (1: all OPEN)
+    1S: 53% → 60% [+7%] (8/15 → 9/15)
+
+NUSM 401 NEAR
+  Avg Fill: 63% → 80% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 63% → 80% [+17%] (19/30 → 24/30) NEAR
+
+NUSM 402 NEAR
+  Avg Fill: 63% → 80% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 63% → 80% [+17%] (19/30 → 24/30) NEAR
+
+NUSM 403 NEAR
+  Avg Fill: 60% → 77% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 60% → 77% [+17%] (18/30 → 23/30) NEAR
+
+NUSM 405 NEAR
+  Avg Fill: 63% → 80% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 63% → 80% [+17%] (19/30 → 24/30) NEAR
+
+NUSM 408 NEAR
+  Avg Fill: 63% → 80% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 63% → 80% [+17%] (19/30 → 24/30) NEAR
+
+NUSM 410 NEAR
+  Avg Fill: 60% → 77% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 60% → 77% [+17%] (18/30 → 23/30) NEAR
+
+NUSM 411a NEAR
+  Avg Fill: 60% → 77% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 60% → 77% [+17%] (18/30 → 23/30) NEAR
+
+NUSM 412 NEAR
+  Avg Fill: 60% → 77% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 60% → 77% [+17%] (18/30 → 23/30) NEAR
+
+NUSM 413 NEAR
+  Avg Fill: 60% → 77% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 60% → 77% [+17%] (18/30 → 23/30) NEAR
+
+NUSM 414 NEAR
+  Avg Fill: 60% → 77% [+17%]
+  Comps: L (1: 1 NEAR)
+    1L: 60% → 77% [+17%] (18/30 → 23/30) NEAR
+
+PHIL 210
+  Avg Fill: 18% → 18% [+0%]
+  Comps: L (11: all OPEN)
+    7L: 35% → 32% [-2%] (14/40 → 13/40)
+    9L: 20% → 18% [-2%] (10/50 → 9/50)
+    14L: 20% → 25% [+5%] (8/40 → 10/40)
+
+PHYS 250
+  Avg Fill: 27% → 33% [+5%]
+  Comps: L (1: all OPEN)
+    1L: 27% → 33% [+5%] (15/55 → 18/55)
+
+PHYS 452
+  Avg Fill: 50% → 55% [+5%]
+  Comps: L (1: all OPEN), R (1: all OPEN)
+    1L: 50% → 55% [+5%] (10/20 → 11/20)
+    1R: 50% → 55% [+5%] (10/20 → 11/20)
+
+PLS 211
+  Avg Fill: 2% → 3% [+2%]
+  Comps: L (2: all OPEN)
+    1L: 3% → 7% [+3%] (1/29 → 2/29)
+
+PLS 356
+  Avg Fill: 30% → 35% [+5%]
+  Comps: L (1: all OPEN)
+    1L: 30% → 35% [+5%] (6/20 → 7/20)
+
+SMG 200/ECON 220
+  Avg Fill: 13% → 15% [+2%]
+  Comps: L (2: all OPEN)
+    2L: 27% → 30% [+3%] (8/30 → 9/30)
+
+SOC 220 NEAR
+  Avg Fill: 80% → 76% [-4%]
+  Comps: L (1: 1 NEAR)
+    1L: 80% → 76% [-4%] (20/25 → 19/25) NEAR
+
+SOC 221 NEAR
+  Avg Fill: 76% → 80% [+4%]
+  Comps: L (1: 1 NEAR)
+    1L: 76% → 80% [+4%] (19/25 → 20/25) NEAR
+
+SOC 223
+  Avg Fill: 24% → 28% [+4%]
+  Comps: L (1: all OPEN)
+    1L: 24% → 28% [+4%] (6/25 → 7/25)
+
+SOC 399
+  Avg Fill: 26% → 30% [+4%]
+  Comps: L (2: all OPEN)
+    1L: 0% → 8% [+8%] (0/25 → 2/25)

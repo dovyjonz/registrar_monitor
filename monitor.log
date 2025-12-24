@@ -1,0 +1,777 @@
+2025-12-17 18:12:52 - registrarmonitor.core.logging_config - [32mINFO[0m - Logging initialized - Level: INFO, Console: True, File: True
+2025-12-17 18:12:52 - registrarmonitor.core.logging_config - [32mINFO[0m - Log files location: logs
+2025-12-17 18:12:52 - registrarmonitor.main - [32mINFO[0m - Starting Registrar Monitor CLI with command: schedule
+2025-12-17 18:12:52 - registrarmonitor.cli.commands - [32mINFO[0m - Starting scheduler (type: two-phase)
+⏰ Starting two-phase scheduler...
+   📅 Schedule file: schedule.txt
+   🔄 Two-phase mode: Quiet/Burst separation
+   📵 Telegram reports: DISABLED
+   🛑 Press Ctrl+C to stop
+   📥 Pre-report sync at: 18:14:00
+   📨 Next report at: 18:15
+🚀 Starting Two-Phase Scheduler (Quiet/Burst Mode)
+==================================================
+   📈 Burst entry threshold: 12.0
+   📉 Burst exit threshold: 2.0
+   🔢 Burst exit count: 3
+☕ Preventing macOS sleep mode (Display/Idle/System)
+📅 Schedule Status (Current time: 2025-12-17 18:12)
+   Current zone: LOW
+   Upcoming: extreme in 886m (08:59-09:10), extreme in 1006m (10:59-11:10), extreme in 1126m (12:59-13:10)
+📨 Next report at: 18:15
+
+🔄 Performing Initial Sync...
+2025-12-17 18:12:52 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 18:12:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 18:12:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 18:12:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 18:12:59 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_181252.xls
+2025-12-17 18:12:59 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_181252.xls
+2025-12-17 18:12:59 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_181252.xls
+2025-12-17 18:12:59 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_181252.xls
+2025-12-17 18:12:59 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 18:12:52
+2025-12-17 18:12:59 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 232 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 18:12:59 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_18-12-52.json
+2025-12-17 18:12:59 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 18:12:59 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_181252.xls
+2025-12-17 18:12:59 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_181252.xls'...
+2025-12-17 18:12:59 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 18:12:59 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=0, NotFound=1240, Skipped=0
+2025-12-17 18:12:59 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Initial sync done (7.9s). Activity: 0.40, Mode: quiet
+
+⏱️  Next activity in 20m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 18:33:04 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 18:33:04 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 18:33:04 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 18:33:04 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 18:33:11 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_183304.xls
+2025-12-17 18:33:11 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_183304.xls
+2025-12-17 18:33:11 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_183304.xls
+2025-12-17 18:33:11 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_183304.xls
+2025-12-17 18:33:11 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 18:33:04
+2025-12-17 18:33:11 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 233 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 18:33:11 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_18-33-04.json
+2025-12-17 18:33:11 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 18:33:11 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_183304.xls
+2025-12-17 18:33:11 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_183304.xls'...
+2025-12-17 18:33:12 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 18:33:12 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=10, NotFound=1240, Skipped=0
+2025-12-17 18:33:12 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (8.1s). Activity: 5.60, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 5m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 18:38:13 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 18:38:13 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 18:38:13 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 18:38:13 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 18:38:20 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_183813.xls
+2025-12-17 18:38:20 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_183813.xls
+2025-12-17 18:38:20 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_183813.xls
+2025-12-17 18:38:20 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_183813.xls
+2025-12-17 18:38:21 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 18:38:13
+2025-12-17 18:38:21 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 234 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 18:38:21 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_18-38-13.json
+2025-12-17 18:38:21 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 18:38:21 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_183813.xls
+2025-12-17 18:38:21 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_183813.xls'...
+2025-12-17 18:38:21 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 18:38:21 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=34, NotFound=1240, Skipped=0
+2025-12-17 18:38:21 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.1s). Activity: 1.40, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 18:48:23 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 18:48:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 18:48:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 18:48:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 18:48:30 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_184823.xls
+2025-12-17 18:48:30 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_184823.xls
+2025-12-17 18:48:30 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_184823.xls
+2025-12-17 18:48:30 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_184823.xls
+2025-12-17 18:48:31 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 18:48:23
+2025-12-17 18:48:31 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 235 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 18:48:31 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_18-48-23.json
+2025-12-17 18:48:31 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 18:48:31 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_184823.xls
+2025-12-17 18:48:31 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_184823.xls'...
+2025-12-17 18:48:31 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 18:48:31 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=75, NotFound=1240, Skipped=0
+2025-12-17 18:48:31 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (8.1s). Activity: 2.40, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 18:58:33 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 18:58:33 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 18:58:33 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 18:58:33 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 18:58:41 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_185833.xls
+2025-12-17 18:58:41 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_185833.xls
+2025-12-17 18:58:41 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_185833.xls
+2025-12-17 18:58:41 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_185833.xls
+2025-12-17 18:58:41 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 18:58:33
+2025-12-17 18:58:41 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 236 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 18:58:41 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_18-58-33.json
+2025-12-17 18:58:41 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 18:58:41 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_185833.xls
+2025-12-17 18:58:41 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_185833.xls'...
+2025-12-17 18:58:41 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 18:58:41 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=43, NotFound=1240, Skipped=0
+2025-12-17 18:58:41 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.5s). Activity: 5.00, Mode: quiet
+
+⏱️  Next activity in 5m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 19:03:42 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 19:03:42 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 19:03:42 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 19:03:42 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 19:03:50 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_190342.xls
+2025-12-17 19:03:50 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_190342.xls
+2025-12-17 19:03:50 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_190342.xls
+2025-12-17 19:03:50 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_190342.xls
+2025-12-17 19:03:50 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 19:03:43
+2025-12-17 19:03:50 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 237 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 19:03:50 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_19-03-43.json
+2025-12-17 19:03:50 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 19:03:50 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_190342.xls
+2025-12-17 19:03:50 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_190342.xls'...
+2025-12-17 19:03:50 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 19:03:50 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=25, NotFound=1240, Skipped=0
+2025-12-17 19:03:50 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.0s). Activity: 1.00, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 19:13:52 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 19:13:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 19:13:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 19:13:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 19:14:03 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_191352.xls
+2025-12-17 19:14:04 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_191352.xls
+2025-12-17 19:14:04 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_191352.xls
+2025-12-17 19:14:04 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_191352.xls
+2025-12-17 19:14:04 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 19:13:55
+2025-12-17 19:14:05 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 238 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 19:14:05 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_19-13-55.json
+2025-12-17 19:14:05 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 19:14:05 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_191352.xls
+2025-12-17 19:14:05 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_191352.xls'...
+2025-12-17 19:14:05 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 19:14:05 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=15, NotFound=1240, Skipped=0
+2025-12-17 19:14:05 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (12.4s). Activity: 2.00, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 19:24:07 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 19:24:07 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 19:24:07 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 19:24:07 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 19:24:17 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_192407.xls
+2025-12-17 19:24:19 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_192407.xls
+2025-12-17 19:24:19 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_192407.xls
+2025-12-17 19:24:19 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_192407.xls
+2025-12-17 19:24:20 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 19:24:09
+2025-12-17 19:24:20 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 239 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 19:24:20 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_19-24-09.json
+2025-12-17 19:24:20 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 19:24:20 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_192407.xls
+2025-12-17 19:24:20 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_192407.xls'...
+2025-12-17 19:24:20 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 19:24:20 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=16, NotFound=1240, Skipped=0
+2025-12-17 19:24:20 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (13.0s). Activity: 2.40, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 19:34:23 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 19:34:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 19:34:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 19:34:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 19:34:32 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_193423.xls
+2025-12-17 19:34:34 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_193423.xls
+2025-12-17 19:34:34 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_193423.xls
+2025-12-17 19:34:34 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_193423.xls
+2025-12-17 19:34:35 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 19:34:25
+2025-12-17 19:34:35 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 240 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 19:34:35 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_19-34-25.json
+2025-12-17 19:34:35 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 19:34:35 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_193423.xls
+2025-12-17 19:34:35 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_193423.xls'...
+2025-12-17 19:34:35 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 19:34:35 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=17, NotFound=1240, Skipped=0
+2025-12-17 19:34:35 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (12.1s). Activity: 2.20, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📥 Pre-report Sync (ensuring fresh data for upcoming report)...
+2025-12-17 19:44:39 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 19:44:39 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 19:44:39 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 19:44:39 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 19:44:48 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_194439.xls
+2025-12-17 19:44:51 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_194439.xls
+2025-12-17 19:44:51 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_194439.xls
+2025-12-17 19:44:51 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_194439.xls
+2025-12-17 19:44:52 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 19:44:41
+2025-12-17 19:44:52 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 241 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 19:44:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_19-44-41.json
+2025-12-17 19:44:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 19:44:52 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_194439.xls
+2025-12-17 19:44:52 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_194439.xls'...
+2025-12-17 19:44:52 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 19:44:52 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=6, NotFound=1240, Skipped=0
+2025-12-17 19:44:52 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Pre-report sync done (13.1s). Activity: 0.80, Mode: quiet
+
+⏱️  Next activity in 20m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 20:04:58 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 20:04:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 20:04:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 20:04:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 20:05:06 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_200458.xls
+2025-12-17 20:05:06 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_200458.xls
+2025-12-17 20:05:06 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_200458.xls
+2025-12-17 20:05:06 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_200458.xls
+2025-12-17 20:05:06 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 20:04:59
+2025-12-17 20:05:06 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 242 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 20:05:06 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_20-04-59.json
+2025-12-17 20:05:06 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 20:05:06 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_200458.xls
+2025-12-17 20:05:06 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_200458.xls'...
+2025-12-17 20:05:06 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 20:05:06 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=22, NotFound=1240, Skipped=0
+2025-12-17 20:05:06 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (8.2s). Activity: 4.80, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 5m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 20:10:07 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 20:10:07 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 20:10:07 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 20:10:07 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 20:10:15 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_201007.xls
+2025-12-17 20:10:15 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_201007.xls
+2025-12-17 20:10:15 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_201007.xls
+2025-12-17 20:10:15 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_201007.xls
+2025-12-17 20:10:15 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 20:10:08
+2025-12-17 20:10:15 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 243 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 20:10:15 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_20-10-08.json
+2025-12-17 20:10:15 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 20:10:15 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_201007.xls
+2025-12-17 20:10:15 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_201007.xls'...
+2025-12-17 20:10:15 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 20:10:16 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=9, NotFound=1240, Skipped=0
+2025-12-17 20:10:16 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.2s). Activity: 1.80, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 20:20:18 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 20:20:18 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 20:20:18 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 20:20:18 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 20:20:26 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_202018.xls
+2025-12-17 20:20:26 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_202018.xls
+2025-12-17 20:20:26 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_202018.xls
+2025-12-17 20:20:26 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_202018.xls
+2025-12-17 20:20:26 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 20:20:18
+2025-12-17 20:20:26 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 244 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 20:20:26 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_20-20-18.json
+2025-12-17 20:20:26 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 20:20:26 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_202018.xls
+2025-12-17 20:20:26 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_202018.xls'...
+2025-12-17 20:20:26 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 20:20:26 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=2, NotFound=1240, Skipped=0
+2025-12-17 20:20:26 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (8.0s). Activity: 1.60, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 20:30:28 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 20:30:28 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 20:30:28 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 20:30:28 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 20:30:36 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_203028.xls
+2025-12-17 20:30:36 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_203028.xls
+2025-12-17 20:30:36 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_203028.xls
+2025-12-17 20:30:36 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_203028.xls
+2025-12-17 20:30:36 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 20:30:28
+2025-12-17 20:30:36 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 245 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 20:30:36 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_20-30-28.json
+2025-12-17 20:30:36 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 20:30:36 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_203028.xls
+2025-12-17 20:30:36 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_203028.xls'...
+2025-12-17 20:30:36 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 20:30:36 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=19, NotFound=1240, Skipped=0
+2025-12-17 20:30:36 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.2s). Activity: 2.40, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 20:40:38 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 20:40:38 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 20:40:38 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 20:40:38 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 20:40:46 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_204038.xls
+2025-12-17 20:40:46 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_204038.xls
+2025-12-17 20:40:46 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_204038.xls
+2025-12-17 20:40:46 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_204038.xls
+2025-12-17 20:40:46 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 20:40:38
+2025-12-17 20:40:47 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 246 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 20:40:47 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_20-40-38.json
+2025-12-17 20:40:47 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 20:40:47 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_204038.xls
+2025-12-17 20:40:47 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_204038.xls'...
+2025-12-17 20:40:47 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 20:40:47 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=17, NotFound=1240, Skipped=0
+2025-12-17 20:40:47 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.6s). Activity: 0.80, Mode: quiet
+
+⏱️  Next activity in 20m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 21:00:52 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 21:00:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 21:00:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 21:00:52 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 21:01:00 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_210052.xls
+2025-12-17 21:01:00 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_210052.xls
+2025-12-17 21:01:00 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_210052.xls
+2025-12-17 21:01:00 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_210052.xls
+2025-12-17 21:01:00 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 21:00:52
+2025-12-17 21:01:00 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 247 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 21:01:00 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_21-00-52.json
+2025-12-17 21:01:00 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 21:01:00 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_210052.xls
+2025-12-17 21:01:00 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_210052.xls'...
+2025-12-17 21:01:00 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 21:01:00 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=2, NotFound=1240, Skipped=0
+2025-12-17 21:01:00 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (8.2s). Activity: 3.40, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 5m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 21:06:01 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 21:06:01 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 21:06:01 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 21:06:01 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 21:06:09 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_210601.xls
+2025-12-17 21:06:09 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_210601.xls
+2025-12-17 21:06:09 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_210601.xls
+2025-12-17 21:06:09 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_210601.xls
+2025-12-17 21:06:09 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 21:06:01
+2025-12-17 21:06:09 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 248 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 21:06:09 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_21-06-01.json
+2025-12-17 21:06:09 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 21:06:09 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_210601.xls
+2025-12-17 21:06:09 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_210601.xls'...
+2025-12-17 21:06:09 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 21:06:09 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=5, NotFound=1240, Skipped=0
+2025-12-17 21:06:09 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.0s). Activity: 0.60, Mode: quiet
+
+⏱️  Next activity in 20m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 21:26:15 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 21:26:15 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 21:26:15 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 21:26:15 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 21:26:23 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_212615.xls
+2025-12-17 21:26:23 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_212615.xls
+2025-12-17 21:26:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_212615.xls
+2025-12-17 21:26:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_212615.xls
+2025-12-17 21:26:23 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 21:26:15
+2025-12-17 21:26:23 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 249 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 21:26:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_21-26-15.json
+2025-12-17 21:26:23 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 21:26:23 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_212615.xls
+2025-12-17 21:26:23 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_212615.xls'...
+2025-12-17 21:26:23 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 21:26:23 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=5, NotFound=1240, Skipped=0
+2025-12-17 21:26:23 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (8.2s). Activity: 1.80, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 21:36:26 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 21:36:26 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 21:36:26 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 21:36:26 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 21:36:33 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_213626.xls
+2025-12-17 21:36:33 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_213626.xls
+2025-12-17 21:36:33 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_213626.xls
+2025-12-17 21:36:33 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_213626.xls
+2025-12-17 21:36:33 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 21:36:26
+2025-12-17 21:36:33 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 250 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 21:36:33 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_21-36-26.json
+2025-12-17 21:36:33 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 21:36:33 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_213626.xls
+2025-12-17 21:36:33 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_213626.xls'...
+2025-12-17 21:36:33 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 21:36:34 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=6, NotFound=1240, Skipped=0
+2025-12-17 21:36:34 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (7.3s). Activity: 1.60, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 21:46:38 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 21:46:38 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 21:46:38 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 21:46:38 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 21:46:45 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_214638.xls
+2025-12-17 21:46:45 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_214638.xls
+2025-12-17 21:46:45 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_214638.xls
+2025-12-17 21:46:45 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_214638.xls
+2025-12-17 21:46:46 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 21:46:38
+2025-12-17 21:46:46 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 251 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 21:46:46 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_21-46-38.json
+2025-12-17 21:46:46 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 21:46:46 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_214638.xls
+2025-12-17 21:46:46 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_214638.xls'...
+2025-12-17 21:46:46 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 21:46:46 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=6, NotFound=1240, Skipped=0
+2025-12-17 21:46:46 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (8.0s). Activity: 1.20, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 21:56:50 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 21:56:50 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 21:56:50 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 21:56:50 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 21:56:58 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_215650.xls
+2025-12-17 21:56:58 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_215650.xls
+2025-12-17 21:56:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_215650.xls
+2025-12-17 21:56:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_215650.xls
+2025-12-17 21:56:58 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 21:56:50
+2025-12-17 21:56:58 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 252 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 21:56:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_21-56-50.json
+2025-12-17 21:56:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 21:56:58 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_215650.xls
+2025-12-17 21:56:58 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_215650.xls'...
+2025-12-17 21:56:58 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 21:56:58 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=36, NotFound=1240, Skipped=0
+2025-12-17 21:56:58 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (8.1s). Activity: 2.00, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 22:07:02 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 22:07:02 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 22:07:02 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 22:07:02 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 22:07:08 - registrarmonitor.automation.downloader - [31mERROR[0m - Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-17 22:07:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+2025-12-17 22:07:08 - registrarmonitor.services.monitoring_service - [31mERROR[0m - Failed to download and process data: Download failed: Connection error: [Errno 8] nodename nor servname provided, or not known
+❌ Failed to download or process data
+✅ Poll done (6.1s). Activity: 0.00, Mode: quiet
+
+⏱️  Next activity in 20m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 22:27:13 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 22:27:13 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 22:27:13 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 22:27:13 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 22:27:24 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_222713.xls
+2025-12-17 22:27:56 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_222713.xls
+2025-12-17 22:27:56 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_222713.xls
+2025-12-17 22:27:56 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_222713.xls
+2025-12-17 22:27:56 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 22:27:16
+2025-12-17 22:27:57 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 253 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 22:27:57 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_22-27-16.json
+2025-12-17 22:27:57 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 22:27:57 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_222713.xls
+2025-12-17 22:27:57 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_222713.xls'...
+2025-12-17 22:27:57 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 22:27:57 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=36, NotFound=1240, Skipped=0
+2025-12-17 22:27:57 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (44.0s). Activity: 3.00, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 5m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 22:32:58 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 22:32:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 22:32:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 22:32:58 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 22:33:07 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_223258.xls
+2025-12-17 22:33:45 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_223258.xls
+2025-12-17 22:33:45 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_223258.xls
+2025-12-17 22:33:45 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_223258.xls
+2025-12-17 22:33:45 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 22:32:59
+2025-12-17 22:33:45 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 254 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 22:33:45 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_22-32-59.json
+2025-12-17 22:33:45 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 22:33:45 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_223258.xls
+2025-12-17 22:33:45 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_223258.xls'...
+2025-12-17 22:33:45 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 22:33:45 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=5, NotFound=1240, Skipped=0
+2025-12-17 22:33:45 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (47.4s). Activity: 1.60, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+🔄 Performing Adaptive Poll...
+2025-12-17 22:43:47 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 22:43:47 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 22:43:47 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 22:43:47 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 22:43:57 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_224347.xls
+2025-12-17 22:44:41 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_224347.xls
+2025-12-17 22:44:41 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_224347.xls
+2025-12-17 22:44:41 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_224347.xls
+2025-12-17 22:44:42 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 22:43:49
+2025-12-17 22:44:42 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 255 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 22:44:42 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_22-43-49.json
+2025-12-17 22:44:42 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 22:44:42 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_224347.xls
+2025-12-17 22:44:42 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_224347.xls'...
+2025-12-17 22:44:42 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 22:44:42 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=17, NotFound=1240, Skipped=0
+2025-12-17 22:44:42 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Poll done (54.6s). Activity: 1.00, Mode: quiet
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)
+
+📝 Starting Scheduled Reporting Cycle...
+----------------------------------------
+🔄 Fetching fresh data for report...
+2025-12-17 22:54:44 - registrarmonitor.cli.commands - [32mINFO[0m - Starting polling command
+2025-12-17 22:54:44 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Monitoring service initialized for semester: Spring 2026
+📥 Downloading and processing latest enrollment data...
+2025-12-17 22:54:44 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Starting download and process workflow
+2025-12-17 22:54:44 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Downloading latest enrollment data
+Downloading file from https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823...
+2025-12-17 22:54:53 - httpx - [32mINFO[0m - HTTP Request: GET https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823 "HTTP/1.1 200 OK"
+File downloaded successfully as assets/downloads/school_schedule_by_term_20251217_225444.xls
+2025-12-17 22:55:18 - registrarmonitor.automation.downloader - [32mINFO[0m - Successfully downloaded file: assets/downloads/school_schedule_by_term_20251217_225444.xls
+2025-12-17 22:55:18 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully downloaded: assets/downloads/school_schedule_by_term_20251217_225444.xls
+2025-12-17 22:55:18 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Processing file: assets/downloads/school_schedule_by_term_20251217_225444.xls
+2025-12-17 22:55:19 - registrarmonitor.data.database_manager - [32mINFO[0m - Storing snapshot for 2025-12-17 22:54:45
+2025-12-17 22:55:19 - registrarmonitor.data.database_manager - [32mINFO[0m - Successfully stored enrollment snapshot 256 (447 courses, 907 sections)
+✅ Stored snapshot in database
+2025-12-17 22:55:19 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Saved snapshot to: data/spring_2026_2025-12-17_22-54-45.json
+2025-12-17 22:55:19 - registrarmonitor.services.monitoring_service - [32mINFO[0m - Successfully processed data into snapshot with 447 courses
+2025-12-17 22:55:19 - registrarmonitor.cli.commands - [32mINFO[0m - Populating instructor data from assets/downloads/school_schedule_by_term_20251217_225444.xls
+2025-12-17 22:55:19 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Reading instructor data from 'assets/downloads/school_schedule_by_term_20251217_225444.xls'...
+2025-12-17 22:55:19 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Processing sections for instructor updates...
+2025-12-17 22:55:19 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Instructor Population Summary: Updated=44, NotFound=1240, Skipped=0
+2025-12-17 22:55:19 - registrarmonitor.data.instructor_populator - [32mINFO[0m - Database 'data/enrollment_spring_2026.db' updated successfully.
+✅ Successfully processed 447 courses for Spring 2026
+✅ Data fetched (34.9s). Activity: 2.40, Mode: quiet
+❌ ReportingService not initialized, skipping report.
+----------------------------------------
+
+⏱️  Next activity in 10m 0s
+   😴 Mode: QUIET (Adaptive Poll)

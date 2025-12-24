@@ -1,0 +1,1065 @@
+{
+  "timestamp": "2025-12-18 23:10:56",
+  "semester": "Summer 2025",
+  "overall_fill": 0.91,
+  "courses": {
+    "ANT 110": {
+      "department": "ANT",
+      "average_fill": 1.32,
+      "course_title": "Introduction to Sociocultural Anthropology",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 66,
+          "capacity": 50,
+          "fill": 1.32
+        }
+      }
+    },
+    "ANT 314": {
+      "department": "ANT",
+      "average_fill": 1.28,
+      "course_title": "Politics of Identity in Eurasia",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 32,
+          "capacity": 25,
+          "fill": 1.28
+        }
+      }
+    },
+    "ANT 345": {
+      "department": "ANT",
+      "average_fill": 0.4,
+      "course_title": "Archaeology Field School",
+      "sections": {
+        "1ActLearn": {
+          "section_type": "ActLearn",
+          "enrollment": 2,
+          "capacity": 5,
+          "fill": 0.4
+        }
+      }
+    },
+    "ANT 400": {
+      "department": "ANT",
+      "average_fill": 0.3,
+      "course_title": "Research Assistance in Anthropology",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        },
+        "2Int": {
+          "section_type": "Int",
+          "enrollment": 2,
+          "capacity": 5,
+          "fill": 0.4
+        }
+      }
+    },
+    "ANT 483": {
+      "department": "ANT",
+      "average_fill": 1.0,
+      "course_title": "Applied Public Heritage",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 6,
+          "capacity": 6,
+          "fill": 1.0
+        }
+      }
+    },
+    "BIOL 392": {
+      "department": "BIOL",
+      "average_fill": 1.0,
+      "course_title": "Directed Study in Biology",
+      "sections": {
+        "1Wsh": {
+          "section_type": "Wsh",
+          "enrollment": 10,
+          "capacity": 10,
+          "fill": 1.0
+        }
+      }
+    },
+    "BIOL 399": {
+      "department": "BIOL",
+      "average_fill": 0.4,
+      "course_title": "Biology Internship - 2B",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 4,
+          "capacity": 10,
+          "fill": 0.4
+        }
+      }
+    },
+    "BIOL 490": {
+      "department": "BIOL",
+      "average_fill": 0.2,
+      "course_title": "Honors Thesis Research",
+      "sections": {
+        "1R": {
+          "section_type": "R",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        }
+      }
+    },
+    "BUS 101": {
+      "department": "BUS",
+      "average_fill": 1.0,
+      "course_title": "Core Course in Business",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 196,
+          "capacity": 196,
+          "fill": 1.0
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 49,
+          "capacity": 49,
+          "fill": 1.0
+        },
+        "2R": {
+          "section_type": "R",
+          "enrollment": 49,
+          "capacity": 49,
+          "fill": 1.0
+        },
+        "3R": {
+          "section_type": "R",
+          "enrollment": 49,
+          "capacity": 49,
+          "fill": 1.0
+        },
+        "4R": {
+          "section_type": "R",
+          "enrollment": 49,
+          "capacity": 49,
+          "fill": 1.0
+        }
+      }
+    },
+    "CHEM 101L": {
+      "department": "CHEM",
+      "average_fill": 0.32,
+      "course_title": "General Chemistry I lab",
+      "sections": {
+        "1ChLb": {
+          "section_type": "B",
+          "enrollment": 8,
+          "capacity": 25,
+          "fill": 0.32
+        }
+      }
+    },
+    "CHEM 102": {
+      "department": "CHEM",
+      "average_fill": 1.08,
+      "course_title": "General Chemistry II",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 52,
+          "capacity": 48,
+          "fill": 1.08
+        }
+      }
+    },
+    "CHEM 189c": {
+      "department": "CHEM",
+      "average_fill": 0.73,
+      "course_title": "Independent Study",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 11,
+          "capacity": 15,
+          "fill": 0.73
+        }
+      }
+    },
+    "CHEM 211": {
+      "department": "CHEM",
+      "average_fill": 0.88,
+      "course_title": "Organic Chemistry I",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 35,
+          "capacity": 40,
+          "fill": 0.88
+        }
+      }
+    },
+    "CHEM 211L": {
+      "department": "CHEM",
+      "average_fill": 0.58,
+      "course_title": "Organic Chemistry I Lab",
+      "sections": {
+        "1Lb": {
+          "section_type": "B",
+          "enrollment": 14,
+          "capacity": 24,
+          "fill": 0.58
+        }
+      }
+    },
+    "CHEM 350": {
+      "department": "CHEM",
+      "average_fill": 1.0,
+      "course_title": "Advanced Inorganic Chemistry",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 1,
+          "fill": 1.0
+        }
+      }
+    },
+    "CHME 400": {
+      "department": "CHME",
+      "average_fill": 1.0,
+      "course_title": "Process Design and Simulation",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 1,
+          "fill": 1.0
+        },
+        "1Lb": {
+          "section_type": "B",
+          "enrollment": 1,
+          "capacity": 1,
+          "fill": 1.0
+        }
+      }
+    },
+    "CHME 403": {
+      "department": "CHME",
+      "average_fill": 1.0,
+      "course_title": "Chemical Process Control and Safety",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 1,
+          "fill": 1.0
+        },
+        "1Lb": {
+          "section_type": "B",
+          "enrollment": 1,
+          "capacity": 1,
+          "fill": 1.0
+        }
+      }
+    },
+    "CSCI 152": {
+      "department": "CSCI",
+      "average_fill": 0.95,
+      "course_title": "Performance and Data Structures",
+      "sections": {
+        "2Lb": {
+          "section_type": "B",
+          "enrollment": 39,
+          "capacity": 45,
+          "fill": 0.87
+        },
+        "1L": {
+          "section_type": "L",
+          "enrollment": 84,
+          "capacity": 90,
+          "fill": 0.93
+        },
+        "1Lb": {
+          "section_type": "B",
+          "enrollment": 45,
+          "capacity": 45,
+          "fill": 1.0
+        }
+      }
+    },
+    "CSCI 299": {
+      "department": "CSCI",
+      "average_fill": 1.29,
+      "course_title": "Internship I",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 155,
+          "capacity": 120,
+          "fill": 1.29
+        }
+      }
+    },
+    "CSCI 333": {
+      "department": "CSCI",
+      "average_fill": 0.67,
+      "course_title": "Computer Networks",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 4,
+          "capacity": 6,
+          "fill": 0.67
+        }
+      }
+    },
+    "CSCI 398": {
+      "department": "CSCI",
+      "average_fill": 0.5,
+      "course_title": "Directed Study",
+      "sections": {
+        "1CP": {
+          "section_type": "CP",
+          "enrollment": 4,
+          "capacity": 8,
+          "fill": 0.5
+        }
+      }
+    },
+    "CSCI 399": {
+      "department": "CSCI",
+      "average_fill": 0.76,
+      "course_title": "Internship II",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 38,
+          "capacity": 50,
+          "fill": 0.76
+        }
+      }
+    },
+    "ECON 300": {
+      "department": "ECON",
+      "average_fill": 0.2,
+      "course_title": "Research Assistance in Economics",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        },
+        "2Int": {
+          "section_type": "Int",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        }
+      }
+    },
+    "ELCE 203": {
+      "department": "ELCE",
+      "average_fill": 0.42,
+      "course_title": "Signals and Systems",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 17,
+          "capacity": 40,
+          "fill": 0.42
+        }
+      }
+    },
+    "ELCE 301": {
+      "department": "ELCE",
+      "average_fill": 0.2,
+      "course_title": "Electronic Circuits",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 4,
+          "capacity": 20,
+          "fill": 0.2
+        }
+      }
+    },
+    "GEOL 206": {
+      "department": "GEOL",
+      "average_fill": 0.83,
+      "course_title": "Field Geology 1",
+      "sections": {
+        "1OCA": {
+          "section_type": "OCA",
+          "enrollment": 15,
+          "capacity": 18,
+          "fill": 0.83
+        }
+      }
+    },
+    "HST 100": {
+      "department": "HST",
+      "average_fill": 0.93,
+      "course_title": "History of Kazakhstan",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 67,
+          "capacity": 72,
+          "fill": 0.93
+        },
+        "1S": {
+          "section_type": "S",
+          "enrollment": 21,
+          "capacity": 24,
+          "fill": 0.88
+        },
+        "2S": {
+          "section_type": "S",
+          "enrollment": 23,
+          "capacity": 24,
+          "fill": 0.96
+        },
+        "3S": {
+          "section_type": "S",
+          "enrollment": 23,
+          "capacity": 24,
+          "fill": 0.96
+        }
+      }
+    },
+    "HST 206": {
+      "department": "HST",
+      "average_fill": 1.7,
+      "course_title": "The Age of the Dragon Throne: Chinese Civilizations from the Mongols through the Qing",
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 34,
+          "capacity": 20,
+          "fill": 1.7
+        }
+      }
+    },
+    "HST 399": {
+      "department": "HST",
+      "average_fill": 0.2,
+      "course_title": "Independent Study",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        },
+        "2L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        }
+      }
+    },
+    "HST 400": {
+      "department": "HST",
+      "average_fill": 0.53,
+      "course_title": "Research Assistance",
+      "sections": {
+        "1P": {
+          "section_type": "P",
+          "enrollment": 5,
+          "capacity": 5,
+          "fill": 1.0
+        },
+        "2P": {
+          "section_type": "P",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        },
+        "3P": {
+          "section_type": "P",
+          "enrollment": 2,
+          "capacity": 5,
+          "fill": 0.4
+        }
+      }
+    },
+    "KAZ 150": {
+      "department": "KAZ",
+      "average_fill": 0.97,
+      "course_title": "Basic Kazakh",
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 87,
+          "capacity": 90,
+          "fill": 0.97
+        }
+      }
+    },
+    "KAZ 201": {
+      "department": "KAZ",
+      "average_fill": 0.88,
+      "course_title": "Academic Kazakh I",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 14,
+          "capacity": 16,
+          "fill": 0.88
+        }
+      }
+    },
+    "KAZ 202": {
+      "department": "KAZ",
+      "average_fill": 0.94,
+      "course_title": "Academic Kazakh II",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 15,
+          "capacity": 16,
+          "fill": 0.94
+        }
+      }
+    },
+    "KAZ 312": {
+      "department": "KAZ",
+      "average_fill": 0.9,
+      "course_title": "Kazakh discourse",
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 27,
+          "capacity": 30,
+          "fill": 0.9
+        }
+      }
+    },
+    "KAZ 350": {
+      "department": "KAZ",
+      "average_fill": 1.05,
+      "course_title": "Kazakh Literature",
+      "sections": {
+        "1S": {
+          "section_type": "S",
+          "enrollment": 35,
+          "capacity": 30,
+          "fill": 1.17
+        },
+        "2S": {
+          "section_type": "S",
+          "enrollment": 28,
+          "capacity": 30,
+          "fill": 0.93
+        }
+      }
+    },
+    "KAZ 378": {
+      "department": "KAZ",
+      "average_fill": 1.08,
+      "course_title": "Kazakh for Social Science",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 32,
+          "capacity": 30,
+          "fill": 1.07
+        },
+        "2L": {
+          "section_type": "L",
+          "enrollment": 33,
+          "capacity": 30,
+          "fill": 1.1
+        }
+      }
+    },
+    "MAE 353": {
+      "department": "MAE",
+      "average_fill": 0.13,
+      "course_title": "Summer Internship",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 2,
+          "capacity": 15,
+          "fill": 0.13
+        }
+      }
+    },
+    "MATH 161": {
+      "department": "MATH",
+      "average_fill": 0.91,
+      "course_title": "Calculus I",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 91,
+          "capacity": 100,
+          "fill": 0.91
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 91,
+          "capacity": 100,
+          "fill": 0.91
+        }
+      }
+    },
+    "MATH 162": {
+      "department": "MATH",
+      "average_fill": 0.98,
+      "course_title": "Calculus II",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 205,
+          "capacity": 210,
+          "fill": 0.98
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 105,
+          "capacity": 105,
+          "fill": 1.0
+        },
+        "2R": {
+          "section_type": "R",
+          "enrollment": 100,
+          "capacity": 105,
+          "fill": 0.95
+        }
+      }
+    },
+    "MATH 251": {
+      "department": "MATH",
+      "average_fill": 0.89,
+      "course_title": "Discrete Mathematics",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 107,
+          "capacity": 120,
+          "fill": 0.89
+        }
+      }
+    },
+    "MATH 273": {
+      "department": "MATH",
+      "average_fill": 1.02,
+      "course_title": "Linear Algebra with Applications",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 61,
+          "capacity": 60,
+          "fill": 1.02
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 61,
+          "capacity": 60,
+          "fill": 1.02
+        }
+      }
+    },
+    "MATH 361": {
+      "department": "MATH",
+      "average_fill": 0.6,
+      "course_title": "Real Analysis I",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 3,
+          "capacity": 5,
+          "fill": 0.6
+        }
+      }
+    },
+    "MATH 497": {
+      "department": "MATH",
+      "average_fill": 0.4,
+      "course_title": "Directed Study in Mathematics I",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 6,
+          "capacity": 15,
+          "fill": 0.4
+        }
+      }
+    },
+    "PHIL 210": {
+      "department": "PHIL",
+      "average_fill": 0.89,
+      "course_title": "Ethics",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 133,
+          "capacity": 150,
+          "fill": 0.89
+        },
+        "1S": {
+          "section_type": "S",
+          "enrollment": 46,
+          "capacity": 50,
+          "fill": 0.92
+        },
+        "2S": {
+          "section_type": "S",
+          "enrollment": 45,
+          "capacity": 50,
+          "fill": 0.9
+        },
+        "3S": {
+          "section_type": "S",
+          "enrollment": 42,
+          "capacity": 50,
+          "fill": 0.84
+        }
+      }
+    },
+    "PHIL 398": {
+      "department": "PHIL",
+      "average_fill": 1.0,
+      "course_title": "Independent Study",
+      "sections": {
+        "1IS": {
+          "section_type": "IS",
+          "enrollment": 1,
+          "capacity": 1,
+          "fill": 1.0
+        }
+      }
+    },
+    "PHYS 161": {
+      "department": "PHYS",
+      "average_fill": 0.69,
+      "course_title": "Physics I for Scientists and Engineers with Laboratory",
+      "sections": {
+        "1PLb": {
+          "section_type": "B",
+          "enrollment": 16,
+          "capacity": 36,
+          "fill": 0.44
+        },
+        "2PLb": {
+          "section_type": "B",
+          "enrollment": 26,
+          "capacity": 36,
+          "fill": 0.72
+        },
+        "3PLb": {
+          "section_type": "B",
+          "enrollment": 32,
+          "capacity": 36,
+          "fill": 0.89
+        },
+        "1L": {
+          "section_type": "L",
+          "enrollment": 74,
+          "capacity": 108,
+          "fill": 0.69
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 74,
+          "capacity": 108,
+          "fill": 0.69
+        }
+      }
+    },
+    "PHYS 162": {
+      "department": "PHYS",
+      "average_fill": 0.93,
+      "course_title": "Physics II for Scientists and Engineers with Laboratory",
+      "sections": {
+        "1PLb": {
+          "section_type": "B",
+          "enrollment": 34,
+          "capacity": 36,
+          "fill": 0.94
+        },
+        "2PLb": {
+          "section_type": "B",
+          "enrollment": 34,
+          "capacity": 36,
+          "fill": 0.94
+        },
+        "3PLb": {
+          "section_type": "B",
+          "enrollment": 32,
+          "capacity": 36,
+          "fill": 0.89
+        },
+        "1L": {
+          "section_type": "L",
+          "enrollment": 100,
+          "capacity": 108,
+          "fill": 0.93
+        },
+        "1R": {
+          "section_type": "R",
+          "enrollment": 100,
+          "capacity": 108,
+          "fill": 0.93
+        }
+      }
+    },
+    "PHYS 299": {
+      "department": "PHYS",
+      "average_fill": 0.17,
+      "course_title": "Research project and internship",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 5,
+          "capacity": 30,
+          "fill": 0.17
+        }
+      }
+    },
+    "PHYS 399": {
+      "department": "PHYS",
+      "average_fill": 0.3,
+      "course_title": "Physics Research Project",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 9,
+          "capacity": 30,
+          "fill": 0.3
+        }
+      }
+    },
+    "PLS 120": {
+      "department": "PLS",
+      "average_fill": 1.0,
+      "course_title": "Introduction to Political Theory",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 40,
+          "capacity": 40,
+          "fill": 1.0
+        }
+      }
+    },
+    "PLS 395": {
+      "department": "PLS",
+      "average_fill": 0.44,
+      "course_title": "Independent Study",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 3,
+          "capacity": 10,
+          "fill": 0.3
+        },
+        "2L": {
+          "section_type": "L",
+          "enrollment": 3,
+          "capacity": 4,
+          "fill": 0.75
+        },
+        "3L": {
+          "section_type": "L",
+          "enrollment": 2,
+          "capacity": 4,
+          "fill": 0.5
+        },
+        "4L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        }
+      }
+    },
+    "PLS 422": {
+      "department": "PLS",
+      "average_fill": 0.83,
+      "course_title": "Just War Theory",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 10,
+          "capacity": 12,
+          "fill": 0.83
+        }
+      }
+    },
+    "PLS 495": {
+      "department": "PLS",
+      "average_fill": 0.53,
+      "course_title": "Research Practicum in PSIR",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 5,
+          "capacity": 5,
+          "fill": 1.0
+        },
+        "2Int": {
+          "section_type": "Int",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        },
+        "3Int": {
+          "section_type": "Int",
+          "enrollment": 2,
+          "capacity": 5,
+          "fill": 0.4
+        }
+      }
+    },
+    "ROBT 399": {
+      "department": "ROBT",
+      "average_fill": 0.25,
+      "course_title": "Internship",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 8,
+          "capacity": 32,
+          "fill": 0.25
+        }
+      }
+    },
+    "SOC 400": {
+      "department": "SOC",
+      "average_fill": 0.7,
+      "course_title": "Research Assistance in Sociology",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 7,
+          "capacity": 10,
+          "fill": 0.7
+        }
+      }
+    },
+    "SOC 401": {
+      "department": "SOC",
+      "average_fill": 0.4,
+      "course_title": "Research Assistance in Sociology",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 2,
+          "capacity": 5,
+          "fill": 0.4
+        }
+      }
+    },
+    "SOC 402": {
+      "department": "SOC",
+      "average_fill": 0.0,
+      "course_title": "Research Assistance in Sociology",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 0,
+          "capacity": 5,
+          "fill": 0.0
+        }
+      }
+    },
+    "SSH 300": {
+      "department": "SSH",
+      "average_fill": 0.92,
+      "course_title": "School of Sciences and Humanities Internship",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 110,
+          "capacity": 120,
+          "fill": 0.92
+        }
+      }
+    },
+    "SSH 301": {
+      "department": "SSH",
+      "average_fill": 0.37,
+      "course_title": "School of Sciences and Humanities Internship: Second Experience",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 22,
+          "capacity": 60,
+          "fill": 0.37
+        }
+      }
+    },
+    "WCS 240": {
+      "department": "WCS",
+      "average_fill": 0.96,
+      "course_title": "Writing for Digital Media",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 23,
+          "capacity": 24,
+          "fill": 0.96
+        }
+      }
+    },
+    "WLL 399": {
+      "department": "WLL",
+      "average_fill": 0.39,
+      "course_title": "Independent Study",
+      "sections": {
+        "1L": {
+          "section_type": "L",
+          "enrollment": 14,
+          "capacity": 24,
+          "fill": 0.58
+        },
+        "2L": {
+          "section_type": "L",
+          "enrollment": 1,
+          "capacity": 5,
+          "fill": 0.2
+        },
+        "3L": {
+          "section_type": "L",
+          "enrollment": 2,
+          "capacity": 5,
+          "fill": 0.4
+        }
+      }
+    },
+    "WLL 400": {
+      "department": "WLL",
+      "average_fill": 0.77,
+      "course_title": "Research Assistance in Linguistics and Literature",
+      "sections": {
+        "1Int": {
+          "section_type": "Int",
+          "enrollment": 5,
+          "capacity": 7,
+          "fill": 0.71
+        },
+        "2Int": {
+          "section_type": "Int",
+          "enrollment": 5,
+          "capacity": 5,
+          "fill": 1.0
+        },
+        "4Int": {
+          "section_type": "Int",
+          "enrollment": 3,
+          "capacity": 5,
+          "fill": 0.6
+        }
+      }
+    }
+  }
+}

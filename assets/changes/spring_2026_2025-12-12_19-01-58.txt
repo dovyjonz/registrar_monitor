@@ -1,0 +1,33 @@
+Previous Snapshot: 2025-12-05 19:23:16
+Current Snapshot:  2025-12-12 19:01:58
+Overall Fill: 0% → 0% [+0%]
+
+CSCI 299
+  New. Avg Fill: 0%
+  Comps: Int (1: all OPEN)
+    1Int: 0% (0/20) New
+
+CSCI 399
+  New. Avg Fill: 0%
+  Comps: Int (1: all OPEN)
+    1Int: 0% (0/20) New
+
+ELCE 311
+  Avg Fill: 0% → 0% [+0%]
+  Comps: L (2: all OPEN)
+    2L: 0% → 0% [+0%] (0/2 → 0/4)
+
+ENG 101
+  Avg Fill: 0% → 0% [+0%]
+  Comps: L (1: all OPEN)
+    1L: 0% → 0% [+0%] (0/67 → 0/90)
+
+MATH 351
+  Avg Fill: 0% → 0% [+0%]
+  Comps: L (2: all OPEN)
+    1L: 0% → 0% [+0%] (0/60 → 0/54)
+
+PHIL 210
+  Avg Fill: 0% → 0% [+0%]
+  Comps: S (17: all OPEN)
+    13S: 0% → 0% [+0%] (0/40 → 0/50)
