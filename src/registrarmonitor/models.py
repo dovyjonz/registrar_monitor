@@ -54,18 +54,17 @@ class Course:
         if not self.sections:
             return False
 
-        # Group sections by type
-        sections_by_type: dict[str, list[Section]] = {}
-        for section in self.sections.values():
-            if section.section_type not in sections_by_type:
-                sections_by_type[section.section_type] = []
-            sections_by_type[section.section_type].append(section)
+        failed_types = set()
+        present_types = set()
 
-        # Check if any section type has all sections filled
-        return any(
-            sections and all(section.is_filled for section in sections)
-            for sections in sections_by_type.values()
-        )
+        for section in self.sections.values():
+            present_types.add(section.section_type)
+            if not section.is_filled:
+                failed_types.add(section.section_type)
+
+        # If there is any type that is present but NOT in failed_types,
+        # then all its sections were filled.
+        return len(present_types) > len(failed_types)
 
     @property
     def is_near_filled(self) -> bool:
