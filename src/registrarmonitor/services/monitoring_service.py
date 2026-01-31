@@ -309,12 +309,12 @@ class MonitoringService:
             self.logger.info(f"Processing file: {file_path}")
 
             # Read Excel file
-            semester, timestamp, df = self.excel_reader.read_excel_data(file_path)
-            if df is None or df.empty:
+            semester, timestamp, data = self.excel_reader.read_excel_data(file_path)
+            if not data:
                 raise FileProcessingError("Excel file is empty or invalid")
 
             # Process into snapshot
-            snapshot = self.snapshot_processor.process_data(df, semester, timestamp)
+            snapshot = self.snapshot_processor.process_data(data, semester, timestamp)
 
             # Save snapshot
             json_path = self.snapshot_processor.save_snapshot(snapshot)
