@@ -146,16 +146,9 @@ def main() -> None:
     # Deploy to Cloudflare Workers if --deploy flag is set
     if args.deploy:
         print("\nDeploying to Cloudflare Workers...")
-        deploy_cmd = [
-            "npx",
-            "wrangler",
-            "deploy",
-            f"--assets={OUTPUT_DIR}",
-            "--name=monitor",
-            "--compatibility-date=2025-12-18",
-            "--minify",
-        ]
-        result = subprocess.run(deploy_cmd, cwd=Path(__file__).parent.parent)
+        website_dir = Path(__file__).parent.parent / "assets" / "website"
+        deploy_cmd = ["npm", "run", "deploy"]
+        result = subprocess.run(deploy_cmd, cwd=website_dir)
         if result.returncode == 0:
             print("Deployment successful!")
         else:

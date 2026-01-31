@@ -11,3 +11,40 @@ wheels/
 
 # Environment variables (secrets)
 .env
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Test coverage
+.coverage
+htmlcov/
+
+# Logs
+logs/
+*.log
+
+# Data files (runtime data, not source code)
+data/
+
+# Generated assets
+assets/downloads/
+assets/pdf/
+assets/changes/
+assets/index.html
+assets/website/public/*.html
+
+# Cloudflare Wrangler cache
+.wrangler/
+assets/website/.wrangler/
+
+# Node modules
+node_modules/
+assets/website/node_modules/
+
+# macOS
+.DS_Store
+
+# Generated schedule file
+schedule.txt

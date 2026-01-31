@@ -207,11 +207,15 @@ function renderCourseGrid() {
             const cell = document.createElement('div');
             cell.className = `course-cell ${getStatusClass(course.af, course.if)}`;
             cell.setAttribute('data-course', course.code);
+            cell.setAttribute('tabindex', '0');
+            cell.setAttribute('role', 'listitem');
+            cell.style.setProperty('--cell-index', totalCourses);
             cell.innerHTML = `
                 <span class="course-code">${formatCourseCode(course.code)}</span>
                 <span class="course-fill">${Math.round(course.af * 100)}%</span>
             `;
             cell.onclick = () => openCourse(course.code);
+            cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
             grid.appendChild(cell);
         }
     }
@@ -306,7 +310,7 @@ function openCourse(courseCode) {
         showAverageFillChart(courseCode);
     }, 50);
 
-    document.documentElement.classList.add('modal-open');
+    document.body.classList.add('modal-open');
 }
 
 /**
@@ -591,7 +595,7 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
  */
 function closeModal() {
     document.getElementById('modalOverlay').classList.remove('active');
-    document.documentElement.classList.remove('modal-open');
+    document.body.classList.remove('modal-open');
     selectedCourse = null;
     selectedSection = null;
     viewingGraph = false;
@@ -633,8 +637,375 @@ document.querySelector('.modal-body').addEventListener('click', (e) => {
     }
 });
 
+
+// ============================================
+// Search Functionality (Phase 4)
+// ============================================
+
+const searchInput = document.getElementById('courseSearch');
+
+/**
+ * Filter courses based on search query.
+ */
+function filterCourses(query) {
+    const cells = document.querySelectorAll('.course-cell');
+    const normalizedQuery = query.toLowerCase().trim();
+
+    cells.forEach(cell => {
+        const code = cell.getAttribute('data-course').toLowerCase();
+        const matches = !normalizedQuery || code.includes(normalizedQuery);
+        cell.classList.toggle('hidden', !matches);
+    });
+
+    // Show/hide department headers based on visible courses
+    document.querySelectorAll('.dept-header').forEach(header => {
+        const nextCells = [];
+        let sibling = header.nextElementSibling;
+        while (sibling && !sibling.classList.contains('dept-header')) {
+            if (sibling.classList.contains('course-cell')) {
+                nextCells.push(sibling);
+            }
+            sibling = sibling.nextElementSibling;
+        }
+        header.style.display = nextCells.some(c => !c.classList.contains('hidden')) ? '' : 'none';
+    });
+}
+
+searchInput?.addEventListener('input', (e) => filterCourses(e.target.value));
+
+// Keyboard shortcut: "/" to focus search
+document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement !== searchInput && !document.getElementById('modalOverlay').classList.contains('active')) {
+        e.preventDefault();
+        searchInput?.focus();
+    }
+});
+
+// Arrow key navigation in course grid
+document.getElementById('courseGrid')?.addEventListener('keydown', (e) => {
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+
+    const cells = [...document.querySelectorAll('.course-cell:not(.hidden)')];
+    const idx = cells.indexOf(document.activeElement);
+    if (idx === -1) return;
+
+    e.preventDefault();
+    const gridEl = document.getElementById('courseGrid');
+    const cols = Math.floor(gridEl.offsetWidth / 128);
+
+    let next = idx;
+    switch (e.key) {
+        case 'ArrowRight': next = Math.min(idx + 1, cells.length - 1); break;
+        case 'ArrowLeft': next = Math.max(idx - 1, 0); break;
+        case 'ArrowDown': next = Math.min(idx + cols, cells.length - 1); break;
+        case 'ArrowUp': next = Math.max(idx - cols, 0); break;
+    }
+    cells[next]?.focus();
+});
+
 // Initialize
 if (IS_COMBINED) {
     renderSemesterToggle();
 }
+renderCourseGrid();
+
+// ============================================
+// Filter by Status (UX Enhancement)
+// ============================================
+
+let currentFilter = 'all';
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        applyFilters();
+    });
+});
+
+function applyFilters() {
+    const searchQuery = searchInput?.value.toLowerCase().trim() || '';
+    const cells = document.querySelectorAll('.course-cell');
+
+    cells.forEach(cell => {
+        const code = cell.getAttribute('data-course').toLowerCase();
+        const status = cell.dataset.status;
+        const isStarred = cell.classList.contains('starred');
+
+        let matchesSearch = !searchQuery || code.includes(searchQuery);
+        let matchesFilter = currentFilter === 'all' ||
+            (currentFilter === 'starred' && isStarred) ||
+            status === currentFilter;
+
+        cell.classList.toggle('hidden', !(matchesSearch && matchesFilter));
+    });
+
+    // Update department headers
+    document.querySelectorAll('.dept-header').forEach(header => {
+        const nextCells = [];
+        let sibling = header.nextElementSibling;
+        while (sibling && !sibling.classList.contains('dept-header')) {
+            if (sibling.classList.contains('course-cell')) {
+                nextCells.push(sibling);
+            }
+            sibling = sibling.nextElementSibling;
+        }
+        header.style.display = nextCells.some(c => !c.classList.contains('hidden')) ? '' : 'none';
+    });
+}
+
+// Override original filterCourses to use applyFilters
+searchInput?.addEventListener('input', () => applyFilters());
+
+// ============================================
+// Sort Functionality (UX Enhancement)
+// ============================================
+
+document.getElementById('sortSelect')?.addEventListener('change', (e) => {
+    const sortBy = e.target.value;
+    const grid = document.getElementById('courseGrid');
+    const cells = [...grid.querySelectorAll('.course-cell')];
+    const headers = [...grid.querySelectorAll('.dept-header')];
+
+    // Remove all items
+    cells.forEach(c => c.remove());
+    headers.forEach(h => h.remove());
+
+    // Sort cells
+    cells.sort((a, b) => {
+        const codeA = a.dataset.course;
+        const codeB = b.dataset.course;
+        const fillA = parseFloat(a.dataset.fill);
+        const fillB = parseFloat(b.dataset.fill);
+        const deptA = codeA.split(' ')[0];
+        const deptB = codeB.split(' ')[0];
+
+        switch (sortBy) {
+            case 'code': return codeA.localeCompare(codeB);
+            case 'fill-desc': return fillB - fillA;
+            case 'fill-asc': return fillA - fillB;
+            default: return deptA.localeCompare(deptB) || codeA.localeCompare(codeB);
+        }
+    });
+
+    // Re-add with department headers if sorting by department
+    if (sortBy === 'department') {
+        let currentDept = '';
+        cells.forEach(cell => {
+            const dept = cell.dataset.course.split(' ')[0];
+            if (dept !== currentDept) {
+                currentDept = dept;
+                const header = document.createElement('div');
+                header.className = 'dept-header';
+                header.id = `dept-${dept}`;
+                header.innerHTML = `${dept} <a href="#" class="back-to-top" onclick="scrollTo({top:0,behavior:'smooth'});return false;">↑ Top</a>`;
+                grid.appendChild(header);
+            }
+            grid.appendChild(cell);
+        });
+        // Rebuild jump nav
+        const jumpNav = document.getElementById('jumpToNav');
+        const depts = [...new Set(cells.map(c => c.dataset.course.split(' ')[0]))];
+        jumpNav.innerHTML = depts.map(d => `<a href="#dept-${d}">${d}</a>`).join('');
+    } else {
+        // No headers for other sorts
+        cells.forEach(c => grid.appendChild(c));
+        document.getElementById('jumpToNav').innerHTML = '';
+    }
+});
+
+// ============================================
+// Bookmarks/Favorites (UX Enhancement)
+// ============================================
+
+const bookmarks = new Set(JSON.parse(localStorage.getItem('courseBookmarks') || '[]'));
+
+function saveBookmarks() {
+    localStorage.setItem('courseBookmarks', JSON.stringify([...bookmarks]));
+}
+
+function toggleBookmark(code, starEl) {
+    if (bookmarks.has(code)) {
+        bookmarks.delete(code);
+        starEl.classList.remove('starred');
+        starEl.textContent = '☆';
+    } else {
+        bookmarks.add(code);
+        starEl.classList.add('starred');
+        starEl.textContent = '⭐';
+    }
+    starEl.closest('.course-cell').classList.toggle('starred', bookmarks.has(code));
+    saveBookmarks();
+}
+
+// ============================================
+// Animated Stat Counters (Visual Polish)
+// ============================================
+
+function animateCounter(el, target, duration = 800) {
+    const start = 0;
+    const startTime = performance.now();
+
+    function update(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+        const current = Math.round(start + (target - start) * eased);
+        el.textContent = current;
+
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        }
+    }
+    requestAnimationFrame(update);
+}
+
+// ============================================
+// Toast Notifications (Visual Polish)
+// ============================================
+
+function showToast(message, duration = 4000) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+// Show "last updated" toast on load
+setTimeout(() => {
+    const lastUpdatedEl = document.getElementById('lastUpdated');
+    if (lastUpdatedEl) {
+        const text = lastUpdatedEl.textContent;
+        const match = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4}.*)/);
+        if (match) {
+            showToast(`📊 Data updated: ${match[1]}`);
+        }
+    }
+}, 1000);
+
+// ============================================
+// Enhanced renderCourseGrid (with bookmarks)
+// ============================================
+
+// Store original renderCourseGrid
+const originalRenderCourseGrid = renderCourseGrid;
+
+// Override to add new features
+renderCourseGrid = function () {
+    const data = getData();
+    const grid = document.getElementById('courseGrid');
+    grid.innerHTML = '';
+
+    // Group courses by department
+    const deptCourses = {};
+    for (const [code, course] of Object.entries(data.cr)) {
+        const dept = code.split(' ')[0];
+        if (!deptCourses[dept]) deptCourses[dept] = [];
+        deptCourses[dept].push({ code, ...course });
+    }
+
+    const sortedDepts = Object.keys(deptCourses).sort();
+    let totalCourses = 0;
+    let totalSections = 0;
+    let fullSections = 0;
+
+    for (const dept of sortedDepts) {
+        // Department header
+        const header = document.createElement('div');
+        header.className = 'dept-header';
+        header.id = `dept-${dept}`;
+        header.innerHTML = `${dept} <a href="#" class="back-to-top" onclick="scrollTo({top:0,behavior:'smooth'});return false;">↑ Top</a>`;
+        grid.appendChild(header);
+
+        const courses = deptCourses[dept];
+        courses.sort((a, b) => a.code.localeCompare(b.code));
+
+        for (const course of courses) {
+            totalCourses++;
+            const sectionCount = Object.keys(course.s).length;
+            totalSections += sectionCount;
+
+            for (const section of Object.values(course.s)) {
+                if (section.cf >= 1.0) fullSections++;
+            }
+
+            const status = course.if || course.af >= 1 ? 'full' :
+                course.af >= 0.8 ? 'near' : 'open';
+            const isStarred = bookmarks.has(course.code);
+
+            const cell = document.createElement('div');
+            cell.className = `course-cell ${getStatusClass(course.af, course.if)}${isStarred ? ' starred' : ''}`;
+            cell.setAttribute('data-course', course.code);
+            cell.setAttribute('data-status', status);
+            cell.setAttribute('data-fill', course.af);
+            cell.setAttribute('tabindex', '0');
+            cell.setAttribute('role', 'listitem');
+            cell.style.setProperty('--cell-index', totalCourses);
+
+            cell.innerHTML = `
+                <span class="course-code">${formatCourseCode(course.code)}</span>
+                <span class="course-fill">${Math.round(course.af * 100)}%</span>
+            `;
+            cell.onclick = () => openCourse(course.code);
+            cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
+            grid.appendChild(cell);
+        }
+    }
+
+    // Animate stats
+    animateCounter(document.getElementById('totalCourses'), totalCourses);
+    animateCounter(document.getElementById('totalSections'), totalSections);
+    animateCounter(document.getElementById('fullSections'), fullSections);
+    animateCounter(document.getElementById('snapshotCount'), data.sn.length);
+
+    // Render jump-to navigation
+    const jumpNav = document.getElementById('jumpToNav');
+    jumpNav.innerHTML = sortedDepts.map(dept =>
+        `<a href="#dept-${dept}">${dept}</a>`
+    ).join('');
+};
+
+// ============================================
+// Modal Bookmark Handler
+// ============================================
+
+const modalBookmarkBtn = document.getElementById('modalBookmark');
+
+function updateModalBookmark(code) {
+    if (!modalBookmarkBtn) return;
+    const isStarred = bookmarks.has(code);
+    modalBookmarkBtn.textContent = isStarred ? '⭐' : '☆';
+    modalBookmarkBtn.classList.toggle('starred', isStarred);
+    modalBookmarkBtn.onclick = () => {
+        if (bookmarks.has(code)) {
+            bookmarks.delete(code);
+        } else {
+            bookmarks.add(code);
+        }
+        saveBookmarks();
+        updateModalBookmark(code);
+        // Update course cell
+        const cell = document.querySelector(`.course-cell[data-course="${code}"]`);
+        if (cell) {
+            cell.classList.toggle('starred', bookmarks.has(code));
+        }
+        showToast(bookmarks.has(code) ? '⭐ Bookmarked!' : '☆ Removed bookmark');
+    };
+}
+
+// Hook into openCourse to update bookmark button
+const originalOpenCourse = openCourse;
+openCourse = function (code) {
+    originalOpenCourse(code);
+    updateModalBookmark(code);
+};
+
+// Re-render with new features
 renderCourseGrid();

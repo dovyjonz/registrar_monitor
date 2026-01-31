@@ -218,8 +218,19 @@ The project has been refactored for better organization:
 │   ├── data/                       # Data processing and database
 │   ├── services/                   # High-level services (including reporting)
 │   └── main.py                     # CLI entry point
-├── scripts/                        # Automation scripts
-│   └── manage_database.py          # Advanced database operations
+├── scripts/                        # Utility scripts
+│   ├── generate_website.py         # Website generation script
+│   └── website/                    # Website templates and config
+├── assets/                         # Generated output (gitignored)
+│   ├── website/                    # Cloudflare Workers deployment
+│   │   ├── public/                 # Generated HTML pages
+│   │   └── package.json            # npm dependencies for deployment
+│   ├── downloads/                  # Downloaded XLS files
+│   ├── pdf/                        # Generated PDF reports
+│   └── changes/                    # Text change reports
+├── data/                           # Runtime data (gitignored)
+│   └── enrollment_*.db             # SQLite databases by semester
+├── tests/                          # Unit tests
 └── settings.toml                   # Configuration
 ```
 
