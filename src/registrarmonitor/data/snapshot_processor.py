@@ -1,8 +1,8 @@
 import json
 import os
-from typing import Any, Optional
-
-import pandas as pd
+import itertools
+from decimal import Decimal, ROUND_HALF_EVEN
+from typing import Any, Optional, List, Dict
 
 from ..config import get_config
 from ..models import (
@@ -30,27 +30,41 @@ class SnapshotProcessor:
         self._current_semester: Optional[str] = None
 
     def process_data(
-        self, df: pd.DataFrame, semester: str, timestamp: str
+        self, data: List[Dict[str, Any]], semester: str, timestamp: str
     ) -> EnrollmentSnapshot:
-        """Process DataFrame into EnrollmentSnapshot model."""
-        if (
-            df.empty or "Level" not in df.columns or "Cap" not in df.columns
-        ):  # Check for empty or malformed df
+        """Process data list into EnrollmentSnapshot model."""
+        if not data:
             return EnrollmentSnapshot(
                 timestamp=timestamp, semester=semester, overall_fill=0.0
             )
 
-        filtered_df = df[(df["Level"] == "UG") & (df["Cap"] > 0)]
-        if filtered_df.empty:
+        # Check for required keys in the first row (assuming uniform data)
+        first_row = data[0]
+        if "Level" not in first_row or "Cap" not in first_row:
+             return EnrollmentSnapshot(
+                timestamp=timestamp, semester=semester, overall_fill=0.0
+            )
+
+        # Filter: UG level and Cap > 0
+        filtered_data = [
+            row for row in data
+            if row.get("Level") == "UG" and row.get("Cap", 0) > 0
+        ]
+
+        if not filtered_data:
             return EnrollmentSnapshot(
                 timestamp=timestamp, semester=semester, overall_fill=0.0
             )
 
-        total_enrollment = filtered_df["Enr"].sum()
-        total_capacity = filtered_df["Cap"].sum()
-        overall_fill = (
-            (total_enrollment / total_capacity).round(2) if total_capacity > 0 else 0.0
-        )
+        total_enrollment = sum(row.get("Enr", 0) for row in filtered_data)
+        total_capacity = sum(row.get("Cap", 0) for row in filtered_data)
+
+        overall_fill = 0.0
+        if total_capacity > 0:
+             overall_fill = float(
+                (Decimal(total_enrollment) / Decimal(total_capacity))
+                .quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+             )
 
         snapshot = EnrollmentSnapshot(
             timestamp=timestamp,
@@ -58,34 +72,48 @@ class SnapshotProcessor:
             overall_fill=overall_fill,
         )
 
-        # Use groupby for efficient single-pass iteration (O(M) vs O(N*M))
-        for course_code_val, course_df in filtered_df.groupby("Course Abbr"):
+        # Sort by Course Abbr for groupby (itertools requirement)
+        filtered_data.sort(key=lambda x: str(x.get("Course Abbr", "")))
+
+        # Use groupby for efficient single-pass iteration
+        for course_code_val, group in itertools.groupby(
+            filtered_data, key=lambda x: str(x.get("Course Abbr", ""))
+        ):
+            course_rows = list(group)
             course_code = str(course_code_val)
             dept = course_code.split()[0] if " " in course_code else course_code
 
             # Extract course title from the first row of this course
             course_title = None
-            if "Course Title" in course_df.columns:
-                course_title = str(course_df["Course Title"].iloc[0]).strip()
+            first_course_row = course_rows[0]
+            if "Course Title" in first_course_row:
+                course_title = str(first_course_row["Course Title"]).strip()
 
-            course_avg_fill = course_df["Fill"].mean()
+            fills = [row.get("Fill", 0.0) for row in course_rows]
+            course_avg_fill = 0.0
+            if fills:
+                 # Use Decimal for precise mean calculation and rounding
+                 # Convert floats to string first to avoid precision artifacts
+                 avg = sum(Decimal(str(f)) for f in fills) / Decimal(len(fills))
+                 course_avg_fill = float(
+                     avg.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+                 )
+
             course = Course(
                 course_code=course_code,
                 department=dept,
-                average_fill=round(course_avg_fill, 2),
+                average_fill=course_avg_fill,
                 course_title=course_title,
             )
 
-            for _, section_data in course_df.iterrows():
-                # Cast section_data to Any to avoid pandas Series indexing type issues
-                section_row: Any = section_data
-                section_id = str(section_row["S/T"])
+            for section_row in course_rows:
+                section_id = str(section_row.get("S/T", ""))
                 section = Section(
                     section_id=section_id,
                     section_type=get_section_type(section_id),
-                    enrollment=int(section_row["Enr"]),
-                    capacity=int(section_row["Cap"]),
-                    fill=float(section_row["Fill"]),
+                    enrollment=int(section_row.get("Enr", 0)),
+                    capacity=int(section_row.get("Cap", 0)),
+                    fill=float(section_row.get("Fill", 0.0)),
                 )
                 course.sections[section_id] = section
 
@@ -165,7 +193,7 @@ class SnapshotProcessor:
                 course_code=course_code,
                 department=course_data["department"],
                 average_fill=course_data["average_fill"],
-                course_title=course_data.get("course_title").strip()
+                course_title=course_data.get("course_title", "").strip()
                 if course_data.get("course_title")
                 else None,
             )
