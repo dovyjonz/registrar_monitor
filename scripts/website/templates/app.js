@@ -37,6 +37,9 @@ if (IS_COMBINED && !COMBINED_DATA.sems.includes(activeSemester)) {
     activeSemester = COMBINED_DATA.as;
 }
 
+// Bookmarks/Favorites State
+const bookmarks = new Set(JSON.parse(localStorage.getItem('courseBookmarks') || '[]'));
+
 /**
  * Get current semester data based on mode.
  */
@@ -155,6 +158,7 @@ function switchSemester(semester) { // eslint-disable-line no-unused-vars -- cal
 function renderCourseGrid() {
     const data = getData();
     const grid = document.getElementById('courseGrid');
+    if (!grid) return;
     grid.innerHTML = '';
 
     // Update header text
@@ -167,7 +171,10 @@ function renderCourseGrid() {
     // Group courses by department (using minified key 'd')
     const deptCourses = {};
     for (const [code, course] of Object.entries(data.cr)) {
-        const dept = course.d;
+        // Handle department parsing safely
+        const parts = code.split(' ');
+        const dept = parts.length > 0 ? parts[0] : 'Other';
+
         if (!deptCourses[dept]) deptCourses[dept] = [];
         deptCourses[dept].push({ code, ...course });
     }
@@ -180,8 +187,6 @@ function renderCourseGrid() {
     let fullSections = 0;
 
     for (const dept of sortedDepts) {
-        const courses = deptCourses[dept];
-
         // Department header
         const header = document.createElement('div');
         header.className = 'dept-header';
@@ -192,6 +197,7 @@ function renderCourseGrid() {
         `;
         grid.appendChild(header);
 
+        const courses = deptCourses[dept];
         // Sort courses by code
         courses.sort((a, b) => a.code.localeCompare(b.code));
 
@@ -204,9 +210,15 @@ function renderCourseGrid() {
                 if (section.cf >= 1.0) fullSections++;
             }
 
+            const status = course.if || course.af >= 1 ? 'full' :
+                course.af >= 0.8 ? 'near' : 'open';
+            const isStarred = bookmarks.has(course.code);
+
             const cell = document.createElement('div');
-            cell.className = `course-cell ${getStatusClass(course.af, course.if)}`;
+            cell.className = `course-cell ${getStatusClass(course.af, course.if)}${isStarred ? ' starred' : ''}`;
             cell.setAttribute('data-course', course.code);
+            cell.setAttribute('data-status', status);
+            cell.setAttribute('data-fill', course.af);
             cell.setAttribute('tabindex', '0');
             cell.setAttribute('role', 'listitem');
             cell.style.setProperty('--cell-index', totalCourses);
@@ -220,17 +232,24 @@ function renderCourseGrid() {
         }
     }
 
-    // Update stats
-    document.getElementById('totalCourses').textContent = totalCourses;
-    document.getElementById('totalSections').textContent = totalSections;
-    document.getElementById('fullSections').textContent = fullSections;
-    document.getElementById('snapshotCount').textContent = data.sn.length;
+    // Update stats with animation
+    animateCounter(document.getElementById('totalCourses'), totalCourses);
+    animateCounter(document.getElementById('totalSections'), totalSections);
+    animateCounter(document.getElementById('fullSections'), fullSections);
+    animateCounter(document.getElementById('snapshotCount'), data.sn.length);
 
     // Render jump-to navigation
     const jumpNav = document.getElementById('jumpToNav');
-    jumpNav.innerHTML = sortedDepts.map(dept =>
-        `<a href="#dept-${dept}">${dept}</a>`
-    ).join('');
+    if (jumpNav) {
+        jumpNav.innerHTML = sortedDepts.map(dept =>
+            `<a href="#dept-${dept}">${dept}</a>`
+        ).join('');
+    }
+
+    // Re-apply filters if any are active
+    if (typeof currentFilter !== 'undefined' && currentFilter !== 'all') {
+        applyFilters();
+    }
 }
 
 /**
@@ -243,8 +262,13 @@ function openCourse(courseCode) {
     viewingGraph = false;
 
     const course = data.cr[courseCode];
+    if (!course) return;
+
     const title = course.ti ? ` - ${course.ti}` : '';
     document.getElementById('modalTitle').textContent = `${courseCode}${title}`;
+
+    // Update bookmark button state
+    updateModalBookmark(courseCode);
 
     const sectionList = document.getElementById('sectionList');
     sectionList.innerHTML = '';
@@ -319,6 +343,8 @@ function openCourse(courseCode) {
 function showAverageFillChart(courseCode) {
     const data = getData();
     const course = data.cr[courseCode];
+    if (!course) return;
+
     const sectionsArr = Object.values(course.s);
 
     // Build average fill data across all snapshots
@@ -671,11 +697,10 @@ function filterCourses(query) {
     });
 }
 
-searchInput?.addEventListener('input', (e) => filterCourses(e.target.value));
-
 // Keyboard shortcut: "/" to focus search
 document.addEventListener('keydown', (e) => {
-    if (e.key === '/' && document.activeElement !== searchInput && !document.getElementById('modalOverlay').classList.contains('active')) {
+    const modalActive = document.getElementById('modalOverlay').classList.contains('active');
+    if (e.key === '/' && document.activeElement !== searchInput && !modalActive) {
         e.preventDefault();
         searchInput?.focus();
     }
@@ -702,12 +727,6 @@ document.getElementById('courseGrid')?.addEventListener('keydown', (e) => {
     }
     cells[next]?.focus();
 });
-
-// Initialize
-if (IS_COMBINED) {
-    renderSemesterToggle();
-}
-renderCourseGrid();
 
 // ============================================
 // Filter by Status (UX Enhancement)
@@ -819,24 +838,8 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
 // Bookmarks/Favorites (UX Enhancement)
 // ============================================
 
-const bookmarks = new Set(JSON.parse(localStorage.getItem('courseBookmarks') || '[]'));
-
 function saveBookmarks() {
     localStorage.setItem('courseBookmarks', JSON.stringify([...bookmarks]));
-}
-
-function toggleBookmark(code, starEl) {
-    if (bookmarks.has(code)) {
-        bookmarks.delete(code);
-        starEl.classList.remove('starred');
-        starEl.textContent = '☆';
-    } else {
-        bookmarks.add(code);
-        starEl.classList.add('starred');
-        starEl.textContent = '⭐';
-    }
-    starEl.closest('.course-cell').classList.toggle('starred', bookmarks.has(code));
-    saveBookmarks();
 }
 
 // ============================================
@@ -844,6 +847,7 @@ function toggleBookmark(code, starEl) {
 // ============================================
 
 function animateCounter(el, target, duration = 800) {
+    if (!el) return;
     const start = 0;
     const startTime = performance.now();
 
@@ -867,6 +871,7 @@ function animateCounter(el, target, duration = 800) {
 
 function showToast(message, duration = 4000) {
     const container = document.getElementById('toastContainer');
+    if (!container) return;
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.textContent = message;
@@ -877,100 +882,6 @@ function showToast(message, duration = 4000) {
         setTimeout(() => toast.remove(), 300);
     }, duration);
 }
-
-// Show "last updated" toast on load
-setTimeout(() => {
-    const lastUpdatedEl = document.getElementById('lastUpdated');
-    if (lastUpdatedEl) {
-        const text = lastUpdatedEl.textContent;
-        const match = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4}.*)/);
-        if (match) {
-            showToast(`📊 Data updated: ${match[1]}`);
-        }
-    }
-}, 1000);
-
-// ============================================
-// Enhanced renderCourseGrid (with bookmarks)
-// ============================================
-
-// Store original renderCourseGrid
-const originalRenderCourseGrid = renderCourseGrid;
-
-// Override to add new features
-renderCourseGrid = function () {
-    const data = getData();
-    const grid = document.getElementById('courseGrid');
-    grid.innerHTML = '';
-
-    // Group courses by department
-    const deptCourses = {};
-    for (const [code, course] of Object.entries(data.cr)) {
-        const dept = code.split(' ')[0];
-        if (!deptCourses[dept]) deptCourses[dept] = [];
-        deptCourses[dept].push({ code, ...course });
-    }
-
-    const sortedDepts = Object.keys(deptCourses).sort();
-    let totalCourses = 0;
-    let totalSections = 0;
-    let fullSections = 0;
-
-    for (const dept of sortedDepts) {
-        // Department header
-        const header = document.createElement('div');
-        header.className = 'dept-header';
-        header.id = `dept-${dept}`;
-        header.innerHTML = `${dept} <a href="#" class="back-to-top" onclick="scrollTo({top:0,behavior:'smooth'});return false;">↑ Top</a>`;
-        grid.appendChild(header);
-
-        const courses = deptCourses[dept];
-        courses.sort((a, b) => a.code.localeCompare(b.code));
-
-        for (const course of courses) {
-            totalCourses++;
-            const sectionCount = Object.keys(course.s).length;
-            totalSections += sectionCount;
-
-            for (const section of Object.values(course.s)) {
-                if (section.cf >= 1.0) fullSections++;
-            }
-
-            const status = course.if || course.af >= 1 ? 'full' :
-                course.af >= 0.8 ? 'near' : 'open';
-            const isStarred = bookmarks.has(course.code);
-
-            const cell = document.createElement('div');
-            cell.className = `course-cell ${getStatusClass(course.af, course.if)}${isStarred ? ' starred' : ''}`;
-            cell.setAttribute('data-course', course.code);
-            cell.setAttribute('data-status', status);
-            cell.setAttribute('data-fill', course.af);
-            cell.setAttribute('tabindex', '0');
-            cell.setAttribute('role', 'listitem');
-            cell.style.setProperty('--cell-index', totalCourses);
-
-            cell.innerHTML = `
-                <span class="course-code">${formatCourseCode(course.code)}</span>
-                <span class="course-fill">${Math.round(course.af * 100)}%</span>
-            `;
-            cell.onclick = () => openCourse(course.code);
-            cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
-            grid.appendChild(cell);
-        }
-    }
-
-    // Animate stats
-    animateCounter(document.getElementById('totalCourses'), totalCourses);
-    animateCounter(document.getElementById('totalSections'), totalSections);
-    animateCounter(document.getElementById('fullSections'), fullSections);
-    animateCounter(document.getElementById('snapshotCount'), data.sn.length);
-
-    // Render jump-to navigation
-    const jumpNav = document.getElementById('jumpToNav');
-    jumpNav.innerHTML = sortedDepts.map(dept =>
-        `<a href="#dept-${dept}">${dept}</a>`
-    ).join('');
-};
 
 // ============================================
 // Modal Bookmark Handler
@@ -1000,12 +911,22 @@ function updateModalBookmark(code) {
     };
 }
 
-// Hook into openCourse to update bookmark button
-const originalOpenCourse = openCourse;
-openCourse = function (code) {
-    originalOpenCourse(code);
-    updateModalBookmark(code);
-};
+// Initialize
+if (IS_COMBINED) {
+    renderSemesterToggle();
+}
 
-// Re-render with new features
+// Show "last updated" toast on load
+setTimeout(() => {
+    const lastUpdatedEl = document.getElementById('lastUpdated');
+    if (lastUpdatedEl) {
+        const text = lastUpdatedEl.textContent;
+        const match = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4}.*)/);
+        if (match) {
+            showToast(`📊 Data updated: ${match[1]}`);
+        }
+    }
+}, 1000);
+
+// Initial Render
 renderCourseGrid();
