@@ -29,6 +29,13 @@ class TelegramReporter:
 
         self.bot = Bot(token=self.bot_token)
 
+    def _read_file_content(
+        self, file_path: str, mode: str = "rb", encoding: str = None, limit: int = -1
+    ) -> bytes | str:
+        """Helper to read file content synchronously."""
+        with open(file_path, mode, encoding=encoding) as f:
+            return f.read(limit)
+
     async def send_pdf_report(self, file_path: str):
         """Send a PDF report via Telegram."""
         await asyncio.sleep(self.file_write_delay)  # Wait for file to be fully written
@@ -45,13 +52,15 @@ class TelegramReporter:
 
         try:
             print(f"Sending PDF: {filename} to chat ID {self.chat_id}")
-            with open(file_path, "rb") as pdf_file:
-                await self.bot.send_document(
-                    chat_id=self.chat_id,
-                    document=pdf_file,
-                    filename=filename,
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
+            # Read file content in a separate thread to avoid blocking the event loop
+            pdf_content = await asyncio.to_thread(self._read_file_content, file_path, "rb")
+
+            await self.bot.send_document(
+                chat_id=self.chat_id,
+                document=pdf_content,
+                filename=filename,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
             print(f"Successfully sent PDF: {filename}")
         except TelegramError as e:
             print(f"Error sending PDF {filename}: {e}")
@@ -72,8 +81,10 @@ class TelegramReporter:
 
         if self.dry_run:
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content_preview = f.read(1000)  # Read first 1000 chars for preview
+                # Read preview in a separate thread
+                content_preview = await asyncio.to_thread(
+                    self._read_file_content, file_path, "r", "utf-8", 1000
+                )
                 print(
                     f"[DRY RUN] Would send TXT report: {file_path}\nFilename: {filename}\nContent Preview (first 1000 chars):\n{content_preview}..."
                 )
@@ -82,8 +93,10 @@ class TelegramReporter:
             return
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
+            # Read full content in a separate thread
+            content = await asyncio.to_thread(
+                self._read_file_content, file_path, "r", "utf-8"
+            )
 
             # Split content if it's too long for Telegram
             max_length = 4000  # Telegram message limit is 4096, leave some room
