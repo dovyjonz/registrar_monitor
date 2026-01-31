@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import json
 import os
@@ -679,11 +680,7 @@ class HybridScheduler:
 
                 # 3. Sleep
                 if time_to_sleep > 0:
-                    remaining = time_to_sleep
-                    while remaining > 0:
-                        sleep_chunk = min(remaining, 1.0)
-                        time.sleep(sleep_chunk)
-                        remaining -= sleep_chunk
+                    await asyncio.sleep(time_to_sleep)
 
                 # 4. Perform Action
                 now = datetime.datetime.now()
@@ -1213,11 +1210,7 @@ class TwoPhaseScheduler:
 
                 # 3. Sleep
                 if time_to_sleep > 0:
-                    remaining = time_to_sleep
-                    while remaining > 0:
-                        sleep_chunk = min(remaining, 1.0)
-                        time.sleep(sleep_chunk)
-                        remaining -= sleep_chunk
+                    await asyncio.sleep(time_to_sleep)
 
                 # 4. Perform Action
                 now = datetime.datetime.now()
