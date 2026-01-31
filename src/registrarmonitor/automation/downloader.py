@@ -1,4 +1,6 @@
+import asyncio
 import os
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -19,6 +21,12 @@ class DataDownloader:
         self.url = self.config["data_source"]["url"]
         self.raw_xls_directory = self.config["directories"]["raw_downloads"]
 
+    @staticmethod
+    def _write_file(filename: str, content: bytes) -> None:
+        """Writes content to a file synchronously."""
+        with open(filename, "wb") as f:
+            f.write(content)
+
     async def download(self) -> Optional[str]:
         """
         Download the enrollment data file.
@@ -29,8 +37,11 @@ class DataDownloader:
         validate_directory_exists(self.raw_xls_directory, create_if_missing=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Add UUID to ensure uniqueness and prevent race conditions
+        unique_id = uuid.uuid4().hex[:8]
         filename = os.path.join(
-            self.raw_xls_directory, f"school_schedule_by_term_{timestamp}.xls"
+            self.raw_xls_directory,
+            f"school_schedule_by_term_{timestamp}_{unique_id}.xls",
         )
 
         try:
@@ -39,8 +50,8 @@ class DataDownloader:
                 response = await client.get(self.url, timeout=30.0)
                 response.raise_for_status()
 
-                with open(filename, "wb") as f:
-                    f.write(response.content)
+                # Offload blocking I/O to a separate thread
+                await asyncio.to_thread(self._write_file, filename, response.content)
 
                 print(f"File downloaded successfully as {filename}")
                 self.logger.info(f"Successfully downloaded file: {filename}")
