@@ -142,25 +142,17 @@ class Course:
         if not self.sections:
             return False
 
-        # Use cached grouping if optimization is desired for is_filled too,
-        # but Plan said "is_filled will be left untouched".
-        # However, to be consistent with the other methods (and since I implemented the cache),
-        # I *could* use it. But strict adherence to instructions says "untouched".
-        # Wait, the instruction "Scope as you see fit" was clarified by "is filled is handled by another Jules session".
-        # So I will NOT touch is_filled logic, even if it is inefficient.
+        failed_types = set()
+        present_types = set()
 
-        # Group sections by type
-        sections_by_type: dict[str, list[Section]] = {}
         for section in self.sections.values():
-            if section.section_type not in sections_by_type:
-                sections_by_type[section.section_type] = []
-            sections_by_type[section.section_type].append(section)
+            present_types.add(section.section_type)
+            if not section.is_filled:
+                failed_types.add(section.section_type)
 
-        # Check if any section type has all sections filled
-        return any(
-            sections and all(section.is_filled for section in sections)
-            for sections in sections_by_type.values()
-        )
+        # If there is any type that is present but NOT in failed_types,
+        # then all its sections were filled.
+        return len(present_types) > len(failed_types)
 
     @property
     def is_near_filled(self) -> bool:
