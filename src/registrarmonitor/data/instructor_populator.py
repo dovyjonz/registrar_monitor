@@ -29,21 +29,22 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
     logger.info(f"Reading instructor data from '{excel_path}'...")
     try:
         reader = ExcelReader()
-        _, _, df = reader.read_excel_data(excel_path)
+        _, _, data = reader.read_excel_data(excel_path)
     except Exception as e:
         logger.error(f"Failed to read Excel data: {e}")
         return False
 
-    if df.empty:
+    if not data:
         logger.warning("No data found in the Excel file.")
         return True  # Not a failure, just empty
 
     # The excel_reader renames 'Faculty' to 'Instructor'.
     # We need 'Course Abbr' for the course code and 'S/T' for the section code.
+    first_row = data[0]
     required_cols = {"Course Abbr", "S/T", "Instructor"}
-    if not required_cols.issubset(df.columns):
+    if not required_cols.issubset(first_row.keys()):
         logger.error(
-            f"Excel file is missing required columns: {required_cols}. Found: {df.columns.tolist()}"
+            f"Excel file is missing required columns: {required_cols}. Found: {list(first_row.keys())}"
         )
         return False
 
@@ -57,14 +58,20 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
         not_found_count = 0
 
         logger.info("Processing sections for instructor updates...")
-        for _, row in df.iterrows():
-            course_code = row["Course Abbr"]
-            section_code = row["S/T"]
-            instructor = row["Instructor"]
+        for row in data:
+            course_code = row.get("Course Abbr")
+            section_code = row.get("S/T")
+            instructor = row.get("Instructor")
 
-            if not all([isinstance(course_code, str), isinstance(section_code, str)]):
-                skipped_count += 1
-                continue
+            # Check validity, ensuring they are strings (sometimes xlrd might return non-strings if malformed)
+            if not (isinstance(course_code, str) and isinstance(section_code, str)):
+                 # Try converting to string if possible, or skip
+                 if course_code is not None: course_code = str(course_code)
+                 if section_code is not None: section_code = str(section_code)
+
+                 if not course_code or not section_code:
+                    skipped_count += 1
+                    continue
 
             course_code = course_code.strip()
             section_code = section_code.strip()
