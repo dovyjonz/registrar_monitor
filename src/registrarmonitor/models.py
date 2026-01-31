@@ -1,5 +1,61 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Callable, TypeVar, Any
+from functools import cached_property
+
+
+# Type variable for dictionary key and value
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+class ObservableDict(dict[K, V]):
+    """A dictionary that notifies a callback on modification."""
+
+    def __init__(self, *args, on_change: Optional[Callable[[], None]] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._on_change = on_change
+
+    def _notify(self):
+        if self._on_change:
+            self._on_change()
+
+    def __setitem__(self, key: K, value: V):
+        super().__setitem__(key, value)
+        self._notify()
+
+    def __delitem__(self, key: K):
+        super().__delitem__(key)
+        self._notify()
+
+    def update(self, *args, **kwargs):
+        super().update(*args, **kwargs)
+        self._notify()
+
+    def clear(self):
+        super().clear()
+        self._notify()
+
+    def pop(self, *args) -> V:
+        result = super().pop(*args)
+        self._notify()
+        return result
+
+    def popitem(self) -> tuple[K, V]:
+        result = super().popitem()
+        self._notify()
+        return result
+
+    def setdefault(self, key: K, default: V = None) -> V:
+        # Only notify if the key didn't exist
+        if key not in self:
+            result = super().setdefault(key, default)
+            self._notify()
+            return result
+        return super().setdefault(key, default)
+
+    # Copy returns a plain dict, or should it return ObservableDict?
+    # Standard copy() usually returns same type, but without the callback?
+    # For safety, let's leave copy() as standard (shallow copy)
 
 
 @dataclass
@@ -48,11 +104,50 @@ class Course:
     average_fill: float = 0.0
     course_title: Optional[str] = None
 
+    def __post_init__(self):
+        # Wrap the sections dictionary with an observable one
+        # If it's already ObservableDict (e.g. passed in init), we just need to attach the callback
+        # But usually it's a plain dict passed from serialization or default_factory
+
+        # We need to capture the current content
+        current_content = self.sections
+
+        # Create new ObservableDict
+        self.sections = ObservableDict(current_content, on_change=self._clear_cache)
+
+    def _clear_cache(self):
+        """Clear cached properties."""
+        # delete the cached property from the instance dict if it exists
+        try:
+            del self._sections_by_type
+        except AttributeError:
+            pass
+
+    @cached_property
+    def _sections_by_type(self) -> dict[str, list[Section]]:
+        """Group sections by type (cached)."""
+        if not self.sections:
+            return {}
+
+        sections_by_type: dict[str, list[Section]] = {}
+        for section in self.sections.values():
+            if section.section_type not in sections_by_type:
+                sections_by_type[section.section_type] = []
+            sections_by_type[section.section_type].append(section)
+        return sections_by_type
+
     @property
     def is_filled(self) -> bool:
         """Check if all sections of at least one type are filled."""
         if not self.sections:
             return False
+
+        # Use cached grouping if optimization is desired for is_filled too,
+        # but Plan said "is_filled will be left untouched".
+        # However, to be consistent with the other methods (and since I implemented the cache),
+        # I *could* use it. But strict adherence to instructions says "untouched".
+        # Wait, the instruction "Scope as you see fit" was clarified by "is filled is handled by another Jules session".
+        # So I will NOT touch is_filled logic, even if it is inefficient.
 
         # Group sections by type
         sections_by_type: dict[str, list[Section]] = {}
@@ -80,15 +175,9 @@ class Course:
         students must enroll in one section of each type. Therefore, the actual
         enrollment is limited by the section type with the minimum total enrollment.
         """
-        if not self.sections:
+        sections_by_type = self._sections_by_type
+        if not sections_by_type:
             return 0
-
-        # Group sections by type
-        sections_by_type: dict[str, list[Section]] = {}
-        for section in self.sections.values():
-            if section.section_type not in sections_by_type:
-                sections_by_type[section.section_type] = []
-            sections_by_type[section.section_type].append(section)
 
         # Calculate total enrollment for each type
         enrollment_by_type = {
@@ -97,7 +186,7 @@ class Course:
         }
 
         # Return minimum enrollment across all types
-        return min(enrollment_by_type.values()) if enrollment_by_type else 0
+        return min(enrollment_by_type.values())
 
     @property
     def total_capacity(self) -> int:
@@ -107,15 +196,9 @@ class Course:
         students must enroll in one section of each type. Therefore, the actual
         capacity is limited by the section type with the minimum total capacity.
         """
-        if not self.sections:
+        sections_by_type = self._sections_by_type
+        if not sections_by_type:
             return 0
-
-        # Group sections by type
-        sections_by_type: dict[str, list[Section]] = {}
-        for section in self.sections.values():
-            if section.section_type not in sections_by_type:
-                sections_by_type[section.section_type] = []
-            sections_by_type[section.section_type].append(section)
 
         # Calculate total capacity for each type
         capacity_by_type = {
@@ -124,7 +207,7 @@ class Course:
         }
 
         # Return minimum capacity across all types
-        return min(capacity_by_type.values()) if capacity_by_type else 0
+        return min(capacity_by_type.values())
 
     def to_dict(self) -> dict:
         """Convert Course to dictionary for serialization."""
