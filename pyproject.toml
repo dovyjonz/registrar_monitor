@@ -5,7 +5,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "toml",
-    "pandas",
     "xlrd",
     "python-telegram-bot",
     "fpdf",
@@ -74,7 +73,6 @@ dev = [
     "mypy>=1.17.1",
     "ruff>=0.12.7",
     "ty>=0.0.1a16",
-    "pandas-stubs",
     "types-fpdf2",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",

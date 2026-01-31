@@ -5,14 +5,12 @@ This module provides reusable test fixtures including:
 - Model builders (Section, Course, EnrollmentSnapshot)
 - Temporary database fixtures
 - Mock configuration
-- Sample DataFrame fixtures
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Dict
 from unittest.mock import patch
 
-import pandas as pd
 import pytest
 
 from registrarmonitor.models import (
@@ -235,31 +233,57 @@ def patched_config(mock_config: dict[str, Any]):
 
 
 # =============================================================================
-# DataFrame Fixtures
+# Data Fixtures
 # =============================================================================
 
 
 @pytest.fixture
-def sample_enrollment_df() -> pd.DataFrame:
-    """Create a sample enrollment DataFrame as would come from Excel."""
-    data = {
-        "Subject": ["CS", "CS", "MATH", "MATH"],
-        "Cat#": ["101", "101", "201", "201"],
-        "S/T": ["10L", "1R", "20L", "21L"],
-        "Enr": [25, 20, 30, 28],
-        "Cap": [30, 25, 30, 30],
-        "Fill": [0.83, 0.80, 1.00, 0.93],
-        "Instructor": ["Smith", "Jones", "Brown", "Brown"],
-    }
-    return pd.DataFrame(data)
+def sample_enrollment_data() -> List[Dict[str, Any]]:
+    """Create a sample enrollment data list."""
+    return [
+        {
+            "Subject": "CS",
+            "Cat#": "101",
+            "S/T": "10L",
+            "Enr": 25,
+            "Cap": 30,
+            "Fill": 0.83,
+            "Instructor": "Smith",
+        },
+        {
+            "Subject": "CS",
+            "Cat#": "101",
+            "S/T": "1R",
+            "Enr": 20,
+            "Cap": 25,
+            "Fill": 0.80,
+            "Instructor": "Jones",
+        },
+        {
+            "Subject": "MATH",
+            "Cat#": "201",
+            "S/T": "20L",
+            "Enr": 30,
+            "Cap": 30,
+            "Fill": 1.00,
+            "Instructor": "Brown",
+        },
+        {
+            "Subject": "MATH",
+            "Cat#": "201",
+            "S/T": "21L",
+            "Enr": 28,
+            "Cap": 30,
+            "Fill": 0.93,
+            "Instructor": "Brown",
+        },
+    ]
 
 
 @pytest.fixture
-def empty_df() -> pd.DataFrame:
-    """Create an empty DataFrame with expected columns."""
-    return pd.DataFrame(
-        columns=["Subject", "Cat#", "S/T", "Enr", "Cap", "Fill", "Instructor"]
-    )
+def empty_data() -> List[Dict[str, Any]]:
+    """Create an empty data list."""
+    return []
 
 
 # =============================================================================

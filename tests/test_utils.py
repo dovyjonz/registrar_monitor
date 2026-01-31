@@ -2,6 +2,7 @@
 
 from registrarmonitor.utils import (
     analyze_section_pattern,
+    calculate_effective_rows,
     construct_output_path,
     format_course_code,
     generate_safe_filename_components,
@@ -147,6 +148,20 @@ class TestAnalyzeSectionPattern:
         assert result != ""
         # Should contain type indicators
         assert "L" in result or "R" in result
+
+class TestCalculateEffectiveRows:
+    """Tests for calculate_effective_rows."""
+
+    def test_single_dept(self):
+        """Single department should just count items."""
+        items = [("CS 101", None), ("CS 102", None)]
+        assert calculate_effective_rows(items) == 2.0
+
+    def test_dept_change(self):
+        """Department change should add spacing."""
+        items = [("CS 101", None), ("MATH 101", None)]
+        # 1 for CS, 0.5 spacing, 1 for MATH
+        assert calculate_effective_rows(items) == 2.5
 
 
 class TestGenerateSafeFilenameComponents:

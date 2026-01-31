@@ -174,7 +174,7 @@ def analyze_section_pattern(course_sections: list[dict[str, Any]]) -> str:
     return " ".join(patterns)
 
 
-def calculate_effective_rows(data_items: list[tuple], filtered_df: dict) -> float:
+def calculate_effective_rows(data_items: list[tuple]) -> float:
     """Calculate effective number of rows needed, accounting for department spacing."""
     total_rows = 0.0
     current_dept = None
