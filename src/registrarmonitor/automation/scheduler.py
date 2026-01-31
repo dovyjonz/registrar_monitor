@@ -74,20 +74,66 @@ ZoneType = SchedulingLevel
 ActivityTier = SchedulingLevel
 
 
+# Cache storage
+# Key: absolute file path
+# Value: dict with keys:
+#   - 'data': The parsed zones dict
+#   - 'mtime': The modification time of the file
+#   - 'last_check': Timestamp of the last check (for TTL)
+_SCHEDULE_CACHE = {}
+_CACHE_TTL = 60  # seconds
+
+
 def parse_schedule_file(
     schedule_file: str = "schedule.txt",
+    force_reload: bool = False,
 ) -> dict[ZoneType, list[tuple[datetime.datetime, datetime.datetime]]]:
     """
     Parse the schedule file and return zones organized by type.
+    Uses caching to reduce I/O. Checks file modification time every _CACHE_TTL seconds.
+
+    Args:
+        schedule_file: Path to schedule file
+        force_reload: If True, bypass cache and force reload from disk
 
     Returns:
-        Dictionary mapping zone types to lists of (start_time, end_time) tuples
+        Dictionary mapping zone types to lists of (start_time, end_time) tuples.
+        WARNING: The returned dictionary is cached. Do not modify it in place.
     """
+    abs_path = os.path.abspath(schedule_file)
+    now = time.time()
+
+    # Check cache first
+    if not force_reload and abs_path in _SCHEDULE_CACHE:
+        cache_entry = _SCHEDULE_CACHE[abs_path]
+        # If TTL hasn't expired, return cached data
+        if now - cache_entry["last_check"] < _CACHE_TTL:
+            return cache_entry["data"]
+
+        # TTL expired, check file modification time
+        try:
+            current_mtime = os.path.getmtime(abs_path)
+            if current_mtime == cache_entry["mtime"]:
+                # File hasn't changed, update check time and return cache
+                cache_entry["last_check"] = now
+                return cache_entry["data"]
+        except OSError:
+            # File might have been deleted, proceed to reload (which handles missing file)
+            pass
+
+    # Reload from disk
     zones: dict[ZoneType, list[tuple[datetime.datetime, datetime.datetime]]] = {
         zone_type: [] for zone_type in ZoneType
     }
 
     try:
+        # Capture mtime before reading to avoid race condition
+        current_mtime = 0.0
+        try:
+            current_mtime = os.path.getmtime(abs_path)
+        except OSError:
+            pass  # File not found handled below
+
         with open(schedule_file, "r") as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
@@ -126,6 +172,14 @@ def parse_schedule_file(
                 except ValueError as e:
                     print(f"Warning: Error parsing line {line_num}: {e}")
                     continue
+
+        # Update cache
+        if current_mtime > 0:
+            _SCHEDULE_CACHE[abs_path] = {
+                "data": zones,
+                "mtime": current_mtime,
+                "last_check": now,
+            }
 
     except FileNotFoundError:
         print(f"Schedule file '{schedule_file}' not found. Using default scheduling.")
