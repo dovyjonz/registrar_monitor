@@ -5,13 +5,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enrollment Monitor - Summer 2025</title>
+    <!-- Resource hints for faster CDN connections -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='8' fill='%23ff9100'/></svg>">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script
+    <!-- PWA support -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ffd700">
+    <!-- Defer chart scripts - not needed for initial render -->
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script defer
         src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
-                :root{--bg-primary:#1a1a2e;--bg-secondary:#16213e;--bg-tertiary:#0f3460;--text-primary:#eaeaea;--text-secondary:#a0a0a0;--red-fill:#e61b4b;--yellow-fill:#ffd700;--green-fill:#2ecc71;--teal-accent:#4ecdc4;--border-color:#3a3a5e;--hover-bg:#2a2a4e;--focus-ring:#4ecdc4}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'JetBrains Mono','Fira Code','SF Mono',monospace;background:var(--bg-primary);color:var(--text-primary);min-height:100vh;padding:20px}.skip-link{position:absolute;top:-40px;left:0;background:var(--yellow-fill);color:var(--bg-primary);padding:8px 16px;z-index:10000;font-weight:bold;text-decoration:none;border-radius:0 0 4px}.skip-link:focus{top:0}:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important}}.semester-nav{display:flex;justify-content:center;gap:8px;margin:15px 0;flex-wrap:wrap}.semester-nav-link{padding:8px 16px;border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-secondary);border-radius:6px;font-family:inherit;font-size:0.85rem;text-decoration:none;transition:all 0.2s ease}.semester-nav-link:hover{background:var(--hover-bg);color:var(--text-primary)}.semester-nav-link.active{background:linear-gradient(135deg,var(--yellow-fill),#ff9100);color:#1a1a2e;border-color:var(--yellow-fill);font-weight:bold}header{text-align:center;margin-bottom:30px;padding:20px;background:linear-gradient(135deg,var(--bg-secondary),var(--bg-tertiary));border-radius:12px;border:1px solid var(--border-color)}header h1{font-size:1.8rem;margin-bottom:8px;background:linear-gradient(90deg,#e61b4b,#ffd700);-webkit-text-fill-color:transparent;background-clip:text}header p{color:var(--text-secondary);font-size:0.9rem}.semester-toggle{display:flex;justify-content:center;gap:8px;margin:15px 0}.semester-btn{padding:8px 16px;border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-secondary);border-radius:6px;cursor:pointer;font-family:inherit;font-size:0.85rem;transition:all 0.2s ease}.semester-btn:hover{background:var(--hover-bg);color:var(--text-primary)}.semester-btn.active{background:linear-gradient(135deg,var(--yellow-fill),#ff9100);color:#1a1a2e;border-color:var(--yellow-fill);font-weight:bold}.stats{display:flex;justify-content:center;gap:30px;margin-top:15px}.stat{text-align:center}.stat-value{font-size:1.4rem;font-weight:bold}.stat-label{font-size:0.75rem;color:var(--text-secondary)}.course-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;max-width:1400px;margin:0 auto}.jump-to-nav{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;padding:12px 20px;background:var(--bg-secondary);border-radius:8px;margin:0 auto 20px;max-width:1400px}.jump-to-nav a{color:var(--text-secondary);text-decoration:none;font-size:0.75rem;padding:4px 8px;border-radius:4px;transition:all 0.2s ease}.jump-to-nav a:hover{background:var(--hover-bg);color:var(--text-primary)}.dept-header{grid-column:1 / -1;display:flex;justify-content:space-between;align-items:center;font-size:0.9rem;font-weight:bold;color:var(--text-secondary);padding:15px 0 5px;border-bottom:1px solid var(--border-color);margin-top:10px}.dept-header .back-to-top{font-size:0.7rem;font-weight:normal;color:var(--text-secondary);text-decoration:none;opacity:0.6;transition:opacity 0.2s ease}.dept-header .back-to-top:hover{opacity:1;color:var(--yellow-fill)}.course-cell{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;transition:all 0.2s ease;font-size:0.8rem;background:var(--bg-secondary);border:1px solid var(--border-color)}.course-cell:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgb(0 0 0 / 30%)}.course-cell.full{background:linear-gradient(135deg,var(--red-fill),#c41538);border-color:var(--red-fill)}.course-cell.near{background:linear-gradient(135deg,#b8860b,#8b6914);border-color:var(--yellow-fill)}.course-cell.expanded{outline:2px solid var(--yellow-fill)}.course-code{font-weight:500}.course-fill{font-weight:bold;font-size:0.75rem}.modal-overlay{display:none;position:fixed;inset:0;background:rgb(0 0 0 / 70%);z-index:1000;justify-content:center;align-items:center;padding:20px}.modal-overlay.active{display:flex}.modal{background:var(--bg-secondary);border-radius:12px;width:100%;max-width:900px;max-height:90vh;overflow:hidden;border:1px solid var(--border-color);display:flex;flex-direction:column}.modal-header{display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid var(--border-color);position:sticky;top:0;background:var(--bg-secondary);z-index:10}.modal-header h2{font-size:1.3rem}.modal-header .close-btn{background:none;border:none;color:var(--text-secondary);font-size:1.5rem;cursor:pointer;padding:8px 12px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.modal-header .close-btn:hover{color:var(--red-fill)}.modal-header-left{display:flex;align-items:center;min-width:0;overflow:hidden}.modal-header-left h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.modal-body{padding:20px;overflow-y:auto;overscroll-behavior:contain;flex:1}.section-type-selector{margin-bottom:20px}.section-type-group{margin-bottom:15px}.section-type-label{font-size:0.75rem;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}.section-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:20px}.section-item{padding:12px;background:var(--bg-tertiary);border-radius:8px;cursor:pointer;transition:all 0.2s ease;border:2px solid transparent}.section-item:hover{background:var(--hover-bg)}.section-item.selected{border-color:var(--yellow-fill)}.section-item.full{border-left:4px solid var(--red-fill)}.section-item.near{border-left:4px solid var(--yellow-fill)}.section-id{font-weight:bold;font-size:1rem}.section-instructor{color:var(--text-secondary);font-size:0.75rem}.section-stats{margin-top:8px;font-size:0.85rem}.section-fill{font-weight:bold}.chart-container{background:var(--bg-tertiary);border-radius:8px;padding:20px;margin-top:20px;min-height:300px;touch-action:pan-x pinch-zoom}.chart-placeholder{text-align:center;color:var(--text-secondary);padding:60px}#enrollment-chart{max-height:350px;height:300px;touch-action:pan-x pinch-zoom}.chart-hidden{visibility:hidden;position:absolute}.chart-legend{display:none;justify-content:center;gap:20px;margin-top:10px;font-size:0.75rem;color:var(--text-secondary)}.chart-legend.visible{display:flex}.chart-legend-item{display:flex;align-items:center;gap:5px}.chart-legend-dot{width:10px;height:10px;border-radius:2px;transform:rotate(45deg)}.chart-legend-dot.capacity-changed{background:var(--teal-accent)}html.modal-open,html.modal-open body{overflow:hidden;touch-action:none}@media (width <=768px){body{padding:10px}header{padding:15px;margin-bottom:20px}header h1{font-size:1.4rem}.semester-toggle{flex-wrap:wrap}.semester-btn{padding:6px 12px;font-size:0.8rem}.stats{gap:15px}.stat-value{font-size:1.1rem}.course-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px}.course-cell{padding:6px 8px;font-size:0.7rem}.modal-overlay{padding:10px;padding-top:max(10px,env(safe-area-inset-top));padding-bottom:max(10px,env(safe-area-inset-bottom));align-items:center}.modal{max-height:100%;border-radius:12px;width:100%}.modal-body{-webkit-overflow-scrolling:touch;padding:15px}.modal-header{padding:12px 15px;gap:10px}.modal-header h2{font-size:1rem}.modal-header .close-btn{font-size:1.8rem;padding:4px 8px}.section-list{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.section-item{padding:10px}.chart-container{padding:10px;min-height:250px}#enrollment-chart{max-height:280px}}
+                :root{--background:234 45% 13%;--foreground:0 0% 92%;--card:220 45% 16%;--card-foreground:0 0% 92%;--muted:215 50% 22%;--muted-foreground:0 0% 63%;--accent:48 100% 50%;--accent-foreground:234 45% 13%;--destructive:346 84% 50%;--destructive-foreground:0 0% 100%;--success:145 63% 49%;--success-foreground:234 45% 13%;--warning:43 96% 56%;--warning-foreground:234 45% 13%;--border:240 4% 37%;--input:215 50% 22%;--ring:171 77% 54%;--bg-primary:hsl(var(--background));--bg-secondary:hsl(var(--card));--bg-tertiary:hsl(var(--muted));--text-primary:hsl(var(--foreground));--text-secondary:hsl(var(--muted-foreground));--red-fill:hsl(var(--destructive));--yellow-fill:hsl(var(--accent));--green-fill:hsl(var(--success));--teal-accent:hsl(var(--ring));--border-color:hsl(var(--border));--hover-bg:hsl(var(--muted));--focus-ring:hsl(var(--ring));--radius:0.5rem;--radius-sm:0.375rem;--radius-lg:0.75rem;--shadow-sm:0 1px 2px 0 hsl(0 0% 0% / 0.05);--shadow:0 1px 3px 0 hsl(0 0% 0% / 0.1),0 1px 2px -1px hsl(0 0% 0% / 0.1);--shadow-md:0 4px 6px -1px hsl(0 0% 0% / 0.1),0 2px 4px -2px hsl(0 0% 0% / 0.1);--shadow-lg:0 10px 15px -3px hsl(0 0% 0% / 0.1),0 4px 6px -4px hsl(0 0% 0% / 0.1);--transition-fast:150ms cubic-bezier(0.4,0,0.2,1);--transition-normal:200ms cubic-bezier(0.4,0,0.2,1);--transition-slow:300ms cubic-bezier(0.4,0,0.2,1)}*{box-sizing:border-box;margin:0;padding:0}body{font-family:'JetBrains Mono','Fira Code','SF Mono',monospace;background:var(--bg-primary);color:var(--text-primary);min-height:100vh;padding:20px}.skip-link{position:absolute;top:-40px;left:0;background:var(--yellow-fill);color:var(--bg-primary);padding:8px 16px;z-index:10000;font-weight:bold;text-decoration:none;border-radius:0 0 4px}.skip-link:focus{top:0}:focus-visible{outline:none;box-shadow:0 0 0 2px hsl(var(--background)),0 0 0 4px hsl(var(--ring))}@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important}}.semester-nav{display:flex;justify-content:center;gap:8px;margin:15px 0;flex-wrap:wrap}.semester-nav-link{padding:8px 16px;border:1px solid hsl(var(--border));background:hsl(var(--muted));color:hsl(var(--muted-foreground));border-radius:var(--radius);font-family:inherit;font-size:0.85rem;text-decoration:none;transition:all var(--transition-fast);line-height:1.2}.semester-nav-link:hover{background:hsl(var(--card));color:hsl(var(--foreground))}.semester-nav-link.active{background:linear-gradient(135deg,hsl(var(--accent)),hsl(30 100% 50%));color:hsl(var(--accent-foreground));border-color:hsl(var(--accent));font-weight:bold}header{text-align:center;margin-bottom:30px;padding:20px;background:linear-gradient(135deg,hsl(var(--card)),hsl(var(--muted)));border-radius:var(--radius-lg);border:1px solid hsl(var(--border));position:relative}header h1{font-size:clamp(1.25rem,4vw,1.8rem);margin-bottom:8px;background:linear-gradient(90deg,hsl(var(--destructive)),hsl(var(--accent)));-webkit-text-fill-color:transparent;background-clip:text}header p{color:hsl(var(--muted-foreground));font-size:0.9rem}.semester-toggle{display:flex;justify-content:center;gap:8px;margin:15px 0}.semester-btn{padding:8px 16px;border:1px solid hsl(var(--border));background:hsl(var(--muted));color:hsl(var(--muted-foreground));border-radius:var(--radius);cursor:pointer;font-family:inherit;font-size:0.85rem;transition:all var(--transition-fast)}.semester-btn:hover{background:hsl(var(--card));color:hsl(var(--foreground))}.semester-btn.active{background:linear-gradient(135deg,hsl(var(--accent)),hsl(30 100% 50%));color:hsl(var(--accent-foreground));border-color:hsl(var(--accent));font-weight:bold}.stats{display:flex;justify-content:center;gap:30px;margin-top:15px}.stat{text-align:center}.stat-value{font-size:clamp(1rem,3vw,1.4rem);font-weight:bold}.stat-label{font-size:0.75rem;color:hsl(var(--muted-foreground))}.color-legend{display:flex;justify-content:center;gap:15px;margin-top:12px;font-size:0.75rem;color:hsl(var(--muted-foreground))}.legend-full{color:hsl(var(--destructive))}.legend-near{color:hsl(var(--warning))}.legend-open{color:hsl(var(--success))}.search-container{max-width:400px;margin:0 auto 20px;position:relative}.search-input{width:100%;padding:10px 15px;padding-right:100px;background:hsl(var(--input));border:1px solid hsl(var(--border));border-radius:var(--radius);color:hsl(var(--foreground));font-family:inherit;font-size:0.9rem;transition:all var(--transition-fast)}.search-input::-webkit-search-cancel-button{-webkit-appearance:none;display:none}.search-input::placeholder{color:hsl(var(--muted-foreground))}.search-input:focus{outline:none;border-color:hsl(var(--ring));box-shadow:0 0 0 2px hsl(var(--ring) / 0.3)}.search-input:focus~.search-hint,.search-input:not(:placeholder-shown)~.search-hint{opacity:0}.search-hint{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:0.7rem;color:hsl(var(--muted-foreground));pointer-events:none;transition:opacity var(--transition-fast)}.search-hint kbd{background:hsl(var(--muted));padding:2px 6px;border-radius:var(--radius-sm);border:1px solid hsl(var(--border));font-family:inherit}.controls-panel{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:var(--radius-lg);padding:15px;max-width:1400px;margin:0 auto 20px;box-shadow:var(--shadow-sm)}.controls-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:12px}.controls-panel .search-input{flex:0 1 280px;min-width:150px}.filter-buttons{display:flex;gap:4px;flex-wrap:wrap}.filter-btn{padding:6px 12px;border:1px solid hsl(var(--border));background:hsl(var(--muted));color:hsl(var(--muted-foreground));border-radius:var(--radius);font-family:inherit;font-size:0.75rem;cursor:pointer;transition:all var(--transition-fast)}.filter-btn:hover{background:hsl(var(--card));color:hsl(var(--foreground));border-color:hsl(var(--accent) / 0.5)}.filter-btn.active{background:hsl(var(--accent));color:hsl(var(--accent-foreground));border-color:hsl(var(--accent))}.sort-select{padding:6px 24px 6px 12px;border:1px solid hsl(var(--border));background:hsl(var(--muted));color:hsl(var(--foreground));border-radius:var(--radius);font-family:inherit;font-size:0.75rem;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}.controls-panel .jump-to-nav{margin-top:10px;padding-top:10px;border-top:1px solid hsl(var(--border));padding-bottom:0;margin-bottom:0;background:none}.controls-panel .jump-to-nav:empty{display:none;margin:0;padding:0;border:none}.bookmark-btn{background:none;border:none;font-size:1.3rem;cursor:pointer;padding:4px 8px;margin-right:8px;border-radius:var(--radius);transition:all var(--transition-fast);color:hsl(var(--muted-foreground))}.bookmark-btn:hover{background:hsl(var(--muted))}.bookmark-btn.starred{color:hsl(var(--accent))}.toast-container{position:fixed;bottom:20px;right:20px;z-index:2000;display:flex;flex-direction:column;gap:10px}.toast{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:var(--radius);padding:12px 16px;box-shadow:var(--shadow-lg);animation:slideInRight 0.3s ease;font-size:0.85rem;max-width:300px}.toast.fade-out{animation:slideOutRight 0.3s ease forwards}@keyframes slideInRight{from{opacity:0;transform:translateX(100%)}to{opacity:1;transform:translateX(0)}}@keyframes slideOutRight{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(100%)}}.course-cell.hidden{display:none}.course-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;max-width:1400px;margin:0 auto}.jump-to-nav{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;padding:12px 20px;background:hsl(var(--card));border-radius:var(--radius);margin:0 auto 20px;max-width:1400px}.jump-to-nav a{color:hsl(var(--muted-foreground));text-decoration:none;font-size:0.75rem;padding:4px 8px;border-radius:var(--radius-sm);transition:all var(--transition-fast)}.jump-to-nav a:hover{background:hsl(var(--muted));color:hsl(var(--foreground))}.dept-header{grid-column:1 / -1;display:flex;justify-content:space-between;align-items:center;font-size:0.9rem;font-weight:bold;color:hsl(var(--muted-foreground));padding:15px 0 5px;border-bottom:1px solid hsl(var(--border));margin-top:10px}.dept-header .back-to-top{font-size:0.7rem;font-weight:normal;color:hsl(var(--muted-foreground));text-decoration:none;opacity:0.6;transition:opacity var(--transition-fast)}.dept-header .back-to-top:hover{opacity:1;color:hsl(var(--accent))}.course-cell{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:var(--radius);cursor:pointer;transition:all var(--transition-fast);font-size:0.8rem;background:hsl(var(--card));border:1px solid hsl(var(--border));content-visibility:auto;contain-intrinsic-size:120px 40px;min-height:40px;max-height:48px;overflow:hidden}.course-cell:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}.course-cell.full{background:linear-gradient(135deg,hsl(var(--destructive)),hsl(346 84% 40%));border-color:hsl(var(--destructive));color:hsl(var(--destructive-foreground))}.course-cell.near{background:linear-gradient(135deg,hsl(var(--warning)),hsl(38 90% 40%));border-color:hsl(var(--warning));color:hsl(var(--warning-foreground))}.course-cell.expanded{outline:2px solid hsl(var(--accent))}.course-code{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%}.course-fill{font-weight:bold;font-size:0.75rem}.modal-overlay{position:fixed;inset:0;background:hsl(var(--background) / 0.8);z-index:1000;justify-content:center;align-items:center;padding:20px;display:flex;visibility:hidden;opacity:0;transition:opacity var(--transition-normal),visibility 0s var(--transition-normal)}.modal-overlay.active{visibility:visible;opacity:1;transition:opacity var(--transition-normal),visibility 0s 0s}.modal{background:hsl(var(--card));border-radius:var(--radius-lg);width:100%;max-width:900px;max-height:90vh;overflow:hidden;border:1px solid hsl(var(--border));box-shadow:var(--shadow-lg);display:flex;flex-direction:column}.modal-header{display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid hsl(var(--border));position:sticky;top:0;background:hsl(var(--card));z-index:10}.modal-header h2{font-size:1.3rem}.modal-header .close-btn{background:none;border:none;color:hsl(var(--muted-foreground));font-size:1.5rem;cursor:pointer;padding:8px 12px;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:var(--radius);transition:all var(--transition-fast)}.modal-header .close-btn:hover{color:hsl(var(--destructive));background:hsl(var(--destructive) / 0.1)}.modal-header-left{display:flex;align-items:center;min-width:0;overflow:hidden}.modal-header-left h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.modal-body{padding:20px;overflow-y:auto;overscroll-behavior:contain;flex:1}.section-type-selector{margin-bottom:20px}.section-type-group{margin-bottom:15px;container-type:inline-size}.section-type-label{font-size:0.75rem;color:hsl(var(--muted-foreground));margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}.section-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:20px}.section-item{padding:12px;background:hsl(var(--muted));border-radius:var(--radius);cursor:pointer;transition:all var(--transition-fast);border:2px solid transparent}.section-item:hover{background:hsl(var(--card))}.section-item.selected{border-color:hsl(var(--accent))}.section-item.full{border-left:4px solid hsl(var(--destructive))}.section-item.near{border-left:4px solid hsl(var(--warning))}.section-id{font-weight:bold;font-size:1rem}.section-instructor{color:hsl(var(--muted-foreground));font-size:0.75rem}.section-stats{margin-top:8px;font-size:0.85rem}.section-fill{font-weight:bold}.chart-container{background:hsl(var(--muted));border-radius:var(--radius-lg);padding:20px;margin-top:20px;height:380px;min-height:300px;max-height:400px;touch-action:pan-x pinch-zoom}.chart-placeholder{text-align:center;color:hsl(var(--muted-foreground));padding:60px}#enrollment-chart{max-height:320px;height:280px;touch-action:pan-x pinch-zoom}.chart-hidden{visibility:hidden;position:absolute}.chart-legend{display:none;justify-content:center;gap:20px;margin-top:10px;font-size:0.75rem;color:hsl(var(--muted-foreground))}.chart-legend.visible{display:flex}.chart-legend-item{display:flex;align-items:center;gap:5px}.chart-legend-dot{width:10px;height:10px;border-radius:2px;transform:rotate(45deg)}.chart-legend-dot.capacity-changed{background:hsl(var(--ring))}html.modal-open,html.modal-open body{overflow:hidden;touch-action:none}@view-transition{navigation:auto}::view-transition-old(modal),::view-transition-new(modal){animation-duration:0.25s}.modal{view-transition-name:modal}@container (max-width:400px){.section-list{grid-template-columns:1fr}}@supports (animation-timeline:view()){.chart-container{animation:fadeSlideIn linear;animation-timeline:view();animation-range:entry 0% entry 100%}@keyframes fadeSlideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}}.modal{background:hsl(var(--card) / 0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid hsl(var(--border) / 0.5)}header{background:linear-gradient(135deg,hsl(var(--card)) 0%,hsl(var(--muted)) 50%,hsl(var(--card)) 100%);background-size:200% 200%;animation:gradientShift 8s ease infinite}@keyframes gradientShift{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}.course-cell{position:relative;overflow:hidden}.course-cell::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,hsl(var(--foreground) / 0.08),transparent);transform:translateX(-100%);transition:transform 0.5s ease}.course-cell:hover::before{transform:translateX(100%)}@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}.modal-overlay{visibility:hidden;opacity:0;transition:opacity var(--transition-normal),visibility 0s var(--transition-normal)}.modal-overlay.active{visibility:visible;opacity:1;transition:opacity var(--transition-normal),visibility 0s 0s}.modal{transform:scale(0.95) translateY(20px);transition:transform var(--transition-normal)}.modal-overlay.active .modal{transform:scale(1) translateY(0)}@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important}}@media (max-width:768px){header{animation:none}.course-cell{animation:none}.course-cell::before{display:none}}@media (width <=768px){body{padding:10px}body.modal-open{overflow:hidden;touch-action:none}header{padding:15px;margin-bottom:15px}header h1{font-size:1.4rem}.semester-nav{margin:8px 0;gap:4px}.semester-nav-link{padding:6px 10px;font-size:0.75rem;display:flex;align-items:center;justify-content:center}.semester-toggle{flex-wrap:wrap;margin:8px 0}.semester-btn{padding:6px 12px;font-size:0.8rem}.stats{gap:15px}.stat-value{font-size:1.1rem}.course-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px}.course-cell{padding:6px 8px;font-size:0.7rem;min-height:36px;max-height:42px}.modal-overlay{padding:15px;align-items:center}.modal{max-height:92vh;height:auto;border-radius:12px;width:100%;margin:0;display:flex;flex-direction:column}.modal-body{-webkit-overflow-scrolling:touch;padding:15px;flex:1;overflow-y:auto;display:flex;flex-direction:column}.modal-header{padding:12px 15px;gap:10px}.modal-header h2{font-size:1rem}.modal-header .close-btn{font-size:1.8rem;padding:4px 8px}.section-list{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.section-item{padding:10px;min-height:44px}.chart-container{padding:10px;min-height:200px;flex:1;display:flex;flex-direction:column}#enrollment-chart{flex:1;min-height:180px}.controls-panel{padding:10px}.controls-row{gap:8px}.search-container,.controls-panel .search-input{max-width:none;flex:1 1 100%}.filter-buttons{justify-content:center}.color-legend{gap:10px;font-size:0.7rem}}@media (pointer:coarse){.section-item{min-height:44px}.semester-btn,.semester-nav-link{min-height:40px;padding:8px 14px}}
     </style>
 </head>
 
@@ -44,17 +51,51 @@
                 <div class="stat-label">Snapshots</div>
             </div>
         </section>
+        <div class="color-legend" aria-label="Fill status legend">
+            <span class="legend-item legend-full">●</span> Full
+            <span class="legend-item legend-near">●</span> Near Full
+            <span class="legend-item legend-open">●</span> Open
+        </div>
     </header>
 
-    <main id="main-content">
+    <!-- Unified Controls Panel -->
+    <div class="controls-panel">
+        <div class="controls-row">
+            <input type="search" id="courseSearch" placeholder="Search courses..." aria-label="Filter courses"
+                class="search-input">
+
+            <div class="filter-buttons" role="group" aria-label="Filter by status">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="full">Full</button>
+                <button class="filter-btn" data-filter="near">Near</button>
+                <button class="filter-btn" data-filter="open">Open</button>
+                <button class="filter-btn" data-filter="starred" title="Bookmarked">⭐</button>
+            </div>
+
+            <select id="sortSelect" class="sort-select" aria-label="Sort courses">
+                <option value="department">By Department</option>
+                <option value="code">By Code</option>
+                <option value="fill-desc">Fill % (High→Low)</option>
+                <option value="fill-asc">Fill % (Low→High)</option>
+            </select>
+        </div>
+
         <nav class="jump-to-nav" id="jumpToNav" aria-label="Jump to department"></nav>
+    </div>
+
+    <main id="main-content">
         <div class="course-grid" id="courseGrid" role="list" aria-label="Course list"></div>
     </main>
+
+    <!-- Toast notification container -->
+    <div id="toastContainer" class="toast-container"></div>
 
     <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal">
             <div class="modal-header">
                 <div class="modal-header-left">
+                    <button type="button" class="bookmark-btn" id="modalBookmark" aria-label="Bookmark course"
+                        title="Bookmark this course">☆</button>
                     <h2 id="modalTitle">Course Details</h2>
                 </div>
                 <button type="button" class="close-btn" onclick="closeModal()" aria-label="Close modal">&times;</button>
@@ -292,11 +333,15 @@
                     const cell = document.createElement('div');
                     cell.className = `course-cell ${getStatusClass(course.af, course.if)}`;
                     cell.setAttribute('data-course', course.code);
+                    cell.setAttribute('tabindex', '0');
+                    cell.setAttribute('role', 'listitem');
+                    cell.style.setProperty('--cell-index', totalCourses);
                     cell.innerHTML = `
                         <span class="course-code">${formatCourseCode(course.code)}</span>
                         <span class="course-fill">${Math.round(course.af * 100)}%</span>
                     `;
                     cell.onclick = () => openCourse(course.code);
+                    cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
                     grid.appendChild(cell);
                 }
             }
@@ -391,7 +436,7 @@
                 showAverageFillChart(courseCode);
             }, 50);
 
-            document.documentElement.classList.add('modal-open');
+            document.body.classList.add('modal-open');
         }
 
         /**
@@ -676,7 +721,7 @@
          */
         function closeModal() {
             document.getElementById('modalOverlay').classList.remove('active');
-            document.documentElement.classList.remove('modal-open');
+            document.body.classList.remove('modal-open');
             selectedCourse = null;
             selectedSection = null;
             viewingGraph = false;
@@ -718,10 +763,377 @@
             }
         });
 
+
+        // ============================================
+        // Search Functionality (Phase 4)
+        // ============================================
+
+        const searchInput = document.getElementById('courseSearch');
+
+        /**
+         * Filter courses based on search query.
+         */
+        function filterCourses(query) {
+            const cells = document.querySelectorAll('.course-cell');
+            const normalizedQuery = query.toLowerCase().trim();
+
+            cells.forEach(cell => {
+                const code = cell.getAttribute('data-course').toLowerCase();
+                const matches = !normalizedQuery || code.includes(normalizedQuery);
+                cell.classList.toggle('hidden', !matches);
+            });
+
+            // Show/hide department headers based on visible courses
+            document.querySelectorAll('.dept-header').forEach(header => {
+                const nextCells = [];
+                let sibling = header.nextElementSibling;
+                while (sibling && !sibling.classList.contains('dept-header')) {
+                    if (sibling.classList.contains('course-cell')) {
+                        nextCells.push(sibling);
+                    }
+                    sibling = sibling.nextElementSibling;
+                }
+                header.style.display = nextCells.some(c => !c.classList.contains('hidden')) ? '' : 'none';
+            });
+        }
+
+        searchInput?.addEventListener('input', (e) => filterCourses(e.target.value));
+
+        // Keyboard shortcut: "/" to focus search
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '/' && document.activeElement !== searchInput && !document.getElementById('modalOverlay').classList.contains('active')) {
+                e.preventDefault();
+                searchInput?.focus();
+            }
+        });
+
+        // Arrow key navigation in course grid
+        document.getElementById('courseGrid')?.addEventListener('keydown', (e) => {
+            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+
+            const cells = [...document.querySelectorAll('.course-cell:not(.hidden)')];
+            const idx = cells.indexOf(document.activeElement);
+            if (idx === -1) return;
+
+            e.preventDefault();
+            const gridEl = document.getElementById('courseGrid');
+            const cols = Math.floor(gridEl.offsetWidth / 128);
+
+            let next = idx;
+            switch (e.key) {
+                case 'ArrowRight': next = Math.min(idx + 1, cells.length - 1); break;
+                case 'ArrowLeft': next = Math.max(idx - 1, 0); break;
+                case 'ArrowDown': next = Math.min(idx + cols, cells.length - 1); break;
+                case 'ArrowUp': next = Math.max(idx - cols, 0); break;
+            }
+            cells[next]?.focus();
+        });
+
         // Initialize
         if (IS_COMBINED) {
             renderSemesterToggle();
         }
+        renderCourseGrid();
+
+        // ============================================
+        // Filter by Status (UX Enhancement)
+        // ============================================
+
+        let currentFilter = 'all';
+
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.dataset.filter;
+                applyFilters();
+            });
+        });
+
+        function applyFilters() {
+            const searchQuery = searchInput?.value.toLowerCase().trim() || '';
+            const cells = document.querySelectorAll('.course-cell');
+
+            cells.forEach(cell => {
+                const code = cell.getAttribute('data-course').toLowerCase();
+                const status = cell.dataset.status;
+                const isStarred = cell.classList.contains('starred');
+
+                let matchesSearch = !searchQuery || code.includes(searchQuery);
+                let matchesFilter = currentFilter === 'all' ||
+                    (currentFilter === 'starred' && isStarred) ||
+                    status === currentFilter;
+
+                cell.classList.toggle('hidden', !(matchesSearch && matchesFilter));
+            });
+
+            // Update department headers
+            document.querySelectorAll('.dept-header').forEach(header => {
+                const nextCells = [];
+                let sibling = header.nextElementSibling;
+                while (sibling && !sibling.classList.contains('dept-header')) {
+                    if (sibling.classList.contains('course-cell')) {
+                        nextCells.push(sibling);
+                    }
+                    sibling = sibling.nextElementSibling;
+                }
+                header.style.display = nextCells.some(c => !c.classList.contains('hidden')) ? '' : 'none';
+            });
+        }
+
+        // Override original filterCourses to use applyFilters
+        searchInput?.addEventListener('input', () => applyFilters());
+
+        // ============================================
+        // Sort Functionality (UX Enhancement)
+        // ============================================
+
+        document.getElementById('sortSelect')?.addEventListener('change', (e) => {
+            const sortBy = e.target.value;
+            const grid = document.getElementById('courseGrid');
+            const cells = [...grid.querySelectorAll('.course-cell')];
+            const headers = [...grid.querySelectorAll('.dept-header')];
+
+            // Remove all items
+            cells.forEach(c => c.remove());
+            headers.forEach(h => h.remove());
+
+            // Sort cells
+            cells.sort((a, b) => {
+                const codeA = a.dataset.course;
+                const codeB = b.dataset.course;
+                const fillA = parseFloat(a.dataset.fill);
+                const fillB = parseFloat(b.dataset.fill);
+                const deptA = codeA.split(' ')[0];
+                const deptB = codeB.split(' ')[0];
+
+                switch (sortBy) {
+                    case 'code': return codeA.localeCompare(codeB);
+                    case 'fill-desc': return fillB - fillA;
+                    case 'fill-asc': return fillA - fillB;
+                    default: return deptA.localeCompare(deptB) || codeA.localeCompare(codeB);
+                }
+            });
+
+            // Re-add with department headers if sorting by department
+            if (sortBy === 'department') {
+                let currentDept = '';
+                cells.forEach(cell => {
+                    const dept = cell.dataset.course.split(' ')[0];
+                    if (dept !== currentDept) {
+                        currentDept = dept;
+                        const header = document.createElement('div');
+                        header.className = 'dept-header';
+                        header.id = `dept-${dept}`;
+                        header.innerHTML = `${dept} <a href="#" class="back-to-top" onclick="scrollTo({top:0,behavior:'smooth'});return false;">↑ Top</a>`;
+                        grid.appendChild(header);
+                    }
+                    grid.appendChild(cell);
+                });
+                // Rebuild jump nav
+                const jumpNav = document.getElementById('jumpToNav');
+                const depts = [...new Set(cells.map(c => c.dataset.course.split(' ')[0]))];
+                jumpNav.innerHTML = depts.map(d => `<a href="#dept-${d}">${d}</a>`).join('');
+            } else {
+                // No headers for other sorts
+                cells.forEach(c => grid.appendChild(c));
+                document.getElementById('jumpToNav').innerHTML = '';
+            }
+        });
+
+        // ============================================
+        // Bookmarks/Favorites (UX Enhancement)
+        // ============================================
+
+        const bookmarks = new Set(JSON.parse(localStorage.getItem('courseBookmarks') || '[]'));
+
+        function saveBookmarks() {
+            localStorage.setItem('courseBookmarks', JSON.stringify([...bookmarks]));
+        }
+
+        function toggleBookmark(code, starEl) {
+            if (bookmarks.has(code)) {
+                bookmarks.delete(code);
+                starEl.classList.remove('starred');
+                starEl.textContent = '☆';
+            } else {
+                bookmarks.add(code);
+                starEl.classList.add('starred');
+                starEl.textContent = '⭐';
+            }
+            starEl.closest('.course-cell').classList.toggle('starred', bookmarks.has(code));
+            saveBookmarks();
+        }
+
+        // ============================================
+        // Animated Stat Counters (Visual Polish)
+        // ============================================
+
+        function animateCounter(el, target, duration = 800) {
+            const start = 0;
+            const startTime = performance.now();
+
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+                const current = Math.round(start + (target - start) * eased);
+                el.textContent = current;
+
+                if (progress < 1) {
+                    requestAnimationFrame(update);
+                }
+            }
+            requestAnimationFrame(update);
+        }
+
+        // ============================================
+        // Toast Notifications (Visual Polish)
+        // ============================================
+
+        function showToast(message, duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('fade-out');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // Show "last updated" toast on load
+        setTimeout(() => {
+            const lastUpdatedEl = document.getElementById('lastUpdated');
+            if (lastUpdatedEl) {
+                const text = lastUpdatedEl.textContent;
+                const match = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4}.*)/);
+                if (match) {
+                    showToast(`📊 Data updated: ${match[1]}`);
+                }
+            }
+        }, 1000);
+
+        // ============================================
+        // Enhanced renderCourseGrid (with bookmarks)
+        // ============================================
+
+        // Store original renderCourseGrid
+        const originalRenderCourseGrid = renderCourseGrid;
+
+        // Override to add new features
+        renderCourseGrid = function () {
+            const data = getData();
+            const grid = document.getElementById('courseGrid');
+            grid.innerHTML = '';
+
+            // Group courses by department
+            const deptCourses = {};
+            for (const [code, course] of Object.entries(data.cr)) {
+                const dept = code.split(' ')[0];
+                if (!deptCourses[dept]) deptCourses[dept] = [];
+                deptCourses[dept].push({ code, ...course });
+            }
+
+            const sortedDepts = Object.keys(deptCourses).sort();
+            let totalCourses = 0;
+            let totalSections = 0;
+            let fullSections = 0;
+
+            for (const dept of sortedDepts) {
+                // Department header
+                const header = document.createElement('div');
+                header.className = 'dept-header';
+                header.id = `dept-${dept}`;
+                header.innerHTML = `${dept} <a href="#" class="back-to-top" onclick="scrollTo({top:0,behavior:'smooth'});return false;">↑ Top</a>`;
+                grid.appendChild(header);
+
+                const courses = deptCourses[dept];
+                courses.sort((a, b) => a.code.localeCompare(b.code));
+
+                for (const course of courses) {
+                    totalCourses++;
+                    const sectionCount = Object.keys(course.s).length;
+                    totalSections += sectionCount;
+
+                    for (const section of Object.values(course.s)) {
+                        if (section.cf >= 1.0) fullSections++;
+                    }
+
+                    const status = course.if || course.af >= 1 ? 'full' :
+                        course.af >= 0.8 ? 'near' : 'open';
+                    const isStarred = bookmarks.has(course.code);
+
+                    const cell = document.createElement('div');
+                    cell.className = `course-cell ${getStatusClass(course.af, course.if)}${isStarred ? ' starred' : ''}`;
+                    cell.setAttribute('data-course', course.code);
+                    cell.setAttribute('data-status', status);
+                    cell.setAttribute('data-fill', course.af);
+                    cell.setAttribute('tabindex', '0');
+                    cell.setAttribute('role', 'listitem');
+                    cell.style.setProperty('--cell-index', totalCourses);
+
+                    cell.innerHTML = `
+                        <span class="course-code">${formatCourseCode(course.code)}</span>
+                        <span class="course-fill">${Math.round(course.af * 100)}%</span>
+                    `;
+                    cell.onclick = () => openCourse(course.code);
+                    cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
+                    grid.appendChild(cell);
+                }
+            }
+
+            // Animate stats
+            animateCounter(document.getElementById('totalCourses'), totalCourses);
+            animateCounter(document.getElementById('totalSections'), totalSections);
+            animateCounter(document.getElementById('fullSections'), fullSections);
+            animateCounter(document.getElementById('snapshotCount'), data.sn.length);
+
+            // Render jump-to navigation
+            const jumpNav = document.getElementById('jumpToNav');
+            jumpNav.innerHTML = sortedDepts.map(dept =>
+                `<a href="#dept-${dept}">${dept}</a>`
+            ).join('');
+        };
+
+        // ============================================
+        // Modal Bookmark Handler
+        // ============================================
+
+        const modalBookmarkBtn = document.getElementById('modalBookmark');
+
+        function updateModalBookmark(code) {
+            if (!modalBookmarkBtn) return;
+            const isStarred = bookmarks.has(code);
+            modalBookmarkBtn.textContent = isStarred ? '⭐' : '☆';
+            modalBookmarkBtn.classList.toggle('starred', isStarred);
+            modalBookmarkBtn.onclick = () => {
+                if (bookmarks.has(code)) {
+                    bookmarks.delete(code);
+                } else {
+                    bookmarks.add(code);
+                }
+                saveBookmarks();
+                updateModalBookmark(code);
+                // Update course cell
+                const cell = document.querySelector(`.course-cell[data-course="${code}"]`);
+                if (cell) {
+                    cell.classList.toggle('starred', bookmarks.has(code));
+                }
+                showToast(bookmarks.has(code) ? '⭐ Bookmarked!' : '☆ Removed bookmark');
+            };
+        }
+
+        // Hook into openCourse to update bookmark button
+        const originalOpenCourse = openCourse;
+        openCourse = function (code) {
+            originalOpenCourse(code);
+            updateModalBookmark(code);
+        };
+
+        // Re-render with new features
         renderCourseGrid();
 
     </script>

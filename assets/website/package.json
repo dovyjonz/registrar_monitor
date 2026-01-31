@@ -1,0 +1,11 @@
+{
+    "name": "registrar-monitor-website",
+    "private": true,
+    "description": "Cloudflare Workers deployment for Registrar Monitor website",
+    "scripts": {
+        "deploy": "wrangler deploy --assets=public --name=monitor --compatibility-date=2025-12-18 --minify"
+    },
+    "dependencies": {
+        "wrangler": "^4.55.0"
+    }
+}

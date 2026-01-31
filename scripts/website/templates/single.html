@@ -5,10 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>__TITLE__</title>
+    <!-- Resource hints for faster CDN connections -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='8' fill='%23ff9100'/></svg>">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script
+    <!-- PWA support -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ffd700">
+    <!-- Defer chart scripts - not needed for initial render -->
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script defer
         src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
         __CSS__
@@ -42,17 +49,51 @@
                 <div class="stat-label">Snapshots</div>
             </div>
         </section>
+        <div class="color-legend" aria-label="Fill status legend">
+            <span class="legend-item legend-full">●</span> Full
+            <span class="legend-item legend-near">●</span> Near Full
+            <span class="legend-item legend-open">●</span> Open
+        </div>
     </header>
 
-    <main id="main-content">
+    <!-- Unified Controls Panel -->
+    <div class="controls-panel">
+        <div class="controls-row">
+            <input type="search" id="courseSearch" placeholder="Search courses..." aria-label="Filter courses"
+                class="search-input">
+
+            <div class="filter-buttons" role="group" aria-label="Filter by status">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="full">Full</button>
+                <button class="filter-btn" data-filter="near">Near</button>
+                <button class="filter-btn" data-filter="open">Open</button>
+                <button class="filter-btn" data-filter="starred" title="Bookmarked">⭐</button>
+            </div>
+
+            <select id="sortSelect" class="sort-select" aria-label="Sort courses">
+                <option value="department">By Department</option>
+                <option value="code">By Code</option>
+                <option value="fill-desc">Fill % (High→Low)</option>
+                <option value="fill-asc">Fill % (Low→High)</option>
+            </select>
+        </div>
+
         <nav class="jump-to-nav" id="jumpToNav" aria-label="Jump to department"></nav>
+    </div>
+
+    <main id="main-content">
         <div class="course-grid" id="courseGrid" role="list" aria-label="Course list"></div>
     </main>
+
+    <!-- Toast notification container -->
+    <div id="toastContainer" class="toast-container"></div>
 
     <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal">
             <div class="modal-header">
                 <div class="modal-header-left">
+                    <button type="button" class="bookmark-btn" id="modalBookmark" aria-label="Bookmark course"
+                        title="Bookmark this course">☆</button>
                     <h2 id="modalTitle">Course Details</h2>
                 </div>
                 <button type="button" class="close-btn" onclick="closeModal()" aria-label="Close modal">&times;</button>
