@@ -113,6 +113,17 @@ def main() -> None:
     # Ensure output directory exists
     OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
+    # Build frontend assets
+    print("Building frontend assets...")
+    assets_dir = Path(__file__).parent.parent / "assets" / "website"
+    build_cmd = ["npm", "run", "build"]
+    try:
+        subprocess.run(build_cmd, cwd=assets_dir, check=True)
+        print("Frontend build successful.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error building frontend assets: {e}")
+        print("Warning: proceeding without fresh build. Manifest might be outdated.")
+
     if args.semester:
         # Generate only the specified semester
         semester = SEMESTER_MAP[args.semester]
