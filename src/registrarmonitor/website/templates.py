@@ -12,7 +12,7 @@ from .config import ALL_SEMESTERS, LATEST_SEMESTER, semester_to_filename
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 # Output is assets/website/public. Assets are in assets/website/public/assets.
 # We need to find manifest relative to this file.
-REPO_ROOT = Path(__file__).parent.parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent.parent
 ASSETS_DIR = REPO_ROOT / "assets" / "website" / "public" / "assets"
 MANIFEST_PATH = ASSETS_DIR / ".vite" / "manifest.json"
 

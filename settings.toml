@@ -29,3 +29,9 @@ use_legacy_dept_rows = true
 file_write_delay = 3
 # Enable/disable dry run mode
 dry_run = false
+
+[website]
+# Update interval in minutes
+update_interval = 30
+# Cloudflare Pages project name
+pages_project_name = "registrar-monitor"

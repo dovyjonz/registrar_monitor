@@ -20,6 +20,7 @@ import sys
 
 from .cli import (
     DatabaseCommands,
+    DeployCommand,
     PollCommand,
     ReportCommand,
     RunCommand,
@@ -179,6 +180,50 @@ Telegram Control:
         help="Enable debug mode with verbose output",
     )
 
+    # Deploy command
+    deploy_parser = subparsers.add_parser(
+        "deploy",
+        aliases=["website"],
+        help="Generate and deploy the website",
+        description="Generate the enrollment website and optionally deploy to Cloudflare Pages",
+    )
+    deploy_parser.add_argument(
+        "--deploy",
+        action="store_true",
+        help="Deploy to Cloudflare Pages after generation",
+    )
+    deploy_parser.add_argument(
+        "--semester",
+        type=str,
+        help="Generate only for specific semester (e.g. 'fall2025')",
+    )
+    deploy_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force regeneration of all pages",
+    )
+    deploy_parser.add_argument(
+        "--minify",
+        action="store_true",
+        help="Minify generated assets",
+    )
+    deploy_parser.add_argument(
+        "--project",
+        type=str,
+        default="registrar-monitor",
+        help="Cloudflare Pages project name (default: registrar-monitor)",
+    )
+    deploy_parser.add_argument(
+        "--branch",
+        type=str,
+        help="Branch name for deployment",
+    )
+    deploy_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode with verbose output",
+    )
+
     # Database commands
     db_parser = subparsers.add_parser(
         "db",
@@ -279,6 +324,21 @@ async def handle_schedule_command(args) -> int:
         return 0  # Normal exit for scheduler
 
 
+async def handle_deploy_command(args) -> int:
+    """Handle the deploy command."""
+    debug = getattr(args, "debug", False) or args.debug
+    command = DeployCommand(debug=debug)
+    success = command.run(
+        deploy=getattr(args, "deploy", False),
+        semester=getattr(args, "semester", None),
+        force=getattr(args, "force", False),
+        minify=getattr(args, "minify", False),
+        project_name=getattr(args, "project", "registrar-monitor"),
+        branch=getattr(args, "branch", None),
+    )
+    return 0 if success else 1
+
+
 async def handle_status_command(args) -> int:
     """Handle the status command."""
     debug = getattr(args, "debug", False) or args.debug
@@ -336,6 +396,8 @@ async def async_main() -> int:
             return await handle_run_command(args)
         elif args.command == "schedule":
             return await handle_schedule_command(args)
+        elif args.command in ["deploy", "website"]:
+            return await handle_deploy_command(args)
 
         elif args.command == "db":
             return await handle_db_command(args)
