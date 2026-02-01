@@ -149,6 +149,9 @@ window.switchSemester = function(semester) {
     renderCourseGrid();
 }
 
+// Export to window so it can be called from HTML onclick
+window.closeModal = closeModal;
+
 /**
  * Render the main course grid.
  */
