@@ -1,0 +1,104 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <header>
+        <h1>📊 Enrollment Monitor</h1>
+        <nav class="semester-nav" aria-label="Semester navigation">
+            {{ nav_html | safe }}
+        </nav>
+        <p id="lastUpdated">{{ last_updated }}</p>
+        <section class="stats" aria-label="Statistics">
+            <div class="stat">
+                <div class="stat-value" id="totalCourses">0</div>
+                <div class="stat-label">Courses</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="totalSections">0</div>
+                <div class="stat-label">Sections</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="fullSections">0</div>
+                <div class="stat-label">Full</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="snapshotCount">0</div>
+                <div class="stat-label">Snapshots</div>
+            </div>
+        </section>
+        <div class="color-legend" aria-label="Fill status legend">
+            <span class="legend-item legend-full">●</span> Full
+            <span class="legend-item legend-near">●</span> Near Full
+            <span class="legend-item legend-open">●</span> Open
+        </div>
+    </header>
+
+    <!-- Unified Controls Panel -->
+    <div class="controls-panel">
+        <div class="controls-row">
+            <input type="search" id="courseSearch" placeholder="Search courses..." aria-label="Filter courses"
+                class="search-input">
+
+            <div class="filter-buttons" role="group" aria-label="Filter by status">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="full">Full</button>
+                <button class="filter-btn" data-filter="near">Near</button>
+                <button class="filter-btn" data-filter="open">Open</button>
+                <button class="filter-btn" data-filter="starred" title="Bookmarked">⭐</button>
+            </div>
+
+            <select id="sortSelect" class="sort-select" aria-label="Sort courses">
+                <option value="department">By Department</option>
+                <option value="code">By Code</option>
+                <option value="fill-desc">Fill % (High→Low)</option>
+                <option value="fill-asc">Fill % (Low→High)</option>
+            </select>
+        </div>
+
+        <nav class="jump-to-nav" id="jumpToNav" aria-label="Jump to department"></nav>
+    </div>
+
+    <main id="main-content">
+        <div class="course-grid" id="courseGrid" role="list" aria-label="Course list"></div>
+    </main>
+
+    <!-- Toast notification container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button type="button" class="bookmark-btn" id="modalBookmark" aria-label="Bookmark course"
+                        title="Bookmark this course">☆</button>
+                    <h2 id="modalTitle">Course Details</h2>
+                </div>
+                <button type="button" class="close-btn" onclick="closeModal()" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="section-type-selector" id="sectionTypeSelector"></div>
+                <div class="section-list" id="sectionList" role="list"></div>
+                <div class="chart-container" id="chartContainer">
+                    <div class="chart-placeholder" id="chartPlaceholder">
+                        Click a section to view enrollment history
+                    </div>
+                    <canvas id="enrollment-chart" class="chart-hidden"></canvas>
+                    <div class="chart-legend" id="chartLegend">
+                        <div class="chart-legend-item">
+                            <div class="chart-legend-dot capacity-changed"></div>
+                            <span>Capacity changed</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.DATA = {{ data | tojson }};
+        window.MILESTONES = {{ milestones | tojson }};
+    </script>
+{% endblock %}

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Enrollment Monitor{% endblock %}</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='8' fill='%23ff9100'/></svg>">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ffd700">
+
+    {# Inject CSS from Vite build #}
+    {% if css_file %}
+    <link rel="stylesheet" href="{{ asset_base_url }}{{ css_file }}">
+    {% endif %}
+
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% block content %}{% endblock %}
+
+    {# Inject JS from Vite build #}
+    {% if js_file %}
+    <script type="module" src="{{ asset_base_url }}{{ js_file }}"></script>
+    {% endif %}
+</body>
+</html>
