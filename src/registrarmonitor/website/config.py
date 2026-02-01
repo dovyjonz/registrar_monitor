@@ -16,7 +16,7 @@ ALL_SEMESTERS: list[str] = ["Spring 2026", "Fall 2025", "Summer 2025"]
 LATEST_SEMESTER: str = ALL_SEMESTERS[0]
 
 # Default output directory
-OUTPUT_DIR = Path(__file__).parent.parent.parent / "assets" / "website" / "public"
+OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / "assets" / "website" / "public"
 
 
 def semester_to_filename(semester: str) -> str:

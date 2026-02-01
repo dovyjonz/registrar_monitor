@@ -8,7 +8,7 @@ from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
 from ..data.migrate_json_to_db import JSONMigrator
-from ..services import MonitoringService, ReportingService
+from ..services import MonitoringService, ReportingService, WebsiteService
 from ..data.instructor_populator import populate_instructors
 from .utils import detect_active_semester
 from ..utils import get_section_sort_key
@@ -527,3 +527,37 @@ class StatusCommand:
             print(
                 f"   {status_icon} Section {section.section_id} ({section.section_type}): {section.enrollment}/{section.capacity}"
             )
+
+
+class DeployCommand:
+    """Command for generating and deploying the website."""
+
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+        self.logger = get_logger(__name__)
+
+    def run(
+        self,
+        deploy: bool = False,
+        semester: Optional[str] = None,
+        force: bool = False,
+        minify: bool = False,
+        project_name: str = "registrar-monitor",
+        branch: Optional[str] = None,
+    ) -> bool:
+        """Run the deploy command."""
+        if self.debug:
+            print("🔍 DEBUG MODE: Website generation/deployment")
+
+        service = WebsiteService()
+
+        # Step 1: Generate
+        success = service.generate(semester_key=semester, force=force, minify=minify)
+        if not success:
+            return False
+
+        # Step 2: Deploy if requested
+        if deploy:
+            return service.deploy(project_name=project_name, branch=branch)
+
+        return True

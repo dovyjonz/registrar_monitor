@@ -1,12 +1,7 @@
 """Data access layer for querying enrollment data from the database."""
 
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
-import sys
-
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from registrarmonitor.data.database_manager import DatabaseManager
 

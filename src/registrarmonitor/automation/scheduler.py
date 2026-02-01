@@ -9,6 +9,8 @@ from enum import Enum
 from pathlib import Path
 
 
+from ..config import get_config
+
 # ReportingService is imported lazily to avoid circular import
 # (reporting_service imports HybridScheduler, scheduler imports ReportingService)
 ReportingService = None  # type: ignore[misc, assignment]
@@ -437,6 +439,41 @@ class HybridScheduler:
         self.current_heat: float = 0.0
         self.heat_decay_factor = heat_decay_factor  # 0.8 = ~50% heat after 3 cycles
 
+        # Website update configuration
+        self.website_interval_minutes = 30
+        try:
+            config = get_config()
+            self.website_interval_minutes = config.get("website", {}).get(
+                "update_interval", 30
+            )
+        except Exception:
+            pass
+        # Initialize so it runs soon after startup
+        self.last_website_update = datetime.datetime.now() - datetime.timedelta(
+            minutes=self.website_interval_minutes
+        )
+
+    def _run_website_update(self):
+        """Run website generation and deployment."""
+        try:
+            # Lazy import to avoid circular dependencies if any
+            from ..services.website_service import WebsiteService
+
+            config = get_config()
+            website_config = config.get("website", {})
+            project_name = website_config.get("pages_project_name", "registrar-monitor")
+
+            print(f"\n🌐 Starting Website Update (Project: {project_name})...")
+            service = WebsiteService()
+
+            # Generate (incremental)
+            if service.generate():
+                # Deploy
+                service.deploy(project_name=project_name)
+
+        except Exception as e:
+            print(f"❌ Website update failed: {e}")
+
     def _get_reactive_level(self, score: float) -> SchedulingLevel:
         """Convert activity score to scheduling level."""
         return SchedulingLevel.from_score(score)
@@ -629,6 +666,12 @@ class HybridScheduler:
                 now = datetime.datetime.now()
                 seconds_until_report = (next_report_time - now).total_seconds()
 
+                # Calculate next website update
+                next_website_update = self.last_website_update + datetime.timedelta(
+                    minutes=self.website_interval_minutes
+                )
+                seconds_until_website = (next_website_update - now).total_seconds()
+
                 # Calculate pre-report sync time (1 minute before report)
                 PRE_REPORT_SYNC_SECONDS = 60
                 seconds_until_pre_report_sync = (
@@ -636,12 +679,16 @@ class HybridScheduler:
                 )
 
                 # 2. Determine Sleep Duration
-                # Priority: pre-report sync > report time > adaptive poll
+                # Priority: pre-report sync > report time > website update > adaptive poll
                 # Skip report-related wakeups if no_telegram is enabled
                 if self.no_telegram:
-                    # Only do adaptive polling when Telegram is disabled
-                    time_to_sleep = wait_time_poll
-                    wake_reason = "poll"
+                    # Only do adaptive polling and website updates when Telegram is disabled
+                    if seconds_until_website <= wait_time_poll:
+                        time_to_sleep = seconds_until_website
+                        wake_reason = "website"
+                    else:
+                        time_to_sleep = wait_time_poll
+                        wake_reason = "poll"
                 elif (
                     seconds_until_pre_report_sync > 0
                     and seconds_until_pre_report_sync < wait_time_poll
@@ -653,6 +700,10 @@ class HybridScheduler:
                     # Report time is sooner than poll
                     time_to_sleep = seconds_until_report
                     wake_reason = "report"
+                elif seconds_until_website <= wait_time_poll:
+                    # Website update is sooner than poll
+                    time_to_sleep = seconds_until_website
+                    wake_reason = "website"
                 else:
                     # Normal adaptive poll
                     time_to_sleep = wait_time_poll
@@ -672,6 +723,10 @@ class HybridScheduler:
                     print(
                         f"   (Waking for Scheduled Report at {next_report_time.strftime('%H:%M')})"
                     )
+                elif wake_reason == "website":
+                    print(
+                        f"   (Waking for Website Update - Interval: {self.website_interval_minutes}m)"
+                    )
                 else:
                     print(
                         f"   (Waking for Adaptive Poll - Zone: {decision.zone_type.label})"
@@ -685,10 +740,16 @@ class HybridScheduler:
                 # 4. Perform Action
                 now = datetime.datetime.now()
                 seconds_to_report = (next_report_time - now).total_seconds()
+                seconds_to_website = (next_website_update - now).total_seconds()
 
                 if seconds_to_report <= 5:
                     # It's Reporting Time! (within 5s buffer)
                     change_score = await self._run_report_cycle()
+                elif seconds_to_website <= 5:
+                    # Website update time
+                    print("\n🌐 Triggering Scheduled Website Update...")
+                    await asyncio.to_thread(self._run_website_update)
+                    self.last_website_update = datetime.datetime.now()
                 elif seconds_to_report <= PRE_REPORT_SYNC_SECONDS + 5:
                     # Pre-report sync window
                     print(
@@ -943,6 +1004,40 @@ class TwoPhaseScheduler:
         # Initialize caffeinate process for sleep prevention
         self.caffeinate_process = None
 
+        # Website update configuration
+        self.website_interval_minutes = 30
+        try:
+            config = get_config()
+            self.website_interval_minutes = config.get("website", {}).get(
+                "update_interval", 30
+            )
+        except Exception:
+            pass
+        self.last_website_update = datetime.datetime.now() - datetime.timedelta(
+            minutes=self.website_interval_minutes
+        )
+
+    def _run_website_update(self):
+        """Run website generation and deployment."""
+        try:
+            # Lazy import to avoid circular dependencies if any
+            from ..services.website_service import WebsiteService
+
+            config = get_config()
+            website_config = config.get("website", {})
+            project_name = website_config.get("pages_project_name", "registrar-monitor")
+
+            print(f"\n🌐 Starting Website Update (Project: {project_name})...")
+            service = WebsiteService()
+
+            # Generate (incremental)
+            if service.generate():
+                # Deploy
+                service.deploy(project_name=project_name)
+
+        except Exception as e:
+            print(f"❌ Website update failed: {e}")
+
     def _get_baseline_level(self) -> SchedulingLevel:
         """Get baseline level from schedule file (predictive component)."""
         return get_current_zone_type(self.schedule_file)
@@ -1163,6 +1258,12 @@ class TwoPhaseScheduler:
                 now = datetime.datetime.now()
                 seconds_until_report = (next_report_time - now).total_seconds()
 
+                # Calculate next website update
+                next_website_update = self.last_website_update + datetime.timedelta(
+                    minutes=self.website_interval_minutes
+                )
+                seconds_until_website = (next_website_update - now).total_seconds()
+
                 # Calculate pre-report sync time (1 minute before report)
                 PRE_REPORT_SYNC_SECONDS = 60
                 seconds_until_pre_report_sync = (
@@ -1172,9 +1273,13 @@ class TwoPhaseScheduler:
                 # 2. Determine Sleep Duration
                 # Skip report-related wakeups if no_telegram is enabled
                 if self.no_telegram:
-                    # Only do adaptive polling when Telegram is disabled
-                    time_to_sleep = wait_time_poll
-                    wake_reason = "poll"
+                    # Only do adaptive polling and website updates when Telegram is disabled
+                    if seconds_until_website <= wait_time_poll:
+                        time_to_sleep = seconds_until_website
+                        wake_reason = "website"
+                    else:
+                        time_to_sleep = wait_time_poll
+                        wake_reason = "poll"
                 elif (
                     seconds_until_pre_report_sync > 0
                     and seconds_until_pre_report_sync < wait_time_poll
@@ -1184,6 +1289,9 @@ class TwoPhaseScheduler:
                 elif seconds_until_report <= wait_time_poll:
                     time_to_sleep = seconds_until_report
                     wake_reason = "report"
+                elif seconds_until_website <= wait_time_poll:
+                    time_to_sleep = seconds_until_website
+                    wake_reason = "website"
                 else:
                     time_to_sleep = wait_time_poll
                     wake_reason = "poll"
@@ -1202,6 +1310,10 @@ class TwoPhaseScheduler:
                     print(
                         f"   {mode_indicator} Mode: {self.mode.upper()} (Report at {next_report_time.strftime('%H:%M')})"
                     )
+                elif wake_reason == "website":
+                    print(
+                        f"   {mode_indicator} Mode: {self.mode.upper()} (Website Update)"
+                    )
                 else:
                     print(
                         f"   {mode_indicator} Mode: {self.mode.upper()} (Adaptive Poll)"
@@ -1215,10 +1327,16 @@ class TwoPhaseScheduler:
                 # 4. Perform Action
                 now = datetime.datetime.now()
                 seconds_to_report = (next_report_time - now).total_seconds()
+                seconds_to_website = (next_website_update - now).total_seconds()
 
                 if seconds_to_report <= 5:
                     # Report time
                     change_score = await self._run_report_cycle()
+                elif seconds_to_website <= 5:
+                    # Website update time
+                    print("\n🌐 Triggering Scheduled Website Update...")
+                    await asyncio.to_thread(self._run_website_update)
+                    self.last_website_update = datetime.datetime.now()
                 elif seconds_to_report <= PRE_REPORT_SYNC_SECONDS + 5:
                     # Pre-report sync
                     print(
