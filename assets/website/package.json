@@ -3,9 +3,17 @@
     "private": true,
     "description": "Cloudflare Workers deployment for Registrar Monitor website",
     "scripts": {
+        "dev": "vite",
+        "build": "vite build",
         "deploy": "wrangler deploy --assets=public --name=monitor --compatibility-date=2025-12-18 --minify"
     },
     "dependencies": {
+        "chart.js": "^4.4.1",
+        "chartjs-plugin-annotation": "^3.0.1"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "vite": "^5.0.0",
         "wrangler": "^4.55.0"
     }
 }

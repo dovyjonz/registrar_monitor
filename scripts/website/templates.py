@@ -1,39 +1,55 @@
 """Template loading and HTML assembly for website generation."""
 
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Environment, FileSystemLoader
+
 from .config import ALL_SEMESTERS, LATEST_SEMESTER, semester_to_filename
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+# Output is assets/website/public. Assets are in assets/website/public/assets.
+# We need to find manifest relative to this file.
+REPO_ROOT = Path(__file__).parent.parent.parent
+ASSETS_DIR = REPO_ROOT / "assets" / "website" / "public" / "assets"
+MANIFEST_PATH = ASSETS_DIR / ".vite" / "manifest.json"
+
+# Initialize Jinja2 environment
+env = Environment(
+    loader=FileSystemLoader(TEMPLATES_DIR),
+    autoescape=True,
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
 
 
-def load_template(name: str) -> str:
-    """Load a template file from the templates directory."""
-    template_path = TEMPLATES_DIR / name
-    return template_path.read_text()
+def _get_asset_info(entry: str = "src/main.js") -> tuple[str | None, str | None]:
+    """
+    Get JS and CSS filenames from Vite manifest.
 
+    Returns:
+        Tuple of (js_filename, css_filename)
+    """
+    if not MANIFEST_PATH.exists():
+        print(f"Warning: Manifest not found at {MANIFEST_PATH}")
+        return None, None
 
-def _minify_css(css: str) -> str:
-    """Basic CSS minification: remove comments and excess whitespace."""
-    # Remove comments
-    css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
-    # Remove excess whitespace
-    css = re.sub(r"\s+", " ", css)
-    # Remove space around special chars
-    css = re.sub(r"\s*([{}:;,>+~])\s*", r"\1", css)
-    # Remove trailing semicolons before closing braces
-    css = re.sub(r";}", "}", css)
-    return css.strip()
+    try:
+        manifest = json.loads(MANIFEST_PATH.read_text())
+        info = manifest.get(entry)
+        if not info:
+            return None, None
 
+        js_file = info.get("file")
+        css_files = info.get("css", [])
+        css_file = css_files[0] if css_files else None
 
-def _indent_content(content: str, indent: str = "        ") -> str:
-    """Indent each line of content with the specified prefix."""
-    lines = content.split("\n")
-    return "\n".join(indent + line if line.strip() else line for line in lines)
+        return js_file, css_file
+    except Exception as e:
+        print(f"Error reading manifest: {e}")
+        return None, None
 
 
 def _build_nav_html(current_semester: str) -> str:
@@ -41,10 +57,9 @@ def _build_nav_html(current_semester: str) -> str:
     nav_items = []
     for sem in ALL_SEMESTERS:
         filename = semester_to_filename(sem)
-        active = " active" if sem == current_semester else ""
-        aria_current = ' aria-current="page"' if sem == current_semester else ""
+        active = ' class="semester-nav-link active" aria-current="page"' if sem == current_semester else ' class="semester-nav-link"'
         nav_items.append(
-            f'<a href="{filename}" class="semester-nav-link{active}"{aria_current}>{sem}</a>'
+            f'<a href="{filename}"{active}>{sem}</a>'
         )
     return "\n            ".join(nav_items)
 
@@ -57,58 +72,39 @@ def build_semester_page(
     minify_assets: bool = False,
 ) -> str:
     """
-    Build HTML for a single semester page with navigation.
-
-    Args:
-        data: Semester data dictionary (with minified keys)
-        milestones: List of milestone dictionaries
-        semester: Display name of this semester
-        minify_assets: Whether to minify CSS/JS
-
-    Returns:
-        Complete HTML string
+    Build HTML for a single semester page using Jinja2 templates.
     """
-    # Load templates
-    html_template = load_template("single.html")
-    css = load_template("styles.css")
-    js = load_template("app.js")
+    # Get asset filenames
+    js_file, css_file = _get_asset_info()
 
-    if minify_assets:
-        css = _minify_css(css)
-
-    # Format data as JSON
-    json_data = json.dumps(data, indent=None, separators=(",", ":"))
-    milestones_json = json.dumps(milestones, indent=None, separators=(",", ":"))
+    # Build navigation
+    nav_html = _build_nav_html(semester)
 
     # Format last updated text
-    last_report_time = data.get("lrt")  # Using minified key
+    last_report_time = data.get("lrt")
     if last_report_time:
         dt = datetime.fromisoformat(last_report_time)
         last_updated = f"Last updated {dt.strftime('%Y-%m-%d %H:%M')}"
     else:
         last_updated = "Last updated N/A"
 
-    # Build navigation
-    nav_html = _build_nav_html(semester)
-
-    # Replace placeholders
-    html = html_template.replace("__TITLE__", f"Enrollment Monitor - {semester}")
-    html = html.replace("__CSS__", _indent_content(css))
-    html = html.replace("__DATA__", json_data)
-    html = html.replace("__MILESTONES__", milestones_json)
-    html = html.replace("__JS__", _indent_content(js))
-    html = html.replace("__LAST_UPDATED__", last_updated)
-    html = html.replace("__NAV__", nav_html)
-
-    return html
+    # Render template
+    template = env.get_template("semester.html.jinja")
+    return template.render(
+        title=f"Enrollment Monitor - {semester}",
+        nav_html=nav_html,
+        last_updated=last_updated,
+        data=data,
+        milestones=milestones,
+        js_file=js_file,
+        css_file=css_file,
+        asset_base_url="assets/"
+    )
 
 
 def build_redirect_index() -> str:
     """
     Build index.html that redirects to the latest semester.
-
-    Returns:
-        HTML redirect page
     """
     latest_file = semester_to_filename(LATEST_SEMESTER)
     return f'''<!DOCTYPE html>
@@ -124,45 +120,3 @@ def build_redirect_index() -> str:
 </body>
 </html>
 '''
-
-
-# Keep legacy functions for backward compatibility
-def build_single_html(
-    data: dict[str, Any],
-    milestones: list[dict[str, str]],
-    *,
-    minify_assets: bool = False,
-) -> str:
-    """Legacy: Build HTML for single semester mode without navigation."""
-    semester = data.get("sem", "")
-    return build_semester_page(data, milestones, semester, minify_assets=minify_assets)
-
-
-def build_combined_html(
-    combined_data: dict[str, Any],
-    *,
-    minify_assets: bool = False,
-) -> str:
-    """
-    Build HTML for combined multi-semester mode (deprecated).
-
-    Use build_semester_page for new multi-page architecture.
-    """
-    # Load templates
-    html_template = load_template("combined.html")
-    css = load_template("styles.css")
-    js = load_template("app.js")
-
-    if minify_assets:
-        css = _minify_css(css)
-
-    # Format data as JSON
-    json_data = json.dumps(combined_data, indent=None, separators=(",", ":"))
-
-    # Replace placeholders
-    html = html_template.replace("__TITLE__", "Enrollment Monitor - All Semesters")
-    html = html.replace("__CSS__", _indent_content(css))
-    html = html.replace("__DATA__", json_data)
-    html = html.replace("__JS__", _indent_content(js))
-
-    return html
