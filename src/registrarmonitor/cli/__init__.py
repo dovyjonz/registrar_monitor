@@ -2,6 +2,7 @@
 
 from .commands import (
     DatabaseCommands,
+    DeployCommand,
     PollCommand,
     ReportCommand,
     RunCommand,
@@ -11,6 +12,7 @@ from .commands import (
 
 __all__ = [
     "DatabaseCommands",
+    "DeployCommand",
     "PollCommand",
     "ReportCommand",
     "RunCommand",
