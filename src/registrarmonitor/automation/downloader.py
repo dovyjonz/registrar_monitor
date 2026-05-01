@@ -73,10 +73,3 @@ class DataDownloader:
         except Exception as e:
             self.logger.error(f"Unexpected error during download: {e}")
             raise FileProcessingError(f"Unexpected download error: {e}") from e
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    downloader = DataDownloader()
-    asyncio.run(downloader.download())

@@ -87,7 +87,9 @@ class WebsiteService:
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error building frontend assets: {e}")
             print(f"Error building frontend assets: {e}")
-            print("Warning: proceeding without fresh build. Manifest might be outdated.")
+            print(
+                "Warning: proceeding without fresh build. Manifest might be outdated."
+            )
             return False
         except FileNotFoundError:
             self.logger.error("npm not found. Is Node.js installed?")

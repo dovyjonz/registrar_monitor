@@ -238,9 +238,7 @@ def get_semester_data(semester: str, *, minify: bool = True) -> dict[str, Any]:
             if section_code not in data["courses"][course_code]["sections"]:
                 continue
 
-            data["courses"][course_code]["sections"][section_code][
-                "history"
-            ].append(
+            data["courses"][course_code]["sections"][section_code]["history"].append(
                 {
                     "snapshotIdx": snapshot_id_to_idx[snapshot_id],
                     "fill": fill_percentage,

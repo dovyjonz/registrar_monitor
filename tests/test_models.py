@@ -173,7 +173,7 @@ class TestCourse:
         """Course should be filled if one type is fully satisfied, even if another is not."""
         sections = {
             "10L": Section("10L", "L", 30, 30, 1.0),  # Type L satisfied
-            "1R": Section("1R", "R", 10, 20, 0.5),    # Type R NOT satisfied
+            "1R": Section("1R", "R", 10, 20, 0.5),  # Type R NOT satisfied
         }
         course = Course("CS 103", "CS", sections)
         assert course.is_filled is True
@@ -181,8 +181,8 @@ class TestCourse:
     def test_is_filled_mixed_types_none_satisfied(self):
         """Course should not be filled if no type is fully satisfied."""
         sections = {
-            "10L": Section("10L", "L", 29, 30, 0.97), # Type L NOT satisfied
-            "1R": Section("1R", "R", 10, 20, 0.5),    # Type R NOT satisfied
+            "10L": Section("10L", "L", 29, 30, 0.97),  # Type L NOT satisfied
+            "1R": Section("1R", "R", 10, 20, 0.5),  # Type R NOT satisfied
         }
         course = Course("CS 104", "CS", sections)
         assert course.is_filled is False
@@ -191,7 +191,7 @@ class TestCourse:
         """Course should not be filled if a type has mixed filled status."""
         sections = {
             "10L": Section("10L", "L", 30, 30, 1.0),  # Filled
-            "11L": Section("11L", "L", 20, 30, 0.67), # Not Filled
+            "11L": Section("11L", "L", 20, 30, 0.67),  # Not Filled
         }
         course = Course("CS 105", "CS", sections)
         # Type L is NOT fully satisfied because one section is not full

@@ -4,12 +4,122 @@ from fpdf import FPDF
 
 from ..config import get_config
 from ..models import EnrollmentSnapshot, Course
-from ..utils import (
-    analyze_section_pattern,
-    calculate_effective_rows,
-    format_course_code,
-)
+from ..utils import get_section_type, get_sort_priority
 from ..validation import validate_directory_exists
+
+
+# ── PDF-local utility helpers ──────────────────────────────────────
+
+
+def _format_course_code(code: str, width: int = 8) -> str:
+    """Format course code to have consistent width by adjusting spacing."""
+    if not code:
+        return " " * width
+
+    parts = code.split()
+    if len(parts) != 2:
+        return code.ljust(width)
+
+    dept, num = parts
+    base_num = num[:3]
+    extra_chars = num[3:] if len(num) > 3 else ""
+
+    space_needed = width - len(dept) - len(base_num)
+    return f"{dept}{' ' * space_needed}{base_num}{extra_chars}"
+
+
+def _group_sections_by_type(
+    course_sections: list[dict[str, Any]],
+) -> tuple[dict[str, list[int]], set[int]]:
+    """Group sections by type and collect their fill percentages."""
+    section_types: dict[str, list[int]] = {}
+    seen_sections: set[tuple[str, str]] = set()
+    all_fills: set[int] = set()
+
+    for section in course_sections:
+        s_type = get_section_type(section["S/T"])
+        section_num = str(section["S/T"])
+
+        section_key = (s_type, section_num)
+        if section_key in seen_sections:
+            continue
+
+        seen_sections.add(section_key)
+        all_fills.add(section["Fill"])
+
+        if s_type not in section_types:
+            section_types[s_type] = []
+        section_types[s_type].append(section["Fill"])
+
+    return section_types, all_fills
+
+
+def _format_type_summary(s_type: str, fills: list[int], num_section_types: int) -> str:
+    """Format a summary string for a single section type."""
+    if not fills:
+        return ""
+
+    type_prefix = "" if num_section_types == 1 else s_type[0]
+
+    num_full = sum(1 for f in fills if f >= 1)
+    num_fill = len(fills)
+    avg_fill = sum(fills) / num_fill
+    min_fill = min(fills)
+    max_fill = max(fills)
+
+    if max_fill - min_fill < 0.05:
+        fill_percent = int(avg_fill * 100) if num_section_types > 1 else ""
+        count_suffix = f"×{num_fill}" if num_fill > 1 else ""
+        return f"{type_prefix}{fill_percent}{count_suffix}"
+
+    if num_full > 0:
+        partial = num_fill - num_full
+        if partial == 0:
+            return f"{type_prefix}F×{num_full}"
+        avg_non_full = sum(f for f in fills if f < 1) / partial
+        count_suffix = f"×{partial}" if partial > 1 else ""
+        return f"{type_prefix}{int(avg_non_full * 100)}{count_suffix}|{num_full}"
+
+    return f"{type_prefix}{int(min_fill * 100)}-{int(max_fill * 100)}×{num_fill}"
+
+
+def _analyze_section_pattern(course_sections: list[dict[str, Any]]) -> str:
+    """Create a compact section fill analysis."""
+    if not course_sections:
+        return ""
+
+    section_types, all_fills = _group_sections_by_type(course_sections)
+
+    if len(all_fills) == 1:
+        return ""
+
+    sorted_types = sorted(
+        section_types.items(), key=lambda x: (get_sort_priority(x[0]), x[0])
+    )
+
+    patterns = [
+        _format_type_summary(s_type, fills, len(section_types))
+        for s_type, fills in sorted_types
+        if fills
+    ]
+
+    return " ".join(patterns)
+
+
+def _calculate_effective_rows(data_items: list[tuple]) -> float:
+    """Calculate effective number of rows needed, accounting for department spacing."""
+    total_rows = 0.0
+    current_dept = None
+
+    for index, _ in data_items:
+        total_rows += 1
+        dept = str(index).split()[0] if " " in str(index) else str(index)
+        if current_dept is not None and dept != current_dept:
+            total_rows += 0.5
+        current_dept = dept
+
+    return total_rows
+
 
 # PDF layout constants
 COLUMN_WIDTH = 17
@@ -88,7 +198,7 @@ class EnrollmentPDF(FPDF):
 
         # Add section pattern summary if available and cell is yellow
         if course_sections and 0.75 <= fill_value < 1.0:
-            pattern = analyze_section_pattern(course_sections)
+            pattern = _analyze_section_pattern(course_sections)
             if pattern:
                 # Set smaller font for pattern
                 self.set_font(self.font_name, "", self.font_size_pattern)
@@ -159,7 +269,7 @@ class PDFGenerator:
         if config_dict is None:
             config_dict = get_config()
 
-        output_dir = config_dict["directories"]["pdf_output"]
+        output_dir = config_dict.get("directories", {}).get("pdf_output", "assets/pdf")
         self.output_dir = output_dir
         validate_directory_exists(output_dir, create_if_missing=True)
 
@@ -167,7 +277,10 @@ class PDFGenerator:
         self.config = config_dict
 
     def generate_enrollment_report(
-        self, current_snapshot: EnrollmentSnapshot, output_path: str, previous_snapshot=None
+        self,
+        current_snapshot: EnrollmentSnapshot,
+        output_path: str,
+        previous_snapshot=None,
     ) -> str:
         """Generate enrollment report from snapshot data.
 
@@ -181,8 +294,7 @@ class PDFGenerator:
         """
         # Sort courses by code for consistent output
         sorted_courses = sorted(
-            current_snapshot.courses.values(),
-            key=lambda c: c.course_code
+            current_snapshot.courses.values(), key=lambda c: c.course_code
         )
 
         if not sorted_courses:
@@ -285,7 +397,7 @@ class PDFGenerator:
                 # Create dummy items (course_code, None) to match calculate_effective_rows expected input
                 # which expects a list of tuples where first element has course code
                 dummy_items = [(c.course_code, None) for c in dept_group]
-                dept_rows = calculate_effective_rows(dummy_items)
+                dept_rows = _calculate_effective_rows(dummy_items)
 
             remaining_space = rows_per_column - current_row_count
 
@@ -331,7 +443,7 @@ class PDFGenerator:
                 current_y = pdf.get_y()
 
                 # Write course and percentage
-                formatted_code = format_course_code(course.course_code)
+                formatted_code = _format_course_code(course.course_code)
                 force_red = course.is_filled
 
                 # Convert sections to dicts compatible with utils.analyze_section_pattern

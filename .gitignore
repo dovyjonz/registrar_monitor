@@ -27,10 +27,10 @@ logs/
 
 # Data files (runtime data, not source code)
 data/
+*.db
 
 # Generated assets
 assets/downloads/
-assets/pdf/
 assets/changes/
 assets/index.html
 assets/website/public/*.html

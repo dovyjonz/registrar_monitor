@@ -25,8 +25,9 @@ class ReportingService:
     """
     Service for coordinating report generation and delivery workflows.
 
-    This service provides high-level operations for generating PDF and text reports
-    and sending them via various channels while maintaining separation of concerns.
+    This service provides high-level operations for generating text reports
+    and sending them via Telegram, with optional PDF generation available
+    as a standalone method.
     """
 
     def __init__(self, semester: Optional[str] = None):
@@ -42,13 +43,22 @@ class ReportingService:
         # Initialize components
         self.db_manager = DatabaseManager(semester=semester)
         self.snapshot_comparator = SnapshotComparator()
-        self.pdf_generator = PDFGenerator()
         self.report_formatter = ReportFormatter()
         self.telegram_reporter = TelegramReporter()
+
+        # PDF generator is lazy-loaded only when explicitly requested
+        self._pdf_generator: Optional[PDFGenerator] = None
 
         self.logger.info(
             f"Reporting service initialized for semester: {semester or 'default'}"
         )
+
+    @property
+    def pdf_generator(self) -> PDFGenerator:
+        """Lazy-load the PDF generator only when needed."""
+        if self._pdf_generator is None:
+            self._pdf_generator = PDFGenerator()
+        return self._pdf_generator
 
     async def generate_and_send_reports(
         self,
@@ -58,7 +68,7 @@ class ReportingService:
         debug_mode: bool = False,
     ) -> Tuple[bool, List[str]]:
         """
-        Generate reports and optionally send them via Telegram.
+        Generate text reports and optionally send them via Telegram.
 
         Args:
             current_snapshot: Current enrollment snapshot
@@ -73,18 +83,10 @@ class ReportingService:
             f"Starting report generation - Telegram: {send_telegram}, Debug: {debug_mode}"
         )
 
-        generated_files = []
+        generated_files: List[str] = []
 
         try:
-            # Generate PDF report
-            pdf_path = await self._generate_pdf_report(
-                current_snapshot, previous_snapshot
-            )
-            if pdf_path:
-                generated_files.append(pdf_path)
-
             # Generate text report if we have a previous snapshot for comparison
-            txt_path = None
             if previous_snapshot:
                 txt_path = await self._generate_text_report(
                     current_snapshot, previous_snapshot
@@ -93,8 +95,9 @@ class ReportingService:
                     generated_files.append(txt_path)
 
             # Send reports if not in debug mode
-            if send_telegram and not debug_mode:
-                await self._send_reports_via_telegram(pdf_path, txt_path)
+            if send_telegram and not debug_mode and generated_files:
+                txt_path = generated_files[0] if generated_files else None
+                await self._send_reports_via_telegram(txt_path)
 
             self.logger.info(f"Successfully generated {len(generated_files)} reports")
             return True, generated_files
@@ -111,6 +114,9 @@ class ReportingService:
     ) -> Optional[str]:
         """
         Generate only a PDF report without sending it.
+
+        This is the opt-in entrypoint for PDF generation; it is not called
+        by the automated reporting pipeline.
 
         Args:
             current_snapshot: Current enrollment snapshot
@@ -263,21 +269,18 @@ class ReportingService:
 
         return changes_found
 
-    async def send_existing_reports(
-        self, pdf_path: Optional[str] = None, txt_path: Optional[str] = None
-    ) -> bool:
+    async def send_existing_reports(self, txt_path: Optional[str] = None) -> bool:
         """
         Send existing report files via Telegram.
 
         Args:
-            pdf_path: Path to PDF report file
             txt_path: Path to text report file
 
         Returns:
             True if successful, False otherwise
         """
         try:
-            await self._send_reports_via_telegram(pdf_path, txt_path)
+            await self._send_reports_via_telegram(txt_path)
             return True
         except Exception as e:
             self.logger.error(f"Failed to send existing reports: {e}")
@@ -285,7 +288,7 @@ class ReportingService:
 
     def get_available_reports(self, limit: int = 10) -> List[dict]:
         """
-        Get a list of recently generated reports.
+        Get a list of recently generated text reports.
 
         Args:
             limit: Maximum number of reports to return
@@ -297,25 +300,9 @@ class ReportingService:
             from ..config import get_config
 
             config = get_config()
-            pdf_dir = Path(config["directories"]["pdf_output"])
             txt_dir = Path(config["directories"]["text_reports"])
 
-            reports = []
-
-            # Get PDF reports
-            if pdf_dir.exists():
-                for pdf_file in sorted(
-                    pdf_dir.glob("*.pdf"), key=lambda x: x.stat().st_mtime, reverse=True
-                )[:limit]:
-                    reports.append(
-                        {
-                            "type": "PDF",
-                            "path": str(pdf_file),
-                            "filename": pdf_file.name,
-                            "size": pdf_file.stat().st_size,
-                            "modified": pdf_file.stat().st_mtime,
-                        }
-                    )
+            reports: List[dict] = []
 
             # Get text reports
             if txt_dir.exists():
@@ -347,7 +334,7 @@ class ReportingService:
         custom_filename: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Generate a PDF report.
+        Generate a PDF report (internal helper for opt-in PDF generation).
 
         Args:
             current_snapshot: Current enrollment snapshot
@@ -366,7 +353,7 @@ class ReportingService:
                 pdf_path = custom_filename
             else:
                 pdf_path = construct_output_path(
-                    config["directories"]["pdf_output"],
+                    config["directories"].get("pdf_output", "assets/pdf"),
                     current_snapshot.semester,
                     current_snapshot.timestamp,
                     ".pdf",
@@ -459,62 +446,43 @@ class ReportingService:
             self.logger.error(f"Failed to generate text report: {e}")
             raise ReportGenerationError(f"Text report generation failed: {e}") from e
 
-    async def _send_reports_via_telegram(
-        self, pdf_path: Optional[str], txt_path: Optional[str]
-    ) -> None:
+    async def _send_reports_via_telegram(self, txt_path: Optional[str]) -> None:
         """
-        Send reports via Telegram.
+        Send text reports via Telegram.
 
         Args:
-            pdf_path: Path to PDF report
             txt_path: Path to text report
         """
         try:
             self.logger.info("Sending reports via Telegram")
 
-            if pdf_path and Path(pdf_path).exists():
-                await self.telegram_reporter.send_pdf_report(pdf_path)
-                self.logger.info("PDF report sent successfully")
-
             if txt_path and Path(txt_path).exists():
                 await self.telegram_reporter.send_text_report(txt_path)
                 self.logger.info("Text report sent successfully")
-
-            if not pdf_path and not txt_path:
+            else:
                 self.logger.warning("No reports to send via Telegram")
 
         except Exception as e:
             self.logger.error(f"Failed to send reports via Telegram: {e}")
             raise NotificationError(f"Telegram sending failed: {e}") from e
 
-    def cleanup_old_reports(self, keep_count: int = 20) -> Tuple[int, int]:
+    def cleanup_old_reports(self, keep_count: int = 20) -> int:
         """
-        Clean up old report files.
+        Clean up old text report files.
 
         Args:
-            keep_count: Number of recent reports to keep for each type
+            keep_count: Number of recent reports to keep
 
         Returns:
-            Tuple of (pdf_deleted_count, txt_deleted_count)
+            Number of text files deleted
         """
         try:
             from ..config import get_config
 
             config = get_config()
-            pdf_dir = Path(config["directories"]["pdf_output"])
             txt_dir = Path(config["directories"]["text_reports"])
 
-            pdf_deleted = 0
             txt_deleted = 0
-
-            # Clean up PDF files
-            if pdf_dir.exists():
-                pdf_files = sorted(
-                    pdf_dir.glob("*.pdf"), key=lambda x: x.stat().st_mtime, reverse=True
-                )
-                for old_file in pdf_files[keep_count:]:
-                    old_file.unlink()
-                    pdf_deleted += 1
 
             # Clean up text files
             if txt_dir.exists():
@@ -525,13 +493,11 @@ class ReportingService:
                     old_file.unlink()
                     txt_deleted += 1
 
-            if pdf_deleted or txt_deleted:
-                self.logger.info(
-                    f"Cleaned up {pdf_deleted} PDF files and {txt_deleted} text files"
-                )
+            if txt_deleted:
+                self.logger.info(f"Cleaned up {txt_deleted} text files")
 
-            return pdf_deleted, txt_deleted
+            return txt_deleted
 
         except Exception as e:
             self.logger.error(f"Failed to cleanup old reports: {e}")
-            return 0, 0
+            return 0

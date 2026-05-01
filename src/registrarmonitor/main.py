@@ -120,7 +120,7 @@ Telegram Control:
     report_parser = subparsers.add_parser(
         "report",
         help="Generate and send reports from existing data",
-        description="Generate PDF and text reports from stored enrollment data",
+        description="Generate text reports from stored enrollment data",
     )
     report_parser.add_argument(
         "--no-telegram",

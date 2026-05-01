@@ -57,10 +57,12 @@ def _build_nav_html(current_semester: str) -> str:
     nav_items = []
     for sem in ALL_SEMESTERS:
         filename = semester_to_filename(sem)
-        active = ' class="semester-nav-link active" aria-current="page"' if sem == current_semester else ' class="semester-nav-link"'
-        nav_items.append(
-            f'<a href="{filename}"{active}>{sem}</a>'
+        active = (
+            ' class="semester-nav-link active" aria-current="page"'
+            if sem == current_semester
+            else ' class="semester-nav-link"'
         )
+        nav_items.append(f'<a href="{filename}"{active}>{sem}</a>')
     return "\n            ".join(nav_items)
 
 
@@ -98,7 +100,7 @@ def build_semester_page(
         milestones=milestones,
         js_file=js_file,
         css_file=css_file,
-        asset_base_url="assets/"
+        asset_base_url="assets/",
     )
 
 

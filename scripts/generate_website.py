@@ -61,9 +61,7 @@ def main() -> None:
 
     # Generate
     success = service.generate(
-        semester_key=args.semester,
-        force=args.force,
-        minify=args.minify
+        semester_key=args.semester, force=args.force, minify=args.minify
     )
 
     if not success:
@@ -76,7 +74,9 @@ def main() -> None:
             # Try getting from config
             try:
                 config = get_config()
-                project_name = config.get("website", {}).get("pages_project_name", "registrar-monitor")
+                project_name = config.get("website", {}).get(
+                    "pages_project_name", "registrar-monitor"
+                )
             except Exception:
                 project_name = "registrar-monitor"
 
