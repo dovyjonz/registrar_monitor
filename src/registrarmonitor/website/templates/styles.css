@@ -549,8 +549,7 @@ header p {
     content-visibility: auto;
     contain-intrinsic-size: 120px 44px;
     /* Fix tall cards */
-    min-height: 44px;
-    max-height: 52px;
+    height: 44px;
     overflow: hidden;
 }
 
@@ -1049,8 +1048,7 @@ header {
     .course-cell {
         padding: 6px 8px;
         font-size: 0.7rem;
-        min-height: 36px;
-        max-height: 42px;
+        height: 36px;
     }
 
     .modal-overlay {
