@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import json
+from collections import deque
 import os
 import subprocess
 import sys
@@ -379,11 +380,14 @@ class DecisionLogger:
         decisions = []
         try:
             with open(self.log_file, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        decisions.append(json.loads(line))
-            return decisions[-count:]
+                # Use deque to only keep the last `count` lines in memory
+                last_lines = deque(f, maxlen=count)
+
+            for line in last_lines:
+                line = line.strip()
+                if line:
+                    decisions.append(json.loads(line))
+            return decisions
         except Exception as e:
             print(f"WARNING: Failed to read decisions: {e}")
             return []

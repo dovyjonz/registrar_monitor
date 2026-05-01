@@ -1,8 +1,5 @@
 
-import asyncio
-import os
-import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from telegram.constants import ParseMode
