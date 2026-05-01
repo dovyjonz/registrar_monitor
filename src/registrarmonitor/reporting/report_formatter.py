@@ -75,7 +75,7 @@ class ReportFormatter:
             report_lines.append("No significant changes detected.")
             return "\n".join(report_lines)
 
-        sorted_course_codes = sorted(list(all_course_codes))
+        sorted_course_codes = sorted(all_course_codes)
 
         for course_code in sorted_course_codes:
             current_course = current.courses.get(course_code)
