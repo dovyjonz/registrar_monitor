@@ -1,6 +1,5 @@
 import pytest
 import os
-import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from registrarmonitor.automation.downloader import DataDownloader
 from registrarmonitor.core.exceptions import FileProcessingError
