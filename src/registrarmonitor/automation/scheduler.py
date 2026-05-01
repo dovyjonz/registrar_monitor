@@ -628,8 +628,14 @@ class HybridScheduler:
 
         # Start caffeinate
         try:
-            self.caffeinate_process = subprocess.Popen(
-                ["caffeinate", "-d", "-i", "-m", "-s", "-w", str(os.getpid())],
+            self.caffeinate_process = await asyncio.create_subprocess_exec(
+                "caffeinate",
+                "-d",
+                "-i",
+                "-m",
+                "-s",
+                "-w",
+                str(os.getpid()),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -1218,8 +1224,14 @@ class TwoPhaseScheduler:
 
         # Start caffeinate
         try:
-            self.caffeinate_process = subprocess.Popen(
-                ["caffeinate", "-d", "-i", "-m", "-s", "-w", str(os.getpid())],
+            self.caffeinate_process = await asyncio.create_subprocess_exec(
+                "caffeinate",
+                "-d",
+                "-i",
+                "-m",
+                "-s",
+                "-w",
+                str(os.getpid()),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
