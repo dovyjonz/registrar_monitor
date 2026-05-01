@@ -57,6 +57,21 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
         skipped_count = 0
         not_found_count = 0
 
+        # Pre-fetch mapping of (course_code, section_code) -> (section_id, instructor)
+        cursor.execute(
+            """
+            SELECT c.course_code, s.section_code, s.section_id, s.instructor
+            FROM sections s
+            JOIN courses c ON s.course_id = c.course_id
+            """
+        )
+        section_map = {}
+        for mapping_row in cursor.fetchall():
+            c_code, s_code, s_id, inst = mapping_row
+            section_map[(c_code, s_code)] = (s_id, inst if inst is not None else "")
+
+        updates = []
+
         logger.info("Processing sections for instructor updates...")
         for row in data:
             course_code = row.get("Course Abbr")
@@ -65,11 +80,13 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
 
             # Check validity, ensuring they are strings (sometimes xlrd might return non-strings if malformed)
             if not (isinstance(course_code, str) and isinstance(section_code, str)):
-                 # Try converting to string if possible, or skip
-                 if course_code is not None: course_code = str(course_code)
-                 if section_code is not None: section_code = str(section_code)
+                # Try converting to string if possible, or skip
+                if course_code is not None:
+                    course_code = str(course_code)
+                if section_code is not None:
+                    section_code = str(section_code)
 
-                 if not course_code or not section_code:
+                if not course_code or not section_code:
                     skipped_count += 1
                     continue
 
@@ -81,35 +98,26 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                 instructor = ""
             instructor = instructor.strip()
 
-            # Find the section_id for the given course and section code
-            cursor.execute(
-                """
-                SELECT s.section_id, s.instructor
-                FROM sections s
-                JOIN courses c ON s.course_id = c.course_id
-                WHERE c.course_code = ? AND s.section_code = ?
-                """,
-                (course_code, section_code),
-            )
-            result = cursor.fetchone()
+            # Lookup the section_id and old instructor
+            result = section_map.get((course_code, section_code))
 
             if result:
                 section_id, old_instructor = result
-                if old_instructor is None:
-                    old_instructor = ""
 
                 if old_instructor != instructor:
                     if not dry_run:
-                        cursor.execute(
-                            "UPDATE sections SET instructor = ? WHERE section_id = ?",
-                            (instructor, section_id),
-                        )
+                        updates.append((instructor, section_id))
                     logger.debug(
                         f"Updating {course_code}-{section_code}: '{old_instructor}' -> '{instructor}'"
                     )
                     updated_count += 1
             else:
                 not_found_count += 1
+
+        if not dry_run and updates:
+            cursor.executemany(
+                "UPDATE sections SET instructor = ? WHERE section_id = ?", updates
+            )
 
         logger.info(
             f"Instructor Population Summary: Updated={updated_count}, NotFound={not_found_count}, Skipped={skipped_count}"
