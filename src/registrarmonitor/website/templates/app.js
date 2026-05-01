@@ -639,7 +639,10 @@ function closeModal() {
 function clearChartActiveElements() {
     if (chart) {
         chart.setActiveElements([]);
-        chart.tooltip.setActiveElements([]);
+        if (chart.tooltip) {
+            chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+            chart.tooltip.opacity = 0;
+        }
         chart.update('none');
     }
 }
