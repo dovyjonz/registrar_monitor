@@ -6,7 +6,7 @@ from pathlib import Path
 # Add src to python path so we can import models
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
-from registrarmonitor.models import EnrollmentSnapshot, Course
+from registrarmonitor.models import EnrollmentSnapshot
 
 def load_snapshot(filepath):
     with open(filepath, "r") as f:

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from fpdf import FPDF
 
 from ..config import get_config
-from ..models import EnrollmentSnapshot, Course, Section
+from ..models import EnrollmentSnapshot, Course
 from ..utils import (
     analyze_section_pattern,
     calculate_effective_rows,

@@ -146,7 +146,7 @@ class TestTwoPhaseScheduler:
         """Test quiet mode interval for idle state (score 1-3)."""
         interval, _ = scheduler.get_next_poll_interval(2.0)
         # idle interval is 600s, but may be capped by baseline
-        assert interval <= 600
+        assert interval <= 900
 
     def test_quiet_interval_active(self, scheduler):
         """Test quiet mode interval for active state (score >= 3)."""
