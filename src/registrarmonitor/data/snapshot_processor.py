@@ -249,20 +249,19 @@ class SnapshotProcessor:
         if not os.path.exists(self.data_dir):
             return None
 
-        json_files = [
-            f
-            for f in os.listdir(self.data_dir)
-            if f.endswith(".json") and not f.startswith(".")
-        ]
+        with os.scandir(self.data_dir) as it:
+            files_with_mtime = [
+                (entry.name, entry.stat().st_mtime)
+                for entry in it
+                if entry.is_file() and entry.name.endswith(".json") and not entry.name.startswith(".")
+            ]
 
-        if not json_files:
+        if not files_with_mtime:
             return None
 
         # Sort by modification time to get the most recent
-        json_files.sort(
-            key=lambda f: os.path.getmtime(os.path.join(self.data_dir, f)), reverse=True
-        )
-        latest_file = os.path.join(self.data_dir, json_files[0])
+        files_with_mtime.sort(key=lambda x: x[1], reverse=True)
+        latest_file = os.path.join(self.data_dir, files_with_mtime[0][0])
 
         try:
             with open(latest_file, "r") as f:
