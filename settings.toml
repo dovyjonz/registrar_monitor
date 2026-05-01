@@ -1,7 +1,6 @@
-# Configuration file for RegistrarPDF application
+# Configuration file for Registrar Monitor
 
 [directories]
-pdf_output = "assets/pdf"
 text_reports = "assets/changes"
 data_storage = "data"
 raw_downloads = "assets/downloads"
@@ -11,18 +10,6 @@ logs = "logs"
 [data_source]
 # University registrar data URL
 url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823"
-
-[pdf_settings]
-# Font settings for PDF generation
-font_path = "/Users/spook/Library/Fonts/JetBrainsMono-Regular.ttf"
-font_name = "JetBrains Mono"
-font_size_normal = 7
-font_size_footer = 8
-
-# Department rows calculation method
-# If true, uses legacy simple calculation: len(dept_group) + 0.5
-# If false, uses sophisticated calculate_effective_rows function
-use_legacy_dept_rows = true
 
 [notifications]
 # File write delay before sending notifications (seconds)

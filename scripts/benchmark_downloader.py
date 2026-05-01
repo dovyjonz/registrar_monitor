@@ -1,12 +1,18 @@
 import asyncio
 import time
 import os
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
 from registrarmonitor.automation.downloader import DataDownloader
 
 # Mock data size (e.g., 200MB)
 FILE_SIZE = 200 * 1024 * 1024
 MOCK_CONTENT = b"0" * FILE_SIZE
+
 
 async def heartbeat(stop_event, latencies):
     print("Heartbeat started")
@@ -17,8 +23,9 @@ async def heartbeat(stop_event, latencies):
         latencies.append(dt)
     print("Heartbeat stopped")
 
+
 async def run_benchmark():
-    print(f"Benchmarking download with {FILE_SIZE/1024/1024}MB file...")
+    print(f"Benchmarking download with {FILE_SIZE / 1024 / 1024}MB file...")
 
     mock_response = MagicMock()
     mock_response.content = MOCK_CONTENT
@@ -60,6 +67,7 @@ async def run_benchmark():
         print(f"⚠️  Event loop BLOCKED for ~{blocking_overhead:.4f}s during write!")
     else:
         print("✅ Event loop remained responsive.")
+
 
 if __name__ == "__main__":
     asyncio.run(run_benchmark())

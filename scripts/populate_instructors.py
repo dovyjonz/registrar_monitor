@@ -4,10 +4,10 @@ import sys
 
 # Add project root to sys.path to allow imports from the src directory
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, "src"))
 
-from src.registrarmonitor.data.instructor_populator import populate_instructors  # noqa: E402
-from src.registrarmonitor.core import setup_logging  # noqa: E402
+from registrarmonitor.data.instructor_populator import populate_instructors  # noqa: E402
+from registrarmonitor.core import setup_logging  # noqa: E402
 
 
 def main():

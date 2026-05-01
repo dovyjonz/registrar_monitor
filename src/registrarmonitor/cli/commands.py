@@ -388,7 +388,6 @@ class DatabaseCommands:
 
                 if self.debug:
                     print("🔍 DEBUG: Additional database info available")
-                    detected_semester = await detect_active_semester(self.debug)
                     if detected_semester:
                         print(
                             f"🔍 DEBUG: Active semester detected: {detected_semester}"

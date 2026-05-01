@@ -1,5 +1,5 @@
 """
-Common validation utilities for RegistrarPDF application.
+Common validation utilities for Registrar Monitor application.
 
 This module provides shared validation functions used across multiple scripts
 to eliminate code duplication.

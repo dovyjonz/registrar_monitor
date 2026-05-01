@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from ..automation.downloader import DataDownloader
-from ..automation.scheduler import HybridScheduler
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError
 from ..data.database_manager import DatabaseManager
@@ -199,19 +198,6 @@ class MonitoringService:
             self.logger.error(f"Failed to cleanup old data: {e}")
             return 0
 
-    def start_scheduler(self) -> None:
-        """
-        Start the hybrid scheduler for automated monitoring.
-        """
-        try:
-            self.logger.info("Starting hybrid scheduler")
-            scheduler = HybridScheduler()
-            scheduler.start()
-
-        except Exception as e:
-            self.logger.error(f"Failed to start scheduler: {e}")
-            raise
-
     def get_database_stats(self) -> dict:
         """
         Get statistics about the database contents.
@@ -316,54 +302,12 @@ class MonitoringService:
             # Process into snapshot
             snapshot = self.snapshot_processor.process_data(data, semester, timestamp)
 
-            # Save snapshot
-            json_path = self.snapshot_processor.save_snapshot(snapshot)
-            self.logger.info(f"Saved snapshot to: {json_path}")
+            # Save snapshot to database
+            self.snapshot_processor.save_snapshot(snapshot)
+            self.logger.info("Saved snapshot to database")
 
             return snapshot
 
         except Exception as e:
             self.logger.error(f"Failed to process file {file_path}: {e}")
             raise FileProcessingError(f"Failed to process file: {e}") from e
-
-    def _extract_semester_from_filename(self, file_path: str) -> str:
-        """
-        Extract semester information from filename.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            Extracted semester or default value
-        """
-        filename = Path(file_path).stem.lower()
-
-        # Common semester patterns
-        if "fall" in filename or "autumn" in filename:
-            if "2024" in filename:
-                return "Fall 2024"
-            elif "2025" in filename:
-                return "Fall 2025"
-        elif "spring" in filename:
-            if "2024" in filename:
-                return "Spring 2024"
-            elif "2025" in filename:
-                return "Spring 2025"
-        elif "summer" in filename:
-            if "2024" in filename:
-                return "Summer 2024"
-            elif "2025" in filename:
-                return "Summer 2025"
-
-        # Default fallback
-        import datetime
-
-        current_year = datetime.datetime.now().year
-        current_month = datetime.datetime.now().month
-
-        if current_month <= 5:
-            return f"Spring {current_year}"
-        elif current_month <= 8:
-            return f"Summer {current_year}"
-        else:
-            return f"Fall {current_year}"

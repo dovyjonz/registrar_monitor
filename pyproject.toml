@@ -8,16 +8,10 @@ dependencies = [
     "xlrd",
     "python-telegram-bot",
     "fpdf",
-    "requests",
-    "urllib3",
     "httpx",
-    "types-requests>=2.32.4.20250611",
     "types-toml>=0.10.8.20240310",
-    "types-urllib3>=1.26.25.14",
-    "schedule>=1.2.2",
     "python-dotenv>=1.0.0",
     "jinja2>=3.1.6",
-    "playwright>=1.59.0",
 ]
 
 [project.scripts]
@@ -43,7 +37,10 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [tool.ty.environment]
-extra-paths = ["scripts"]
+extra-paths = ["scripts", "src"]
+
+[tool.pyright]
+extraPaths = ["src", "scripts"]
 
 [[tool.mypy.overrides]]
 module = "xlrd"

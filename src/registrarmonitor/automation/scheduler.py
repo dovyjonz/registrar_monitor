@@ -235,11 +235,11 @@ async def poll_and_get_change_score() -> float:
         try:
             from ..cli.commands import PollCommand
             from ..data.snapshot_comparator import SnapshotComparator
-            from ..data.snapshot_processor import SnapshotProcessor
+            from ..services.monitoring_service import MonitoringService
         except ImportError:
             from registrarmonitor.cli.commands import PollCommand
             from registrarmonitor.data.snapshot_comparator import SnapshotComparator
-            from registrarmonitor.data.snapshot_processor import SnapshotProcessor
+            from registrarmonitor.services.monitoring_service import MonitoringService
 
         # Run only the polling command
         poll_command = PollCommand(debug=False)
@@ -248,17 +248,15 @@ async def poll_and_get_change_score() -> float:
             return 0.0
 
         # Calculate change score based on the comparison
-        snapshot_processor = SnapshotProcessor()
+        monitoring_service = MonitoringService()
         comparator = SnapshotComparator()
 
-        # Get the latest two snapshots for comparison
-        latest_snapshot = snapshot_processor.get_latest_snapshot()
+        # Get the latest two snapshots for comparison from the database
+        latest_snapshot, previous_snapshot = (
+            monitoring_service.get_snapshot_comparison()
+        )
         if not latest_snapshot:
             return 0.0
-
-        previous_snapshot = snapshot_processor.load_latest_snapshot(
-            latest_snapshot.semester, latest_snapshot.timestamp
-        )
 
         if not previous_snapshot:
             # First snapshot, consider it low activity

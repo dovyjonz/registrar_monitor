@@ -1,42 +1,12 @@
 """Tests for the utils module (formatting, sorting, analysis functions)."""
 
 from registrarmonitor.utils import (
-    analyze_section_pattern,
-    calculate_effective_rows,
     construct_output_path,
-    format_course_code,
     generate_safe_filename_components,
     get_section_sort_key,
     get_section_type,
     get_sort_priority,
 )
-
-
-class TestFormatCourseCode:
-    """Tests for format_course_code function."""
-
-    def test_standard_course_code(self):
-        """Standard course code should be formatted with proper spacing."""
-        result = format_course_code("CS 101", width=8)
-        assert len(result) >= 8
-        assert "CS" in result
-        assert "101" in result
-
-    def test_long_course_code(self):
-        """Long course codes should be handled gracefully."""
-        result = format_course_code("MATH 101A", width=8)
-        assert "MATH" in result
-        assert "101" in result
-
-    def test_empty_code(self):
-        """Empty code should return spaces."""
-        result = format_course_code("", width=8)
-        assert result == " " * 8
-
-    def test_single_word_code(self):
-        """Single word code should be left-justified."""
-        result = format_course_code("CS101", width=8)
-        assert len(result) == 8
 
 
 class TestGetSectionType:
@@ -123,45 +93,6 @@ class TestGetSectionSortKey:
         key_a = get_section_sort_key("1A", "L")
         key_b = get_section_sort_key("1B", "L")
         assert key_a < key_b
-
-
-class TestAnalyzeSectionPattern:
-    """Tests for analyze_section_pattern function."""
-
-    def test_empty_sections(self):
-        """Empty sections should return empty string."""
-        assert analyze_section_pattern([]) == ""
-
-    def test_single_fill_value(self):
-        """Single fill value should return empty string."""
-        sections = [{"S/T": "10L", "Fill": 0.80}]
-        assert analyze_section_pattern(sections) == ""
-
-    def test_multiple_section_types(self):
-        """Multiple section types should produce summary."""
-        sections = [
-            {"S/T": "10L", "Fill": 0.80},
-            {"S/T": "11L", "Fill": 0.85},
-            {"S/T": "1R", "Fill": 0.70},
-        ]
-        result = analyze_section_pattern(sections)
-        assert result != ""
-        # Should contain type indicators
-        assert "L" in result or "R" in result
-
-class TestCalculateEffectiveRows:
-    """Tests for calculate_effective_rows."""
-
-    def test_single_dept(self):
-        """Single department should just count items."""
-        items = [("CS 101", None), ("CS 102", None)]
-        assert calculate_effective_rows(items) == 2.0
-
-    def test_dept_change(self):
-        """Department change should add spacing."""
-        items = [("CS 101", None), ("MATH 101", None)]
-        # 1 for CS, 0.5 spacing, 1 for MATH
-        assert calculate_effective_rows(items) == 2.5
 
 
 class TestGenerateSafeFilenameComponents:

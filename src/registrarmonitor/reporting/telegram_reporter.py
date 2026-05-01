@@ -1,5 +1,5 @@
 """
-Telegram reporting module for sending enrollment reports and change notifications.
+Telegram reporting module for sending enrollment change notifications.
 """
 
 import argparse
@@ -20,7 +20,6 @@ class TelegramReporter:
         self.config = get_config()
         self.bot_token = self.config["telegram"]["bot_token"]
         self.chat_id = self.config["telegram"]["chat_id"]
-        self.pdf_output_dir = self.config["directories"]["pdf_output"]
         self.text_reports_dir = self.config["directories"]["text_reports"]
         self.file_write_delay = self.config.get("notifications", {}).get(
             "file_write_delay", 3
@@ -30,44 +29,15 @@ class TelegramReporter:
         self.bot = Bot(token=self.bot_token)
 
     def _read_file_content(
-        self, file_path: str, mode: str = "rb", encoding: str = None, limit: int = -1
+        self,
+        file_path: str,
+        mode: str = "rb",
+        encoding: str | None = None,
+        limit: int = -1,
     ) -> bytes | str:
         """Helper to read file content synchronously."""
         with open(file_path, mode, encoding=encoding) as f:
             return f.read(limit)
-
-    async def send_pdf_report(self, file_path: str):
-        """Send a PDF report via Telegram."""
-        await asyncio.sleep(self.file_write_delay)  # Wait for file to be fully written
-
-        if not os.path.exists(file_path):
-            print(f"PDF file {file_path} disappeared before sending.")
-            return
-
-        filename = os.path.basename(file_path)
-
-        if self.dry_run:
-            print(f"[DRY RUN] Would send PDF: {file_path}")
-            return
-
-        try:
-            print(f"Sending PDF: {filename} to chat ID {self.chat_id}")
-            # Read file content in a separate thread to avoid blocking the event loop
-            pdf_content = await asyncio.to_thread(self._read_file_content, file_path, "rb")
-
-            await self.bot.send_document(
-                chat_id=self.chat_id,
-                document=pdf_content,
-                filename=filename,
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            print(f"Successfully sent PDF: {filename}")
-        except TelegramError as e:
-            print(f"Error sending PDF {filename}: {e}")
-        except FileNotFoundError:
-            print(f"Error: PDF file not found at {file_path} during send attempt.")
-        except Exception as e:
-            print(f"An unexpected error occurred sending PDF {filename}: {e}")
 
     async def send_text_report(self, file_path: str):
         """Send a text report via Telegram."""
@@ -218,21 +188,18 @@ def main():
     parser = argparse.ArgumentParser(
         description="Telegram Reporter for Enrollment Data"
     )
-    parser.add_argument("--send-pdf", type=str, help="Send a specific PDF file")
     parser.add_argument("--send-txt", type=str, help="Send a specific text file")
     parser.add_argument("--dry-run", action="store_true", help="Enable dry run mode")
 
     args = parser.parse_args()
 
-    if args.send_pdf or args.send_txt:
+    if args.send_txt:
         reporter = TelegramReporter()
 
         if args.dry_run:
             reporter.dry_run = True
 
         async def send_files():
-            if args.send_pdf and os.path.exists(args.send_pdf):
-                await reporter.send_pdf_report(args.send_pdf)
             if args.send_txt and os.path.exists(args.send_txt):
                 await reporter.send_text_report(args.send_txt)
 
