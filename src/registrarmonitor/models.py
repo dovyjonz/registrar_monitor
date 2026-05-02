@@ -92,13 +92,9 @@ class Course:
             self.sections = ObservableDict(self._invalidate_cache, self.sections)
 
     def _invalidate_cache(self):
-        for prop in (
-            "is_filled",
-            "is_near_filled",
-            "total_enrollment",
-            "total_capacity",
-        ):
-            self.__dict__.pop(prop, None)
+        for prop, descriptor in type(self).__dict__.items():
+            if isinstance(descriptor, cached_property):
+                self.__dict__.pop(prop, None)
 
     @cached_property
     def is_filled(self) -> bool:
