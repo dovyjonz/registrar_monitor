@@ -1,5 +1,44 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import MutableMapping, Optional
+from collections import UserDict
+from functools import cached_property
+
+
+class ObservableDict(UserDict):
+    def __init__(self, callback, *args, **kwargs):
+        self._callback = callback
+        super().__init__(*args, **kwargs)
+
+    def __setitem__(self, key, item):
+        super().__setitem__(key, item)
+        self._callback()
+
+    def __delitem__(self, key):
+        super().__delitem__(key)
+        self._callback()
+
+    def clear(self):
+        super().clear()
+        self._callback()
+
+    def update(self, *args, **kwargs):
+        super().update(*args, **kwargs)
+        self._callback()
+
+    def pop(self, key, *args):
+        res = super().pop(key, *args)
+        self._callback()
+        return res
+
+    def popitem(self):
+        res = super().popitem()
+        self._callback()
+        return res
+
+    def setdefault(self, key, default=None):
+        res = super().setdefault(key, default)
+        self._callback()
+        return res
 
 
 @dataclass
@@ -44,11 +83,20 @@ class Section:
 class Course:
     course_code: str
     department: str
-    sections: dict[str, Section] = field(default_factory=dict)
+    sections: MutableMapping[str, Section] = field(default_factory=dict)
     average_fill: float = 0.0
     course_title: Optional[str] = None
 
-    @property
+    def __post_init__(self):
+        if not isinstance(self.sections, ObservableDict):
+            self.sections = ObservableDict(self._invalidate_cache, self.sections)
+
+    def _invalidate_cache(self):
+        for prop, descriptor in type(self).__dict__.items():
+            if isinstance(descriptor, cached_property):
+                self.__dict__.pop(prop, None)
+
+    @cached_property
     def is_filled(self) -> bool:
         """Check if all sections of at least one type are filled."""
         if not self.sections:
@@ -71,7 +119,7 @@ class Course:
         """Check if course is near capacity but not filled."""
         return not self.is_filled and self.average_fill >= 0.75
 
-    @property
+    @cached_property
     def total_enrollment(self) -> int:
         """Get total enrollment for the course.
 
@@ -98,7 +146,7 @@ class Course:
         # Return minimum enrollment across all types
         return min(enrollment_by_type.values()) if enrollment_by_type else 0
 
-    @property
+    @cached_property
     def total_capacity(self) -> int:
         """Get total capacity for the course.
 
