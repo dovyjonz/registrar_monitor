@@ -1252,7 +1252,10 @@ def generate_html(data: dict[str, Any], milestones: list[dict[str, str]]) -> str
         function clearChartActiveElements() {{
             if (chart) {{
                 chart.setActiveElements([]);
-                chart.tooltip.setActiveElements([]);
+                if (chart.tooltip) {{
+                    chart.tooltip.setActiveElements([], {{ x: 0, y: 0 }});
+                    chart.tooltip.opacity = 0;
+                }}
                 chart.update('none');
             }}
         }}
@@ -2398,7 +2401,10 @@ def generate_combined_html(combined_data: dict[str, Any]) -> str:
         function clearChartActiveElements() {{
             if (chart) {{
                 chart.setActiveElements([]);
-                chart.tooltip.setActiveElements([]);
+                if (chart.tooltip) {{
+                    chart.tooltip.setActiveElements([], {{ x: 0, y: 0 }});
+                    chart.tooltip.opacity = 0;
+                }}
                 chart.update('none');
             }}
         }}
