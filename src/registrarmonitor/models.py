@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import MutableMapping, Optional
 from collections import UserDict
 from functools import cached_property
 
@@ -83,7 +83,7 @@ class Section:
 class Course:
     course_code: str
     department: str
-    sections: dict[str, Section] = field(default_factory=dict)
+    sections: MutableMapping[str, Section] = field(default_factory=dict)
     average_fill: float = 0.0
     course_title: Optional[str] = None
 
