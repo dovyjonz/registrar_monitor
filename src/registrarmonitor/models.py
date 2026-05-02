@@ -114,7 +114,7 @@ class Course:
         # then all its sections were filled.
         return len(present_types) > len(failed_types)
 
-    @cached_property
+    @property
     def is_near_filled(self) -> bool:
         """Check if course is near capacity but not filled."""
         return not self.is_filled and self.average_fill >= 0.75
