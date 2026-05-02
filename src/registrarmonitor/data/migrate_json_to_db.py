@@ -26,6 +26,9 @@ class JSONMigrator:
         # Database managers will be created per semester
         self.db_managers = {}
 
+        # Cache for existing timestamps to avoid repeated queries
+        self._existing_timestamps: dict[str, set[str]] = {}
+
         # Set up logging
         self.logger = get_logger(__name__)
 
@@ -119,17 +122,16 @@ class JSONMigrator:
             bool: True if snapshot exists
         """
         try:
-            db_manager = self._get_db_manager(semester)
-            with db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT COUNT(*) FROM snapshots WHERE timestamp = ?", (timestamp,)
-                )
-                result = cursor.fetchone()
-                if result is None:
-                    return False
-                count: int = result[0]
-                return count > 0
+            if semester not in self._existing_timestamps:
+                db_manager = self._get_db_manager(semester)
+                with db_manager.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT timestamp FROM snapshots")
+                    self._existing_timestamps[semester] = {
+                        row[0] for row in cursor.fetchall()
+                    }
+
+            return timestamp in self._existing_timestamps[semester]
         except Exception as e:
             self.logger.error(f"Error checking if snapshot exists: {e}")
             return False
@@ -163,6 +165,11 @@ class JSONMigrator:
             # Store in database using semester-specific manager
             db_manager = self._get_db_manager(snapshot.semester)
             db_manager.store_enrollment_snapshot(snapshot)
+
+            # Update cache if it exists
+            if snapshot.semester in self._existing_timestamps:
+                self._existing_timestamps[snapshot.semester].add(snapshot.timestamp)
+
             self.logger.info(
                 f"Successfully migrated {file_path.name} to {snapshot.semester} database"
             )
