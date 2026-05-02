@@ -124,9 +124,13 @@ class TelegramReporter:
             current_length = sum(len(line) + 1 for line in header_lines)
 
         i = course_start_idx
+        block_count = 0
         while i < len(lines):
-            # Yield control back to event loop periodically to prevent blocking
-            await asyncio.sleep(0)
+            # Yield control back to event loop every 50 course blocks to avoid
+            # excessive scheduling overhead while still keeping the app responsive
+            if block_count % 50 == 0:
+                await asyncio.sleep(0)
+            block_count += 1
 
             # Find the next course block
             course_block = []
@@ -138,8 +142,14 @@ class TelegramReporter:
             course_block_length += len(line) + 1
             i += 1
 
-            # Read rest of the block until next course
+            # Read rest of the block until next course, yielding every 1000 lines
+            # so a single huge block cannot monopolize the event loop
+            inner_count = 0
             while i < len(lines):
+                if inner_count % 1000 == 0:
+                    await asyncio.sleep(0)
+                inner_count += 1
+
                 line = lines[i]
                 is_course_start = (
                     line.strip()
