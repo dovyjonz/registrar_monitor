@@ -128,9 +128,9 @@ class TelegramReporter:
         while i < len(lines):
             # Yield control back to event loop every 50 course blocks to avoid
             # excessive scheduling overhead while still keeping the app responsive
+            block_count += 1
             if block_count % 50 == 0:
                 await asyncio.sleep(0)
-            block_count += 1
 
             # Find the next course block
             course_block = []
@@ -146,9 +146,9 @@ class TelegramReporter:
             # so a single huge block cannot monopolize the event loop
             inner_count = 0
             while i < len(lines):
+                inner_count += 1
                 if inner_count % 1000 == 0:
                     await asyncio.sleep(0)
-                inner_count += 1
 
                 line = lines[i]
                 is_course_start = (
