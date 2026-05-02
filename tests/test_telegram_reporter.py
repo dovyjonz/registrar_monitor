@@ -89,6 +89,8 @@ async def test_send_long_report_splits_across_messages(reporter):
     """Long content with multiple large course blocks should be split into
     multiple Telegram messages so no individual message exceeds max_length."""
     max_length = 4000
+    # ``` wrapper adds "```\n" prefix and "\n```" suffix ≈ 8 chars; leave a small buffer
+    MARKDOWN_WRAPPER_OVERHEAD = 10
 
     header = "Previous Snapshot: 2024-01-01\nCurrent Snapshot: 2024-01-02\n"
 
@@ -115,6 +117,6 @@ async def test_send_long_report_splits_across_messages(reporter):
     # Every individual message must fit within the Telegram limit
     for call in reporter.bot.send_message.call_args_list:
         sent_text = call.kwargs["text"]
-        assert len(sent_text) <= max_length + 10, (  # +10 for the ``` wrapper
+        assert len(sent_text) <= max_length + MARKDOWN_WRAPPER_OVERHEAD, (
             f"Message too long: {len(sent_text)} chars"
         )
