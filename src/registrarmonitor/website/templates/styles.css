@@ -110,7 +110,7 @@ body {
 }
 
 /* Semester navigation (multi-page) */
-.semester-nav {
+.semester-links {
     display: flex;
     justify-content: center;
     gap: 8px;
@@ -549,7 +549,8 @@ header p {
     content-visibility: auto;
     contain-intrinsic-size: 120px 44px;
     /* Fix tall cards */
-    height: 44px;
+    min-height: 44px;
+    max-height: 52px;
     overflow: hidden;
 }
 
@@ -768,7 +769,11 @@ header p {
 .chart-placeholder {
     text-align: center;
     color: hsl(var(--muted-foreground));
-    padding: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* Fixed height to prevent resize on section selection */
+    height: 250px;
 }
 
 #enrollment-chart {
@@ -1005,12 +1010,13 @@ header {
 
     header h1 {
         font-size: 1.4rem;
+        border-radius: 4px;
     }
 
     /* Fix weird spaces under semester links */
-    .semester-nav {
-        margin: 8px 0;
-        gap: 4px;
+    .semester-links {
+        display: flex;
+        gap: 0.5rem;
     }
 
     .semester-nav-link {
@@ -1048,7 +1054,8 @@ header {
     .course-cell {
         padding: 6px 8px;
         font-size: 0.7rem;
-        height: 36px;
+        min-height: 36px;
+        max-height: 42px;
     }
 
     .modal-overlay {
