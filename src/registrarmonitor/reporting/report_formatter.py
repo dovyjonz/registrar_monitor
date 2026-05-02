@@ -65,37 +65,29 @@ class ReportFormatter:
         )
         report_lines.append("")
 
-        # Collect all course codes that changed
-        all_course_codes: Set[str] = set()
-        all_course_codes.update(c.course_code for c in comparison.new_courses)
-        all_course_codes.update(c.course_code for c in comparison.removed_courses)
-        all_course_codes.update(cc.course_code for cc in comparison.changed_courses)
+        # Pre-compute lookups for O(1) access
+        new_course_codes = {c.course_code for c in comparison.new_courses}
+        removed_course_codes = {c.course_code for c in comparison.removed_courses}
+        changed_courses_dict = {cc.course_code: cc for cc in comparison.changed_courses}
+
+        all_course_codes: Set[str] = (
+            new_course_codes | removed_course_codes | set(changed_courses_dict.keys())
+        )
 
         if not all_course_codes:
             report_lines.append("No significant changes detected.")
             return "\n".join(report_lines)
 
+        # Avoid redundant list conversion if sorting a set
         sorted_course_codes = sorted(all_course_codes)
 
         for course_code in sorted_course_codes:
             current_course = current.courses.get(course_code)
             prev_course = previous.courses.get(course_code)
 
-            is_new_course = any(
-                c.course_code == course_code for c in comparison.new_courses
-            )
-            is_removed_course = any(
-                c.course_code == course_code for c in comparison.removed_courses
-            )
-
-            course_change_detail = next(
-                (
-                    cc
-                    for cc in comparison.changed_courses
-                    if cc.course_code == course_code
-                ),
-                None,
-            )
+            is_new_course = course_code in new_course_codes
+            is_removed_course = course_code in removed_course_codes
+            course_change_detail = changed_courses_dict.get(course_code)
 
             # Format course header line
             if is_new_course and current_course:
