@@ -769,7 +769,11 @@ header p {
 .chart-placeholder {
     text-align: center;
     color: hsl(var(--muted-foreground));
-    padding: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* Fixed height to prevent resize on section selection */
+    height: 250px;
 }
 
 #enrollment-chart {
