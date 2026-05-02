@@ -31,13 +31,12 @@ class TelegramReporter:
     def _read_file_content(
         self,
         file_path: str,
-        mode: str = "r",
         encoding: str | None = None,
         limit: int = -1,
     ) -> str:
-        """Helper to read file content synchronously."""
-        with open(file_path, mode, encoding=encoding) as f:
-            return str(f.read(limit))
+        """Helper to read file content synchronously (text mode only)."""
+        with open(file_path, encoding=encoding) as f:
+            return f.read(limit)
 
     async def send_text_report(self, file_path: str):
         """Send a text report via Telegram."""
@@ -53,7 +52,7 @@ class TelegramReporter:
             try:
                 # Read preview in a separate thread
                 content_preview = await asyncio.to_thread(
-                    self._read_file_content, file_path, "r", "utf-8", 1000
+                    self._read_file_content, file_path, "utf-8", 1000
                 )
                 print(
                     f"[DRY RUN] Would send TXT report: {file_path}\nFilename: {filename}\nContent Preview (first 1000 chars):\n{content_preview}..."
@@ -65,7 +64,7 @@ class TelegramReporter:
         try:
             # Read full content in a separate thread
             content = await asyncio.to_thread(
-                self._read_file_content, file_path, "r", "utf-8"
+                self._read_file_content, file_path, "utf-8"
             )
 
             # Split content if it's too long for Telegram
@@ -96,6 +95,7 @@ class TelegramReporter:
         # Find header lines (first few lines before courses start)
         header_lines = []
         course_start_idx = 0
+        found_course = False
 
         for i, line in enumerate(lines):
             if i % 1000 == 0:
@@ -111,8 +111,13 @@ class TelegramReporter:
                 and not line.startswith("No significant changes")
             ):
                 course_start_idx = i
+                found_course = True
                 break
             header_lines.append(line)
+
+        # If no course line was found, all content is header — skip grouping loop
+        if not found_course:
+            course_start_idx = len(lines)
 
         # Group course sections
         current_chunk = []
