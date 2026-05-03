@@ -41,6 +41,7 @@
         <div class="controls-row">
             <input type="search" id="courseSearch" placeholder="Search courses..." aria-label="Filter courses"
                 class="search-input">
+            <span id="searchAnnouncement" aria-live="polite" class="visually-hidden" style="position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0;"></span>
 
             <div class="filter-buttons" role="group" aria-label="Filter by status">
                 <button class="filter-btn active" data-filter="all">All</button>
@@ -62,7 +63,13 @@
     </div>
 
     <main id="main-content">
-        <div class="course-grid" id="courseGrid" role="list" aria-label="Course list"></div>
+        <div class="course-grid" id="courseGrid" role="list" aria-label="Course list">
+            <div id="loadingIndicator" style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--text-secondary);">
+                <div style="display: inline-block; width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top-color: #ffd700; animation: spin 1s ease-in-out infinite;"></div>
+                <p style="margin-top: 1rem; font-family: monospace;">Loading enrollment data...</p>
+                <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+            </div>
+        </div>
     </main>
 
     <!-- Toast notification container -->
@@ -98,7 +105,7 @@
     </div>
 
     <script>
-        window.DATA = {{ data | tojson }};
-        window.MILESTONES = {{ milestones | tojson }};
+        // Store URL to fetch data from
+        window.JSON_URL = "{{ json_filename }}";
     </script>
 {% endblock %}
