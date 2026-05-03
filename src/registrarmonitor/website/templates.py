@@ -90,14 +90,16 @@ def build_semester_page(
     else:
         last_updated = "Last updated N/A"
 
+    # Calculate json filename
+    json_filename = semester_to_filename(semester).replace('.html', '.json')
+
     # Render template
     template = env.get_template("semester.html.jinja")
     return template.render(
         title=f"Enrollment Monitor - {semester}",
         nav_html=nav_html,
         last_updated=last_updated,
-        data=data,
-        milestones=milestones,
+        json_filename=json_filename,
         js_file=js_file,
         css_file=css_file,
         asset_base_url="assets/",

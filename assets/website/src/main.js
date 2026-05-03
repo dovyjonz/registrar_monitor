@@ -16,20 +16,20 @@ let viewingGraph = false;
 let currentEnrollmentData = [];
 
 // Access global variables injected by Python
-const DATA = window.DATA;
-const MILESTONES = window.MILESTONES;
-const COMBINED_DATA = window.COMBINED_DATA;
+let DATA = window.DATA || null;
+let MILESTONES = window.MILESTONES || [];
+let COMBINED_DATA = window.COMBINED_DATA;
 
 // Determine mode from data structure
 const IS_COMBINED = typeof COMBINED_DATA !== 'undefined';
 
 // For combined mode: active semester state
-let activeSemester = IS_COMBINED
+let activeSemester = IS_COMBINED && COMBINED_DATA
     ? (localStorage.getItem('activeSemester') || COMBINED_DATA.as)
     : null;
 
 // Validate stored semester exists (combined mode)
-if (IS_COMBINED && !COMBINED_DATA.sems.includes(activeSemester)) {
+if (IS_COMBINED && COMBINED_DATA && !COMBINED_DATA.sems.includes(activeSemester)) {
     activeSemester = COMBINED_DATA.as;
 }
 
@@ -40,7 +40,7 @@ const bookmarks = new Set(JSON.parse(localStorage.getItem('courseBookmarks') || 
  * Get current semester data based on mode.
  */
 function getData() {
-    if (IS_COMBINED) {
+    if (IS_COMBINED && COMBINED_DATA) {
         return COMBINED_DATA.sd[activeSemester];
     }
     return DATA;
@@ -750,6 +750,7 @@ function applyFilters() {
     const searchQuery = searchInput?.value.toLowerCase().trim() || '';
     const cells = document.querySelectorAll('.course-cell');
 
+    let visibleCount = 0;
     cells.forEach(cell => {
         const code = cell.getAttribute('data-course').toLowerCase();
         const status = cell.dataset.status;
@@ -760,8 +761,15 @@ function applyFilters() {
             (currentFilter === 'starred' && isStarred) ||
             status === currentFilter;
 
-        cell.classList.toggle('hidden', !(matchesSearch && matchesFilter));
+        const isVisible = matchesSearch && matchesFilter;
+        cell.classList.toggle('hidden', !isVisible);
+        if (isVisible) visibleCount++;
     });
+
+    const announcement = document.getElementById('searchAnnouncement');
+    if (announcement) {
+        announcement.textContent = `Showing ${visibleCount} courses`;
+    }
 
     // Update department headers
     document.querySelectorAll('.dept-header').forEach(header => {
@@ -914,22 +922,52 @@ function updateModalBookmark(code) {
     };
 }
 
-// Initialize
-if (IS_COMBINED) {
-    renderSemesterToggle();
-}
+// ============================================
+// Initialization
+// ============================================
 
-// Show "last updated" toast on load
-setTimeout(() => {
-    const lastUpdatedEl = document.getElementById('lastUpdated');
-    if (lastUpdatedEl) {
-        const text = lastUpdatedEl.textContent;
-        const match = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4}.*)/);
-        if (match) {
-            showToast(`📊 Data updated: ${match[1]}`);
+async function initApp() {
+    // If JSON_URL is provided, fetch it asynchronously
+    if (window.JSON_URL && !DATA) {
+        try {
+            const res = await fetch(window.JSON_URL);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            const payload = await res.json();
+            DATA = payload.data;
+            MILESTONES = payload.milestones;
+            
+            // Remove the loading indicator
+            const loader = document.getElementById('loadingIndicator');
+            if (loader) loader.remove();
+        } catch (error) {
+            console.error("Failed to load enrollment data:", error);
+            const loader = document.getElementById('loadingIndicator');
+            if (loader) {
+                loader.innerHTML = `<div style="color: #ff1744;">Failed to load data. Please refresh.</div>`;
+            }
+            return; // Stop initialization
         }
     }
-}, 1000);
 
-// Initial Render
-renderCourseGrid();
+    if (IS_COMBINED) {
+        renderSemesterToggle();
+    }
+
+    // Initial Render
+    renderCourseGrid();
+
+    // Show "last updated" toast on load
+    setTimeout(() => {
+        const lastUpdatedEl = document.getElementById('lastUpdated');
+        if (lastUpdatedEl) {
+            const text = lastUpdatedEl.textContent;
+            const match = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4}.*)/);
+            if (match) {
+                showToast(`📊 Data updated: ${match[1]}`);
+            }
+        }
+    }, 1000);
+}
+
+// Kick off
+initApp();

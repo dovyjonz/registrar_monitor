@@ -5,28 +5,33 @@ build/
 dist/
 wheels/
 *.egg-info
+*.egg
 
 # Virtual environments
-.venv
+.venv/
+env/
+venv/
 
 # Environment variables (secrets)
 .env
+.env.*
 
 # Tool caches
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.uv_cache/
 
 # Test coverage
 .coverage
 htmlcov/
 
 # Logs
-logs/
+/logs/
 *.log
 
 # Data files (runtime data, not source code)
-data/
+/data/
 *.db
 
 # Generated assets
@@ -34,6 +39,12 @@ assets/downloads/
 assets/changes/
 assets/index.html
 assets/website/public/*.html
+assets/website/public/*.json
+assets/website/public/.checksums.json
+assets/website/public/_headers
+assets/website/public/assets/
+assets/website/public/manifest.json
+assets/website/public/.vite/
 
 # Cloudflare Wrangler cache
 .wrangler/
@@ -45,6 +56,7 @@ assets/website/node_modules/
 
 # macOS
 .DS_Store
+**/.DS_Store
 
 # Generated schedule file
 schedule.txt

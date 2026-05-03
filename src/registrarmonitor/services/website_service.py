@@ -52,10 +52,22 @@ class WebsiteService:
             data, milestones, semester, minify_assets=minify_assets
         )
 
-        # Write output
+        # Write output HTML
         filename = semester_to_filename(semester)
         output_path = OUTPUT_DIR / filename
         output_path.write_text(html)
+
+        # Write JSON data payload for async fetching
+        import json
+        json_filename = filename.replace(".html", ".json")
+        json_path = OUTPUT_DIR / json_filename
+        
+        payload = {
+            "data": data,
+            "milestones": milestones,
+            "semester": semester
+        }
+        json_path.write_text(json.dumps(payload, separators=(',', ':')))
 
         # Update checksum
         update_checksum(semester)
@@ -152,6 +164,20 @@ class WebsiteService:
                 index_path = OUTPUT_DIR / "index.html"
                 index_path.write_text(index_html)
                 print("Updated index.html (redirect)")
+
+                # Generate Cloudflare _headers file
+                headers_content = """/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.json
+  Cache-Control: public, max-age=60, stale-while-revalidate=300
+"""
+                headers_path = OUTPUT_DIR / "_headers"
+                headers_path.write_text(headers_content)
+                print("Generated Cloudflare _headers")
 
             print(f"\nOutput directory: {OUTPUT_DIR}")
             return True

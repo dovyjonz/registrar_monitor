@@ -11,7 +11,11 @@ class Config:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(Config, cls).__new__(cls)
-            cls._instance.load_config()
+            try:
+                cls._instance.load_config()
+            except Exception:
+                cls._instance = None
+                raise
         return cls._instance
 
     def load_config(self):
@@ -19,10 +23,23 @@ class Config:
         load_dotenv()
 
         try:
-            with open("settings.toml", "r") as f:
+            from pathlib import Path
+            # Path to the root directory where settings.toml lives
+            root_dir = Path(__file__).parent.parent.parent
+            settings_path = root_dir / "settings.toml"
+            
+            with open(settings_path, "r") as f:
                 self.config = toml.load(f)
+                
+            # Make all directory paths absolute relative to the project root
+            if "directories" in self.config:
+                for key, val in self.config["directories"].items():
+                    # If it's a relative path, resolve it against root_dir
+                    path_obj = Path(val)
+                    if not path_obj.is_absolute():
+                        self.config["directories"][key] = str((root_dir / val).resolve())
         except FileNotFoundError:
-            raise Exception("Configuration file 'settings.toml' not found.")
+            raise Exception(f"Configuration file 'settings.toml' not found at {settings_path}")
 
         # Initialize telegram config from environment variables
         # This allows keeping secrets out of version control via .env file
