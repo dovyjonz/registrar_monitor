@@ -25,7 +25,7 @@ def get_current_time_str() -> str:
 class SchedulingLevel(Enum):
     """Unified enum for scheduling levels (zones/tiers).
 
-    Each level has a string value (for schedule.txt parsing) and an interval in seconds.
+    Each level has a string label and an interval in seconds.
     Priority: EXTREME > HIGH > MODERATE > LOW
     """
 
@@ -33,6 +33,7 @@ class SchedulingLevel(Enum):
     HIGH = ("high", 120)  # 2 minutes - High activity
     MODERATE = ("moderate", 300)  # 5 minutes - Moderate activity
     LOW = ("low", 1200)  # 20 minutes - Default/normal
+    SLEEP = ("sleep", 3600)  # 1 hour - Outside all registration windows
 
     def __init__(self, label: str, interval: int):
         self._label = label
@@ -93,104 +94,123 @@ def parse_schedule_file(
     force_reload: bool = False,
 ) -> dict[ZoneType, list[tuple[datetime.datetime, datetime.datetime]]]:
     """
-    Parse the schedule file and return zones organized by type.
-    Uses caching to reduce I/O. Checks file modification time every _CACHE_TTL seconds.
+    Build scheduler zones from milestones defined in settings.toml.
 
-    Args:
-        schedule_file: Path to schedule file
-        force_reload: If True, bypass cache and force reload from disk
+    The ``schedule_file`` parameter is kept for backward compatibility but is
+    **ignored** — zones are now auto-inferred from ``settings.toml``
+    ``[semesters.milestones]`` and ``[semesters.deadlines]``.
+
+    Zone inference rules (per milestone):
+        extreme = [time − 5 min,  time + 10 min]
+        high    = [time + 10 min, time + 30 min]
+    Per deadline:
+        moderate = [time − 30 min, time + 30 min]
 
     Returns:
         Dictionary mapping zone types to lists of (start_time, end_time) tuples.
-        WARNING: The returned dictionary is cached. Do not modify it in place.
     """
-    abs_path = os.path.abspath(schedule_file)
+    abs_path = os.path.abspath("settings.toml")
     now = time.time()
 
-    # Check cache first
+    # ---- cache check (same logic as before, keyed on settings.toml) ----
     if not force_reload and abs_path in _SCHEDULE_CACHE:
         cache_entry = _SCHEDULE_CACHE[abs_path]
-        # If TTL hasn't expired, return cached data
         if now - cache_entry["last_check"] < _CACHE_TTL:
             return cache_entry["data"]
-
-        # TTL expired, check file modification time
         try:
             current_mtime = os.path.getmtime(abs_path)
             if current_mtime == cache_entry["mtime"]:
-                # File hasn't changed, update check time and return cache
                 cache_entry["last_check"] = now
                 return cache_entry["data"]
         except OSError:
-            # File might have been deleted, proceed to reload (which handles missing file)
             pass
 
-    # Reload from disk
+    # ---- load settings.toml ----
     zones: dict[ZoneType, list[tuple[datetime.datetime, datetime.datetime]]] = {
         zone_type: [] for zone_type in ZoneType
     }
 
+    current_mtime = 0.0
     try:
-        # Capture mtime before reading to avoid race condition
-        current_mtime = 0.0
-        try:
-            current_mtime = os.path.getmtime(abs_path)
-        except OSError:
-            pass  # File not found handled below
+        current_mtime = os.path.getmtime(abs_path)
+    except OSError:
+        pass
 
-        with open(schedule_file, "r") as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
+    try:
+        cfg = get_config()
 
-                try:
-                    parts = [part.strip() for part in line.split(",")]
-                    if len(parts) != 3:
-                        print(f"Warning: Invalid format on line {line_num}: {line}")
-                        continue
+        semesters = cfg.get("semesters", {})
 
-                    zone_type_str, start_str, end_str = parts
+        # ---- Process milestones → extreme + high zones ----
+        for sem_name, sem_data in semesters.items():
+            if not isinstance(sem_data, dict):
+                continue
 
-                    # Parse zone type
+            priorities = sem_data.get("priorities", {})
+            for p_list in priorities.values():
+                for m_data in p_list:
                     try:
-                        zone_type = SchedulingLevel.from_label(zone_type_str)
-                    except ValueError:
-                        print(
-                            f"Warning: Unknown zone type '{zone_type_str}' on line {line_num}"
+                        t = datetime.datetime.fromisoformat(m_data[0])
+                        # extreme: -5min to +10min
+                        zones[SchedulingLevel.EXTREME].append(
+                            (t - datetime.timedelta(minutes=5), t + datetime.timedelta(minutes=10))
                         )
-                        continue
-
-                    # Parse datetimes
-                    start_time = datetime.datetime.strptime(start_str, "%Y-%m-%d %H:%M")
-                    end_time = datetime.datetime.strptime(end_str, "%Y-%m-%d %H:%M")
-
-                    if start_time >= end_time:
-                        print(
-                            f"Warning: Start time must be before end time on line {line_num}"
+                        # high: +10min to +30min
+                        zones[SchedulingLevel.HIGH].append(
+                            (t + datetime.timedelta(minutes=10), t + datetime.timedelta(minutes=30))
                         )
-                        continue
+                    except (IndexError, ValueError) as e:
+                        print(f"Warning: skipping milestone {m_data}: {e}")
 
-                    zones[zone_type].append((start_time, end_time))
+            # ---- Process deadlines → moderate zones ----
+            for d_data in sem_data.get("deadlines", []):
+                try:
+                    t = datetime.datetime.fromisoformat(d_data[0])
+                    # moderate: -30min to +30min
+                    zones[SchedulingLevel.MODERATE].append(
+                        (t - datetime.timedelta(minutes=30), t + datetime.timedelta(minutes=30))
+                    )
+                except (IndexError, ValueError) as e:
+                    print(f"Warning: skipping deadline {d_data}: {e}")
 
-                except ValueError as e:
-                    print(f"Warning: Error parsing line {line_num}: {e}")
-                    continue
-
-        # Update cache
-        if current_mtime > 0:
-            _SCHEDULE_CACHE[abs_path] = {
-                "data": zones,
-                "mtime": current_mtime,
-                "last_check": now,
-            }
+        # Sort zones by start time
+        for zone_type in zones:
+            zones[zone_type].sort(key=lambda x: x[0])
 
     except FileNotFoundError:
-        print(f"Schedule file '{schedule_file}' not found. Using default scheduling.")
+        print("settings.toml not found. Using default scheduling.")
     except Exception as e:
-        print(f"Error reading schedule file: {e}")
+        print(f"Error reading settings.toml for schedule: {e}")
+
+    # ---- update cache ----
+    if current_mtime > 0:
+        _SCHEDULE_CACHE[abs_path] = {
+            "data": zones,
+            "mtime": current_mtime,
+            "last_check": now,
+        }
 
     return zones
+
+
+def get_next_zone_start(schedule_file: str = "schedule.txt") -> datetime.datetime | None:
+    """
+    Find the start time of the next scheduled zone window after now.
+
+    Returns:
+        The nearest future zone start time, or None if no future zones exist.
+    """
+    now = datetime.datetime.now()
+    zones = parse_schedule_file(schedule_file)
+    next_start = None
+
+    for level in [SchedulingLevel.EXTREME, SchedulingLevel.HIGH, SchedulingLevel.MODERATE]:
+        for start_time, _end_time in zones[level]:
+            if start_time > now:
+                if next_start is None or start_time < next_start:
+                    next_start = start_time
+
+    return next_start
 
 
 def get_current_zone_type(schedule_file: str = "schedule.txt") -> SchedulingLevel:
@@ -201,7 +221,7 @@ def get_current_zone_type(schedule_file: str = "schedule.txt") -> SchedulingLeve
         SchedulingLevel.EXTREME if in extreme zone
         SchedulingLevel.HIGH if in high zone
         SchedulingLevel.MODERATE if in moderate zone
-        SchedulingLevel.LOW if not in any special zone
+        SchedulingLevel.SLEEP if outside all defined windows
     """
     now = datetime.datetime.now()
     zones = parse_schedule_file(schedule_file)
@@ -216,7 +236,7 @@ def get_current_zone_type(schedule_file: str = "schedule.txt") -> SchedulingLeve
             if start_time <= now <= end_time:
                 return level
 
-    return SchedulingLevel.LOW
+    return SchedulingLevel.SLEEP
 
 
 async def poll_and_get_change_score() -> float:

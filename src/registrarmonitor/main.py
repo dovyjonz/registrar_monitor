@@ -160,7 +160,7 @@ Telegram Control:
     schedule_parser = subparsers.add_parser(
         "schedule",
         help="Run the hybrid scheduler",
-        description="Start the scheduler that monitors for changes based on schedule.txt and activity patterns",
+        description="Start the scheduler that monitors for changes based on settings.toml milestones and activity patterns",
     )
     schedule_parser.add_argument(
         "--scheduler",

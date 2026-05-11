@@ -9,7 +9,7 @@ logs = "logs"
 
 [data_source]
 # University registrar data URL
-url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823"
+url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=824"
 
 [notifications]
 # File write delay before sending notifications (seconds)
@@ -22,3 +22,93 @@ dry_run = false
 update_interval = 30
 # Cloudflare Pages project name
 pages_project_name = "registrar-monitor"
+
+[telegram]
+# Bot token and chat ID for Telegram notifications
+bot_token = "7555314817:AAGEBdaQgHnfMlXl_V1hYZ39J6VvaG1PDTM"
+chat_id = "-1002289524909"
+
+# ==============================================================================
+# Registration schedule — single source of truth
+# ==============================================================================
+# Scheduler zones are auto-inferred:
+#   extreme = [-5min, +10min] around each milestone
+#   high    = [+10min, +30min] after each milestone
+#   moderate = [-30min, +30min] around each deadline
+# Colors are auto-assigned by priority group number.
+
+[semesters."Summer 2026"]
+deadlines = [
+    ["2026-06-03T12:00:00", "Drop"],
+    ["2026-06-03T13:00:00", "WL"],
+    ["2026-06-05T17:30:00", "Close"]
+]
+[semesters."Summer 2026".priorities]
+"1" = [
+    ["2026-05-12T10:00:00", "Y4+"],
+    ["2026-05-12T11:00:00", "Y3"],
+    ["2026-05-12T12:00:00", "Y2"],
+    ["2026-05-12T13:00:00", "Y1"]
+]
+"2" = [
+    ["2026-05-13T10:00:00", "Y3+"],
+    ["2026-05-13T11:00:00", "Y1+"]
+]
+"3" = [
+    ["2026-05-14T10:00:00", "ALL"]
+]
+
+
+[semesters."Spring 2026"]
+[semesters."Spring 2026".priorities]
+"1" = [
+    ["2025-12-17T09:00:00", "Y4+"],
+    ["2025-12-17T11:00:00", "Y3"],
+    ["2025-12-17T13:00:00", "Y2"],
+    ["2025-12-17T15:00:00", "Y1"]
+]
+"2" = [
+    ["2025-12-18T09:00:00", "Y4+"],
+    ["2025-12-18T11:00:00", "Y3"],
+    ["2025-12-18T13:00:00", "Y2"],
+    ["2025-12-18T15:00:00", "Y1"]
+]
+"3" = [
+    ["2025-12-19T09:00:00", "ALL"]
+]
+
+
+[semesters."Fall 2025"]
+[semesters."Fall 2025".priorities]
+"1" = [
+    ["2025-08-06T09:00:00", "Y4+"],
+    ["2025-08-06T11:00:00", "Y3"],
+    ["2025-08-06T13:00:00", "Y2"],
+    ["2025-08-13T09:00:00", "Y1"]
+]
+"2" = [
+    ["2025-08-14T09:00:00", "Y4+"],
+    ["2025-08-14T11:00:00", "Y3"],
+    ["2025-08-14T13:00:00", "Y2"],
+    ["2025-08-14T15:00:00", "Y1"]
+]
+"3" = [
+    ["2025-08-15T09:00:00", "ALL"]
+]
+
+
+[semesters."Summer 2025"]
+[semesters."Summer 2025".priorities]
+"1" = [
+    ["2025-05-12T10:00:00", "Y4+"],
+    ["2025-05-12T11:00:00", "Y3"],
+    ["2025-05-12T12:00:00", "Y2"],
+    ["2025-05-12T13:00:00", "Y1"]
+]
+"2" = [
+    ["2025-05-13T10:00:00", "Y3+"],
+    ["2025-05-13T11:00:00", "Y1+"]
+]
+"3" = [
+    ["2025-05-14T10:00:00", "ALL"]
+]

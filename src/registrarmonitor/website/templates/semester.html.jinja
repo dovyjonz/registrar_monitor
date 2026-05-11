@@ -11,6 +11,8 @@
             {{ nav_html | safe }}
         </nav>
         <p id="lastUpdated">{{ last_updated }}</p>
+        <!-- Overall milestone progress bar -->
+        <div class="milestone-progress" id="milestoneProgress" aria-label="Registration progress"></div>
         <section class="stats" aria-label="Statistics">
             <div class="stat">
                 <div class="stat-value" id="totalCourses">0</div>
@@ -88,11 +90,19 @@
             <div class="modal-body">
                 <div class="section-type-selector" id="sectionTypeSelector"></div>
                 <div class="section-list" id="sectionList" role="list"></div>
+
                 <div class="chart-container" id="chartContainer">
-                    <div class="chart-placeholder" id="chartPlaceholder">
-                        Click a section to view enrollment history
+                    <!-- Chart mode toggle -->
+                    <div class="chart-mode-toggle" id="chartModeToggle" role="group" aria-label="Chart display mode">
+                        <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true">Phased</button>
+                        <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false">Timeline</button>
                     </div>
-                    <canvas id="enrollment-chart" class="chart-hidden"></canvas>
+                    <div class="chart-wrapper">
+                        <div class="chart-placeholder" id="chartPlaceholder">
+                            Click a section to view enrollment history
+                        </div>
+                        <canvas id="enrollment-chart" class="chart-hidden"></canvas>
+                    </div>
                     <div class="chart-legend" id="chartLegend">
                         <div class="chart-legend-item">
                             <div class="chart-legend-dot capacity-changed"></div>
@@ -100,6 +110,17 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Collapsible event history -->
+                <details class="event-history" id="eventHistory">
+                    <summary class="event-history-summary">
+                        <span class="event-history-icon">📋</span>
+                        Course Event History
+                        <span class="event-count" id="eventCount"></span>
+                    </summary>
+                    <div class="event-filters" id="eventFilters"></div>
+                    <div class="event-history-list" id="eventHistoryList"></div>
+                </details>
             </div>
         </div>
     </div>
