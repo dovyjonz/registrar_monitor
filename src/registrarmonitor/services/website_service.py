@@ -108,6 +108,29 @@ class WebsiteService:
             print("Error: npm not found. Is Node.js installed?")
             return False
 
+    def is_any_semester_active(self, buffer_days: int = 7) -> bool:
+        """Check if we are currently within an active registration window."""
+        import datetime
+        from ..website.config import get_milestones, ALL_SEMESTERS
+
+        now = datetime.datetime.now()
+
+        for semester in ALL_SEMESTERS:
+            try:
+                milestones = get_milestones(semester)
+                if not milestones:
+                    continue
+
+                times = [datetime.datetime.fromisoformat(m["time"]) for m in milestones]
+                earliest = min(times) - datetime.timedelta(days=buffer_days)
+                latest = max(times) + datetime.timedelta(days=buffer_days)
+
+                if earliest <= now <= latest:
+                    return True
+            except Exception:
+                continue
+        return False
+
     def generate(
         self,
         semester_key: Optional[str] = None,
@@ -126,6 +149,12 @@ class WebsiteService:
             True if successful
         """
         try:
+            # Skip if not active (unless forced)
+            if not force and not self.is_any_semester_active():
+                print("💤 Outside active registration windows. Skipping build/deploy.")
+                print("   (Use --force to override)")
+                return True
+
             # Ensure output directory exists
             OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
