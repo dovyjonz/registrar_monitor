@@ -1,16 +1,19 @@
 """Configuration constants for website generation."""
 
 from pathlib import Path
+from typing import Any
+
 
 # CLI argument to semester display name mapping
 SEMESTER_MAP: dict[str, str] = {
+    "summer2026": "Summer 2026",
     "spring2026": "Spring 2026",
     "fall2025": "Fall 2025",
     "summer2025": "Summer 2025",
 }
 
 # All semesters in display order (latest first)
-ALL_SEMESTERS: list[str] = ["Spring 2026", "Fall 2025", "Summer 2025"]
+ALL_SEMESTERS: list[str] = ["Summer 2026", "Spring 2026", "Fall 2025", "Summer 2025"]
 
 # Latest semester (used for index.html redirect)
 LATEST_SEMESTER: str = ALL_SEMESTERS[0]
@@ -27,52 +30,95 @@ def semester_to_filename(semester: str) -> str:
     return semester.lower().replace(" ", "") + ".html"
 
 
-# Registration milestones for each semester
-# Colors use warm gradient (red-orange) for 1st priority,
-# cool gradient (cyan-blue) for 2nd priority, and magenta for 3rd priority
+# ---------------------------------------------------------------------------
+# Color palettes for auto-assignment
+# ---------------------------------------------------------------------------
+# Milestones on the same calendar day form one "priority group".
+# Groups are colored in this order:
+_PRIORITY_PALETTES: list[list[str]] = [
+    # Group 1 — warm (reds / oranges)
+    ["#FF1744", "#FF5722", "#FF9100", "#FFC400"],
+    # Group 2 — cool (cyan / blue)
+    ["#00E5FF", "#00B0FF", "#2979FF", "#651FFF"],
+    # Group 3 — magenta
+    ["#D500F9", "#E040FB", "#EA80FC", "#CE93D8"],
+    # Group 4+ — fallback neutral
+    ["#78909C", "#546E7A", "#455A64", "#37474F"],
+]
+
+# Deadline color (neutral grey/pink)
+_DEADLINE_COLORS = ["#78909C", "#546E7A", "#E040FB"]
+
+
+def _load_settings() -> dict[str, Any]:
+    """Load and return the parsed settings.toml via the Config singleton."""
+    try:
+        from registrarmonitor.config import get_config
+        return get_config()
+    except Exception:
+        # Fallback: read directly with tomllib (stdlib Python 3.11+)
+        import tomllib
+        settings_path = Path(__file__).parent.parent.parent.parent / "settings.toml"
+        with open(settings_path, "rb") as f:
+            return tomllib.load(f)
+
+
+def _assign_deadline_colors(
+    deadlines: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Assign neutral colors to deadline entries."""
+    result = [dict(d) for d in deadlines]
+    for i, d in enumerate(result):
+        d["color"] = _DEADLINE_COLORS[min(i, len(_DEADLINE_COLORS) - 1)]
+    return result
+
+
+def get_milestones(semester: str) -> list[dict[str, str]]:
+    """
+    Load milestones + deadlines for a semester from settings.toml.
+
+    Returns a list of dicts with keys: time, label, color.
+    Colors are auto-assigned based on explicit priority groups in TOML.
+    """
+    cfg = _load_settings()
+    sem_data = cfg.get("semesters", {}).get(semester, {})
+
+    colored_milestones = []
+    
+    # Parse priorities and apply colors
+    priorities = sem_data.get("priorities", {})
+    for p_level in sorted(priorities.keys(), key=int):
+        # p_level is "1", "2", etc.
+        palette_idx = max(0, int(p_level) - 1)
+        palette = _PRIORITY_PALETTES[min(palette_idx, len(_PRIORITY_PALETTES) - 1)]
+        
+        for i, m_data in enumerate(priorities[p_level]):
+            # m_data is [time, label] (and optional color if we wanted, but we don't need it now)
+            time_str = m_data[0]
+            label_str = m_data[1]
+            color = palette[min(i, len(palette) - 1)]
+            
+            colored_milestones.append({
+                "time": time_str,
+                "label": label_str,
+                "color": color
+            })
+
+    # Parse deadlines and apply neutral colors
+    raw_deadlines = [
+        {"time": d[0], "label": d[1]} for d in sem_data.get("deadlines", [])
+    ]
+    colored_deadlines = _assign_deadline_colors(raw_deadlines)
+
+    return colored_milestones + colored_deadlines
+
+
+# Build the MILESTONES_MAP for backward compatibility
+# (consumed by website_service.py and data.py)
 MILESTONES_MAP: dict[str, list[dict[str, str]]] = {
-    "Spring 2026": [
-        # First Priority - December 17 (warm: red-orange gradient)
-        {"time": "2025-12-17T09:00:00", "label": "Y4+", "color": "#FF1744"},
-        {"time": "2025-12-17T11:00:00", "label": "Y3", "color": "#FF5722"},
-        {"time": "2025-12-17T13:00:00", "label": "Y2", "color": "#FF9100"},
-        {"time": "2025-12-17T15:00:00", "label": "Y1", "color": "#FFC400"},
-        # Second Priority - December 18 (cool: cyan-blue gradient)
-        {"time": "2025-12-18T09:00:00", "label": "Y4+", "color": "#00E5FF"},
-        {"time": "2025-12-18T11:00:00", "label": "Y3", "color": "#00B0FF"},
-        {"time": "2025-12-18T13:00:00", "label": "Y2", "color": "#2979FF"},
-        {"time": "2025-12-18T15:00:00", "label": "Y1", "color": "#651FFF"},
-        # Third Priority - December 19 (distinct: magenta)
-        {"time": "2025-12-19T09:00:00", "label": "ALL", "color": "#D500F9"},
-    ],
-    "Fall 2025": [
-        # First Priority - August 6 (warm: red-orange gradient)
-        {"time": "2025-08-06T09:00:00", "label": "Y4+", "color": "#FF1744"},
-        {"time": "2025-08-06T11:00:00", "label": "Y3", "color": "#FF5722"},
-        {"time": "2025-08-06T13:00:00", "label": "Y2", "color": "#FF9100"},
-        # First Priority continues - August 13
-        {"time": "2025-08-13T09:00:00", "label": "Y1", "color": "#FFC400"},
-        # Second Priority - August 14 (cool: cyan-blue gradient)
-        {"time": "2025-08-14T09:00:00", "label": "Y4+", "color": "#00E5FF"},
-        {"time": "2025-08-14T11:00:00", "label": "Y3", "color": "#00B0FF"},
-        {"time": "2025-08-14T13:00:00", "label": "Y2", "color": "#2979FF"},
-        {"time": "2025-08-14T15:00:00", "label": "Y1", "color": "#651FFF"},
-        # Third Priority - August 15 (distinct: magenta)
-        {"time": "2025-08-15T09:00:00", "label": "ALL", "color": "#D500F9"},
-    ],
-    "Summer 2025": [
-        # First Priority - May 12 (warm: red-orange gradient)
-        {"time": "2025-05-12T10:00:00", "label": "Y4+", "color": "#FF1744"},
-        {"time": "2025-05-12T11:00:00", "label": "Y3", "color": "#FF5722"},
-        {"time": "2025-05-12T12:00:00", "label": "Y2", "color": "#FF9100"},
-        {"time": "2025-05-12T13:00:00", "label": "Y1", "color": "#FFC400"},
-        # Second Priority - May 13 (cool: cyan-blue gradient)
-        {"time": "2025-05-13T10:00:00", "label": "Y4+", "color": "#00E5FF"},
-        {"time": "2025-05-13T11:00:00", "label": "Y2/Y1", "color": "#2979FF"},
-        # Third Priority - May 14 (distinct: magenta)
-        {"time": "2025-05-14T10:00:00", "label": "ALL", "color": "#D500F9"},
-    ],
+    sem: get_milestones(sem) for sem in ALL_SEMESTERS
 }
+
 
 # Key mapping for JSON minification (verbose -> short)
 # Used to reduce generated file size by ~15-20%
@@ -103,4 +149,11 @@ KEY_MAP: dict[str, str] = {
     "isFilled": "if",
     "type": "t",
     "title": "ti",
+    # Event/changelog keys
+    "events": "ev",
+    "eventType": "et",
+    "sectionCode": "sc",
+    "oldValue": "ov",
+    "newValue": "nv",
+    "snapshotTimestamp": "st",
 }

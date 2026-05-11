@@ -309,7 +309,7 @@ class ScheduleCommand:
 
             if self.scheduler_type == "two-phase":
                 print("⏰ Starting two-phase scheduler...")
-                print("   📅 Schedule file: schedule.txt")
+                print("   📅 Schedule: settings.toml milestones")
                 print("   🔄 Two-phase mode: Quiet/Burst separation")
                 if self.no_telegram:
                     print("   📵 Telegram reports: DISABLED")
@@ -317,7 +317,7 @@ class ScheduleCommand:
                 scheduler = TwoPhaseScheduler(no_telegram=self.no_telegram)
             else:  # hybrid (default)
                 print("⏰ Starting hybrid scheduler...")
-                print("   📅 Schedule file: schedule.txt")
+                print("   📅 Schedule: settings.toml milestones")
                 print("   🔄 Activity-based adaptation enabled")
                 if self.no_telegram:
                     print("   📵 Telegram reports: DISABLED")

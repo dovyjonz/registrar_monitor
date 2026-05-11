@@ -142,3 +142,5 @@
 2025-12-20 19:42:32 - registrarmonitor.automation.downloader - [31mERROR[0m - download:50 - Download timeout: 
 2025-12-20 19:42:32 - registrarmonitor.services.monitoring_service - [31mERROR[0m - _download_data:295 - Download failed: Download timeout: 
 2025-12-20 19:42:32 - registrarmonitor.services.monitoring_service - [31mERROR[0m - download_and_process_latest:80 - Failed to download and process data: Download failed: Download timeout: 
+2026-05-11 17:40:03 - registrarmonitor.cli.commands - [31mERROR[0m - run:219 - Unexpected error in reporting: 'telegram'
+2026-05-11 17:41:24 - registrarmonitor.cli.commands - [31mERROR[0m - run:219 - Unexpected error in reporting: You must pass the token you received from https://t.me/Botfather!
