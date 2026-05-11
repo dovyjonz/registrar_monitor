@@ -14,6 +14,10 @@ let selectedCourse = null;
 let selectedSection = null;
 let viewingGraph = false;
 let currentEnrollmentData = [];
+let chartMode = localStorage.getItem('chartMode') || 'phased'; // 'phased' or 'timeline'
+
+// Cache for last render args so toggle can re-render
+let lastRenderArgs = null;
 
 // Access global variables injected by Python
 let DATA = window.DATA || null;
@@ -330,11 +334,219 @@ function openCourse(courseCode) {
     // Show modal and render default chart
     document.getElementById('modalOverlay').classList.add('active');
 
+    // Update chart mode toggle state
+    document.querySelectorAll('.chart-mode-btn').forEach(b => {
+        const isActive = b.dataset.mode === chartMode;
+        b.classList.toggle('active', isActive);
+        b.setAttribute('aria-pressed', isActive);
+    });
+
+    renderEventHistory(courseCode);
+
+    // Update URL hash for deep linking
+    history.replaceState(null, '', '#' + courseCode.replace(/\s+/g, '-'));
+
     setTimeout(() => {
         showAverageFillChart(courseCode);
     }, 50);
 
     document.body.classList.add('modal-open');
+}
+
+/**
+ * Compute warped x-values so each milestone segment gets equal width.
+ */
+function computeWarpedX(timestamps, milestones) {
+    if (!milestones || milestones.length < 2) return null;
+
+    const mTimes = milestones.map(m => new Date(m.time).getTime()).sort((a, b) => a - b);
+    // Add virtual boundaries: start = first data point, end = last data point
+    const allBounds = [Math.min(timestamps[0], mTimes[0]), ...mTimes, Math.max(timestamps[timestamps.length - 1], mTimes[mTimes.length - 1])];
+    // Remove duplicates and sort
+    const bounds = [...new Set(allBounds)].sort((a, b) => a - b);
+    const segCount = bounds.length - 1;
+    if (segCount <= 0) return null;
+
+    const segWidth = 100; // each segment gets 100 units
+    return timestamps.map(t => {
+        // Find which segment this timestamp falls into
+        for (let s = 0; s < segCount; s++) {
+            if (t <= bounds[s + 1]) {
+                const segStart = bounds[s];
+                const segEnd = bounds[s + 1];
+                const frac = segEnd === segStart ? 0.5 : (t - segStart) / (segEnd - segStart);
+                return s * segWidth + frac * segWidth;
+            }
+        }
+        return (segCount - 1) * segWidth + segWidth; // beyond last
+    });
+}
+
+/**
+ * Render milestone progress bar with equal-spaced dots.
+ */
+function renderMilestoneProgress() {
+    const container = document.getElementById('milestoneProgress');
+    if (!container) return;
+    const milestones = getMilestones();
+    if (!milestones || milestones.length < 2) { container.innerHTML = ''; return; }
+
+    const now = Date.now();
+    const mTimes = milestones.map(m => ({ time: new Date(m.time).getTime(), label: m.label, color: m.color })).sort((a, b) => a.time - b.time);
+    const count = mTimes.length;
+
+    // Find how far along we are in terms of milestone segments passed
+    let filledSegments = 0;
+    for (let i = 0; i < count; i++) {
+        if (now >= mTimes[i].time) filledSegments = i + 1;
+    }
+    // Interpolate within current segment
+    let fillPct = 0;
+    if (filledSegments >= count) {
+        fillPct = 100;
+    } else if (filledSegments === 0) {
+        fillPct = 0;
+    } else {
+        const segStart = mTimes[filledSegments - 1].time;
+        const segEnd = mTimes[filledSegments].time;
+        const segFrac = segEnd === segStart ? 1 : (now - segStart) / (segEnd - segStart);
+        fillPct = ((filledSegments - 1 + Math.min(1, Math.max(0, segFrac))) / (count - 1)) * 100;
+    }
+
+    const dots = mTimes.map((m, i) => {
+        const pos = (i / (count - 1)) * 100; // Equal spacing
+        const passed = now >= m.time;
+        return `<div class="mp-dot${passed ? ' passed' : ''}" style="left:${pos}%;background:${passed ? m.color : ''}" title="${m.label}"><span class="mp-dot-label">${m.label}</span></div>`;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="mp-track">
+            <div class="mp-fill" style="width:${fillPct}%"></div>
+            ${dots}
+        </div>`;
+}
+
+// Global state for event history
+let _currentEvents = [];
+let _eventSortOrder = 'newest'; // 'newest' or 'oldest'
+let _eventFilterType = 'all'; // 'all' or specific event type
+let _eventFilterSection = 'all'; // 'all' or specific section code
+
+const EVENT_ICONS = {
+    'course_added': '🟢', 'course_removed': '🔴',
+    'section_added': '➕', 'section_removed': '➖',
+    'capacity_changed': '📊', 'instructor_changed': '🔄'
+};
+const EVENT_LABELS = {
+    'course_added': 'Added', 'course_removed': 'Removed',
+    'section_added': 'Sec +', 'section_removed': 'Sec −',
+    'capacity_changed': 'Capacity', 'instructor_changed': 'Instructor'
+};
+
+function eventDesc(e) {
+    const descs = {
+        'course_added': 'Course added',
+        'course_removed': 'Course removed',
+        'section_added': e => `Section ${e.sc || ''} added`,
+        'section_removed': e => `Section ${e.sc || ''} removed`,
+        'capacity_changed': e => `${e.sc || ''} capacity: ${e.ov} → ${e.nv}`,
+        'instructor_changed': e => `${e.sc || ''} instructor: ${e.ov} → ${e.nv}`,
+    };
+    const fn = descs[e.et];
+    return typeof fn === 'function' ? fn(e) : (fn || e.et);
+}
+
+/**
+ * Render event history for a course, with filtering and sorting.
+ */
+function renderEventHistory(courseCode) {
+    const data = getData();
+    const course = data.cr[courseCode];
+    const container = document.getElementById('eventHistoryList');
+    const countEl = document.getElementById('eventCount');
+    const details = document.getElementById('eventHistory');
+    if (!container || !details) return;
+
+    _currentEvents = course?.ev || [];
+    _eventFilterType = 'all';
+    _eventFilterSection = 'all';
+
+    if (_currentEvents.length === 0) {
+        details.style.display = 'none';
+        return;
+    }
+    details.style.display = '';
+    if (countEl) countEl.textContent = `(${_currentEvents.length})`;
+
+    // Build filter controls
+    const sections = [...new Set(_currentEvents.filter(e => e.sc).map(e => e.sc))].sort();
+    const types = [...new Set(_currentEvents.map(e => e.et))];
+
+    const filtersEl = document.getElementById('eventFilters');
+    if (filtersEl) {
+        let html = '<div class="ef-row">';
+        // Sort toggle
+        html += `<button class="ef-pill ef-sort" data-sort="newest" title="Sort order">↓ Newest</button>`;
+        // Type filter
+        html += `<select class="ef-select" id="efType" aria-label="Filter by type"><option value="all">All types</option>`;
+        for (const t of types) {
+            html += `<option value="${t}">${EVENT_ICONS[t] || ''} ${EVENT_LABELS[t] || t}</option>`;
+        }
+        html += '</select>';
+        // Section filter
+        if (sections.length > 1) {
+            html += `<select class="ef-select" id="efSection" aria-label="Filter by section"><option value="all">All sections</option>`;
+            for (const s of sections) html += `<option value="${s}">${s}</option>`;
+            html += '</select>';
+        }
+        html += '</div>';
+        filtersEl.innerHTML = html;
+
+        // Wire up events
+        filtersEl.querySelector('.ef-sort')?.addEventListener('click', (e) => {
+            _eventSortOrder = _eventSortOrder === 'newest' ? 'oldest' : 'newest';
+            e.target.textContent = _eventSortOrder === 'newest' ? '↓ Newest' : '↑ Oldest';
+            _renderFilteredEvents();
+        });
+        filtersEl.querySelector('#efType')?.addEventListener('change', (e) => {
+            _eventFilterType = e.target.value;
+            _renderFilteredEvents();
+        });
+        filtersEl.querySelector('#efSection')?.addEventListener('change', (e) => {
+            _eventFilterSection = e.target.value;
+            _renderFilteredEvents();
+        });
+    }
+
+    _renderFilteredEvents();
+}
+
+function _renderFilteredEvents() {
+    const container = document.getElementById('eventHistoryList');
+    const countEl = document.getElementById('eventCount');
+    if (!container) return;
+
+    let filtered = _currentEvents;
+    if (_eventFilterType !== 'all') filtered = filtered.filter(e => e.et === _eventFilterType);
+    if (_eventFilterSection !== 'all') filtered = filtered.filter(e => e.sc === _eventFilterSection);
+
+    // Sort
+    filtered = [...filtered].sort((a, b) => {
+        const ta = a.st ? new Date(a.st).getTime() : 0;
+        const tb = b.st ? new Date(b.st).getTime() : 0;
+        return _eventSortOrder === 'newest' ? tb - ta : ta - tb;
+    });
+
+    if (countEl) countEl.textContent = `(${filtered.length}/${_currentEvents.length})`;
+
+    container.innerHTML = filtered.length === 0
+        ? '<div class="event-item" style="color:hsl(var(--muted-foreground));justify-content:center;">No matching events</div>'
+        : filtered.map(e => {
+            const icon = EVENT_ICONS[e.et] || '📝';
+            const desc = eventDesc(e);
+            const ts = e.st ? new Date(e.st).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+            return `<div class="event-item"><span class="event-icon">${icon}</span><span class="event-desc">${desc}</span><span class="event-ts">${ts}</span></div>`;
+        }).join('');
 }
 
 /**
@@ -389,7 +601,7 @@ function showAverageFillChart(courseCode) {
     }
 
     document.getElementById('chartLegend').classList.remove('visible');
-    renderChart('Average Fill', labels, fillData, timestamps, false);
+    renderChart(courseCode, labels, fillData, timestamps, false);
 }
 
 /**
@@ -457,57 +669,75 @@ function selectSection(sectionCode) {
 }
 
 /**
- * Render enrollment chart with milestones.
+ * Render enrollment chart with milestones and phased/timeline mode.
  */
 function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarkers) {
+    // Cache args for mode toggle re-render
+    lastRenderArgs = { chartLabel, labels, fillData, timestamps, showCapacityMarkers };
+
     const milestones = getMilestones();
+    const usePhased = chartMode === 'phased';
+    const warpedX = usePhased ? computeWarpedX(timestamps, milestones) : null;
+
+    // Build x-axis data
+    // Timeline mode: use actual timestamps for proper proportional spacing
+    // Phased mode: use warped values for equal-segment spacing
+    const xValues = warpedX || timestamps;
+
+    // Labels to exclude from timeline mode (they clutter the chart)
+    const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
 
     // Build milestone annotations
     const annotations = {};
-    if (timestamps.length > 0) {
-        const minTime = Math.min(...timestamps);
-        const maxTime = Math.max(...timestamps);
-
+    if (timestamps.length > 0 && milestones && milestones.length > 0) {
         milestones.forEach((m, idx) => {
+            // Skip deadline milestones in timeline mode
+            if (!usePhased && DEADLINE_LABELS.has(m.label)) return;
+
             const mTime = new Date(m.time).getTime();
-            if (mTime >= minTime && mTime <= maxTime) {
-                // Find closest label index
-                let closestIdx = 0;
-                let minDiff = Infinity;
-                timestamps.forEach((t, i) => {
-                    const diff = Math.abs(t - mTime);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closestIdx = i;
-                    }
-                });
 
-                // Position label based on fill value
-                const fillAtPoint = fillData[closestIdx] || 0;
-                const labelPos = fillAtPoint > 50 ? 'start' : 'end';
-
-                annotations[`line${idx}`] = {
-                    type: 'line',
-                    xMin: closestIdx,
-                    xMax: closestIdx,
-                    borderColor: m.color,
-                    borderWidth: 2,
-                    borderDash: [5, 3],
-                    drawTime: 'beforeDatasetsDraw',
-                    label: {
-                        display: true,
-                        content: m.label,
-                        position: labelPos,
-                        backgroundColor: m.color,
-                        color: getContrastColor(m.color),
-                        font: { size: 9, weight: 'bold' },
-                        padding: 3,
-                        borderRadius: 3,
-                        z: 10,
-                        drawTime: 'afterDatasetsDraw',
-                    }
-                };
+            // In timeline mode, skip milestones outside data range
+            if (!usePhased && timestamps.length > 0) {
+                const dataMin = Math.min(...timestamps);
+                const dataMax = Math.max(...timestamps);
+                if (mTime < dataMin || mTime > dataMax) return;
             }
+
+            let xPos;
+            if (warpedX) {
+                const mTimes = milestones.map(ms => new Date(ms.time).getTime()).sort((a, b) => a - b);
+                const allBounds = [Math.min(timestamps[0], mTimes[0]), ...mTimes, Math.max(timestamps[timestamps.length - 1], mTimes[mTimes.length - 1])];
+                const bounds = [...new Set(allBounds)].sort((a, b) => a - b);
+                const segWidth = 100;
+                for (let s = 0; s < bounds.length - 1; s++) {
+                    if (mTime <= bounds[s + 1]) {
+                        const frac = bounds[s + 1] === bounds[s] ? 0.5 : (mTime - bounds[s]) / (bounds[s + 1] - bounds[s]);
+                        xPos = s * segWidth + frac * segWidth;
+                        break;
+                    }
+                }
+                if (xPos === undefined) xPos = (bounds.length - 2) * segWidth + segWidth;
+            } else {
+                xPos = mTime;
+            }
+
+            // Position label based on fill value at closest point
+            let closestDataIdx = 0, minDiff2 = Infinity;
+            xValues.forEach((x, i) => { const d = Math.abs(x - xPos); if (d < minDiff2) { minDiff2 = d; closestDataIdx = i; } });
+            const fillAtPoint = fillData[closestDataIdx] || 0;
+            const labelPos = fillAtPoint > 50 ? 'start' : 'end';
+
+            annotations[`line${idx}`] = {
+                type: 'line', xMin: xPos, xMax: xPos,
+                borderColor: m.color, borderWidth: 2, borderDash: [5, 3],
+                drawTime: 'beforeDatasetsDraw',
+                label: {
+                    display: true, content: m.label, position: labelPos,
+                    backgroundColor: m.color, color: getContrastColor(m.color),
+                    font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
+                    z: 10, drawTime: 'afterDatasetsDraw',
+                }
+            };
         });
     }
 
@@ -515,103 +745,73 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
     document.getElementById('chartPlaceholder').style.display = 'none';
     const canvas = document.getElementById('enrollment-chart');
     canvas.classList.remove('chart-hidden');
-    canvas.offsetHeight; // Force reflow
+    canvas.offsetHeight;
 
-    // Destroy existing chart
-    if (chart) {
-        chart.destroy();
-        chart = null;
-    }
+    if (chart) { chart.destroy(); chart = null; }
 
-    // Build point styling for capacity change markers
-    const pointStyles = currentEnrollmentData.map(d =>
-        showCapacityMarkers && d.capacityChanged ? 'rectRot' : 'circle'
-    );
-    const pointColors = currentEnrollmentData.map(d =>
-        showCapacityMarkers && d.capacityChanged ? '#4ecdc4' : '#ffd700'
-    );
-    const pointRadii = currentEnrollmentData.map(d =>
-        showCapacityMarkers && d.capacityChanged ? 7 : (labels.length > 50 ? 0 : 3)
-    );
-    const pointBorderColors = currentEnrollmentData.map(d =>
-        showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#ffd700'
-    );
-    const pointBorderWidths = currentEnrollmentData.map(d =>
-        showCapacityMarkers && d.capacityChanged ? 2 : 1
-    );
+    // Point styling
+    const pointStyles = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : 'circle');
+    const pointColors = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? '#4ecdc4' : '#ffd700');
+    const pointRadii = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? 7 : (labels.length > 50 ? 0 : 3));
+    const pointBorderColors = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#ffd700');
+    const pointBorderWidths = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? 2 : 1);
 
-    // Create chart
+    // Build dataset with {x, y} pairs
+    const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y }));
+
     chart = new Chart(canvas, {
         type: 'line',
         data: {
-            labels: labels,
             datasets: [{
-                label: chartLabel,
-                data: fillData,
-                borderColor: '#ffd700',
-                backgroundColor: 'rgba(255, 215, 0, 0.1)',
-                fill: true,
-                tension: 0.3,
-                pointStyle: pointStyles,
-                pointRadius: pointRadii,
-                pointHoverRadius: 6,
-                pointBackgroundColor: pointColors,
-                pointBorderColor: pointBorderColors,
+                label: chartLabel, data: dataPoints,
+                borderColor: '#ffd700', backgroundColor: 'rgba(255, 215, 0, 0.1)',
+                fill: true, tension: 0.3,
+                pointStyle: pointStyles, pointRadius: pointRadii, pointHoverRadius: 6,
+                pointBackgroundColor: pointColors, pointBorderColor: pointBorderColors,
                 pointBorderWidth: pointBorderWidths,
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false,
+            responsive: true, maintainAspectRatio: false, animation: false,
+            layout: { padding: { left: 8, right: 8, top: 4, bottom: 4 } },
             plugins: {
-                annotation: {
-                    annotations: annotations
-                },
-                legend: {
-                    labels: {
-                        color: '#eaeaea',
-                        font: { family: 'monospace' }
-                    }
-                },
+                annotation: { annotations },
+                legend: { display: false },
                 tooltip: {
-                    backgroundColor: '#1a1a2e',
-                    titleColor: '#ffd700',
-                    bodyColor: '#eaeaea',
-                    borderColor: '#3a3a5e',
-                    borderWidth: 1,
+                    backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
+                    borderColor: '#3a3a5e', borderWidth: 1,
                     callbacks: {
+                        title: (items) => { if (!items.length) return ''; return labels[items[0].dataIndex] || ''; },
                         label: (ctx) => {
                             const idx = ctx.dataIndex;
                             const enrollInfo = currentEnrollmentData[idx];
                             if (enrollInfo && enrollInfo.enrollment !== null) {
-                                let label = `${ctx.parsed.y}% (${enrollInfo.enrollment}/${enrollInfo.capacity})`;
-                                if (enrollInfo.capacityChanged) {
-                                    label += ` • Cap: ${enrollInfo.prevCapacity} → ${enrollInfo.capacity}`;
-                                }
-                                return label;
+                                let lbl = `${ctx.parsed.y}% (${enrollInfo.enrollment}/${enrollInfo.capacity})`;
+                                if (enrollInfo.capacityChanged) lbl += ` \u2022 Cap: ${enrollInfo.prevCapacity} \u2192 ${enrollInfo.capacity}`;
+                                return lbl;
                             }
-                            return `${ctx.dataset.label}: ${ctx.parsed.y}%`;
+                            return `${ctx.parsed.y}%`;
                         }
                     }
                 }
             },
             scales: {
                 x: {
-                    ticks: { display: false },
-                    grid: { color: 'rgba(255,255,255,0.05)' }
+                    type: 'linear',
+                    display: false,
+                    ...(usePhased ? {} : {
+                        min: Math.min(...timestamps) - (timestamps.length > 1 ? (timestamps[1] - timestamps[0]) * 0.5 : 60000),
+                        max: Math.max(...timestamps) + (timestamps.length > 1 ? (timestamps[timestamps.length-1] - timestamps[timestamps.length-2]) * 0.5 : 60000)
+                    })
                 },
                 y: {
-                    min: 0,
-                    suggestedMax: 100,
+                    min: 0, max: 100,
                     ticks: { display: false },
-                    grid: { color: 'rgba(255,255,255,0.05)' }
+                    grid: { color: 'rgba(255,255,255,0.06)', drawTicks: false },
+                    border: { display: false }
                 }
             },
-            interaction: {
-                intersect: false,
-                mode: 'index'
-            }
+            interaction: { intersect: false, mode: 'index' }
         }
     });
 }
@@ -626,7 +826,10 @@ function closeModal() {
     selectedSection = null;
     viewingGraph = false;
     currentEnrollmentData = [];
+    lastRenderArgs = null;
     document.getElementById('chartLegend').classList.remove('visible');
+    // Clear URL hash
+    history.replaceState(null, '', window.location.pathname);
     if (chart) {
         chart.destroy();
         chart = null;
@@ -923,6 +1126,42 @@ function updateModalBookmark(code) {
 }
 
 // ============================================
+// Chart Mode Toggle
+// ============================================
+
+document.querySelectorAll('.chart-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        chartMode = btn.dataset.mode;
+        localStorage.setItem('chartMode', chartMode);
+        document.querySelectorAll('.chart-mode-btn').forEach(b => {
+            const isActive = b.dataset.mode === chartMode;
+            b.classList.toggle('active', isActive);
+            b.setAttribute('aria-pressed', isActive);
+        });
+        if (lastRenderArgs) {
+            const a = lastRenderArgs;
+            renderChart(a.chartLabel, a.labels, a.fillData, a.timestamps, a.showCapacityMarkers);
+        }
+    });
+});
+
+// ============================================
+// Deep Linking via URL Hash
+// ============================================
+
+function handleHashNavigation() {
+    const hash = window.location.hash.slice(1); // Remove '#'
+    if (!hash) return;
+    const courseCode = hash.replace(/-/g, ' '); // 'CSCI-101' -> 'CSCI 101'
+    const data = getData();
+    if (data && data.cr && data.cr[courseCode]) {
+        openCourse(courseCode);
+    }
+}
+
+window.addEventListener('hashchange', handleHashNavigation);
+
+// ============================================
 // Initialization
 // ============================================
 
@@ -936,7 +1175,6 @@ async function initApp() {
             DATA = payload.data;
             MILESTONES = payload.milestones;
             
-            // Remove the loading indicator
             const loader = document.getElementById('loadingIndicator');
             if (loader) loader.remove();
         } catch (error) {
@@ -945,7 +1183,7 @@ async function initApp() {
             if (loader) {
                 loader.innerHTML = `<div style="color: #ff1744;">Failed to load data. Please refresh.</div>`;
             }
-            return; // Stop initialization
+            return;
         }
     }
 
@@ -953,8 +1191,14 @@ async function initApp() {
         renderSemesterToggle();
     }
 
+    // Render page-level progress bar
+    renderMilestoneProgress();
+
     // Initial Render
     renderCourseGrid();
+
+    // Handle deep link on initial load
+    handleHashNavigation();
 
     // Show "last updated" toast on load
     setTimeout(() => {

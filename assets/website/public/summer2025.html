@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#ffd700">
 
-    <link rel="stylesheet" href="assets/main-BpU6FKyC.css">
+    <link rel="stylesheet" href="assets/main-Ut9K8jog.css">
 
 </head>
 <body>
@@ -17,11 +17,14 @@
     <header>
         <h1>📊 Enrollment Monitor</h1>
         <nav class="semester-links" aria-label="Semester navigation">
+            <a href="summer2026.html" class="semester-nav-link">Summer 2026</a>
             <a href="spring2026.html" class="semester-nav-link">Spring 2026</a>
             <a href="fall2025.html" class="semester-nav-link">Fall 2025</a>
             <a href="summer2025.html" class="semester-nav-link active" aria-current="page">Summer 2025</a>
         </nav>
         <p id="lastUpdated">Last updated 2025-12-18 23:10</p>
+        <!-- Overall milestone progress bar -->
+        <div class="milestone-progress" id="milestoneProgress" aria-label="Registration progress"></div>
         <section class="stats" aria-label="Statistics">
             <div class="stat">
                 <div class="stat-value" id="totalCourses">0</div>
@@ -99,11 +102,19 @@
             <div class="modal-body">
                 <div class="section-type-selector" id="sectionTypeSelector"></div>
                 <div class="section-list" id="sectionList" role="list"></div>
+
                 <div class="chart-container" id="chartContainer">
-                    <div class="chart-placeholder" id="chartPlaceholder">
-                        Click a section to view enrollment history
+                    <!-- Chart mode toggle -->
+                    <div class="chart-mode-toggle" id="chartModeToggle" role="group" aria-label="Chart display mode">
+                        <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true">Phased</button>
+                        <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false">Timeline</button>
                     </div>
-                    <canvas id="enrollment-chart" class="chart-hidden"></canvas>
+                    <div class="chart-wrapper">
+                        <div class="chart-placeholder" id="chartPlaceholder">
+                            Click a section to view enrollment history
+                        </div>
+                        <canvas id="enrollment-chart" class="chart-hidden"></canvas>
+                    </div>
                     <div class="chart-legend" id="chartLegend">
                         <div class="chart-legend-item">
                             <div class="chart-legend-dot capacity-changed"></div>
@@ -111,6 +122,17 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Collapsible event history -->
+                <details class="event-history" id="eventHistory">
+                    <summary class="event-history-summary">
+                        <span class="event-history-icon">📋</span>
+                        Course Event History
+                        <span class="event-count" id="eventCount"></span>
+                    </summary>
+                    <div class="event-filters" id="eventFilters"></div>
+                    <div class="event-history-list" id="eventHistoryList"></div>
+                </details>
             </div>
         </div>
     </div>
@@ -120,6 +142,6 @@
         window.JSON_URL = "summer2025.json";
     </script>
 
-    <script type="module" src="assets/main-CB8ZPS_y.js"></script>
+    <script type="module" src="assets/main-oGaYweCS.js"></script>
 </body>
 </html>
