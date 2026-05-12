@@ -71,6 +71,7 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             section_map[(c_code, s_code)] = (s_id, inst if inst is not None else "")
 
         updates = []
+        seen_section_ids = set()
 
         logger.info("Processing sections for instructor updates...")
         for row in data:
@@ -103,6 +104,7 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
 
             if result:
                 section_id, old_instructor = result
+                seen_section_ids.add(section_id)
 
                 if old_instructor != instructor:
                     if not dry_run:
@@ -114,13 +116,21 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             else:
                 not_found_count += 1
 
+        stale_count = 0
+        for s_id, old_inst in section_map.values():
+            if s_id not in seen_section_ids and old_inst != "":
+                if not dry_run:
+                    updates.append(("", s_id))
+                logger.debug(f"Clearing stale instructor for section_id: {s_id}")
+                stale_count += 1
+
         if not dry_run and updates:
             cursor.executemany(
                 "UPDATE sections SET instructor = ? WHERE section_id = ?", updates
             )
 
         logger.info(
-            f"Instructor Population Summary: Updated={updated_count}, NotFound={not_found_count}, Skipped={skipped_count}"
+            f"Instructor Population Summary: Updated={updated_count}, ClearedStale={stale_count}, NotFound={not_found_count}, Skipped={skipped_count}"
         )
 
         if dry_run:
