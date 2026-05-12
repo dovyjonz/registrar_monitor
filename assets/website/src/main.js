@@ -354,32 +354,89 @@ function openCourse(courseCode) {
 }
 
 /**
- * Compute warped x-values so each milestone segment gets equal width.
+ * Map real timestamps to phased mode (equal segment widths)
  */
-function computeWarpedX(timestamps, milestones) {
-    if (!milestones || milestones.length < 2) return null;
-
+function getPhasedMapper(timestamps, milestones) {
+    if (!milestones || milestones.length < 2) return { xValues: timestamps, mapTime: t => t };
+    
     const mTimes = milestones.map(m => new Date(m.time).getTime()).sort((a, b) => a - b);
-    // Add virtual boundaries: start = first data point, end = last data point
-    const allBounds = [Math.min(timestamps[0], mTimes[0]), ...mTimes, Math.max(timestamps[timestamps.length - 1], mTimes[mTimes.length - 1])];
-    // Remove duplicates and sort
+    const firstData = timestamps.length ? timestamps[0] : mTimes[0];
+    const lastData = timestamps.length ? timestamps[timestamps.length - 1] : mTimes[mTimes.length - 1];
+    
+    const allBounds = [Math.min(firstData, mTimes[0]), ...mTimes, Math.max(lastData, mTimes[mTimes.length - 1])];
     const bounds = [...new Set(allBounds)].sort((a, b) => a - b);
     const segCount = bounds.length - 1;
-    if (segCount <= 0) return null;
-
-    const segWidth = 100; // each segment gets 100 units
-    return timestamps.map(t => {
-        // Find which segment this timestamp falls into
+    if (segCount <= 0) return { xValues: timestamps, mapTime: t => t };
+    
+    const segWidth = 100;
+    const mapTime = (t) => {
         for (let s = 0; s < segCount; s++) {
             if (t <= bounds[s + 1]) {
-                const segStart = bounds[s];
-                const segEnd = bounds[s + 1];
-                const frac = segEnd === segStart ? 0.5 : (t - segStart) / (segEnd - segStart);
+                const frac = bounds[s+1] === bounds[s] ? 0.5 : (t - bounds[s]) / (bounds[s+1] - bounds[s]);
                 return s * segWidth + frac * segWidth;
             }
         }
-        return (segCount - 1) * segWidth + segWidth; // beyond last
-    });
+        return (segCount - 1) * segWidth + segWidth;
+    };
+    
+    return { xValues: timestamps.map(mapTime), mapTime };
+}
+
+/**
+ * Map real timestamps to clipped timeline mode (max 7 days visual gap)
+ */
+function getTimelineMapper(timestamps, milestones) {
+    const maxGapMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const mTimes = milestones.map(m => new Date(m.time).getTime());
+    const allTimes = [...new Set([...timestamps, ...mTimes])].sort((a, b) => a - b);
+    
+    if (allTimes.length === 0) return { xValues: [], mapTime: t => t };
+
+    const timeMap = new Map();
+    let currentClipped = allTimes[0];
+    timeMap.set(allTimes[0], currentClipped);
+
+    for (let i = 1; i < allTimes.length; i++) {
+        const diff = allTimes[i] - allTimes[i-1];
+        const effectiveDiff = Math.min(diff, maxGapMs);
+        currentClipped += effectiveDiff;
+        timeMap.set(allTimes[i], currentClipped);
+    }
+
+    return {
+        xValues: timestamps.map(t => timeMap.get(t)),
+        mapTime: t => {
+            if (timeMap.has(t)) return timeMap.get(t);
+            for (let i = 0; i < allTimes.length - 1; i++) {
+                if (t >= allTimes[i] && t <= allTimes[i+1]) {
+                    const frac = (t - allTimes[i]) / (allTimes[i+1] - allTimes[i]);
+                    return timeMap.get(allTimes[i]) + frac * (timeMap.get(allTimes[i+1]) - timeMap.get(allTimes[i]));
+                }
+            }
+            return t;
+        }
+    };
+}
+
+/**
+ * Map real timestamps to snapshot indices
+ */
+function getSnapshotsMapper(timestamps) {
+    const mapTime = (t) => {
+        if (timestamps.length === 0) return 0;
+        if (t <= timestamps[0]) return 0;
+        if (t >= timestamps[timestamps.length - 1]) return timestamps.length - 1;
+        
+        for (let i = 0; i < timestamps.length - 1; i++) {
+            if (t >= timestamps[i] && t <= timestamps[i+1]) {
+                const frac = (t - timestamps[i]) / (timestamps[i+1] - timestamps[i]);
+                return i + frac;
+            }
+        }
+        return 0;
+    };
+    
+    return { xValues: timestamps.map((_, i) => i), mapTime };
 }
 
 /**
@@ -421,7 +478,7 @@ function renderMilestoneProgress() {
 
     container.innerHTML = `
         <div class="mp-track">
-            <div class="mp-fill" style="width:${fillPct}%"></div>
+            <div class="mp-fill" style="clip-path: inset(0 calc(100% - ${fillPct}%) 0 0)"></div>
             ${dots}
         </div>`;
 }
@@ -669,57 +726,45 @@ function selectSection(sectionCode) {
 }
 
 /**
- * Render enrollment chart with milestones and phased/timeline mode.
+ * Render enrollment chart with milestones and phased/timeline/snapshots mode.
  */
 function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarkers) {
     // Cache args for mode toggle re-render
     lastRenderArgs = { chartLabel, labels, fillData, timestamps, showCapacityMarkers };
 
     const milestones = getMilestones();
-    const usePhased = chartMode === 'phased';
-    const warpedX = usePhased ? computeWarpedX(timestamps, milestones) : null;
+    
+    let mapper;
+    if (chartMode === 'phased') {
+        mapper = getPhasedMapper(timestamps, milestones);
+    } else if (chartMode === 'snapshots') {
+        mapper = getSnapshotsMapper(timestamps);
+    } else {
+        mapper = getTimelineMapper(timestamps, milestones);
+    }
+    
+    const { xValues, mapTime } = mapper;
 
-    // Build x-axis data
-    // Timeline mode: use actual timestamps for proper proportional spacing
-    // Phased mode: use warped values for equal-segment spacing
-    const xValues = warpedX || timestamps;
-
-    // Labels to exclude from timeline mode (they clutter the chart)
+    // Labels to exclude from non-phased mode (they clutter the chart)
     const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
 
     // Build milestone annotations
     const annotations = {};
     if (timestamps.length > 0 && milestones && milestones.length > 0) {
         milestones.forEach((m, idx) => {
-            // Skip deadline milestones in timeline mode
-            if (!usePhased && DEADLINE_LABELS.has(m.label)) return;
+            // Skip deadline milestones in timeline and snapshots mode
+            if (chartMode !== 'phased' && DEADLINE_LABELS.has(m.label)) return;
 
             const mTime = new Date(m.time).getTime();
 
-            // In timeline mode, skip milestones outside data range
-            if (!usePhased && timestamps.length > 0) {
+            // In non-phased mode, skip milestones outside data range
+            if (chartMode !== 'phased' && timestamps.length > 0) {
                 const dataMin = Math.min(...timestamps);
                 const dataMax = Math.max(...timestamps);
                 if (mTime < dataMin || mTime > dataMax) return;
             }
 
-            let xPos;
-            if (warpedX) {
-                const mTimes = milestones.map(ms => new Date(ms.time).getTime()).sort((a, b) => a - b);
-                const allBounds = [Math.min(timestamps[0], mTimes[0]), ...mTimes, Math.max(timestamps[timestamps.length - 1], mTimes[mTimes.length - 1])];
-                const bounds = [...new Set(allBounds)].sort((a, b) => a - b);
-                const segWidth = 100;
-                for (let s = 0; s < bounds.length - 1; s++) {
-                    if (mTime <= bounds[s + 1]) {
-                        const frac = bounds[s + 1] === bounds[s] ? 0.5 : (mTime - bounds[s]) / (bounds[s + 1] - bounds[s]);
-                        xPos = s * segWidth + frac * segWidth;
-                        break;
-                    }
-                }
-                if (xPos === undefined) xPos = (bounds.length - 2) * segWidth + segWidth;
-            } else {
-                xPos = mTime;
-            }
+            const xPos = mapTime(mTime);
 
             // Position label based on fill value at closest point
             let closestDataIdx = 0, minDiff2 = Infinity;
