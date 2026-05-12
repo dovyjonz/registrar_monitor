@@ -267,8 +267,16 @@ async def poll_and_get_change_score() -> float:
         if not success:
             return 0.0
 
+        # Detect the active semester so we query the correct database
+        try:
+            from ..cli.utils import detect_active_semester
+        except ImportError:
+            from registrarmonitor.cli.utils import detect_active_semester
+            
+        detected_semester = await detect_active_semester()
+
         # Calculate change score based on the comparison
-        monitoring_service = MonitoringService()
+        monitoring_service = MonitoringService(semester=detected_semester)
         comparator = SnapshotComparator()
 
         # Get the latest two snapshots for comparison from the database
