@@ -594,15 +594,16 @@ class DatabaseManager:
                         continue
                     for section_code, section in course.sections.items():
                         sections_data.append(
-                            (course_id, section_code, section.section_type)
+                            (course_id, section_code, section.section_type, section.instructor)
                         )
 
                 cursor.executemany(
                     """
-                    INSERT INTO sections (course_id, section_code, section_type)
-                    VALUES (?, ?, ?)
+                    INSERT INTO sections (course_id, section_code, section_type, instructor)
+                    VALUES (?, ?, ?, ?)
                     ON CONFLICT(course_id, section_code) DO UPDATE SET
                         section_type = COALESCE(excluded.section_type, section_type),
+                        instructor = COALESCE(excluded.instructor, instructor),
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     sections_data,
@@ -1024,6 +1025,7 @@ class DatabaseManager:
                         enrollment=enrollment,
                         capacity=capacity,
                         fill=fill,
+                        instructor=instructor,
                     )
 
                     course.sections[section_code] = section
