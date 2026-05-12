@@ -844,9 +844,9 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
                 x: {
                     type: 'linear',
                     display: false,
-                    ...(usePhased ? {} : {
-                        min: Math.min(...timestamps) - (timestamps.length > 1 ? (timestamps[1] - timestamps[0]) * 0.5 : 60000),
-                        max: Math.max(...timestamps) + (timestamps.length > 1 ? (timestamps[timestamps.length-1] - timestamps[timestamps.length-2]) * 0.5 : 60000)
+                    ...(chartMode === 'phased' || xValues.length === 0 ? {} : {
+                        min: xValues[0] - (xValues.length > 1 ? (xValues[1] - xValues[0]) * 0.5 : 60000),
+                        max: xValues[xValues.length-1] + (xValues.length > 1 ? (xValues[xValues.length-1] - xValues[xValues.length-2]) * 0.5 : 60000)
                     })
                 },
                 y: {
