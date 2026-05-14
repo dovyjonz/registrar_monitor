@@ -105,8 +105,7 @@ def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[d
 
         # Get all snapshots ordered chronologically
         cursor.execute(
-            "SELECT snapshot_id, timestamp FROM snapshots WHERE semester = ? ORDER BY timestamp ASC",
-            (semester,),
+            "SELECT snapshot_id, timestamp FROM snapshots ORDER BY timestamp ASC",
         )
         snapshots = cursor.fetchall()
 
@@ -245,10 +244,8 @@ def get_semester_data(semester: str, *, minify: bool = True) -> dict[str, Any]:
             """
             SELECT snapshot_id, timestamp, overall_fill
             FROM snapshots
-            WHERE semester = ?
             ORDER BY timestamp ASC
-        """,
-            (semester,),
+        """
         )
 
         snapshots = cursor.fetchall()
