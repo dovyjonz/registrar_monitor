@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..core import get_logger
-from ..website.checksums import get_semesters_needing_update, update_checksum
+from ..website.checksums import clear_all_checksums, get_semesters_needing_update, update_checksum
 from ..website.config import (
     MILESTONES_MAP,
     OUTPUT_DIR,
@@ -82,7 +82,14 @@ class WebsiteService:
         return output_path, file_size_kb
 
     def build_frontend_assets(self) -> bool:
-        """Build the frontend assets using npm/vite."""
+        """Build the frontend assets using npm/vite.
+
+        After a successful build, Vite emits new content-hashed filenames.
+        All HTML pages embed these filenames, so we must regenerate every page
+        after a build — not just the ones with changed data.  This is handled
+        by clearing all checksums here; the caller's loop will then rebuild
+        every semester page.
+        """
         import os
         print("Building frontend assets...")
         build_cmd = ["npm", "run", "build"]
@@ -103,6 +110,12 @@ class WebsiteService:
 
             subprocess.run(build_cmd, cwd=self.website_assets_dir, check=True, env=env)
             print("Frontend build successful.")
+
+            # New build → new content-hashed filenames → every HTML page must
+            # be regenerated.  Clear all checksums so the generator rebuilds
+            # every semester page on this run.
+            clear_all_checksums()
+            print("Cleared asset checksums — all pages will be regenerated with new asset hashes.")
             return True
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error building frontend assets: {e}")
