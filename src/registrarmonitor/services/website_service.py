@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..core import get_logger
-from ..website.checksums import clear_all_checksums, get_semesters_needing_update, update_checksum
+from ..website.checksums import get_semesters_needing_update, update_checksum
 from ..website.config import (
     MILESTONES_MAP,
     OUTPUT_DIR,
@@ -81,14 +81,78 @@ class WebsiteService:
 
         return output_path, file_size_kb
 
+    def _patch_asset_hashes_in_html(self) -> bool:
+        """Update JS/CSS asset references in all deployed HTML files after a Vite build.
+
+        Vite produces content-hashed filenames (e.g. ``main-BTBUBuTQ.js``) that
+        change on every rebuild.  Rather than regenerating every HTML page from
+        scratch (which requires DB queries for each semester), this method reads
+        the new manifest and performs a targeted in-place regex substitution on
+        the already-deployed HTML files — updating only the ``<script src>`` and
+        ``<link href>`` lines that reference versioned assets.  Checksums are
+        left intact so incremental logic still skips semesters with no new data.
+
+        Returns:
+            True if the patch was applied successfully, False otherwise.
+        """
+        import json
+        import re
+
+        manifest_path = self.website_assets_dir / "public" / "assets" / ".vite" / "manifest.json"
+        if not manifest_path.exists():
+            print("Warning: manifest.json not found — cannot patch asset hashes in HTML.")
+            return False
+
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except Exception as e:
+            print(f"Warning: Failed to read manifest.json: {e}")
+            return False
+
+        entry = manifest.get("src/main.js", {})
+        new_js = entry.get("file")       # e.g. "main-BTBUBuTQ.js"
+        css_files = entry.get("css", [])
+        new_css = css_files[0] if css_files else None  # e.g. "main-CKing-67.css"
+
+        if not new_js:
+            print("Warning: No JS entry in manifest — skipping asset hash patch.")
+            return False
+
+        output_dir = self.website_assets_dir / "public"
+        patched = 0
+        for html_file in output_dir.glob("*.html"):
+            text = html_file.read_text(encoding="utf-8")
+            original = text
+
+            # Replace any existing hashed JS reference (assets/main-*.js)
+            text = re.sub(
+                r'(src="assets/)main-[^"]+\.js(")',
+                rf'\g<1>{new_js}\2',
+                text,
+            )
+
+            # Replace any existing hashed CSS reference (assets/main-*.css)
+            if new_css:
+                text = re.sub(
+                    r'(href="assets/)main-[^"]+\.css(")',
+                    rf'\g<1>{new_css}\2',
+                    text,
+                )
+
+            if text != original:
+                html_file.write_text(text, encoding="utf-8")
+                patched += 1
+
+        print(f"Patched asset hashes in {patched} HTML file(s) — no page regeneration needed.")
+        return True
+
     def build_frontend_assets(self) -> bool:
         """Build the frontend assets using npm/vite.
 
         After a successful build, Vite emits new content-hashed filenames.
-        All HTML pages embed these filenames, so we must regenerate every page
-        after a build — not just the ones with changed data.  This is handled
-        by clearing all checksums here; the caller's loop will then rebuild
-        every semester page.
+        Rather than regenerating all HTML pages (which requires DB queries),
+        we patch the asset references in-place using :meth:`_patch_asset_hashes_in_html`.
+        Checksums are preserved so incremental logic is unaffected.
         """
         import os
         print("Building frontend assets...")
@@ -111,11 +175,8 @@ class WebsiteService:
             subprocess.run(build_cmd, cwd=self.website_assets_dir, check=True, env=env)
             print("Frontend build successful.")
 
-            # New build → new content-hashed filenames → every HTML page must
-            # be regenerated.  Clear all checksums so the generator rebuilds
-            # every semester page on this run.
-            clear_all_checksums()
-            print("Cleared asset checksums — all pages will be regenerated with new asset hashes.")
+            # Patch asset hashes in all deployed HTML files without regenerating them.
+            self._patch_asset_hashes_in_html()
             return True
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error building frontend assets: {e}")
