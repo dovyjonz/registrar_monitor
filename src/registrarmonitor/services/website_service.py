@@ -83,17 +83,25 @@ class WebsiteService:
 
     def build_frontend_assets(self) -> bool:
         """Build the frontend assets using npm/vite."""
+        import os
         print("Building frontend assets...")
         build_cmd = ["npm", "run", "build"]
+        
+        # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
+        env = os.environ.copy()
+        env["NODE_OPTIONS"] = "--max_old_space_size=512"
+        env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
+        env["NO_UPDATE_NOTIFIER"] = "1"
+        
         try:
             # Check if node_modules exists, if not maybe install?
             if not (self.website_assets_dir / "node_modules").exists():
                 print("Installing frontend dependencies...")
                 subprocess.run(
-                    ["npm", "install"], cwd=self.website_assets_dir, check=True
+                    ["npm", "install"], cwd=self.website_assets_dir, check=True, env=env
                 )
 
-            subprocess.run(build_cmd, cwd=self.website_assets_dir, check=True)
+            subprocess.run(build_cmd, cwd=self.website_assets_dir, check=True, env=env)
             print("Frontend build successful.")
             return True
         except subprocess.CalledProcessError as e:
@@ -229,6 +237,7 @@ class WebsiteService:
         Returns:
             True if successful
         """
+        import os
         print("\n🚀 Deploying to Cloudflare Pages...")
         print(f"   Project: {project_name}")
         if branch:
@@ -247,10 +256,16 @@ class WebsiteService:
 
         if branch:
             deploy_cmd.extend(["--branch", branch])
+            
+        # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
+        env = os.environ.copy()
+        env["NODE_OPTIONS"] = "--max_old_space_size=512"
+        env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
+        env["NO_UPDATE_NOTIFIER"] = "1"
 
         try:
             # Run inside website_assets_dir where package.json/node_modules are
-            result = subprocess.run(deploy_cmd, cwd=self.website_assets_dir)
+            result = subprocess.run(deploy_cmd, cwd=self.website_assets_dir, env=env)
             if result.returncode == 0:
                 print("✅ Deployment successful!")
                 return True
