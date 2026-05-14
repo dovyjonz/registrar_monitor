@@ -83,3 +83,17 @@ def update_checksum(semester: str) -> None:
     checksums = load_checksums()
     checksums[semester] = compute_semester_hash(semester)
     save_checksums(checksums)
+
+
+def clear_all_checksums() -> None:
+    """Delete all stored checksums, forcing every semester page to be regenerated.
+
+    This should be called after every successful Vite build because a new build
+    produces new content-hashed JS/CSS filenames.  Every HTML page embeds those
+    filenames, so all pages must be regenerated \u2014 not just those whose data
+    has changed \u2014 or Cloudflare will serve stale HTML that references JS files
+    that no longer exist, returning HTML 404 pages instead of the JS module and
+    triggering a MIME-type error in the browser.
+    """
+    if CHECKSUMS_FILE.exists():
+        CHECKSUMS_FILE.unlink()
