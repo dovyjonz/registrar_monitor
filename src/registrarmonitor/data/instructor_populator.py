@@ -1,5 +1,6 @@
 import sqlite3
 import os
+from datetime import datetime
 from ..data.excel_reader import ExcelReader
 from ..core import get_logger
 
@@ -70,10 +71,8 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             c_code, s_code, s_id, inst = mapping_row
             section_map[(c_code, s_code)] = (s_id, inst if inst is not None else "")
 
-        updates = []
-        seen_section_ids = set()
-
-        logger.info("Processing sections for instructor updates...")
+        # Step 1: Aggregate instructors by section from excel data
+        aggregated_data = {}
         for row in data:
             course_code = row.get("Course Abbr")
             section_code = row.get("S/T")
@@ -81,7 +80,6 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
 
             # Check validity, ensuring they are strings (sometimes xlrd might return non-strings if malformed)
             if not (isinstance(course_code, str) and isinstance(section_code, str)):
-                # Try converting to string if possible, or skip
                 if course_code is not None:
                     course_code = str(course_code)
                 if section_code is not None:
@@ -94,11 +92,27 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             course_code = course_code.strip()
             section_code = section_code.strip()
 
-            # Normalize instructor if None/NaN
+            if not course_code or not section_code:
+                skipped_count += 1
+                continue
+
             if not isinstance(instructor, str):
                 instructor = ""
             instructor = instructor.strip()
 
+            key = (course_code, section_code)
+            if key not in aggregated_data:
+                aggregated_data[key] = []
+            aggregated_data[key].append(instructor)
+
+        # Step 2: Process the aggregated sections
+        updates = []
+        change_records = []
+        timestamp_str = datetime.now().isoformat()
+        seen_section_ids = set()
+
+        logger.info("Processing sections for instructor updates...")
+        for (course_code, section_code), raw_instructors in aggregated_data.items():
             # Lookup the section_id and old instructor
             result = section_map.get((course_code, section_code))
 
@@ -106,11 +120,31 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                 section_id, old_instructor = result
                 seen_section_ids.add(section_id)
 
-                if old_instructor != instructor:
+                # Process raw instructors to find co-instructors and filter out TBA/empty
+                names = []
+                for inst in raw_instructors:
+                    for part in inst.split(','):
+                        p = part.strip()
+                        if p and p.upper() not in {"TBA", "TBA TBA", "TBA1 TBA1"}:
+                            if p not in names:
+                                names.append(p)
+
+                # If we have valid instructor names, join them. Otherwise, if there was TBA or empty, use empty or TBA
+                if names:
+                    final_instructor = ", ".join(names)
+                else:
+                    non_empty_raws = [r for r in raw_instructors if r]
+                    if non_empty_raws:
+                        final_instructor = non_empty_raws[0]
+                    else:
+                        final_instructor = ""
+
+                if old_instructor != final_instructor:
                     if not dry_run:
-                        updates.append((instructor, section_id))
+                        updates.append((final_instructor, section_id))
+                        change_records.append((section_id, old_instructor, final_instructor, timestamp_str))
                     logger.debug(
-                        f"Updating {course_code}-{section_code}: '{old_instructor}' -> '{instructor}'"
+                        f"Updating {course_code}-{section_code}: '{old_instructor}' -> '{final_instructor}'"
                     )
                     updated_count += 1
             else:
@@ -121,6 +155,7 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             if s_id not in seen_section_ids and old_inst != "":
                 if not dry_run:
                     updates.append(("", s_id))
+                    change_records.append((s_id, old_inst, "", timestamp_str))
                 logger.debug(f"Clearing stale instructor for section_id: {s_id}")
                 stale_count += 1
 
@@ -128,6 +163,14 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             cursor.executemany(
                 "UPDATE sections SET instructor = ? WHERE section_id = ?", updates
             )
+            if change_records:
+                cursor.executemany(
+                    """
+                    INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    change_records
+                )
 
         logger.info(
             f"Instructor Population Summary: Updated={updated_count}, ClearedStale={stale_count}, NotFound={not_found_count}, Skipped={skipped_count}"

@@ -171,6 +171,19 @@ class DatabaseManager:
                     )
                 """)
 
+                # Create instructor_changes table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS instructor_changes (
+                        change_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        section_id INTEGER NOT NULL,
+                        old_instructor TEXT,
+                        new_instructor TEXT,
+                        timestamp TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (section_id) REFERENCES sections (section_id)
+                    )
+                """)
+
                 # Create indexes for better performance
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_courses_code
@@ -205,6 +218,11 @@ class DatabaseManager:
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_reporting_log_snapshot
                     ON reporting_log (reported_snapshot_id)
+                """)
+
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_instructor_changes_section
+                    ON instructor_changes (section_id)
                 """)
 
                 conn.commit()
