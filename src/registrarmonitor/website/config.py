@@ -96,6 +96,11 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
             # m_data is [time, label] (and optional color if we wanted, but we don't need it now)
             time_str = m_data[0]
             label_str = m_data[1]
+            
+            # Skip hidden milestones (labels starting with '_')
+            if label_str.startswith("_"):
+                continue
+                
             color = palette[min(i, len(palette) - 1)]
             
             colored_milestones.append({
