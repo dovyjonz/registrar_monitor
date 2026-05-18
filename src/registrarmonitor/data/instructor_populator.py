@@ -57,6 +57,17 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
         skipped_count = 0
         not_found_count = 0
 
+        # Get latest snapshot info for timestamp and to check if this is the first run
+        cursor.execute(
+            "SELECT timestamp FROM snapshots ORDER BY snapshot_id DESC LIMIT 1"
+        )
+        snapshot_row = cursor.fetchone()
+        latest_timestamp = snapshot_row[0] if snapshot_row else ""
+
+        cursor.execute("SELECT COUNT(*) FROM snapshots")
+        snapshot_count = cursor.fetchone()[0]
+        is_initial_population = snapshot_count <= 1
+
         # Pre-fetch mapping of (course_code, section_code) -> (section_id, instructor)
         cursor.execute(
             """
@@ -71,6 +82,7 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             section_map[(c_code, s_code)] = (s_id, inst if inst is not None else "")
 
         updates = []
+        history_updates = []
         seen_section_ids = set()
 
         logger.info("Processing sections for instructor updates...")
@@ -91,8 +103,8 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                     skipped_count += 1
                     continue
 
-            course_code = course_code.strip()
-            section_code = section_code.strip()
+            course_code = str(course_code).strip()
+            section_code = str(section_code).strip()
 
             # Normalize instructor if None/NaN
             if not isinstance(instructor, str):
@@ -109,6 +121,15 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                 if old_instructor != instructor:
                     if not dry_run:
                         updates.append((instructor, section_id))
+                        if not is_initial_population:
+                            history_updates.append(
+                                (
+                                    section_id,
+                                    old_instructor,
+                                    instructor,
+                                    latest_timestamp,
+                                )
+                            )
                     logger.debug(
                         f"Updating {course_code}-{section_code}: '{old_instructor}' -> '{instructor}'"
                     )
@@ -121,6 +142,8 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             if s_id not in seen_section_ids and old_inst != "":
                 if not dry_run:
                     updates.append(("", s_id))
+                    if not is_initial_population:
+                        history_updates.append((s_id, old_inst, "", latest_timestamp))
                 logger.debug(f"Clearing stale instructor for section_id: {s_id}")
                 stale_count += 1
 
@@ -128,6 +151,11 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             cursor.executemany(
                 "UPDATE sections SET instructor = ? WHERE section_id = ?", updates
             )
+            if history_updates:
+                cursor.executemany(
+                    "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
+                    history_updates,
+                )
 
         logger.info(
             f"Instructor Population Summary: Updated={updated_count}, ClearedStale={stale_count}, NotFound={not_found_count}, Skipped={skipped_count}"

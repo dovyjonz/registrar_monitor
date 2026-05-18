@@ -153,11 +153,17 @@ def parse_schedule_file(
                         t = datetime.datetime.fromisoformat(m_data[0])
                         # extreme: -5min to +10min
                         zones[SchedulingLevel.EXTREME].append(
-                            (t - datetime.timedelta(minutes=5), t + datetime.timedelta(minutes=10))
+                            (
+                                t - datetime.timedelta(minutes=5),
+                                t + datetime.timedelta(minutes=10),
+                            )
                         )
                         # high: +10min to +30min
                         zones[SchedulingLevel.HIGH].append(
-                            (t + datetime.timedelta(minutes=10), t + datetime.timedelta(minutes=30))
+                            (
+                                t + datetime.timedelta(minutes=10),
+                                t + datetime.timedelta(minutes=30),
+                            )
                         )
                     except (IndexError, ValueError) as e:
                         print(f"Warning: skipping milestone {m_data}: {e}")
@@ -168,7 +174,10 @@ def parse_schedule_file(
                     t = datetime.datetime.fromisoformat(d_data[0])
                     # moderate: -30min to +30min
                     zones[SchedulingLevel.MODERATE].append(
-                        (t - datetime.timedelta(minutes=30), t + datetime.timedelta(minutes=30))
+                        (
+                            t - datetime.timedelta(minutes=30),
+                            t + datetime.timedelta(minutes=30),
+                        )
                     )
                 except (IndexError, ValueError) as e:
                     print(f"Warning: skipping deadline {d_data}: {e}")
@@ -193,7 +202,9 @@ def parse_schedule_file(
     return zones
 
 
-def get_next_zone_start(schedule_file: str = "schedule.txt") -> datetime.datetime | None:
+def get_next_zone_start(
+    schedule_file: str = "schedule.txt",
+) -> datetime.datetime | None:
     """
     Find the start time of the next scheduled zone window after now.
 
@@ -204,7 +215,11 @@ def get_next_zone_start(schedule_file: str = "schedule.txt") -> datetime.datetim
     zones = parse_schedule_file(schedule_file)
     next_start = None
 
-    for level in [SchedulingLevel.EXTREME, SchedulingLevel.HIGH, SchedulingLevel.MODERATE]:
+    for level in [
+        SchedulingLevel.EXTREME,
+        SchedulingLevel.HIGH,
+        SchedulingLevel.MODERATE,
+    ]:
         for start_time, _end_time in zones[level]:
             if start_time > now:
                 if next_start is None or start_time < next_start:
@@ -272,7 +287,7 @@ async def poll_and_get_change_score() -> float:
             from ..cli.utils import detect_active_semester
         except ImportError:
             from registrarmonitor.cli.utils import detect_active_semester
-            
+
         detected_semester = await detect_active_semester()
 
         # Calculate change score based on the comparison

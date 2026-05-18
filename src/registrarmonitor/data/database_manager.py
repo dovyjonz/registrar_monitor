@@ -131,6 +131,18 @@ class DatabaseManager:
                     )
                 """)
 
+                # Create instructor_changes table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS instructor_changes (
+                        change_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        section_id INTEGER NOT NULL,
+                        old_instructor TEXT,
+                        new_instructor TEXT,
+                        timestamp TEXT NOT NULL,
+                        FOREIGN KEY (section_id) REFERENCES sections (section_id)
+                    )
+                """)
+
                 # Create snapshots table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS snapshots (

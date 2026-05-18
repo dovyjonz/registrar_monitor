@@ -54,10 +54,12 @@ def _load_settings() -> dict[str, Any]:
     """Load and return the parsed settings.toml via the Config singleton."""
     try:
         from registrarmonitor.config import get_config
+
         return get_config()
     except Exception:
         # Fallback: read directly with tomllib (stdlib Python 3.11+)
         import tomllib
+
         settings_path = Path(__file__).parent.parent.parent.parent / "settings.toml"
         with open(settings_path, "rb") as f:
             return tomllib.load(f)
@@ -84,30 +86,28 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
     sem_data = cfg.get("semesters", {}).get(semester, {})
 
     colored_milestones = []
-    
+
     # Parse priorities and apply colors
     priorities = sem_data.get("priorities", {})
     for p_level in sorted(priorities.keys(), key=int):
         # p_level is "1", "2", etc.
         palette_idx = max(0, int(p_level) - 1)
         palette = _PRIORITY_PALETTES[min(palette_idx, len(_PRIORITY_PALETTES) - 1)]
-        
+
         for i, m_data in enumerate(priorities[p_level]):
             # m_data is [time, label] (and optional color if we wanted, but we don't need it now)
             time_str = m_data[0]
             label_str = m_data[1]
-            
+
             # Skip hidden milestones (labels starting with '_')
             if label_str.startswith("_"):
                 continue
-                
+
             color = palette[min(i, len(palette) - 1)]
-            
-            colored_milestones.append({
-                "time": time_str,
-                "label": label_str,
-                "color": color
-            })
+
+            colored_milestones.append(
+                {"time": time_str, "label": label_str, "color": color}
+            )
 
     # Parse deadlines and apply neutral colors
     raw_deadlines = [
