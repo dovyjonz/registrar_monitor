@@ -213,6 +213,29 @@ def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[d
 
             prev_state = curr_state
 
+        # Query historical instructor changes from the dedicated instructor_changes table
+        try:
+            cursor.execute(
+                """
+                SELECT c.course_code, s.section_code, ic.old_instructor, ic.new_instructor, ic.timestamp
+                FROM instructor_changes ic
+                JOIN sections s ON ic.section_id = s.section_id
+                JOIN courses c ON s.course_id = c.course_id
+                """
+            )
+            for row in cursor.fetchall():
+                cc, sc, old_val, new_val, ts = row
+                events_by_course.setdefault(cc, []).append({
+                    "eventType": "instructor_changed",
+                    "sectionCode": sc,
+                    "oldValue": old_val or "TBA",
+                    "newValue": new_val or "TBA",
+                    "snapshotTimestamp": ts,
+                })
+        except sqlite3.OperationalError:
+            # Handle cases where the table doesn't exist yet (e.g., in transition on old DBs)
+            pass
+
     return events_by_course
 
 
