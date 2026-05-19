@@ -539,22 +539,29 @@ class HybridScheduler:
 
             latest_snapshot_id = db_manager.get_latest_snapshot_id()
             last_reported_id = db_manager.get_last_reported_snapshot_id()
+            last_website_processed_id = getattr(self, "_last_website_processed_snapshot_id", None)
 
             if not latest_snapshot_id:
                 return
 
             # If this is the first run, initialize the reporting log with latest snapshot
+            # and align the website-processing baseline so the same snapshot is not
+            # repeatedly treated as "new" when reporting is disabled or delayed.
             if not last_reported_id:
                 print(f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}.")
                 db_manager.add_reporting_log(snapshot_id=latest_snapshot_id, changes_were_found=False)
+                self._last_website_processed_snapshot_id = latest_snapshot_id
                 return
 
-            if latest_snapshot_id == last_reported_id:
+            if latest_snapshot_id == last_website_processed_id:
                 return
 
             # Fetch snapshot data
             current_snapshot = db_manager.get_snapshot_data(latest_snapshot_id)
             previous_snapshot = db_manager.get_snapshot_data(last_reported_id)
+
+            if current_snapshot and previous_snapshot:
+                self._last_website_processed_snapshot_id = latest_snapshot_id
 
             if not current_snapshot or not previous_snapshot:
                 return

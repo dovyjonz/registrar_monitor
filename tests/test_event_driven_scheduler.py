@@ -43,13 +43,14 @@ class TestCheckAndTriggerUpdates:
         mock_db.get_latest_snapshot_id.return_value = None
 
         with (
-            patch("registrarmonitor.automation.scheduler.HybridScheduler._check_and_trigger_updates",
-                  wraps=scheduler._check_and_trigger_updates),
-            patch("registrarmonitor.data.database_manager.DatabaseManager", return_value=mock_db),
-            patch("registrarmonitor.automation.scheduler.HybridScheduler._run_website_update"),
+            patch("registrarmonitor.automation.scheduler.DatabaseManager", return_value=mock_db),
+            patch("registrarmonitor.automation.scheduler.asyncio.to_thread") as mock_to_thread,
+            patch.object(HybridScheduler, "_run_report_cycle", new_callable=AsyncMock) as mock_run_report_cycle,
         ):
-            # Should not raise
-            pass  # Just testing it doesn't raise on import; integration covered below
+            await scheduler._check_and_trigger_updates()
+
+        mock_to_thread.assert_not_called()
+        mock_run_report_cycle.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_no_latest_snapshot_returns_silently(self, scheduler):
@@ -57,26 +58,15 @@ class TestCheckAndTriggerUpdates:
         mock_db = MagicMock()
         mock_db.get_latest_snapshot_id.return_value = None
 
-        mock_detect = AsyncMock(return_value="Summer 2026")
-
         with (
-            patch("registrarmonitor.automation.scheduler.DatabaseManager", mock_db.__class__, create=True),
-            patch("registrarmonitor.automation.scheduler.SnapshotComparator", create=True),
+            patch("registrarmonitor.automation.scheduler.DatabaseManager", return_value=mock_db),
+            patch("registrarmonitor.automation.scheduler.asyncio.to_thread") as mock_to_thread,
+            patch.object(HybridScheduler, "_run_report_cycle", new_callable=AsyncMock) as mock_run_report_cycle,
         ):
-            # Manually inject dependencies
-            async def _patched(self_inner):
-                try:
-                    detect = AsyncMock(return_value="Summer 2026")
-                    db = MagicMock()
-                    db.get_latest_snapshot_id.return_value = None
-                    # Should just return
-                    if not db.get_latest_snapshot_id():
-                        return
-                except Exception:
-                    pass
+            await scheduler._check_and_trigger_updates()
 
-            # If it returns silently, no exception
-            assert True  # No exception raised is the test
+        mock_to_thread.assert_not_called()
+        mock_run_report_cycle.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_status_change_triggers_website_update(self, scheduler):
@@ -188,12 +178,38 @@ class TestCheckAndTriggerUpdates:
         assert scheduler._last_change_score == 0.0
         assert scheduler._last_poll_time is None
 
-    def test_report_cycle_force_poll_false_uses_cached_score(self):
-        """_run_report_cycle with force_poll=False uses _last_change_score."""
-        # Verify the attribute propagation without actually running the full cycle
+    @pytest.mark.asyncio
+    async def test_report_cycle_force_poll_false_uses_cached_score(self):
+        """_run_report_cycle with force_poll=False should not poll for a fresh score."""
         with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.LOW):
             sched = HybridScheduler(no_telegram=True)
 
         sched._last_change_score = 42.0
-        # Confirm attribute exists and holds expected value
-        assert sched._last_change_score == 42.0
+
+        with (
+            patch.object(sched, "poll_and_get_change_score", new=AsyncMock(return_value=99.0)) as mock_poll,
+            patch(
+                "registrarmonitor.automation.scheduler.ReportingService.run_stateful_report_cycle",
+                new=AsyncMock(),
+            ),
+        ):
+            await sched._run_report_cycle(force_poll=False)
+
+        mock_poll.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_report_cycle_force_poll_true_polls_for_fresh_score(self):
+        """_run_report_cycle with force_poll=True should poll for a fresh score."""
+        with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.LOW):
+            sched = HybridScheduler(no_telegram=True)
+
+        with (
+            patch.object(sched, "poll_and_get_change_score", new=AsyncMock(return_value=99.0)) as mock_poll,
+            patch(
+                "registrarmonitor.automation.scheduler.ReportingService.run_stateful_report_cycle",
+                new=AsyncMock(),
+            ),
+        ):
+            await sched._run_report_cycle(force_poll=True)
+
+        mock_poll.assert_awaited_once()
