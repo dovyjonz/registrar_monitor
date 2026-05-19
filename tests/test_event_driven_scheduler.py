@@ -178,12 +178,38 @@ class TestCheckAndTriggerUpdates:
         assert scheduler._last_change_score == 0.0
         assert scheduler._last_poll_time is None
 
-    def test_report_cycle_force_poll_false_uses_cached_score(self):
-        """_run_report_cycle with force_poll=False uses _last_change_score."""
-        # Verify the attribute propagation without actually running the full cycle
+    @pytest.mark.asyncio
+    async def test_report_cycle_force_poll_false_uses_cached_score(self):
+        """_run_report_cycle with force_poll=False should not poll for a fresh score."""
         with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.LOW):
             sched = HybridScheduler(no_telegram=True)
 
         sched._last_change_score = 42.0
-        # Confirm attribute exists and holds expected value
-        assert sched._last_change_score == 42.0
+
+        with (
+            patch.object(sched, "poll_and_get_change_score", new=AsyncMock(return_value=99.0)) as mock_poll,
+            patch(
+                "registrarmonitor.automation.scheduler.ReportingService.run_stateful_report_cycle",
+                new=AsyncMock(),
+            ),
+        ):
+            await sched._run_report_cycle(force_poll=False)
+
+        mock_poll.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_report_cycle_force_poll_true_polls_for_fresh_score(self):
+        """_run_report_cycle with force_poll=True should poll for a fresh score."""
+        with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.LOW):
+            sched = HybridScheduler(no_telegram=True)
+
+        with (
+            patch.object(sched, "poll_and_get_change_score", new=AsyncMock(return_value=99.0)) as mock_poll,
+            patch(
+                "registrarmonitor.automation.scheduler.ReportingService.run_stateful_report_cycle",
+                new=AsyncMock(),
+            ),
+        ):
+            await sched._run_report_cycle(force_poll=True)
+
+        mock_poll.assert_awaited_once()
