@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
@@ -43,17 +44,15 @@ class TestTwoPhaseScheduler:
 
     @pytest.fixture
     def scheduler(self):
-        """Create a scheduler with a temporary schedule file."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write("# Empty schedule file\n")
-            schedule_file = f.name
-
+        """Create a scheduler with a temporary log file and mock config."""
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".log", delete=False
         ) as log_f:
             log_file = log_f.name
 
-        return TwoPhaseScheduler(schedule_file=schedule_file, log_file=log_file)
+        with patch("registrarmonitor.automation.scheduler.get_config") as mock_get_config:
+            mock_get_config.return_value = {"semesters": {}}
+            yield TwoPhaseScheduler(log_file=log_file)
 
     def test_initial_mode_is_quiet(self, scheduler):
         """Test that scheduler starts in quiet mode."""

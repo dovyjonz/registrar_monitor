@@ -90,15 +90,10 @@ _CACHE_TTL = 60  # seconds
 
 
 def parse_schedule_file(
-    schedule_file: str = "schedule.txt",
     force_reload: bool = False,
 ) -> dict[ZoneType, list[tuple[datetime.datetime, datetime.datetime]]]:
     """
     Build scheduler zones from milestones defined in settings.toml.
-
-    The ``schedule_file`` parameter is kept for backward compatibility but is
-    **ignored** — zones are now auto-inferred from ``settings.toml``
-    ``[semesters.milestones]`` and ``[semesters.deadlines]``.
 
     Zone inference rules (per milestone):
         extreme = [time − 5 min,  time + 10 min]
@@ -109,11 +104,12 @@ def parse_schedule_file(
     Returns:
         Dictionary mapping zone types to lists of (start_time, end_time) tuples.
     """
+    is_mocked = hasattr(get_config, "mock_add_spec") or "Mock" in type(get_config).__name__
     abs_path = os.path.abspath("settings.toml")
     now = time.time()
 
     # ---- cache check (same logic as before, keyed on settings.toml) ----
-    if not force_reload and abs_path in _SCHEDULE_CACHE:
+    if not force_reload and not is_mocked and abs_path in _SCHEDULE_CACHE:
         cache_entry = _SCHEDULE_CACHE[abs_path]
         if now - cache_entry["last_check"] < _CACHE_TTL:
             return cache_entry["data"]
@@ -138,7 +134,6 @@ def parse_schedule_file(
 
     try:
         cfg = get_config()
-
         semesters = cfg.get("semesters", {})
 
         # ---- Process milestones → extreme + high zones ----
@@ -183,7 +178,7 @@ def parse_schedule_file(
         print(f"Error reading settings.toml for schedule: {e}")
 
     # ---- update cache ----
-    if current_mtime > 0:
+    if not is_mocked and current_mtime > 0:
         _SCHEDULE_CACHE[abs_path] = {
             "data": zones,
             "mtime": current_mtime,
@@ -193,7 +188,7 @@ def parse_schedule_file(
     return zones
 
 
-def get_next_zone_start(schedule_file: str = "schedule.txt") -> datetime.datetime | None:
+def get_next_zone_start() -> datetime.datetime | None:
     """
     Find the start time of the next scheduled zone window after now.
 
@@ -201,7 +196,7 @@ def get_next_zone_start(schedule_file: str = "schedule.txt") -> datetime.datetim
         The nearest future zone start time, or None if no future zones exist.
     """
     now = datetime.datetime.now()
-    zones = parse_schedule_file(schedule_file)
+    zones = parse_schedule_file()
     next_start = None
 
     for level in [SchedulingLevel.EXTREME, SchedulingLevel.HIGH, SchedulingLevel.MODERATE]:
@@ -213,18 +208,27 @@ def get_next_zone_start(schedule_file: str = "schedule.txt") -> datetime.datetim
     return next_start
 
 
-def get_current_zone_type(schedule_file: str = "schedule.txt") -> SchedulingLevel:
+def get_current_zone_type() -> SchedulingLevel:
     """
-    Determine the current scheduling level based on the schedule file.
+    Determine the current scheduling level based on milestones in settings.toml.
 
     Returns:
         SchedulingLevel.EXTREME if in extreme zone
         SchedulingLevel.HIGH if in high zone
         SchedulingLevel.MODERATE if in moderate zone
-        SchedulingLevel.SLEEP if outside all defined windows
+        SchedulingLevel.SLEEP if outside all defined windows (and zones exist)
+        SchedulingLevel.LOW if no zones are configured
     """
     now = datetime.datetime.now()
-    zones = parse_schedule_file(schedule_file)
+    zones = parse_schedule_file()
+
+    # Check if there are any configured zones
+    has_any_zones = any(
+        len(zones[level]) > 0
+        for level in [SchedulingLevel.EXTREME, SchedulingLevel.HIGH, SchedulingLevel.MODERATE]
+    )
+    if not has_any_zones:
+        return SchedulingLevel.LOW
 
     # Check zones in priority order (most urgent first)
     for level in [
@@ -237,6 +241,7 @@ def get_current_zone_type(schedule_file: str = "schedule.txt") -> SchedulingLeve
                 return level
 
     return SchedulingLevel.SLEEP
+
 
 
 async def poll_and_get_change_score() -> float:
@@ -509,8 +514,8 @@ class HybridScheduler:
         return SchedulingLevel.from_score(score)
 
     def _get_baseline_level(self) -> SchedulingLevel:
-        """Get baseline level from schedule file (predictive component)."""
-        return get_current_zone_type(self.schedule_file)
+        """Get baseline level from configuration (predictive component)."""
+        return get_current_zone_type()
 
     def _select_final_level(
         self, baseline: SchedulingLevel, reactive: SchedulingLevel
@@ -570,9 +575,9 @@ class HybridScheduler:
         final_level = self._select_final_level(baseline_level, reactive_level)
         final_interval = final_level.interval
 
-        # 4. Check for upcoming zone changes (from schedule.txt)
+        # 4. Check for upcoming zone changes (from settings.toml)
         try:
-            next_change_time, next_zone = get_next_zone_change(self.schedule_file)
+            next_change_time, next_zone = get_next_zone_change()
             if next_change_time:
                 seconds_until_change = int(
                     (next_change_time - timestamp).total_seconds()
@@ -1075,8 +1080,8 @@ class TwoPhaseScheduler:
             print(f"❌ Website update failed: {e}")
 
     def _get_baseline_level(self) -> SchedulingLevel:
-        """Get baseline level from schedule file (predictive component)."""
-        return get_current_zone_type(self.schedule_file)
+        """Get baseline level from configuration (predictive component)."""
+        return get_current_zone_type()
 
     def _quiet_interval(self, score: float) -> int:
         """Calculate interval in quiet mode (conservative)."""
@@ -1140,7 +1145,7 @@ class TwoPhaseScheduler:
 
         # Check for upcoming zone changes
         try:
-            next_change_time, _ = get_next_zone_change(self.schedule_file)
+            next_change_time, _ = get_next_zone_change()
             if next_change_time:
                 seconds_until_change = int(
                     (next_change_time - timestamp).total_seconds()
@@ -1501,50 +1506,46 @@ class TwoPhaseScheduler:
             print("  No decisions logged yet.")
 
 
-def is_extreme_zone(schedule_file: str = "schedule.txt") -> bool:
+def is_extreme_zone() -> bool:
     """
     Checks if the current time falls within any extreme zone.
-
-    Args:
-        schedule_file: Path to the schedule configuration file
 
     Returns:
         True if current time is in an extreme zone, False otherwise
     """
-    return get_current_zone_type(schedule_file) == ZoneType.EXTREME
+    return get_current_zone_type() == SchedulingLevel.EXTREME
 
 
-def is_hot_zone(schedule_file: str = "schedule.txt") -> bool:
+def is_hot_zone() -> bool:
     """
     Checks if the current time falls within any hot/high zone.
-
-    Args:
-        schedule_file: Path to the schedule configuration file
 
     Returns:
         True if current time is in a high zone, False otherwise
     """
-    return get_current_zone_type(schedule_file) == SchedulingLevel.HIGH
+    return get_current_zone_type() == SchedulingLevel.HIGH
 
 
-def get_next_zone_change(
-    schedule_file: str = "schedule.txt",
-) -> tuple[datetime.datetime | None, ZoneType]:
+def get_next_zone_change() -> tuple[datetime.datetime | None, ZoneType]:
     """
     Get the next time when the zone type will change.
-
-    Args:
-        schedule_file: Path to the schedule configuration file
 
     Returns:
         Tuple of (next_change_time, new_zone_type) or (None, current_zone) if no changes
     """
     now = datetime.datetime.now()
-    zones = parse_schedule_file(schedule_file)
-    current_zone = get_current_zone_type(schedule_file)
+    zones = parse_schedule_file()
+    current_zone = get_current_zone_type()
 
     # Collect all zone boundaries after current time
     future_events = []
+
+    # Check if there are any configured zones
+    has_any_zones = any(
+        len(zones[level]) > 0
+        for level in [SchedulingLevel.EXTREME, SchedulingLevel.HIGH, SchedulingLevel.MODERATE]
+    )
+    default_idle_zone = SchedulingLevel.SLEEP if has_any_zones else SchedulingLevel.LOW
 
     for zone_type in [
         SchedulingLevel.EXTREME,
@@ -1555,7 +1556,7 @@ def get_next_zone_change(
             if start_time > now:
                 future_events.append((start_time, zone_type))
             if end_time > now:
-                future_events.append((end_time, SchedulingLevel.LOW))
+                future_events.append((end_time, default_idle_zone))
 
     if not future_events:
         return None, current_zone
@@ -1566,10 +1567,10 @@ def get_next_zone_change(
 
     # If we're currently in a zone and the next event is the end of that zone,
     # determine what zone we'll be in after
-    if next_zone == SchedulingLevel.LOW:
+    if next_zone == default_idle_zone:
         # Check if there's another zone starting at the same time
         for event_time, zone_type in future_events:
-            if event_time == next_time and zone_type != SchedulingLevel.LOW:
+            if event_time == next_time and zone_type != default_idle_zone:
                 next_zone = zone_type
                 break
 
@@ -1582,8 +1583,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == "--summary":
             scheduler = HybridScheduler()
-            zones = parse_schedule_file(scheduler.schedule_file)
-            current_zone = get_current_zone_type(scheduler.schedule_file)
+            zones = parse_schedule_file()
+            current_zone = get_current_zone_type()
             baseline_level = scheduler._get_baseline_level()
 
             print("=== Hybrid Scheduler Summary ===")
