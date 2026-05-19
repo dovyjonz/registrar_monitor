@@ -1349,8 +1349,15 @@ class TwoPhaseScheduler:
                 # Stay in burst mode
                 calculated_interval = self._burst_interval(last_change_score)
 
-        # Respect baseline level from schedule.txt (take shorter of the two)
-        final_interval = min(calculated_interval, baseline_level.interval)
+        # Respect baseline level from schedule.txt:
+        # - Hot zones (EXTREME/HIGH/MODERATE) can shorten the interval → take min
+        # - SLEEP zone is outside all windows and should lengthen the interval → take max
+        if baseline_level == SchedulingLevel.SLEEP:
+            # Outside all registration windows: enforce the full sleep duration
+            final_interval = max(calculated_interval, baseline_level.interval)
+        else:
+            # Inside or approaching a hot zone: let baseline shorten polling
+            final_interval = min(calculated_interval, baseline_level.interval)
 
         # Check for upcoming zone changes
         try:
