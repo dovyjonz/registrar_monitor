@@ -895,7 +895,7 @@ class HybridScheduler:
     def _show_schedule_status(self):
         """Show current schedule status and upcoming zones."""
         now = datetime.datetime.now()
-        current_zone = get_current_zone_type(self.schedule_file)
+        current_zone = get_current_zone_type()
 
         print(f"📅 Schedule Status (Current time: {now.strftime('%Y-%m-%d %H:%M')})")
         print(f"   Current zone: {current_zone.label.upper()}")
@@ -980,7 +980,7 @@ class HybridScheduler:
         print("🔍 Hybrid Scheduler Status")
         print("=" * 30)
 
-        current_zone = get_current_zone_type(self.schedule_file)
+        current_zone = get_current_zone_type()
         baseline_level = self._get_baseline_level()
 
         print(f"Current Level: {current_zone.label}")
@@ -1563,7 +1563,7 @@ class TwoPhaseScheduler:
     def _show_schedule_status(self):
         """Show current schedule status and upcoming zones."""
         now = datetime.datetime.now()
-        current_zone = get_current_zone_type(self.schedule_file)
+        current_zone = get_current_zone_type()
 
         print(f"📅 Schedule Status (Current time: {now.strftime('%Y-%m-%d %H:%M')})")
         print(f"   Current zone: {current_zone.label.upper()}")
@@ -1600,7 +1600,7 @@ class TwoPhaseScheduler:
         print("🔍 Two-Phase Scheduler Status")
         print("=" * 30)
 
-        current_zone = get_current_zone_type(self.schedule_file)
+        current_zone = get_current_zone_type()
         baseline_level = self._get_baseline_level()
 
         print(f"Current Mode: {self.mode.upper()}")
