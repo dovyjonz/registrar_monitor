@@ -309,3 +309,12 @@ def empty_comparison() -> EnrollmentComparison:
         previous_snapshot_timestamp="2024-01-15 09:00:00",
         current_snapshot_timestamp="2024-01-15 10:30:00",
     )
+
+
+@pytest.fixture(autouse=True)
+def mock_decision_logger():
+    """Prevent DecisionLogger from writing to log files during tests."""
+    with patch("registrarmonitor.automation.scheduler.DecisionLogger.log_decision"), \
+         patch("registrarmonitor.automation.scheduler.DecisionLogger.ensure_log_file_exists"):
+        yield
+

@@ -488,6 +488,14 @@ class HybridScheduler:
             minutes=self.website_interval_minutes
         )
 
+        # Cooldown and event-driven tracking
+        self._last_poll_time: datetime.datetime | None = None
+        self._last_change_score: float = 0.0
+        self.last_report_sent_time: datetime.datetime | None = None
+        self.last_website_updated_time: datetime.datetime | None = None
+        self.report_cooldown_seconds: float = 300.0  # 5 minutes
+        self.website_cooldown_seconds: float = 300.0  # 5 minutes
+
     def _run_website_update(self):
         """Run website generation and deployment."""
         try:
@@ -508,6 +516,138 @@ class HybridScheduler:
 
         except Exception as e:
             print(f"❌ Website update failed: {e}")
+
+    async def _check_and_trigger_updates(self):
+        """
+        Check if the database contains new snapshots that haven't been reported yet.
+        If there are new snapshots, compare them and determine if the changes are significant
+        enough to warrant a report / website update.
+        """
+        try:
+            from ..data.database_manager import DatabaseManager
+            from ..data.snapshot_comparator import SnapshotComparator
+            from ..cli.utils import detect_active_semester
+        except ImportError:
+            from registrarmonitor.data.database_manager import DatabaseManager
+            from registrarmonitor.data.snapshot_comparator import SnapshotComparator
+            from registrarmonitor.cli.utils import detect_active_semester
+
+        try:
+            semester = await detect_active_semester()
+            db_manager = DatabaseManager(semester=semester)
+            comparator = SnapshotComparator()
+
+            latest_snapshot_id = db_manager.get_latest_snapshot_id()
+            last_reported_id = db_manager.get_last_reported_snapshot_id()
+
+            if not latest_snapshot_id:
+                return
+
+            # If this is the first run, initialize the reporting log with latest snapshot
+            if not last_reported_id:
+                print(f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}.")
+                db_manager.add_reporting_log(snapshot_id=latest_snapshot_id, changes_were_found=False)
+                return
+
+            if latest_snapshot_id == last_reported_id:
+                return
+
+            # Fetch snapshot data
+            current_snapshot = db_manager.get_snapshot_data(latest_snapshot_id)
+            previous_snapshot = db_manager.get_snapshot_data(last_reported_id)
+
+            if not current_snapshot or not previous_snapshot:
+                return
+
+            # Compare snapshots
+            comparison = comparator.compare_snapshots(current_snapshot, previous_snapshot)
+
+            # Determine if there is a status change or a high activity score
+            score = 0.0
+            score += len(comparison.new_courses) * 5.0
+            score += len(comparison.removed_courses) * 5.0
+            for course_change in comparison.changed_courses:
+                score += len(course_change.added_sections) * 2.0
+                score += len(course_change.removed_sections) * 2.0
+                for section_change in course_change.modified_sections:
+                    enrollment_delta = (
+                        abs((section_change.current_enrollment or 0) - (section_change.previous_enrollment or 0))
+                    )
+                    score += enrollment_delta / 5.0
+                    if (
+                        section_change.current_capacity is not None
+                        and section_change.previous_capacity is not None
+                        and section_change.current_capacity != section_change.previous_capacity
+                    ):
+                        score += 3.0
+
+            # Check for section status changes (open <-> full)
+            status_changed = False
+            if comparison.new_courses or comparison.removed_courses:
+                status_changed = True
+            else:
+                for course_change in comparison.changed_courses:
+                    if course_change.added_sections or course_change.removed_sections:
+                        status_changed = True
+                        break
+                    # Check modified sections for open/full changes
+                    current_course = current_snapshot.courses.get(course_change.course_code)
+                    previous_course = previous_snapshot.courses.get(course_change.course_code)
+                    if current_course and previous_course:
+                        for sec_mod in course_change.modified_sections:
+                            curr_sec = current_course.sections.get(sec_mod.section_id)
+                            prev_sec = previous_course.sections.get(sec_mod.section_id)
+                            if curr_sec and prev_sec:
+                                was_full = prev_sec.enrollment >= prev_sec.capacity if prev_sec.capacity > 0 else False
+                                is_full = curr_sec.enrollment >= curr_sec.capacity if curr_sec.capacity > 0 else False
+                                if was_full != is_full:
+                                    status_changed = True
+                                    break
+                    if status_changed:
+                        break
+
+            # Define thresholds:
+            is_worth_updating = status_changed or score >= 1.0
+
+            if is_worth_updating:
+                now = datetime.datetime.now()
+                print(f"\n📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})")
+
+                # 1. Trigger Report
+                if not self.no_telegram:
+                    # Check report cooldown
+                    seconds_since_last_report = (
+                        (now - self.last_report_sent_time).total_seconds()
+                        if self.last_report_sent_time
+                        else None
+                    )
+                    if seconds_since_last_report is None or seconds_since_last_report >= self.report_cooldown_seconds:
+                        print("📝 Triggering Telegram Report...")
+                        await self._run_report_cycle(force_poll=False)
+                        self.last_report_sent_time = now
+                    else:
+                        cooldown_remaining = int(self.report_cooldown_seconds - seconds_since_last_report)
+                        print(f"⏳ Telegram Report is on cooldown ({cooldown_remaining}s remaining). Will report next cycle.")
+
+                # 2. Trigger Website Update
+                seconds_since_last_website = (
+                    (now - self.last_website_updated_time).total_seconds()
+                    if self.last_website_updated_time
+                    else None
+                )
+                if seconds_since_last_website is None or seconds_since_last_website >= self.website_cooldown_seconds:
+                    print("🌐 Triggering Website Update...")
+                    await asyncio.to_thread(self._run_website_update)
+                    self.last_website_updated_time = now
+                else:
+                    cooldown_remaining = int(self.website_cooldown_seconds - seconds_since_last_website)
+                    print(f"⏳ Website Update is on cooldown ({cooldown_remaining}s remaining). Will update next cycle.")
+            else:
+                # If changes are minor, print notice and let them accumulate (do not update reporting log)
+                print(f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes.")
+
+        except Exception as e:
+            print(f"❌ Error in check_and_trigger_updates: {e}")
 
     def _get_reactive_level(self, score: float) -> SchedulingLevel:
         """Convert activity score to scheduling level."""
@@ -602,27 +742,33 @@ class HybridScheduler:
 
         return final_interval, decision
 
-    async def _run_report_cycle(self) -> float:
+    async def _run_report_cycle(self, force_poll: bool = True) -> float:
         """
         Execute the reporting cycle:
-        1. Force fresh poll
+        1. Force fresh poll (if force_poll is True)
         2. Generate/Send report via ReportingService
-        Returns the change score from the fresh poll.
+        Returns the change score.
         """
         print("\n📝 Starting Scheduled Reporting Cycle...")
         print("-" * 40)
 
-        # 1. Fresh Poll
-        print("🔄 Fetching fresh data for report...")
-        start_time = time.time()
-        change_score = await poll_and_get_change_score()
-        self.current_heat = max(
-            change_score, self.current_heat * self.heat_decay_factor
-        )
-        duration = time.time() - start_time
-        print(
-            f"✅ Data fetched ({duration:.1f}s). Activity: {change_score:.2f}, Heat: {self.current_heat:.2f}"
-        )
+        if force_poll:
+            # 1. Fresh Poll
+            print("🔄 Fetching fresh data for report...")
+            start_time = time.time()
+            change_score = await poll_and_get_change_score()
+            self._last_poll_time = datetime.datetime.now()
+            self._last_change_score = change_score
+            self.current_heat = max(
+                change_score, self.current_heat * self.heat_decay_factor
+            )
+            duration = time.time() - start_time
+            print(
+                f"✅ Data fetched ({duration:.1f}s). Activity: {change_score:.2f}, Heat: {self.current_heat:.2f}"
+            )
+        else:
+            print("ℹ️  Using fresh data from recent poll (skipping redundant fetch).")
+            change_score = self._last_change_score
 
         # 2. Detect semester and initialize ReportingService if needed
         if self._reporting_service_class and not self.reporting_service:
@@ -657,9 +803,11 @@ class HybridScheduler:
         return change_score
 
     async def start(self):
-        """The main execution loop for hybrid scheduling."""
-        print("🚀 Starting Hybrid Scheduler (Polling + Reporting)")
+        """The main execution loop for hybrid scheduling (event-driven)."""
+        print("🚀 Starting Hybrid Scheduler (Event-Driven Polling)")
         print("=" * 50)
+        print(f"   📢 Report cooldown: {int(self.report_cooldown_seconds // 60)}m")
+        print(f"   🌐 Website cooldown: {int(self.website_cooldown_seconds // 60)}m")
 
         # Start caffeinate
         try:
@@ -679,14 +827,14 @@ class HybridScheduler:
             print("⚠️  Could not start sleep prevention")
 
         self._show_schedule_status()
-        next_report = self._get_next_report_time()
-        print(f"📨 Next report at: {next_report.strftime('%H:%M')}")
 
         # Initial sync on startup
         print("\n🔄 Performing Initial Sync...")
         start_time = time.time()
         try:
             change_score = await poll_and_get_change_score()
+            self._last_poll_time = datetime.datetime.now()
+            self._last_change_score = change_score
             self.current_heat = max(
                 change_score, self.current_heat * self.heat_decay_factor
             )
@@ -698,130 +846,43 @@ class HybridScheduler:
             print(f"❌ Initial sync failed: {e}")
             change_score = 0.0
 
+        # Initialize reporting baseline after first poll
+        await self._check_and_trigger_updates()
+
         try:
             while True:
-                # 1. Calculate Next Event Times
-                next_report_time = self._get_next_report_time()
+                # 1. Determine adaptive sleep duration
                 wait_time_poll, decision = self.get_next_poll_interval(change_score)
 
-                now = datetime.datetime.now()
-                seconds_until_report = (next_report_time - now).total_seconds()
-
-                # Calculate next website update
-                next_website_update = self.last_website_update + datetime.timedelta(
-                    minutes=self.website_interval_minutes
-                )
-                seconds_until_website = (next_website_update - now).total_seconds()
-
-                # Calculate pre-report sync time (1 minute before report)
-                PRE_REPORT_SYNC_SECONDS = 60
-                seconds_until_pre_report_sync = (
-                    seconds_until_report - PRE_REPORT_SYNC_SECONDS
-                )
-
-                # 2. Determine Sleep Duration
-                # Priority: pre-report sync > report time > website update > adaptive poll
-                # Skip report-related wakeups if no_telegram is enabled
-                if self.no_telegram:
-                    # Only do adaptive polling and website updates when Telegram is disabled
-                    if seconds_until_website <= wait_time_poll:
-                        time_to_sleep = seconds_until_website
-                        wake_reason = "website"
-                    else:
-                        time_to_sleep = wait_time_poll
-                        wake_reason = "poll"
-                elif (
-                    seconds_until_pre_report_sync > 0
-                    and seconds_until_pre_report_sync < wait_time_poll
-                ):
-                    # Pre-report sync is coming up and is sooner than next poll
-                    time_to_sleep = seconds_until_pre_report_sync
-                    wake_reason = "pre_report_sync"
-                elif seconds_until_report <= wait_time_poll:
-                    # Report time is sooner than poll
-                    time_to_sleep = seconds_until_report
-                    wake_reason = "report"
-                elif seconds_until_website <= wait_time_poll:
-                    # Website update is sooner than poll
-                    time_to_sleep = seconds_until_website
-                    wake_reason = "website"
-                else:
-                    # Normal adaptive poll
-                    time_to_sleep = wait_time_poll
-                    wake_reason = "poll"
-
-                # Ensure non-negative sleep
-                time_to_sleep = max(0, time_to_sleep)
-
                 print(
-                    f"\n⏱️  Next activity in {int(time_to_sleep // 60)}m {int(time_to_sleep % 60)}s"
+                    f"\n⏱️  Next poll in {int(wait_time_poll // 60)}m {int(wait_time_poll % 60)}s"
+                    f"   (Zone: {decision.zone_type.label}, Heat: {self.current_heat:.1f})"
                 )
-                if wake_reason == "pre_report_sync":
-                    print(
-                        f"   (Pre-report sync before {next_report_time.strftime('%H:%M')} report)"
-                    )
-                elif wake_reason == "report":
-                    print(
-                        f"   (Waking for Scheduled Report at {next_report_time.strftime('%H:%M')})"
-                    )
-                elif wake_reason == "website":
-                    print(
-                        f"   (Waking for Website Update - Interval: {self.website_interval_minutes}m)"
-                    )
-                else:
-                    print(
-                        f"   (Waking for Adaptive Poll - Zone: {decision.zone_type.label})"
-                    )
                 sys.stdout.flush()
 
-                # 3. Sleep
-                if time_to_sleep > 0:
-                    await asyncio.sleep(time_to_sleep)
+                # 2. Sleep
+                await asyncio.sleep(wait_time_poll)
 
-                # 4. Perform Action
-                now = datetime.datetime.now()
-                seconds_to_report = (next_report_time - now).total_seconds()
-                seconds_to_website = (next_website_update - now).total_seconds()
-
-                if seconds_to_report <= 5:
-                    # It's Reporting Time! (within 5s buffer)
-                    change_score = await self._run_report_cycle()
-                elif seconds_to_website <= 5:
-                    # Website update time
-                    print("\n🌐 Triggering Scheduled Website Update...")
-                    await asyncio.to_thread(self._run_website_update)
-                    self.last_website_update = datetime.datetime.now()
-                elif seconds_to_report <= PRE_REPORT_SYNC_SECONDS + 5:
-                    # Pre-report sync window
-                    print(
-                        "\n📥 Pre-report Sync (ensuring fresh data for upcoming report)..."
+                # 3. Perform Adaptive Poll
+                print("\n🔄 Performing Adaptive Poll...")
+                start_time = time.time()
+                try:
+                    change_score = await poll_and_get_change_score()
+                    self._last_poll_time = datetime.datetime.now()
+                    self._last_change_score = change_score
+                    self.current_heat = max(
+                        change_score, self.current_heat * self.heat_decay_factor
                     )
-                    start_time = time.time()
-                    try:
-                        change_score = await poll_and_get_change_score()
-                        self.current_heat = max(
-                            change_score, self.current_heat * self.heat_decay_factor
-                        )
-                        duration = time.time() - start_time
-                        print(
-                            f"✅ Pre-report sync done ({duration:.1f}s). Activity: {change_score:.2f}, Heat: {self.current_heat:.2f}"
-                        )
-                    except Exception as e:
-                        print(f"❌ Pre-report sync failed: {e}")
-                        change_score = 0.0
-                else:
-                    # Regular adaptive poll
-                    print("\n🔄 Performing Adaptive Poll...")
-                    start_time = time.time()
-                    try:
-                        change_score = await poll_and_get_change_score()
-                        duration = time.time() - start_time
-                        print(
-                            f"✅ Poll done ({duration:.1f}s). Activity: {change_score:.2f}, Heat: {self.current_heat:.2f}"
-                        )
-                    except Exception as e:
-                        print(f"❌ Poll failed: {e}")
-                        change_score = 0.0
+                    duration = time.time() - start_time
+                    print(
+                        f"✅ Poll done ({duration:.1f}s). Activity: {change_score:.2f}, Heat: {self.current_heat:.2f}"
+                    )
+                except Exception as e:
+                    print(f"❌ Poll failed: {e}")
+                    change_score = 0.0
+
+                # 4. Check if anything significant happened and trigger updates
+                await self._check_and_trigger_updates()
 
         except KeyboardInterrupt:
             print("\n⚠️  Scheduler interrupted by user.")
@@ -829,6 +890,7 @@ class HybridScheduler:
             if self.caffeinate_process:
                 self.caffeinate_process.terminate()
             print("📊 Scheduler stopped")
+
 
     def _show_schedule_status(self):
         """Show current schedule status and upcoming zones."""
@@ -1058,6 +1120,14 @@ class TwoPhaseScheduler:
             minutes=self.website_interval_minutes
         )
 
+        # Cooldown and event-driven tracking
+        self._last_poll_time: datetime.datetime | None = None
+        self._last_change_score: float = 0.0
+        self.last_report_sent_time: datetime.datetime | None = None
+        self.last_website_updated_time: datetime.datetime | None = None
+        self.report_cooldown_seconds: float = 300.0  # 5 minutes
+        self.website_cooldown_seconds: float = 300.0  # 5 minutes
+
     def _run_website_update(self):
         """Run website generation and deployment."""
         try:
@@ -1078,6 +1148,138 @@ class TwoPhaseScheduler:
 
         except Exception as e:
             print(f"❌ Website update failed: {e}")
+
+    async def _check_and_trigger_updates(self):
+        """
+        Check if the database contains new snapshots that haven't been reported yet.
+        If there are new snapshots, compare them and determine if the changes are significant
+        enough to warrant a report / website update.
+        """
+        try:
+            from ..data.database_manager import DatabaseManager
+            from ..data.snapshot_comparator import SnapshotComparator
+            from ..cli.utils import detect_active_semester
+        except ImportError:
+            from registrarmonitor.data.database_manager import DatabaseManager
+            from registrarmonitor.data.snapshot_comparator import SnapshotComparator
+            from registrarmonitor.cli.utils import detect_active_semester
+
+        try:
+            semester = await detect_active_semester()
+            db_manager = DatabaseManager(semester=semester)
+            comparator = SnapshotComparator()
+
+            latest_snapshot_id = db_manager.get_latest_snapshot_id()
+            last_reported_id = db_manager.get_last_reported_snapshot_id()
+
+            if not latest_snapshot_id:
+                return
+
+            # If this is the first run, initialize the reporting log with latest snapshot
+            if not last_reported_id:
+                print(f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}.")
+                db_manager.add_reporting_log(snapshot_id=latest_snapshot_id, changes_were_found=False)
+                return
+
+            if latest_snapshot_id == last_reported_id:
+                return
+
+            # Fetch snapshot data
+            current_snapshot = db_manager.get_snapshot_data(latest_snapshot_id)
+            previous_snapshot = db_manager.get_snapshot_data(last_reported_id)
+
+            if not current_snapshot or not previous_snapshot:
+                return
+
+            # Compare snapshots
+            comparison = comparator.compare_snapshots(current_snapshot, previous_snapshot)
+
+            # Determine if there is a status change or a high activity score
+            score = 0.0
+            score += len(comparison.new_courses) * 5.0
+            score += len(comparison.removed_courses) * 5.0
+            for course_change in comparison.changed_courses:
+                score += len(course_change.added_sections) * 2.0
+                score += len(course_change.removed_sections) * 2.0
+                for section_change in course_change.modified_sections:
+                    enrollment_delta = (
+                        abs((section_change.current_enrollment or 0) - (section_change.previous_enrollment or 0))
+                    )
+                    score += enrollment_delta / 5.0
+                    if (
+                        section_change.current_capacity is not None
+                        and section_change.previous_capacity is not None
+                        and section_change.current_capacity != section_change.previous_capacity
+                    ):
+                        score += 3.0
+
+            # Check for section status changes (open <-> full)
+            status_changed = False
+            if comparison.new_courses or comparison.removed_courses:
+                status_changed = True
+            else:
+                for course_change in comparison.changed_courses:
+                    if course_change.added_sections or course_change.removed_sections:
+                        status_changed = True
+                        break
+                    # Check modified sections for open/full changes
+                    current_course = current_snapshot.courses.get(course_change.course_code)
+                    previous_course = previous_snapshot.courses.get(course_change.course_code)
+                    if current_course and previous_course:
+                        for sec_mod in course_change.modified_sections:
+                            curr_sec = current_course.sections.get(sec_mod.section_id)
+                            prev_sec = previous_course.sections.get(sec_mod.section_id)
+                            if curr_sec and prev_sec:
+                                was_full = prev_sec.enrollment >= prev_sec.capacity if prev_sec.capacity > 0 else False
+                                is_full = curr_sec.enrollment >= curr_sec.capacity if curr_sec.capacity > 0 else False
+                                if was_full != is_full:
+                                    status_changed = True
+                                    break
+                    if status_changed:
+                        break
+
+            # Define thresholds:
+            is_worth_updating = status_changed or score >= 1.0
+
+            if is_worth_updating:
+                now = datetime.datetime.now()
+                print(f"\n📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})")
+
+                # 1. Trigger Report
+                if not self.no_telegram:
+                    # Check report cooldown
+                    seconds_since_last_report = (
+                        (now - self.last_report_sent_time).total_seconds()
+                        if self.last_report_sent_time
+                        else None
+                    )
+                    if seconds_since_last_report is None or seconds_since_last_report >= self.report_cooldown_seconds:
+                        print("📝 Triggering Telegram Report...")
+                        await self._run_report_cycle(force_poll=False)
+                        self.last_report_sent_time = now
+                    else:
+                        cooldown_remaining = int(self.report_cooldown_seconds - seconds_since_last_report)
+                        print(f"⏳ Telegram Report is on cooldown ({cooldown_remaining}s remaining). Will report next cycle.")
+
+                # 2. Trigger Website Update
+                seconds_since_last_website = (
+                    (now - self.last_website_updated_time).total_seconds()
+                    if self.last_website_updated_time
+                    else None
+                )
+                if seconds_since_last_website is None or seconds_since_last_website >= self.website_cooldown_seconds:
+                    print("🌐 Triggering Website Update...")
+                    await asyncio.to_thread(self._run_website_update)
+                    self.last_website_updated_time = now
+                else:
+                    cooldown_remaining = int(self.website_cooldown_seconds - seconds_since_last_website)
+                    print(f"⏳ Website Update is on cooldown ({cooldown_remaining}s remaining). Will update next cycle.")
+            else:
+                # If changes are minor, print notice and let them accumulate (do not update reporting log)
+                print(f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes.")
+
+        except Exception as e:
+            print(f"❌ Error in check_and_trigger_updates: {e}")
 
     def _get_baseline_level(self) -> SchedulingLevel:
         """Get baseline level from configuration (predictive component)."""
@@ -1187,35 +1389,41 @@ class TwoPhaseScheduler:
 
         return min(candidates)
 
-    async def _run_report_cycle(self) -> float:
+    async def _run_report_cycle(self, force_poll: bool = True) -> float:
         """
         Execute the reporting cycle:
-        1. Force fresh poll
+        1. Force fresh poll (if force_poll is True)
         2. Generate/Send report via ReportingService
-        Returns the change score from the fresh poll.
+        Returns the change score.
         """
         print("\n📝 Starting Scheduled Reporting Cycle...")
         print("-" * 40)
 
-        # 1. Fresh Poll
-        print("🔄 Fetching fresh data for report...")
-        start_time = time.time()
-        change_score = await poll_and_get_change_score()
-        duration = time.time() - start_time
+        if force_poll:
+            # 1. Fresh Poll
+            print("🔄 Fetching fresh data for report...")
+            start_time = time.time()
+            change_score = await poll_and_get_change_score()
+            self._last_poll_time = datetime.datetime.now()
+            self._last_change_score = change_score
+            duration = time.time() - start_time
 
-        # Update mode based on score
-        if change_score >= self.BURST_ENTRY_THRESHOLD:
-            self.mode = "burst"
-            self.consecutive_low = 0
-        elif change_score < self.BURST_EXIT_THRESHOLD:
-            self.consecutive_low += 1
-            if self.consecutive_low >= self.BURST_EXIT_COUNT:
-                self.mode = "quiet"
+            # Update mode based on score
+            if change_score >= self.BURST_ENTRY_THRESHOLD:
+                self.mode = "burst"
                 self.consecutive_low = 0
+            elif change_score < self.BURST_EXIT_THRESHOLD:
+                self.consecutive_low += 1
+                if self.consecutive_low >= self.BURST_EXIT_COUNT:
+                    self.mode = "quiet"
+                    self.consecutive_low = 0
 
-        print(
-            f"✅ Data fetched ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
-        )
+            print(
+                f"✅ Data fetched ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
+            )
+        else:
+            print("ℹ️  Using fresh data from recent poll (skipping redundant fetch).")
+            change_score = self._last_change_score
 
         # 2. Detect semester and initialize ReportingService if needed
         if self._reporting_service_class and not self.reporting_service:
@@ -1250,12 +1458,14 @@ class TwoPhaseScheduler:
         return change_score
 
     async def start(self):
-        """The main execution loop for two-phase scheduling."""
-        print("🚀 Starting Two-Phase Scheduler (Quiet/Burst Mode)")
+        """The main execution loop for two-phase scheduling (event-driven)."""
+        print("🚀 Starting Two-Phase Scheduler (Event-Driven Polling)")
         print("=" * 50)
         print(f"   📈 Burst entry threshold: {self.BURST_ENTRY_THRESHOLD}")
         print(f"   📉 Burst exit threshold: {self.BURST_EXIT_THRESHOLD}")
         print(f"   🔢 Burst exit count: {self.BURST_EXIT_COUNT}")
+        print(f"   📢 Report cooldown: {int(self.report_cooldown_seconds // 60)}m")
+        print(f"   🌐 Website cooldown: {int(self.website_cooldown_seconds // 60)}m")
 
         # Start caffeinate
         try:
@@ -1275,14 +1485,14 @@ class TwoPhaseScheduler:
             print("⚠️  Could not start sleep prevention")
 
         self._show_schedule_status()
-        next_report = self._get_next_report_time()
-        print(f"📨 Next report at: {next_report.strftime('%H:%M')}")
 
         # Initial sync on startup
         print("\n🔄 Performing Initial Sync...")
         start_time = time.time()
         try:
             change_score = await poll_and_get_change_score()
+            self._last_poll_time = datetime.datetime.now()
+            self._last_change_score = change_score
             duration = time.time() - start_time
 
             # Update mode based on initial score
@@ -1296,144 +1506,52 @@ class TwoPhaseScheduler:
             print(f"❌ Initial sync failed: {e}")
             change_score = 0.0
 
+        # Initialize reporting baseline after first poll
+        await self._check_and_trigger_updates()
+
         try:
             while True:
-                # 1. Calculate Next Event Times
-                next_report_time = self._get_next_report_time()
+                # 1. Determine adaptive sleep duration
                 wait_time_poll, decision = self.get_next_poll_interval(change_score)
 
-                now = datetime.datetime.now()
-                seconds_until_report = (next_report_time - now).total_seconds()
-
-                # Calculate next website update
-                next_website_update = self.last_website_update + datetime.timedelta(
-                    minutes=self.website_interval_minutes
-                )
-                seconds_until_website = (next_website_update - now).total_seconds()
-
-                # Calculate pre-report sync time (1 minute before report)
-                PRE_REPORT_SYNC_SECONDS = 60
-                seconds_until_pre_report_sync = (
-                    seconds_until_report - PRE_REPORT_SYNC_SECONDS
-                )
-
-                # 2. Determine Sleep Duration
-                # Skip report-related wakeups if no_telegram is enabled
-                if self.no_telegram:
-                    # Only do adaptive polling and website updates when Telegram is disabled
-                    if seconds_until_website <= wait_time_poll:
-                        time_to_sleep = seconds_until_website
-                        wake_reason = "website"
-                    else:
-                        time_to_sleep = wait_time_poll
-                        wake_reason = "poll"
-                elif (
-                    seconds_until_pre_report_sync > 0
-                    and seconds_until_pre_report_sync < wait_time_poll
-                ):
-                    time_to_sleep = seconds_until_pre_report_sync
-                    wake_reason = "pre_report_sync"
-                elif seconds_until_report <= wait_time_poll:
-                    time_to_sleep = seconds_until_report
-                    wake_reason = "report"
-                elif seconds_until_website <= wait_time_poll:
-                    time_to_sleep = seconds_until_website
-                    wake_reason = "website"
-                else:
-                    time_to_sleep = wait_time_poll
-                    wake_reason = "poll"
-
-                time_to_sleep = max(0, time_to_sleep)
-
-                print(
-                    f"\n⏱️  Next activity in {int(time_to_sleep // 60)}m {int(time_to_sleep % 60)}s"
-                )
                 mode_indicator = "🔥" if self.mode == "burst" else "😴"
-                if wake_reason == "pre_report_sync":
-                    print(
-                        f"   {mode_indicator} Mode: {self.mode.upper()} (Pre-report sync before {next_report_time.strftime('%H:%M')})"
-                    )
-                elif wake_reason == "report":
-                    print(
-                        f"   {mode_indicator} Mode: {self.mode.upper()} (Report at {next_report_time.strftime('%H:%M')})"
-                    )
-                elif wake_reason == "website":
-                    print(
-                        f"   {mode_indicator} Mode: {self.mode.upper()} (Website Update)"
-                    )
-                else:
-                    print(
-                        f"   {mode_indicator} Mode: {self.mode.upper()} (Adaptive Poll)"
-                    )
+                print(
+                    f"\n⏱️  Next poll in {int(wait_time_poll // 60)}m {int(wait_time_poll % 60)}s"
+                    f"   {mode_indicator} Mode: {self.mode.upper()}"
+                )
                 sys.stdout.flush()
 
-                # 3. Sleep
-                if time_to_sleep > 0:
-                    await asyncio.sleep(time_to_sleep)
+                # 2. Sleep
+                await asyncio.sleep(wait_time_poll)
 
-                # 4. Perform Action
-                now = datetime.datetime.now()
-                seconds_to_report = (next_report_time - now).total_seconds()
-                seconds_to_website = (next_website_update - now).total_seconds()
+                # 3. Perform Adaptive Poll
+                print("\n🔄 Performing Adaptive Poll...")
+                start_time = time.time()
+                try:
+                    change_score = await poll_and_get_change_score()
+                    self._last_poll_time = datetime.datetime.now()
+                    self._last_change_score = change_score
+                    duration = time.time() - start_time
 
-                if seconds_to_report <= 5:
-                    # Report time
-                    change_score = await self._run_report_cycle()
-                elif seconds_to_website <= 5:
-                    # Website update time
-                    print("\n🌐 Triggering Scheduled Website Update...")
-                    await asyncio.to_thread(self._run_website_update)
-                    self.last_website_update = datetime.datetime.now()
-                elif seconds_to_report <= PRE_REPORT_SYNC_SECONDS + 5:
-                    # Pre-report sync
+                    # Update mode
+                    if change_score >= self.BURST_ENTRY_THRESHOLD:
+                        self.mode = "burst"
+                        self.consecutive_low = 0
+                    elif change_score < self.BURST_EXIT_THRESHOLD:
+                        self.consecutive_low += 1
+                        if self.consecutive_low >= self.BURST_EXIT_COUNT:
+                            self.mode = "quiet"
+                            self.consecutive_low = 0
+
                     print(
-                        "\n📥 Pre-report Sync (ensuring fresh data for upcoming report)..."
+                        f"✅ Poll done ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
                     )
-                    start_time = time.time()
-                    try:
-                        change_score = await poll_and_get_change_score()
-                        duration = time.time() - start_time
+                except Exception as e:
+                    print(f"❌ Poll failed: {e}")
+                    change_score = 0.0
 
-                        # Update mode
-                        if change_score >= self.BURST_ENTRY_THRESHOLD:
-                            self.mode = "burst"
-                            self.consecutive_low = 0
-                        elif change_score < self.BURST_EXIT_THRESHOLD:
-                            self.consecutive_low += 1
-                            if self.consecutive_low >= self.BURST_EXIT_COUNT:
-                                self.mode = "quiet"
-                                self.consecutive_low = 0
-
-                        print(
-                            f"✅ Pre-report sync done ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
-                        )
-                    except Exception as e:
-                        print(f"❌ Pre-report sync failed: {e}")
-                        change_score = 0.0
-                else:
-                    # Regular adaptive poll
-                    print("\n🔄 Performing Adaptive Poll...")
-                    start_time = time.time()
-                    try:
-                        change_score = await poll_and_get_change_score()
-                        duration = time.time() - start_time
-
-                        # Update mode
-                        if change_score >= self.BURST_ENTRY_THRESHOLD:
-                            self.mode = "burst"
-                            self.consecutive_low = 0
-                        elif change_score < self.BURST_EXIT_THRESHOLD:
-                            self.consecutive_low += 1
-                            if self.consecutive_low >= self.BURST_EXIT_COUNT:
-                                self.mode = "quiet"
-                                self.consecutive_low = 0
-
-                        print(
-                            f"✅ Poll done ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
-                        )
-                    except Exception as e:
-                        print(f"❌ Poll failed: {e}")
-                        change_score = 0.0
+                # 4. Check if anything significant happened and trigger updates
+                await self._check_and_trigger_updates()
 
         except KeyboardInterrupt:
             print("\n⚠️  Scheduler interrupted by user.")
