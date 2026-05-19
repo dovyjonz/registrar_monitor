@@ -170,5 +170,32 @@ class TestTwoPhaseScheduler:
         # In quiet mode with low score, interval should respect baseline
         interval, decision = scheduler.get_next_poll_interval(0.0)
 
-        # Final interval should be min of calculated and baseline
-        assert interval <= decision.baseline_level.interval
+        # Final interval should be bounded by baseline (min for hot zones, max for SLEEP)
+        assert interval <= decision.baseline_level.interval or decision.baseline_level == SchedulingLevel.SLEEP
+
+    def test_sleep_tier_enforces_long_interval(self):
+        """SLEEP baseline must enforce its full 3600s interval, not be overridden by quiet-mode caps."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as log_f:
+            log_file = log_f.name
+
+        # Simulate scheduler with zones configured (so SLEEP is returned outside windows)
+        with patch("registrarmonitor.automation.scheduler.get_config") as mock_get_config, \
+             patch("registrarmonitor.automation.scheduler.get_current_zone_type",
+                   return_value=SchedulingLevel.SLEEP):
+            mock_get_config.return_value = {
+                "semesters": {
+                    "summer2026": {
+                        "priorities": {"1": [["2099-01-01T10:00:00", "Y4+"]]}
+                    }
+                }
+            }
+            sched = TwoPhaseScheduler(log_file=log_file)
+            # With score=0 in quiet mode, calculated = 1800s (silent interval)
+            # SLEEP baseline is 3600s → should use max → 3600s
+            interval, decision = sched.get_next_poll_interval(0.0)
+
+        assert interval == SchedulingLevel.SLEEP.interval, (
+            f"Expected SLEEP interval of {SchedulingLevel.SLEEP.interval}s, got {interval}s. "
+            "SLEEP tier should lengthen the polling interval, not be bypassed."
+        )
+
