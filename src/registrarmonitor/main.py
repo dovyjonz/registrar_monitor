@@ -159,15 +159,8 @@ Telegram Control:
     # Schedule command
     schedule_parser = subparsers.add_parser(
         "schedule",
-        help="Run the hybrid scheduler",
-        description="Start the scheduler that monitors for changes based on settings.toml milestones and activity patterns",
-    )
-    schedule_parser.add_argument(
-        "--scheduler",
-        type=str,
-        choices=["hybrid", "two-phase"],
-        default="hybrid",
-        help="Scheduler type: 'hybrid' (default) or 'two-phase'",
+        help="Run the two-phase scheduler",
+        description="Start the scheduler that monitors for changes based on settings.toml milestones and activity patterns using two-phase scheduling",
     )
     schedule_parser.add_argument(
         "--no-telegram",
@@ -312,10 +305,9 @@ async def handle_run_command(args) -> int:
 async def handle_schedule_command(args) -> int:
     """Handle the schedule command."""
     debug = getattr(args, "debug", False) or args.debug
-    scheduler_type = getattr(args, "scheduler", "hybrid")
     no_telegram = getattr(args, "no_telegram", False)
     command = ScheduleCommand(
-        debug=debug, scheduler_type=scheduler_type, no_telegram=no_telegram
+        debug=debug, no_telegram=no_telegram
     )
     try:
         await command.run()

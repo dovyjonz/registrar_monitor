@@ -38,6 +38,11 @@ class SnapshotComparator:
             )
 
             made_changes_to_course = False
+            if (
+                current_course.department != prev_course.department
+                or current_course.course_title != prev_course.course_title
+            ):
+                made_changes_to_course = True
             # Note: We intentionally don't check average_fill here because it's
             # a derived value. A course is only "changed" if it has actual
             # section changes (added, removed, or modified sections).
@@ -61,6 +66,8 @@ class SnapshotComparator:
                     abs(current_section.fill - prev_section.fill) > 0.001
                     or current_section.enrollment != prev_section.enrollment
                     or current_section.capacity != prev_section.capacity
+                    or current_section.instructor != prev_section.instructor
+                    or current_section.section_type != prev_section.section_type
                 ):
                     section_detail = SectionChangeDetail(
                         section_id=section_id,
@@ -70,6 +77,8 @@ class SnapshotComparator:
                         current_enrollment=current_section.enrollment,
                         previous_capacity=prev_section.capacity,
                         current_capacity=current_section.capacity,
+                        previous_instructor=prev_section.instructor,
+                        current_instructor=current_section.instructor,
                     )
                     course_detail.modified_sections.append(section_detail)
                     made_changes_to_course = True

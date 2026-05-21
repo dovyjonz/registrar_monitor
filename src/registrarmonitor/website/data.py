@@ -1,6 +1,7 @@
 """Data access layer for querying enrollment data from the database."""
 
 from datetime import datetime, timedelta
+import sqlite3
 from typing import Any
 
 from registrarmonitor.data.database_manager import DatabaseManager

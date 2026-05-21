@@ -533,6 +533,49 @@ class DatabaseManager:
             self.logger.error(f"Unexpected error inserting enrollment data: {e}")
             raise
 
+    def _is_snapshot_completely_identical(
+        self, s1: EnrollmentSnapshot, s2: EnrollmentSnapshot
+    ) -> bool:
+        """Check if two snapshots are completely identical in all course and section details."""
+        if s1.semester != s2.semester:
+            return False
+
+        if abs(s1.overall_fill - s2.overall_fill) > 1e-4:
+            return False
+
+        if set(s1.courses.keys()) != set(s2.courses.keys()):
+            return False
+
+        def normalize(val: str | None) -> str:
+            if val is None:
+                return ""
+            return val.strip()
+
+        for code, c1 in s1.courses.items():
+            c2 = s2.courses[code]
+            if normalize(c1.course_code) != normalize(c2.course_code):
+                return False
+            if normalize(c1.course_title) != normalize(c2.course_title):
+                return False
+            if normalize(c1.department) != normalize(c2.department):
+                return False
+
+            if set(c1.sections.keys()) != set(c2.sections.keys()):
+                return False
+
+            for sec_id, sec1 in c1.sections.items():
+                sec2 = c2.sections[sec_id]
+                if sec1.section_type != sec2.section_type:
+                    return False
+                if sec1.enrollment != sec2.enrollment:
+                    return False
+                if sec1.capacity != sec2.capacity:
+                    return False
+                if normalize(sec1.instructor) != normalize(sec2.instructor):
+                    return False
+
+        return True
+
     def store_enrollment_snapshot(self, snapshot: EnrollmentSnapshot) -> None:
         """
         Store a complete enrollment snapshot in the database.
@@ -545,6 +588,33 @@ class DatabaseManager:
         Raises:
             sqlite3.Error: If database operation fails
         """
+        # Check if we should discard this snapshot as a duplicate
+        latest_snapshot_id = self.get_latest_snapshot_id()
+        if latest_snapshot_id is not None:
+            latest_snapshot = self.get_snapshot_data(latest_snapshot_id)
+            if latest_snapshot is not None:
+                # Check if completely identical in all properties
+                if self._is_snapshot_completely_identical(snapshot, latest_snapshot):
+                    self.logger.info(
+                        f"Snapshot data for {snapshot.timestamp} is identical to "
+                        f"latest snapshot {latest_snapshot_id} (timestamp: {latest_snapshot.timestamp}). "
+                        f"Discarding duplicate snapshot and updating latest snapshot timestamp."
+                    )
+                    try:
+                        with self.get_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute(
+                                "UPDATE snapshots SET timestamp = ? WHERE snapshot_id = ?",
+                                (snapshot.timestamp, latest_snapshot_id),
+                            )
+                            conn.commit()
+                        return
+                    except sqlite3.Error as e:
+                        self.logger.error(
+                            f"Database error updating snapshot timestamp: {e}"
+                        )
+                        raise
+
         self.logger.info(f"Storing snapshot for {snapshot.timestamp}")
 
         # Verify semester matches if specified during initialization
@@ -612,15 +682,16 @@ class DatabaseManager:
                         continue
                     for section_code, section in course.sections.items():
                         sections_data.append(
-                            (course_id, section_code, section.section_type)
+                            (course_id, section_code, section.section_type, section.instructor)
                         )
 
                 cursor.executemany(
                     """
-                    INSERT INTO sections (course_id, section_code, section_type)
-                    VALUES (?, ?, ?)
+                    INSERT INTO sections (course_id, section_code, section_type, instructor)
+                    VALUES (?, ?, ?, ?)
                     ON CONFLICT(course_id, section_code) DO UPDATE SET
                         section_type = COALESCE(excluded.section_type, section_type),
+                        instructor = COALESCE(excluded.instructor, instructor),
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     sections_data,
@@ -1042,6 +1113,7 @@ class DatabaseManager:
                         enrollment=enrollment,
                         capacity=capacity,
                         fill=fill,
+                        instructor=instructor,
                     )
 
                     course.sections[section_code] = section

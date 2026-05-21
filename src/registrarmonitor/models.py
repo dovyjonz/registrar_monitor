@@ -48,6 +48,7 @@ class Section:
     enrollment: int
     capacity: int
     fill: float
+    instructor: Optional[str] = None
 
     @property
     def is_filled(self) -> bool:
@@ -65,6 +66,7 @@ class Section:
             "enrollment": self.enrollment,
             "capacity": self.capacity,
             "fill": self.fill,
+            "instructor": self.instructor,
         }
 
     @classmethod
@@ -76,6 +78,7 @@ class Section:
             enrollment=data["enrollment"],
             capacity=data["capacity"],
             fill=data["fill"],
+            instructor=data.get("instructor"),
         )
 
 
@@ -266,6 +269,8 @@ class SectionChangeDetail:
     current_enrollment: Optional[int] = None
     previous_capacity: Optional[int] = None
     current_capacity: Optional[int] = None
+    previous_instructor: Optional[str] = None
+    current_instructor: Optional[str] = None
 
 
 @dataclass
