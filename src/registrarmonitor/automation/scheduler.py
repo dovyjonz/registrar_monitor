@@ -834,7 +834,6 @@ class TwoPhaseScheduler:
                     if not file_path:
                         print("❌ Download failed (returned None). Skipping process.")
                         self._last_change_score = 0.0
-                        self.pending_polls.task_done()
                         continue
 
                     print(f"🔄 Sequentially processing poll from {poll_start_time.strftime('%H:%M:%S')}...")
