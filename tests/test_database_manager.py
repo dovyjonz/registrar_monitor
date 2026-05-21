@@ -37,6 +37,42 @@ class TestDatabaseManagerInit:
         assert "sections" in tables
         assert "enrollment_data" in tables
 
+    def test_migration_adds_instructor_column(self, tmp_path: Path):
+        """Database manager should migrate existing sections table to include instructor column."""
+        import sqlite3
+        db_path = str(tmp_path / "old_db.db")
+        
+        # 1. Create a database with the old schema (without instructor column in sections)
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE courses (course_id INTEGER PRIMARY KEY, course_code TEXT UNIQUE)")
+        cursor.execute("""
+            CREATE TABLE sections (
+                section_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                course_id INTEGER NOT NULL,
+                section_code TEXT NOT NULL,
+                section_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (course_id) REFERENCES courses (course_id),
+                UNIQUE(course_id, section_code)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        # 2. Initialize DatabaseManager pointing to the old DB
+        manager = DatabaseManager(db_path=db_path)
+
+        # 3. Verify that the table was migrated and 'instructor' column was added
+        with manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(sections)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+        assert "instructor" in columns
+
+
 
 class TestInsertCourse:
     """Tests for insert_course method."""

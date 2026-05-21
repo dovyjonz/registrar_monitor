@@ -131,6 +131,14 @@ class DatabaseManager:
                     )
                 """)
 
+                # Check if 'instructor' column exists in case the table was created under an older schema version
+                cursor.execute("PRAGMA table_info(sections)")
+                columns = [row[1] for row in cursor.fetchall()]
+                if "instructor" not in columns:
+                    cursor.execute("ALTER TABLE sections ADD COLUMN instructor TEXT")
+                    self.logger.info("Migrated database: Added 'instructor' column to 'sections' table.")
+
+
                 # Create snapshots table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS snapshots (
