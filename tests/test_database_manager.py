@@ -37,6 +37,42 @@ class TestDatabaseManagerInit:
         assert "sections" in tables
         assert "enrollment_data" in tables
 
+    def test_migration_adds_instructor_column(self, tmp_path: Path):
+        """Database manager should migrate existing sections table to include instructor column."""
+        import sqlite3
+        db_path = str(tmp_path / "old_db.db")
+        
+        # 1. Create a database with the old schema (without instructor column in sections)
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE courses (course_id INTEGER PRIMARY KEY, course_code TEXT UNIQUE)")
+        cursor.execute("""
+            CREATE TABLE sections (
+                section_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                course_id INTEGER NOT NULL,
+                section_code TEXT NOT NULL,
+                section_type TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (course_id) REFERENCES courses (course_id),
+                UNIQUE(course_id, section_code)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        # 2. Initialize DatabaseManager pointing to the old DB
+        manager = DatabaseManager(db_path=db_path)
+
+        # 3. Verify that the table was migrated and 'instructor' column was added
+        with manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(sections)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+        assert "instructor" in columns
+
+
 
 class TestInsertCourse:
     """Tests for insert_course method."""
@@ -213,6 +249,83 @@ class TestStoreEnrollmentSnapshot:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM snapshots")
             assert cursor.fetchone()[0] == 2
+
+    def test_store_duplicate_snapshots_deduplicated(self, db_manager: DatabaseManager):
+        """Completely identical snapshots should be deduplicated by updating the timestamp."""
+        sections = {
+            "10L": Section("10L", "L", 25, 30, 0.83, "Dr. Smith"),
+        }
+        course = Course("CS 101", "CS", sections, 0.83, "Intro to CS")
+        snapshot1 = EnrollmentSnapshot(
+            timestamp="2024-01-15 10:00:00",
+            semester="Spring 2024",
+            overall_fill=0.83,
+            courses={"CS 101": course},
+        )
+        
+        # Identical snapshot with a different timestamp
+        snapshot2 = EnrollmentSnapshot(
+            timestamp="2024-01-15 10:15:00",
+            semester="Spring 2024",
+            overall_fill=0.83,
+            courses={"CS 101": Course("CS 101", "CS", {
+                "10L": Section("10L", "L", 25, 30, 0.83, "Dr. Smith"),
+            }, 0.83, "Intro to CS")},
+        )
+
+        db_manager.store_enrollment_snapshot(snapshot1)
+        db_manager.store_enrollment_snapshot(snapshot2)
+
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM snapshots")
+            assert cursor.fetchone()[0] == 1
+
+            cursor.execute("SELECT timestamp FROM snapshots LIMIT 1")
+            # The timestamp should be updated to the second snapshot's timestamp
+            assert cursor.fetchone()[0] == "2024-01-15 10:15:00"
+
+    def test_store_non_duplicate_snapshots_not_deduplicated(self, db_manager: DatabaseManager):
+        """Snapshots that differ in instructor or other details should not be deduplicated."""
+        sections = {
+            "10L": Section("10L", "L", 25, 30, 0.83, "Dr. Smith"),
+        }
+        course = Course("CS 101", "CS", sections, 0.83, "Intro to CS")
+        snapshot1 = EnrollmentSnapshot(
+            timestamp="2024-01-15 10:00:00",
+            semester="Spring 2024",
+            overall_fill=0.83,
+            courses={"CS 101": course},
+        )
+
+        # Snapshot with a different instructor
+        snapshot_diff_instructor = EnrollmentSnapshot(
+            timestamp="2024-01-15 10:15:00",
+            semester="Spring 2024",
+            overall_fill=0.83,
+            courses={"CS 101": Course("CS 101", "CS", {
+                "10L": Section("10L", "L", 25, 30, 0.83, "Dr. Jones"),
+            }, 0.83, "Intro to CS")},
+        )
+
+        # Snapshot with different enrollment
+        snapshot_diff_enrollment = EnrollmentSnapshot(
+            timestamp="2024-01-15 10:30:00",
+            semester="Spring 2024",
+            overall_fill=0.83,
+            courses={"CS 101": Course("CS 101", "CS", {
+                "10L": Section("10L", "L", 26, 30, 0.87, "Dr. Smith"),
+            }, 0.87, "Intro to CS")},
+        )
+
+        db_manager.store_enrollment_snapshot(snapshot1)
+        db_manager.store_enrollment_snapshot(snapshot_diff_instructor)
+        db_manager.store_enrollment_snapshot(snapshot_diff_enrollment)
+
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM snapshots")
+            assert cursor.fetchone()[0] == 3
 
 
 class TestDetermineStatus:

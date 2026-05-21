@@ -112,6 +112,7 @@ class SnapshotProcessor:
                     enrollment=int(section_row.get("Enr", 0)),
                     capacity=int(section_row.get("Cap", 0)),
                     fill=float(section_row.get("Fill", 0.0)),
+                    instructor=section_row.get("Instructor"),
                 )
                 course.sections[section_id] = section
 

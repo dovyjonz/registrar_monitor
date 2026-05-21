@@ -289,40 +289,30 @@ class ScheduleCommand:
     def __init__(
         self,
         debug: bool = False,
-        scheduler_type: str = "hybrid",
+        scheduler_type: str = "two-phase",
         no_telegram: bool = False,
     ):
         self.debug = debug
-        self.scheduler_type = scheduler_type
         self.no_telegram = no_telegram
         self.logger = get_logger(__name__)
 
     async def run(self) -> None:
         """Run the scheduler command."""
         if self.debug:
-            print(f"🔍 DEBUG MODE: Starting scheduler (type: {self.scheduler_type})")
+            print("🔍 DEBUG MODE: Starting scheduler")
 
-        self.logger.info(f"Starting scheduler (type: {self.scheduler_type})")
+        self.logger.info("Starting scheduler")
 
         try:
-            from ..automation.scheduler import HybridScheduler, TwoPhaseScheduler
+            from ..automation.scheduler import TwoPhaseScheduler
 
-            if self.scheduler_type == "two-phase":
-                print("⏰ Starting two-phase scheduler...")
-                print("   📅 Schedule: settings.toml milestones")
-                print("   🔄 Two-phase mode: Quiet/Burst separation")
-                if self.no_telegram:
-                    print("   📵 Telegram reports: DISABLED")
-                print("   🛑 Press Ctrl+C to stop")
-                scheduler = TwoPhaseScheduler(no_telegram=self.no_telegram)
-            else:  # hybrid (default)
-                print("⏰ Starting hybrid scheduler...")
-                print("   📅 Schedule: settings.toml milestones")
-                print("   🔄 Activity-based adaptation enabled")
-                if self.no_telegram:
-                    print("   📵 Telegram reports: DISABLED")
-                print("   🛑 Press Ctrl+C to stop")
-                scheduler = HybridScheduler(no_telegram=self.no_telegram)
+            print("⏰ Starting Two-Phase Scheduler...")
+            print("   📅 Schedule: settings.toml milestones")
+            print("   🔄 Two-phase mode: Quiet/Burst separation (with quiet decay)")
+            if self.no_telegram:
+                print("   📵 Telegram reports: DISABLED")
+            print("   🛑 Press Ctrl+C to stop")
+            scheduler = TwoPhaseScheduler(no_telegram=self.no_telegram)
 
             if self.debug:
                 print("🔍 DEBUG: Scheduler will show detailed logs")

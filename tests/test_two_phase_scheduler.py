@@ -24,7 +24,7 @@ class TestTwoPhaseDecision:
             change_score=15.5,
             mode="burst",
             consecutive_low=0,
-            baseline_level=SchedulingLevel.HIGH,
+            baseline_level=SchedulingLevel.HOT,
             final_interval=60,
         )
 
@@ -34,7 +34,7 @@ class TestTwoPhaseDecision:
         assert result["change_score"] == 15.5
         assert result["mode"] == "burst"
         assert result["consecutive_low"] == 0
-        assert result["baseline_level"] == "high"
+        assert result["baseline_level"] == "hot"
         assert result["final_interval_seconds"] == 60
         assert result["final_interval_minutes"] == 1.0
 
@@ -96,7 +96,7 @@ class TestTwoPhaseScheduler:
         assert scheduler.mode == "burst"
 
         # First low score
-        scheduler.get_next_poll_interval(1.0)  # Below BURST_EXIT_THRESHOLD (2.0)
+        scheduler.get_next_poll_interval(1.0)  # Below BURST_EXIT_THRESHOLD (3.0)
         assert scheduler.consecutive_low == 1
         assert scheduler.mode == "burst"
 
@@ -111,7 +111,7 @@ class TestTwoPhaseScheduler:
         scheduler.get_next_poll_interval(15.0)
         assert scheduler.mode == "burst"
 
-        # Three consecutive low scores (below BURST_EXIT_THRESHOLD of 2.0)
+        # Three consecutive low scores (below BURST_EXIT_THRESHOLD of 3.0)
         scheduler.get_next_poll_interval(1.0)
         scheduler.get_next_poll_interval(1.0)
         interval, decision = scheduler.get_next_poll_interval(1.0)
@@ -135,29 +135,101 @@ class TestTwoPhaseScheduler:
         assert scheduler.consecutive_low == 0
         assert scheduler.mode == "burst"
 
-    def test_quiet_interval_silent(self, scheduler):
-        """Test quiet mode interval for silent state (score < 1)."""
-        interval, _ = scheduler.get_next_poll_interval(0.0)
-        # silent interval is 1200s, but may be capped by baseline
-        assert interval <= 1200
+    def test_quiet_interval_decay_progression(self, scheduler):
+        """Test that quiet mode interval starts at 300s and decays by 1.5x on zero change score."""
+        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
 
-    def test_quiet_interval_idle(self, scheduler):
-        """Test quiet mode interval for idle state (score 1-3)."""
-        interval, _ = scheduler.get_next_poll_interval(2.0)
-        # idle interval is 600s, but may be capped by baseline
-        assert interval <= 900
+            # First poll: quiet_interval starts at 300.0. Since last_is_day is None,
+            # day_night_transition is False. It decays by 1.5x to 450.
+            interval, decision = scheduler.get_next_poll_interval(0.0)
+            assert interval == 450
+            assert scheduler.quiet_interval == 450.0
 
-    def test_quiet_interval_active(self, scheduler):
-        """Test quiet mode interval for active state (score >= 3)."""
-        interval, _ = scheduler.get_next_poll_interval(5.0)
-        # active interval is 300s
-        assert interval <= 300
+            # Second poll: consecutive zero change score, decays to 450 * 1.5 = 675
+            interval, decision = scheduler.get_next_poll_interval(0.0)
+            assert interval == 675
+            assert scheduler.quiet_interval == 675.0
+
+            # Third poll: decays to 675 * 1.5 = 1012.5 -> int is 1012
+            interval, decision = scheduler.get_next_poll_interval(0.0)
+            assert interval == 1012
+            assert scheduler.quiet_interval == 1012.5
+
+    def test_quiet_interval_resets_on_non_zero_score(self, scheduler):
+        """Test that quiet interval resets back to 300s on a non-zero change score."""
+        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
+
+            # Decay once
+            interval, _ = scheduler.get_next_poll_interval(0.0)
+            assert interval == 450
+
+            # Poll with non-zero change score (e.g., 2.0)
+            interval, _ = scheduler.get_next_poll_interval(2.0)
+            assert interval == 300
+            assert scheduler.quiet_interval == 300.0
+
+    def test_quiet_interval_caps_during_day_and_night(self, scheduler):
+        """Test quiet mode caps: 1h (3600s) during day, 2h (7200s) during night."""
+        # 1. Day hours cap: 3600s
+        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
+
+            # Keep polling with zero score to decay until it hits day cap (3600s)
+            for _ in range(10):
+                interval, _ = scheduler.get_next_poll_interval(0.0)
+            
+            assert interval == 3600
+            assert scheduler.quiet_interval == 3600.0
+
+        # Create a new scheduler to avoid transition resets from previous state
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as log_f:
+            log_file = log_f.name
+        with patch("registrarmonitor.automation.scheduler.get_config") as mock_get_config:
+            mock_get_config.return_value = {"semesters": {}}
+            night_scheduler = TwoPhaseScheduler(log_file=log_file)
+
+        # 2. Night hours cap: 7200s
+        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 15, 2, 0, 0)
+
+            # Keep polling with zero score to decay until it hits night cap (7200s)
+            for _ in range(15):
+                interval, _ = night_scheduler.get_next_poll_interval(0.0)
+            
+            assert interval == 7200
+            assert night_scheduler.quiet_interval == 7200.0
+
+    def test_quiet_interval_resets_on_day_night_transition(self, scheduler):
+        """Test that quiet interval resets to 300s when crossing day/night boundary."""
+        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+            # Start during day (12 PM)
+            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
+            interval, _ = scheduler.get_next_poll_interval(0.0)
+            assert interval == 450
+
+            # Move to night (9 PM)
+            mock_dt.now.return_value = datetime(2024, 1, 15, 21, 0, 0)
+            interval, _ = scheduler.get_next_poll_interval(0.0)
+            assert interval == 300
+            assert scheduler.quiet_interval == 300.0
+
+            # Decay again at night
+            interval, _ = scheduler.get_next_poll_interval(0.0)
+            assert interval == 450
+
+            # Move back to day (9 AM)
+            mock_dt.now.return_value = datetime(2024, 1, 16, 9, 0, 0)
+            interval, _ = scheduler.get_next_poll_interval(0.0)
+            assert interval == 300
+            assert scheduler.quiet_interval == 300.0
 
     def test_burst_interval_extreme(self, scheduler):
         """Test burst mode interval for extreme scores."""
         # Enter burst mode with extreme score
         interval, _ = scheduler.get_next_poll_interval(30.0)
-        assert interval == 15  # extreme burst interval
+        assert interval == 10  # extreme burst interval (10s)
 
     def test_burst_interval_high(self, scheduler):
         """Test burst mode interval for high scores."""
@@ -166,36 +238,43 @@ class TestTwoPhaseScheduler:
         assert interval <= 60  # high burst interval
 
     def test_baseline_level_respected(self, scheduler):
-        """Test that baseline level from schedule.txt is respected."""
-        # In quiet mode with low score, interval should respect baseline
-        interval, decision = scheduler.get_next_poll_interval(0.0)
-
-        # Final interval should be bounded by baseline (min for hot zones, max for SLEEP)
-        assert interval <= decision.baseline_level.interval or decision.baseline_level == SchedulingLevel.SLEEP
+        """Test that baseline level from schedule file is respected."""
+        # Setup scheduler with HOT baseline
+        with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.HOT):
+            interval, decision = scheduler.get_next_poll_interval(0.0)
+            # Should be capped by HOT baseline interval (300)
+            assert interval <= 300
 
     def test_sleep_tier_enforces_long_interval(self):
-        """SLEEP baseline must enforce its full 3600s interval, not be overridden by quiet-mode caps."""
+        """SLEEP baseline must enforce its cap (3600s during day, 7200s during night)."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as log_f:
             log_file = log_f.name
 
-        # Simulate scheduler with zones configured (so SLEEP is returned outside windows)
         with patch("registrarmonitor.automation.scheduler.get_config") as mock_get_config, \
              patch("registrarmonitor.automation.scheduler.get_current_zone_type",
-                   return_value=SchedulingLevel.SLEEP):
-            mock_get_config.return_value = {
-                "semesters": {
-                    "summer2026": {
-                        "priorities": {"1": [["2099-01-01T10:00:00", "Y4+"]]}
-                    }
-                }
-            }
+                   return_value=SchedulingLevel.SLEEP), \
+             patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0) # Day hours
+            mock_get_config.return_value = {"semesters": {}}
             sched = TwoPhaseScheduler(log_file=log_file)
-            # With score=0 in quiet mode, calculated = 1800s (silent interval)
-            # SLEEP baseline is 3600s → should use max → 3600s
-            interval, decision = sched.get_next_poll_interval(0.0)
+            
+            # Let it decay until it caps
+            for _ in range(15):
+                interval, decision = sched.get_next_poll_interval(0.0)
+            
+            assert interval == 3600
 
-        assert interval == SchedulingLevel.SLEEP.interval, (
-            f"Expected SLEEP interval of {SchedulingLevel.SLEEP.interval}s, got {interval}s. "
-            "SLEEP tier should lengthen the polling interval, not be bypassed."
-        )
+    def test_milestone_alignment(self, scheduler):
+        """Test that get_next_poll_interval shortens the sleep interval to align exactly with an upcoming milestone."""
+        now = datetime(2026, 5, 15, 9, 58, 0)
+        milestone = datetime(2026, 5, 15, 10, 0, 0) # 2 minutes (120s) in the future
 
+        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt, \
+             patch.object(scheduler, "get_all_milestones", return_value=[milestone]):
+            mock_dt.now.return_value = now
+            
+            # Normal calculated quiet interval would be 450s (since quiet_interval starts at 300 and decays)
+            # But milestone is at now + 120s, which is within the 450s window.
+            # So the interval should be shortened to 120s!
+            interval, decision = scheduler.get_next_poll_interval(0.0)
+            assert interval == 120

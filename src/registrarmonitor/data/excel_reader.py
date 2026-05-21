@@ -74,7 +74,8 @@ class ExcelReader:
             # Enr processing
             try:
                 val = record.get("Enr", 0)
-                if val == "": val = 0
+                if val == "":
+                    val = 0
                 enr = int(float(val))
             except (ValueError, TypeError):
                 enr = 0
@@ -83,7 +84,8 @@ class ExcelReader:
             # Cap processing
             try:
                 val = record.get("Cap", 0)
-                if val == "": val = 0
+                if val == "":
+                    val = 0
                 cap = int(float(val))
             except (ValueError, TypeError):
                 cap = 0
