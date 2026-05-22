@@ -13,6 +13,7 @@ from pathlib import Path
 from ..config import get_config
 from ..data.database_manager import DatabaseManager
 from .downloader import DataDownloader
+from ..core import get_logger
 
 # ReportingService is imported lazily to avoid circular import
 # (reporting_service imports TwoPhaseScheduler, scheduler imports ReportingService)
@@ -183,11 +184,12 @@ def parse_schedule_file(
     return zones
 
 
-def get_next_zone_start() -> datetime.datetime | None:
+def get_next_zone_start(now: datetime.datetime | None = None) -> datetime.datetime | None:
     """
     Find the start time of the next scheduled HOT zone window after now.
     """
-    now = datetime.datetime.now()
+    if now is None:
+        now = datetime.datetime.now()
     zones = parse_schedule_file()
     next_start = None
 
@@ -199,11 +201,12 @@ def get_next_zone_start() -> datetime.datetime | None:
     return next_start
 
 
-def get_current_zone_type() -> SchedulingLevel:
+def get_current_zone_type(now: datetime.datetime | None = None) -> SchedulingLevel:
     """
     Determine the current scheduling level based on milestones in settings.toml.
     """
-    now = datetime.datetime.now()
+    if now is None:
+        now = datetime.datetime.now()
     zones = parse_schedule_file()
 
     # Check if inside any HOT window
@@ -414,15 +417,19 @@ class TwoPhaseDecision:
         change_score: float,
         mode: str,
         consecutive_low: int,
+        decay_counter: int,
         baseline_level: SchedulingLevel,
         final_interval: int,
+        reset_condition: bool = False,
     ):
         self.timestamp = timestamp
         self.change_score = change_score
         self.mode = mode
         self.consecutive_low = consecutive_low
+        self.decay_counter = decay_counter
         self.baseline_level = baseline_level
         self.final_interval = final_interval
+        self.reset_condition = reset_condition
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON logging."""
@@ -431,9 +438,11 @@ class TwoPhaseDecision:
             "change_score": self.change_score,
             "mode": self.mode,
             "consecutive_low": self.consecutive_low,
+            "decay_counter": self.decay_counter,
             "baseline_level": self.baseline_level.label,
             "final_interval_seconds": self.final_interval,
             "final_interval_minutes": round(self.final_interval / 60, 2),
+            "reset_condition": self.reset_condition,
         }
 
 
@@ -478,12 +487,21 @@ class TwoPhaseScheduler:
         self.schedule_file = schedule_file
         self.logger = DecisionLogger(log_file)
         self.no_telegram = no_telegram
+        self.logger_ops = get_logger(__name__)
 
         # Two-phase state
         self.mode: str = "quiet"  # "quiet" or "burst"
         self.consecutive_low: int = 0
+        self.decay_counter: int = 0
+        self._new_poll_processed: bool = False
         self.quiet_interval: float = 300.0
         self.last_is_day: bool | None = None
+
+        # Concurrency tasks and pending flags
+        self._website_update_task: asyncio.Task | None = None
+        self._website_update_pending: bool = False
+        self._telegram_report_task: asyncio.Task | None = None
+        self._telegram_report_pending: bool = False
 
         # Initialize ReportingService (lazy import to avoid circular dep)
         self._detected_semester: str | None = None
@@ -554,6 +572,34 @@ class TwoPhaseScheduler:
         except Exception as e:
             print(f"❌ Website update failed: {e}")
 
+    async def _run_report_cycle_async(self, force_poll: bool = True):
+        self.logger_ops.info("Background Telegram report task started.")
+        while True:
+            self._telegram_report_pending = False
+            try:
+                await self._run_report_cycle(force_poll=force_poll)
+            except Exception as e:
+                self.logger_ops.error(f"Error in background Telegram report cycle: {e}")
+            
+            if not self._telegram_report_pending:
+                break
+            self.logger_ops.info("Another Telegram report is pending. Running report cycle again.")
+        self.logger_ops.info("Background Telegram report task finished.")
+
+    async def _run_website_update_async(self):
+        self.logger_ops.info("Background website update task started.")
+        while True:
+            self._website_update_pending = False
+            try:
+                await asyncio.to_thread(self._run_website_update)
+            except Exception as e:
+                self.logger_ops.error(f"Error in background website update: {e}")
+            
+            if not self._website_update_pending:
+                break
+            self.logger_ops.info("Another website update is pending. Running website update again.")
+        self.logger_ops.info("Background website update task finished.")
+
     async def _check_and_trigger_updates(self):
         """
         Check if the database contains new snapshots that haven't been reported yet.
@@ -580,7 +626,7 @@ class TwoPhaseScheduler:
 
             # If this is the first run, initialize the reporting log with latest snapshot
             if not last_reported_id:
-                print(f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}.")
+                self.logger_ops.info(f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}.")
                 db_manager.add_reporting_log(snapshot_id=latest_snapshot_id, changes_were_found=False)
                 return
 
@@ -589,7 +635,7 @@ class TwoPhaseScheduler:
 
             # Fetch snapshot data
             current_snapshot = db_manager.get_snapshot_data(latest_snapshot_id)
-            previous_snapshot = db_manager.get_snapshot_data(last_reported_id)
+            previous_snapshot = db_manager.get_last_reported_snapshot_data()
 
             if not current_snapshot or not previous_snapshot:
                 return
@@ -630,14 +676,14 @@ class TwoPhaseScheduler:
                     previous_course = previous_snapshot.courses.get(course_change.course_code)
                     if current_course and previous_course:
                         for sec_mod in course_change.modified_sections:
-                            curr_sec = current_course.sections.get(sec_mod.section_id)
-                            prev_sec = previous_course.sections.get(sec_mod.section_id)
-                            if curr_sec and prev_sec:
-                                was_full = prev_sec.enrollment >= prev_sec.capacity if prev_sec.capacity > 0 else False
-                                is_full = curr_sec.enrollment >= curr_sec.capacity if curr_sec.capacity > 0 else False
-                                if was_full != is_full:
-                                    status_changed = True
-                                    break
+                             curr_sec = current_course.sections.get(sec_mod.section_id)
+                             prev_sec = previous_course.sections.get(sec_mod.section_id)
+                             if curr_sec and prev_sec:
+                                 was_full = prev_sec.enrollment >= prev_sec.capacity if prev_sec.capacity > 0 else False
+                                 is_full = curr_sec.enrollment >= curr_sec.capacity if curr_sec.capacity > 0 else False
+                                 if was_full != is_full:
+                                     status_changed = True
+                                     break
                     if status_changed:
                         break
 
@@ -646,7 +692,7 @@ class TwoPhaseScheduler:
 
             if is_worth_updating:
                 now = datetime.datetime.now()
-                print(f"\n📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})")
+                self.logger_ops.info(f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})")
 
                 # 1. Trigger Report
                 if not self.no_telegram:
@@ -657,12 +703,15 @@ class TwoPhaseScheduler:
                         else None
                     )
                     if seconds_since_last_report is None or seconds_since_last_report >= self.report_cooldown_seconds:
-                        print("📝 Triggering Telegram Report...")
-                        await self._run_report_cycle(force_poll=False)
+                        self.logger_ops.info("📝 Triggering Telegram Report...")
+                        if self._telegram_report_task is None or self._telegram_report_task.done():
+                            self._telegram_report_task = asyncio.create_task(self._run_report_cycle_async(force_poll=False))
+                        else:
+                            self._telegram_report_pending = True
                         self.last_report_sent_time = now
                     else:
                         cooldown_remaining = int(self.report_cooldown_seconds - seconds_since_last_report)
-                        print(f"⏳ Telegram Report is on cooldown ({cooldown_remaining}s remaining). Will report next cycle.")
+                        self.logger_ops.info(f"⏳ Telegram Report is on cooldown ({cooldown_remaining}s remaining). Will report next cycle.")
 
                 # 2. Trigger Website Update
                 seconds_since_last_website = (
@@ -671,18 +720,21 @@ class TwoPhaseScheduler:
                     else None
                 )
                 if seconds_since_last_website is None or seconds_since_last_website >= self.website_cooldown_seconds:
-                    print("🌐 Triggering Website Update...")
-                    await asyncio.to_thread(self._run_website_update)
+                    self.logger_ops.info("🌐 Triggering Website Update...")
+                    if self._website_update_task is None or self._website_update_task.done():
+                        self._website_update_task = asyncio.create_task(self._run_website_update_async())
+                    else:
+                        self._website_update_pending = True
                     self.last_website_updated_time = now
                 else:
                     cooldown_remaining = int(self.website_cooldown_seconds - seconds_since_last_website)
-                    print(f"⏳ Website Update is on cooldown ({cooldown_remaining}s remaining). Will update next cycle.")
+                    self.logger_ops.info(f"⏳ Website Update is on cooldown ({cooldown_remaining}s remaining). Will update next cycle.")
             else:
                 # If changes are minor, print notice and let them accumulate (do not update reporting log)
-                print(f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes.")
+                self.logger_ops.info(f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes.")
 
         except Exception as e:
-            print(f"❌ Error in check_and_trigger_updates: {e}")
+            self.logger_ops.error(f"❌ Error in check_and_trigger_updates: {e}")
 
     def _get_baseline_level(self) -> SchedulingLevel:
         """Get baseline level from configuration (predictive component)."""
@@ -832,11 +884,12 @@ class TwoPhaseScheduler:
                 try:
                     file_path = await download_task
                     if not file_path:
-                        print("❌ Download failed (returned None). Skipping process.")
+                        self.logger_ops.error("❌ Download failed (returned None). Skipping process.")
                         self._last_change_score = 0.0
+                        self._new_poll_processed = True
                         continue
 
-                    print(f"🔄 Sequentially processing poll from {poll_start_time.strftime('%H:%M:%S')}...")
+                    self.logger_ops.info(f"🔄 Sequentially processing poll from {poll_start_time.strftime('%H:%M:%S')}...")
                     
                     try:
                         from ..cli.commands import PollCommand
@@ -862,25 +915,19 @@ class TwoPhaseScheduler:
                             change_score = await self._calculate_change_score_for_poll(detected_semester)
                         
                         self._last_change_score = change_score
+                        self._new_poll_processed = True
 
-                        if change_score >= self.BURST_ENTRY_THRESHOLD:
-                            self.mode = "burst"
-                            self.consecutive_low = 0
-                        elif change_score < self.BURST_EXIT_THRESHOLD:
-                            self.consecutive_low += 1
-                            if self.consecutive_low >= self.BURST_EXIT_COUNT:
-                                self.mode = "quiet"
-                                self.consecutive_low = 0
-
-                        print(f"✅ Sequentially processed poll. Score: {change_score:.2f}, Mode: {self.mode}")
+                        self.logger_ops.info(f"✅ Sequentially processed poll. Score: {change_score:.2f}")
                         await self._check_and_trigger_updates()
                     else:
-                        print("❌ Poll command execution failed.")
+                        self.logger_ops.error("❌ Poll command execution failed.")
                         self._last_change_score = 0.0
+                        self._new_poll_processed = True
 
                 except Exception as e:
-                    print(f"❌ Error processing pending poll: {e}")
+                    self.logger_ops.error(f"❌ Error processing pending poll: {e}")
                     self._last_change_score = 0.0
+                    self._new_poll_processed = True
                 finally:
                     self.pending_polls.task_done()
 
@@ -891,7 +938,10 @@ class TwoPhaseScheduler:
                 await asyncio.sleep(1)
 
     def get_next_poll_interval(
-        self, last_change_score: float = 0
+        self,
+        last_change_score: float = 0,
+        timestamp: datetime.datetime | None = None,
+        update_state: bool = True,
     ) -> tuple[int, TwoPhaseDecision]:
         """
         Determine how long to wait before the NEXT poll based on two-phase logic.
@@ -899,87 +949,175 @@ class TwoPhaseScheduler:
         Returns:
             Tuple of (interval_seconds, TwoPhaseDecision)
         """
-        timestamp = datetime.datetime.now()
+        if timestamp is None:
+            timestamp = datetime.datetime.now()
+
         current_is_day = 8 <= timestamp.hour < 20
 
-        # Detect day/night transition
-        day_night_transition = False
-        if self.last_is_day is not None and self.last_is_day != current_is_day:
-            day_night_transition = True
-        self.last_is_day = current_is_day
-
-        baseline_level = self._get_baseline_level()
+        # Step 1: Mode Transition and Counters Evaluation
         previous_mode = self.mode
+        previous_decay = self.decay_counter
+        previous_consecutive_low = self.consecutive_low
+        previous_is_day = self.last_is_day
 
-        # State machine: quiet <-> burst transitions
-        if self.mode == "quiet":
-            if last_change_score >= self.BURST_ENTRY_THRESHOLD:
-                # Enter burst mode
+        if update_state:
+            # 1. Update b_n (consecutive_low)
+            if previous_mode == "burst" and last_change_score < 5.0:
+                self.consecutive_low = previous_consecutive_low + 1
+            else:
+                self.consecutive_low = 0
+
+            # 2. Update Mode_n
+            if last_change_score >= 12.0:
                 self.mode = "burst"
-                self.consecutive_low = 0
-                calculated_interval = self._burst_interval(last_change_score)
-            else:
-                # Stay in quiet mode
-                # Reset quiet interval if score > 0, or day/night transition, or if we transitioned mode
-                if last_change_score > 0.0 or day_night_transition or previous_mode != self.mode:
-                    self.quiet_interval = 300.0
-                else:
-                    self.quiet_interval = self.quiet_interval * 1.5
-
-                # Apply caps: 1h max during day (3600s), 2h max during night (7200s)
-                max_cap = 3600.0 if current_is_day else 7200.0
-                if self.quiet_interval > max_cap:
-                    self.quiet_interval = max_cap
-                if self.quiet_interval < 300.0:
-                    self.quiet_interval = 300.0
-
-                calculated_interval = int(self.quiet_interval)
-        else:  # burst mode
-            if last_change_score < self.BURST_EXIT_THRESHOLD:
-                self.consecutive_low += 1
-            else:
-                self.consecutive_low = 0
-
-            if self.consecutive_low >= self.BURST_EXIT_COUNT:
-                # Exit burst mode
+            elif previous_mode == "burst" and self.consecutive_low >= 3:
                 self.mode = "quiet"
-                self.consecutive_low = 0
-                self.quiet_interval = 300.0
-                calculated_interval = int(self.quiet_interval)
             else:
-                # Stay in burst mode
-                calculated_interval = self._burst_interval(last_change_score)
+                self.mode = previous_mode
 
-        # Respect baseline level:
-        # - Hot zones can shorten the interval → take min
-        # - SLEEP zone is outside all windows: let quiet-mode decay determine the interval, capped at 3600 (day) / 7200 (night)
-        if baseline_level == SchedulingLevel.SLEEP:
-            final_interval = calculated_interval
+            # 3. Update k_n (decay_counter)
+            if self.mode == "quiet" and last_change_score == 0.0:
+                self.decay_counter = previous_decay + 1
+            else:
+                self.decay_counter = 0
+
+            # 4. Update diurnal tracker
+            self.last_is_day = current_is_day
+
+            self.logger_ops.info(
+                f"[Scheduler Step 1] State updated: Mode {previous_mode} -> {self.mode}, "
+                f"Low count b: {previous_consecutive_low} -> {self.consecutive_low}, "
+                f"Decay k: {previous_decay} -> {self.decay_counter}"
+            )
         else:
-            # Inside or approaching a hot zone: let baseline shorten polling
-            final_interval = min(calculated_interval, baseline_level.interval)
+            self.logger_ops.debug(
+                f"[Scheduler Step 1] Re-evaluating interval without updating state. "
+                f"Current Mode: {self.mode}, b: {self.consecutive_low}, k: {self.decay_counter}"
+            )
 
-        # Check for upcoming zone changes
-        try:
-            next_change_time, _ = get_next_zone_change()
-            if next_change_time:
-                seconds_until_change = int(
-                    (next_change_time - timestamp).total_seconds()
-                )
-                if 0 < seconds_until_change < final_interval:
-                    final_interval = max(60, seconds_until_change + 30)
-        except Exception:
-            pass
+        # Step 2: Calculate Mode-Specific Base Interval
+        if self.mode == "quiet":
+            if last_change_score >= 5.0:
+                i_base = 300.0
+            elif last_change_score >= 2.0:
+                i_base = 900.0
+            else:
+                i_base = 1800.0
 
-        # Align with upcoming milestones/deadlines exactly
+            decay_exponent = max(0, self.decay_counter - 1)
+            i_mode = i_base * (1.5 ** decay_exponent)
+
+            self.logger_ops.debug(
+                f"[Scheduler Step 2] Quiet base calculation: i_base={i_base}s, decay_exp={decay_exponent}, i_mode={i_mode}s"
+            )
+        else:
+            if last_change_score >= 25.0:
+                i_mode = 10.0
+            elif last_change_score >= 12.0:
+                i_mode = 60.0
+            elif last_change_score >= 5.0:
+                i_mode = 120.0
+            else:
+                i_mode = 180.0
+
+            self.logger_ops.debug(
+                f"[Scheduler Step 2] Burst base calculation: i_mode={i_mode}s"
+            )
+
+        # Step 3: Apply Diurnal Caps and Reset Overrides
+        c_tn = 7200.0 if current_is_day else 14400.0
+        i_capped = min(i_mode, c_tn)
+
+        reset_condition = False
+        reset_reasons = []
+
+        # Predicate 1: Significant activity resumes (Sn > 0) and (kn-1 > 0)
+        if last_change_score > 0.0 and previous_decay > 0:
+            reset_condition = True
+            reset_reasons.append(f"activity resumption (S={last_change_score:.1f}, prev_k={previous_decay})")
+
+        # Predicate 2: Diurnal shift
+        if previous_is_day is not None and previous_is_day != current_is_day:
+            reset_condition = True
+            reset_reasons.append(f"diurnal shift ({previous_is_day} -> {current_is_day})")
+
+        # Predicate 3: Mode boundary change
+        if self.mode != previous_mode:
+            reset_condition = True
+            reset_reasons.append(f"mode change ({previous_mode} -> {self.mode})")
+
+        if reset_condition:
+            i_reactive = 300.0
+            if update_state:
+                self.quiet_interval = 300.0
+                self.decay_counter = 0
+            self.logger_ops.info(
+                f"[Scheduler Step 3] Reset Condition Met due to: {', '.join(reset_reasons)}. Interval set to 300.0s"
+            )
+        else:
+            i_reactive = i_capped
+            if update_state:
+                self.quiet_interval = i_reactive
+            self.logger_ops.debug(
+                f"[Scheduler Step 3] Cap={c_tn}s, Capped={i_capped}s, Reactive={i_reactive}s"
+            )
+
+        # Step 4: Integrate Predictive Component (Zone Scaling)
+        baseline_level = self._get_baseline_level()
+        zone_type = get_current_zone_type(timestamp)
+        if zone_type == SchedulingLevel.HOT:
+            i_sleep = min(i_reactive, 300.0)
+            self.logger_ops.debug(
+                f"[Scheduler Step 4] HOT Zone active: i_sleep scaled to {i_sleep}s (original reactive={i_reactive}s)"
+            )
+        else:
+            i_sleep = i_reactive
+            self.logger_ops.debug(
+                f"[Scheduler Step 4] SLEEP Zone active: i_sleep={i_sleep}s"
+            )
+
+        # Step 5: Boundary Preemption Alignment
+        final_interval = i_sleep
+        preemption_reasons = []
+
+        # T_next_hot - t_n
+        next_hot_start = get_next_zone_start(timestamp)
+        if next_hot_start is not None:
+            seconds_until_next_hot = (next_hot_start - timestamp).total_seconds()
+            if seconds_until_next_hot > 0:
+                if seconds_until_next_hot < final_interval:
+                    final_interval = seconds_until_next_hot
+                    preemption_reasons.append(f"next HOT zone start alignment ({seconds_until_next_hot:.1f}s remaining)")
+
+        # T_milestone - t_n
         milestones = self.get_all_milestones()
+        closest_milestone_diff = None
+        closest_milestone = None
         for milestone in milestones:
-            if timestamp < milestone <= timestamp + datetime.timedelta(seconds=final_interval):
+            if milestone > timestamp:
                 seconds_until_milestone = (milestone - timestamp).total_seconds()
                 if seconds_until_milestone > 0:
-                    print(f"🎯 Milestone alignment: shortening sleep from {final_interval}s to {seconds_until_milestone:.2f}s for milestone at {milestone.isoformat()}")
-                    final_interval = max(1, int(seconds_until_milestone))
-                    break
+                    if closest_milestone_diff is None or seconds_until_milestone < closest_milestone_diff:
+                        closest_milestone_diff = seconds_until_milestone
+                        closest_milestone = milestone
+
+        if closest_milestone_diff is not None:
+            if closest_milestone_diff < final_interval:
+                final_interval = closest_milestone_diff
+                preemption_reasons.append(
+                    f"closest milestone alignment at {closest_milestone.isoformat()} ({closest_milestone_diff:.1f}s remaining)"
+                )
+
+        final_interval_int = max(1, int(final_interval))
+
+        if preemption_reasons:
+            self.logger_ops.info(
+                f"[Scheduler Step 5] Preemption Applied: interval shortened to {final_interval_int}s due to: {', '.join(preemption_reasons)}"
+            )
+        else:
+            self.logger_ops.debug(
+                f"[Scheduler Step 5] No preemption applied. Final interval: {final_interval_int}s"
+            )
 
         # Log decision
         decision = TwoPhaseDecision(
@@ -987,12 +1125,14 @@ class TwoPhaseScheduler:
             change_score=last_change_score,
             mode=self.mode,
             consecutive_low=self.consecutive_low,
+            decay_counter=self.decay_counter,
             baseline_level=baseline_level,
-            final_interval=final_interval,
+            final_interval=final_interval_int,
+            reset_condition=reset_condition,
         )
         self.logger.log_decision(decision)
 
-        return final_interval, decision
+        return final_interval_int, decision
 
     def _get_next_report_time(self) -> datetime.datetime:
         """
@@ -1030,17 +1170,8 @@ class TwoPhaseScheduler:
             change_score = await self._single_poll_and_process()
             self._last_poll_time = datetime.datetime.now()
             self._last_change_score = change_score
+            self._new_poll_processed = True
             duration = time.time() - start_time
-
-            # Update mode based on score
-            if change_score >= self.BURST_ENTRY_THRESHOLD:
-                self.mode = "burst"
-                self.consecutive_low = 0
-            elif change_score < self.BURST_EXIT_THRESHOLD:
-                self.consecutive_low += 1
-                if self.consecutive_low >= self.BURST_EXIT_COUNT:
-                    self.mode = "quiet"
-                    self.consecutive_low = 0
 
             print(
                 f"✅ Data fetched ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
@@ -1117,12 +1248,8 @@ class TwoPhaseScheduler:
             change_score = await self._single_poll_and_process()
             self._last_poll_time = datetime.datetime.now()
             self._last_change_score = change_score
+            self._new_poll_processed = True
             duration = time.time() - start_time
-
-            # Update mode based on initial score
-            if change_score >= self.BURST_ENTRY_THRESHOLD:
-                self.mode = "burst"
-                self.consecutive_low = 0
             print(
                 f"✅ Initial sync done ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
             )
@@ -1139,7 +1266,11 @@ class TwoPhaseScheduler:
         try:
             while True:
                 # 1. Determine adaptive sleep duration based on the last processed score
-                wait_time_poll, decision = self.get_next_poll_interval(self._last_change_score)
+                wait_time_poll, decision = self.get_next_poll_interval(
+                    self._last_change_score,
+                    update_state=self._new_poll_processed,
+                )
+                self._new_poll_processed = False
 
                 mode_indicator = "🔥" if self.mode == "burst" else "😴"
                 print(
@@ -1164,6 +1295,13 @@ class TwoPhaseScheduler:
                 await processor_task
             except asyncio.CancelledError:
                 pass
+            for task in (self._website_update_task, self._telegram_report_task):
+                if task and not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
             if self.caffeinate_process:
                 self.caffeinate_process.terminate()
             print("📊 Scheduler stopped")
