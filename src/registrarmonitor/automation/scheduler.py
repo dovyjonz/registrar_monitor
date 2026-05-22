@@ -635,7 +635,7 @@ class TwoPhaseScheduler:
 
             # Fetch snapshot data
             current_snapshot = db_manager.get_snapshot_data(latest_snapshot_id)
-            previous_snapshot = db_manager.get_last_reported_snapshot_data()
+            previous_snapshot = db_manager.get_snapshot_data(last_reported_id)
 
             if not current_snapshot or not previous_snapshot:
                 return
