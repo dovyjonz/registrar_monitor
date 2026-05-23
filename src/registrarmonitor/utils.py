@@ -8,9 +8,12 @@ def get_section_type(section: Any) -> str:
     if not section:
         return ""
     s_type = "".join(c for c in str(section) if not c.isdigit())
-    if s_type.endswith("Lb"):
+
+    # Normalize lab variants (e.g., 'Lb', 'lb') to the canonical 'B' code
+    if s_type.lower() == "lb":
         return "B"
-    return s_type
+
+    return s_type.upper()
 
 
 def get_sort_priority(section_type: str) -> int:
