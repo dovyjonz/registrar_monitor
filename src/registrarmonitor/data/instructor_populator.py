@@ -74,23 +74,9 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
         # Step 1: Aggregate instructors by section from excel data
         aggregated_data = {}
         for row in data:
-            course_code = row.get("Course Abbr")
-            section_code = row.get("S/T")
+            course_code = str(row.get("Course Abbr") or "").strip()
+            section_code = str(row.get("S/T") or "").strip()
             instructor = row.get("Instructor")
-
-            # Check validity, ensuring they are strings (sometimes xlrd might return non-strings if malformed)
-            if not (isinstance(course_code, str) and isinstance(section_code, str)):
-                if course_code is not None:
-                    course_code = str(course_code)
-                if section_code is not None:
-                    section_code = str(section_code)
-
-                if not course_code or not section_code:
-                    skipped_count += 1
-                    continue
-
-            course_code = course_code.strip()
-            section_code = section_code.strip()
 
             if not course_code or not section_code:
                 skipped_count += 1
@@ -123,7 +109,7 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                 # Process raw instructors to find co-instructors and filter out TBA/empty
                 names = []
                 for inst in raw_instructors:
-                    for part in inst.split(','):
+                    for part in inst.split(","):
                         p = part.strip()
                         if p and p.upper() not in {"TBA", "TBA TBA", "TBA1 TBA1"}:
                             if p not in names:
@@ -142,7 +128,14 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                 if old_instructor != final_instructor:
                     if not dry_run:
                         updates.append((final_instructor, section_id))
-                        change_records.append((section_id, old_instructor, final_instructor, timestamp_str))
+                        change_records.append(
+                            (
+                                section_id,
+                                old_instructor,
+                                final_instructor,
+                                timestamp_str,
+                            )
+                        )
                     logger.debug(
                         f"Updating {course_code}-{section_code}: '{old_instructor}' -> '{final_instructor}'"
                     )
@@ -169,7 +162,7 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                     INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp)
                     VALUES (?, ?, ?, ?)
                     """,
-                    change_records
+                    change_records,
                 )
 
         logger.info(

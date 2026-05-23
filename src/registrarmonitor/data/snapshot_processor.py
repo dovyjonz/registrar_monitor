@@ -39,14 +39,13 @@ class SnapshotProcessor:
         # Check for required keys in the first row (assuming uniform data)
         first_row = data[0]
         if "Level" not in first_row or "Cap" not in first_row:
-             return EnrollmentSnapshot(
+            return EnrollmentSnapshot(
                 timestamp=timestamp, semester=semester, overall_fill=0.0
             )
 
         # Filter: UG level and Cap > 0
         filtered_data = [
-            row for row in data
-            if row.get("Level") == "UG" and row.get("Cap", 0) > 0
+            row for row in data if row.get("Level") == "UG" and row.get("Cap", 0) > 0
         ]
 
         if not filtered_data:
@@ -59,10 +58,11 @@ class SnapshotProcessor:
 
         overall_fill = 0.0
         if total_capacity > 0:
-             overall_fill = float(
-                (Decimal(total_enrollment) / Decimal(total_capacity))
-                .quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
-             )
+            overall_fill = float(
+                (Decimal(total_enrollment) / Decimal(total_capacity)).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_EVEN
+                )
+            )
 
         snapshot = EnrollmentSnapshot(
             timestamp=timestamp,
@@ -90,12 +90,12 @@ class SnapshotProcessor:
             fills = [row.get("Fill", 0.0) for row in course_rows]
             course_avg_fill = 0.0
             if fills:
-                 # Use Decimal for precise mean calculation and rounding
-                 # Convert floats to string first to avoid precision artifacts
-                 avg = sum(Decimal(str(f)) for f in fills) / Decimal(len(fills))
-                 course_avg_fill = float(
-                     avg.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
-                 )
+                # Use Decimal for precise mean calculation and rounding
+                # Convert floats to string first to avoid precision artifacts
+                avg = sum(Decimal(str(f)) for f in fills) / Decimal(len(fills))
+                course_avg_fill = float(
+                    avg.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+                )
 
             course = Course(
                 course_code=course_code,

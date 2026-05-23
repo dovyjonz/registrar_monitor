@@ -44,7 +44,7 @@ class ReportingService:
         self.db_manager = DatabaseManager(semester=semester)
         self.snapshot_comparator = SnapshotComparator()
         self.report_formatter = ReportFormatter()
-        self.telegram_reporter = TelegramReporter()
+        self._telegram_reporter: Optional[TelegramReporter] = None
 
         # PDF generator is lazy-loaded only when explicitly requested
         self._pdf_generator: Optional[PDFGenerator] = None
@@ -59,6 +59,13 @@ class ReportingService:
         if self._pdf_generator is None:
             self._pdf_generator = PDFGenerator()
         return self._pdf_generator
+
+    @property
+    def telegram_reporter(self) -> TelegramReporter:
+        """Lazy-load Telegram only when a report is actually sent."""
+        if self._telegram_reporter is None:
+            self._telegram_reporter = TelegramReporter()
+        return self._telegram_reporter
 
     async def generate_and_send_reports(
         self,

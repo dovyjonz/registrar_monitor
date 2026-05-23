@@ -18,8 +18,14 @@ class TelegramReporter:
 
     def __init__(self):
         self.config = get_config()
-        self.bot_token = self.config["telegram"]["bot_token"]
-        self.chat_id = self.config["telegram"]["chat_id"]
+        telegram_config = self.config.get("telegram", {})
+        self.bot_token = telegram_config.get("bot_token")
+        self.chat_id = telegram_config.get("chat_id")
+        if not self.bot_token or not self.chat_id:
+            raise ValueError(
+                "Telegram credentials are missing. Set TELEGRAM_BOT_TOKEN and "
+                "TELEGRAM_CHAT_ID in the environment or a local .env file."
+            )
         self.text_reports_dir = self.config["directories"]["text_reports"]
         self.file_write_delay = self.config.get("notifications", {}).get(
             "file_write_delay", 3

@@ -27,7 +27,10 @@ def _make_comparison(new=(), removed=(), changed=()):
 @pytest.fixture
 def scheduler():
     """Create a TwoPhaseScheduler with mocked low zone (no telegram)."""
-    with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.SLEEP):
+    with patch(
+        "registrarmonitor.automation.scheduler.get_current_zone_type",
+        return_value=SchedulingLevel.SLEEP,
+    ):
         sched = TwoPhaseScheduler(no_telegram=True)
     return sched
 
@@ -42,9 +45,16 @@ class TestCheckAndTriggerUpdates:
         mock_db.get_latest_snapshot_id.return_value = None
 
         with (
-            patch("registrarmonitor.automation.scheduler.DatabaseManager", return_value=mock_db),
-            patch("registrarmonitor.automation.scheduler.asyncio.to_thread") as mock_to_thread,
-            patch.object(TwoPhaseScheduler, "_run_report_cycle", new_callable=AsyncMock) as mock_run_report_cycle,
+            patch(
+                "registrarmonitor.automation.scheduler.DatabaseManager",
+                return_value=mock_db,
+            ),
+            patch(
+                "registrarmonitor.automation.scheduler.asyncio.to_thread"
+            ) as mock_to_thread,
+            patch.object(
+                TwoPhaseScheduler, "_run_report_cycle", new_callable=AsyncMock
+            ) as mock_run_report_cycle,
         ):
             await scheduler._check_and_trigger_updates()
 
@@ -58,9 +68,16 @@ class TestCheckAndTriggerUpdates:
         mock_db.get_latest_snapshot_id.return_value = None
 
         with (
-            patch("registrarmonitor.automation.scheduler.DatabaseManager", return_value=mock_db),
-            patch("registrarmonitor.automation.scheduler.asyncio.to_thread") as mock_to_thread,
-            patch.object(TwoPhaseScheduler, "_run_report_cycle", new_callable=AsyncMock) as mock_run_report_cycle,
+            patch(
+                "registrarmonitor.automation.scheduler.DatabaseManager",
+                return_value=mock_db,
+            ),
+            patch(
+                "registrarmonitor.automation.scheduler.asyncio.to_thread"
+            ) as mock_to_thread,
+            patch.object(
+                TwoPhaseScheduler, "_run_report_cycle", new_callable=AsyncMock
+            ) as mock_run_report_cycle,
         ):
             await scheduler._check_and_trigger_updates()
 
@@ -109,7 +126,9 @@ class TestCheckAndTriggerUpdates:
         mock_db = MagicMock()
         mock_db.get_latest_snapshot_id.return_value = "snap_002"
         mock_db.get_last_reported_snapshot_id.return_value = "snap_001"
-        mock_db.get_snapshot_data.side_effect = lambda sid: curr_snap if sid == "snap_002" else prev_snap
+        mock_db.get_snapshot_data.side_effect = (
+            lambda sid: curr_snap if sid == "snap_002" else prev_snap
+        )
 
         mock_comparator = MagicMock()
         mock_comparator.compare_snapshots.return_value = mock_comparison
@@ -120,7 +139,9 @@ class TestCheckAndTriggerUpdates:
             website_called.append(True)
 
         with (
-            patch("registrarmonitor.automation.scheduler.TwoPhaseScheduler._run_website_update"),
+            patch(
+                "registrarmonitor.automation.scheduler.TwoPhaseScheduler._run_website_update"
+            ),
             patch("asyncio.to_thread", new=AsyncMock(side_effect=mock_website)),
         ):
             # Directly call with injected dependencies
@@ -138,7 +159,9 @@ class TestCheckAndTriggerUpdates:
 
                     current_snapshot = db.get_snapshot_data(latest_snapshot_id)
                     previous_snapshot = db.get_snapshot_data(last_reported_id)
-                    comparison = comparator.compare_snapshots(current_snapshot, previous_snapshot)
+                    comparison = comparator.compare_snapshots(
+                        current_snapshot, previous_snapshot
+                    )
 
                     # Check status change (open -> full)
                     status_changed = False
@@ -151,13 +174,23 @@ class TestCheckAndTriggerUpdates:
                                     cs = curr_c.sections.get(sm.section_id)
                                     ps = prev_c.sections.get(sm.section_id)
                                     if cs and ps:
-                                        was_full = ps.enrollment >= ps.capacity if ps.capacity > 0 else False
-                                        is_full = cs.enrollment >= cs.capacity if cs.capacity > 0 else False
+                                        was_full = (
+                                            ps.enrollment >= ps.capacity
+                                            if ps.capacity > 0
+                                            else False
+                                        )
+                                        is_full = (
+                                            cs.enrollment >= cs.capacity
+                                            if cs.capacity > 0
+                                            else False
+                                        )
                                         if was_full != is_full:
                                             status_changed = True
                                             break
 
-                    assert status_changed, "Expected status_changed=True for open->full transition"
+                    assert status_changed, (
+                        "Expected status_changed=True for open->full transition"
+                    )
                 except Exception as e:
                     pytest.fail(f"Unexpected exception: {e}")
 
@@ -178,13 +211,18 @@ class TestCheckAndTriggerUpdates:
     @pytest.mark.asyncio
     async def test_report_cycle_force_poll_false_uses_cached_score(self):
         """_run_report_cycle with force_poll=False should not poll for a fresh score."""
-        with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.SLEEP):
+        with patch(
+            "registrarmonitor.automation.scheduler.get_current_zone_type",
+            return_value=SchedulingLevel.SLEEP,
+        ):
             sched = TwoPhaseScheduler(no_telegram=True)
 
         sched._last_change_score = 42.0
 
         with (
-            patch.object(sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)) as mock_poll,
+            patch.object(
+                sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)
+            ) as mock_poll,
             patch(
                 "registrarmonitor.services.reporting_service.ReportingService.run_stateful_report_cycle",
                 new=AsyncMock(),
@@ -197,11 +235,16 @@ class TestCheckAndTriggerUpdates:
     @pytest.mark.asyncio
     async def test_report_cycle_force_poll_true_polls_for_fresh_score(self):
         """_run_report_cycle with force_poll=True should poll for a fresh score."""
-        with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.SLEEP):
+        with patch(
+            "registrarmonitor.automation.scheduler.get_current_zone_type",
+            return_value=SchedulingLevel.SLEEP,
+        ):
             sched = TwoPhaseScheduler(no_telegram=True)
 
         with (
-            patch.object(sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)) as mock_poll,
+            patch.object(
+                sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)
+            ) as mock_poll,
             patch(
                 "registrarmonitor.services.reporting_service.ReportingService.run_stateful_report_cycle",
                 new=AsyncMock(),

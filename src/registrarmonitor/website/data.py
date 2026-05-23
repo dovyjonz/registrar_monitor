@@ -85,7 +85,9 @@ def _filter_snapshots_to_milestone_window(
     return filtered, index_map
 
 
-def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[dict[str, Any]]]:
+def _build_course_events(
+    semester: str, db: DatabaseManager
+) -> dict[str, list[dict[str, Any]]]:
     """
     Build a dictionary of structural events for each course by diffing
     consecutive snapshots in the database.
@@ -115,7 +117,9 @@ def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[d
 
         # Pre-fetch all enrollment data grouped by snapshot
         # For each snapshot, build: { (course_code, section_code): {enrollment, capacity, instructor} }
-        def _get_snapshot_state(snapshot_id: int) -> dict[str, dict[str, dict[str, Any]]]:
+        def _get_snapshot_state(
+            snapshot_id: int,
+        ) -> dict[str, dict[str, dict[str, Any]]]:
             """Get state of all courses/sections for a snapshot.
             Returns: { course_code: { section_code: { enrollment, capacity, instructor } } }
             """
@@ -154,17 +158,21 @@ def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[d
 
             # Course added
             for cc in curr_courses - prev_courses:
-                events_by_course.setdefault(cc, []).append({
-                    "eventType": "course_added",
-                    "snapshotTimestamp": snapshot_ts,
-                })
+                events_by_course.setdefault(cc, []).append(
+                    {
+                        "eventType": "course_added",
+                        "snapshotTimestamp": snapshot_ts,
+                    }
+                )
 
             # Course removed
             for cc in prev_courses - curr_courses:
-                events_by_course.setdefault(cc, []).append({
-                    "eventType": "course_removed",
-                    "snapshotTimestamp": snapshot_ts,
-                })
+                events_by_course.setdefault(cc, []).append(
+                    {
+                        "eventType": "course_removed",
+                        "snapshotTimestamp": snapshot_ts,
+                    }
+                )
 
             # Diff sections for courses present in both
             for cc in curr_courses & prev_courses:
@@ -173,19 +181,23 @@ def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[d
 
                 # Section added
                 for sc in curr_sections - prev_sections:
-                    events_by_course.setdefault(cc, []).append({
-                        "eventType": "section_added",
-                        "sectionCode": sc,
-                        "snapshotTimestamp": snapshot_ts,
-                    })
+                    events_by_course.setdefault(cc, []).append(
+                        {
+                            "eventType": "section_added",
+                            "sectionCode": sc,
+                            "snapshotTimestamp": snapshot_ts,
+                        }
+                    )
 
                 # Section removed
                 for sc in prev_sections - curr_sections:
-                    events_by_course.setdefault(cc, []).append({
-                        "eventType": "section_removed",
-                        "sectionCode": sc,
-                        "snapshotTimestamp": snapshot_ts,
-                    })
+                    events_by_course.setdefault(cc, []).append(
+                        {
+                            "eventType": "section_removed",
+                            "sectionCode": sc,
+                            "snapshotTimestamp": snapshot_ts,
+                        }
+                    )
 
                 # Diff shared sections for capacity and instructor changes
                 for sc in curr_sections & prev_sections:
@@ -194,23 +206,27 @@ def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[d
 
                     # Capacity changed
                     if prev_sec["capacity"] != curr_sec["capacity"]:
-                        events_by_course.setdefault(cc, []).append({
-                            "eventType": "capacity_changed",
-                            "sectionCode": sc,
-                            "oldValue": str(prev_sec["capacity"]),
-                            "newValue": str(curr_sec["capacity"]),
-                            "snapshotTimestamp": snapshot_ts,
-                        })
+                        events_by_course.setdefault(cc, []).append(
+                            {
+                                "eventType": "capacity_changed",
+                                "sectionCode": sc,
+                                "oldValue": str(prev_sec["capacity"]),
+                                "newValue": str(curr_sec["capacity"]),
+                                "snapshotTimestamp": snapshot_ts,
+                            }
+                        )
 
                     # Instructor changed
                     if prev_sec["instructor"] != curr_sec["instructor"]:
-                        events_by_course.setdefault(cc, []).append({
-                            "eventType": "instructor_changed",
-                            "sectionCode": sc,
-                            "oldValue": prev_sec["instructor"] or "TBA",
-                            "newValue": curr_sec["instructor"] or "TBA",
-                            "snapshotTimestamp": snapshot_ts,
-                        })
+                        events_by_course.setdefault(cc, []).append(
+                            {
+                                "eventType": "instructor_changed",
+                                "sectionCode": sc,
+                                "oldValue": prev_sec["instructor"] or "TBA",
+                                "newValue": curr_sec["instructor"] or "TBA",
+                                "snapshotTimestamp": snapshot_ts,
+                            }
+                        )
 
             prev_state = curr_state
 
@@ -226,13 +242,15 @@ def _build_course_events(semester: str, db: DatabaseManager) -> dict[str, list[d
             )
             for row in cursor.fetchall():
                 cc, sc, old_val, new_val, ts = row
-                events_by_course.setdefault(cc, []).append({
-                    "eventType": "instructor_changed",
-                    "sectionCode": sc,
-                    "oldValue": old_val or "TBA",
-                    "newValue": new_val or "TBA",
-                    "snapshotTimestamp": ts,
-                })
+                events_by_course.setdefault(cc, []).append(
+                    {
+                        "eventType": "instructor_changed",
+                        "sectionCode": sc,
+                        "oldValue": old_val or "TBA",
+                        "newValue": new_val or "TBA",
+                        "snapshotTimestamp": ts,
+                    }
+                )
         except sqlite3.OperationalError:
             # Handle cases where the table doesn't exist yet (e.g., in transition on old DBs)
             pass

@@ -16,6 +16,7 @@ venv/
 # Environment variables (secrets)
 .env
 .env.*
+!.env.example
 
 # Tool caches
 .mypy_cache/
@@ -38,6 +39,7 @@ htmlcov/
 # Generated assets
 assets/downloads/
 assets/changes/
+assets/pdf/
 assets/index.html
 assets/website/public/*.html
 assets/website/public/*.json
@@ -61,3 +63,9 @@ assets/website/node_modules/
 
 # Generated schedule file
 schedule.txt
+
+# Generated deployment files
+scripts/registrarmonitor.service
+
+# Local jj metadata
+.jj/

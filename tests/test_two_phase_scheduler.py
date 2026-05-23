@@ -54,7 +54,9 @@ class TestTwoPhaseScheduler:
         ) as log_f:
             log_file = log_f.name
 
-        with patch("registrarmonitor.automation.scheduler.get_config") as mock_get_config:
+        with patch(
+            "registrarmonitor.automation.scheduler.get_config"
+        ) as mock_get_config:
             mock_get_config.return_value = {"semesters": {}}
             yield TwoPhaseScheduler(log_file=log_file)
 
@@ -110,7 +112,9 @@ class TestTwoPhaseScheduler:
         assert scheduler.mode == "burst"
 
         # First low score
-        scheduler.get_next_poll_interval(1.0)  # Below BURST_EXIT_THRESHOLD (5.0 in new spec hysteresis)
+        scheduler.get_next_poll_interval(
+            1.0
+        )  # Below BURST_EXIT_THRESHOLD (5.0 in new spec hysteresis)
         assert scheduler.consecutive_low == 1
         assert scheduler.mode == "burst"
 
@@ -158,7 +162,9 @@ class TestTwoPhaseScheduler:
 
     def test_quiet_interval_decay_progression(self, scheduler):
         """Test that quiet mode interval starts at 1800s and compounds only when k_n > 1."""
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+        with patch(
+            "registrarmonitor.automation.scheduler.datetime.datetime"
+        ) as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
 
             # First poll: S_n = 0.0. k_n = 1.
@@ -184,7 +190,9 @@ class TestTwoPhaseScheduler:
 
     def test_quiet_interval_resets_on_non_zero_score(self, scheduler):
         """Test that quiet interval resets back to 300s on a non-zero change score."""
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+        with patch(
+            "registrarmonitor.automation.scheduler.datetime.datetime"
+        ) as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
 
             # Decay to k_n = 1
@@ -201,35 +209,45 @@ class TestTwoPhaseScheduler:
     def test_quiet_interval_caps_during_day_and_night(self, scheduler):
         """Test quiet mode caps: 2h (7200s) during day, 4h (14400s) during night."""
         # 1. Day hours cap: 7200s
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+        with patch(
+            "registrarmonitor.automation.scheduler.datetime.datetime"
+        ) as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
 
             # Keep polling with zero score to decay until it hits day cap (7200s)
             for _ in range(6):
                 interval, _ = scheduler.get_next_poll_interval(0.0)
-            
+
             assert interval == 7200
 
         # Create a new scheduler to avoid transition resets from previous state
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as log_f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".log", delete=False
+        ) as log_f:
             log_file = log_f.name
-        with patch("registrarmonitor.automation.scheduler.get_config") as mock_get_config:
+        with patch(
+            "registrarmonitor.automation.scheduler.get_config"
+        ) as mock_get_config:
             mock_get_config.return_value = {"semesters": {}}
             night_scheduler = TwoPhaseScheduler(log_file=log_file)
 
         # 2. Night hours cap: 14400s
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+        with patch(
+            "registrarmonitor.automation.scheduler.datetime.datetime"
+        ) as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 15, 2, 0, 0)
 
             # Keep polling with zero score to decay until it hits night cap (14400s)
             for _ in range(8):
                 interval, _ = night_scheduler.get_next_poll_interval(0.0)
-            
+
             assert interval == 14400
 
     def test_quiet_interval_resets_on_day_night_transition(self, scheduler):
         """Test that quiet interval resets to 300s when crossing day/night boundary."""
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
+        with patch(
+            "registrarmonitor.automation.scheduler.datetime.datetime"
+        ) as mock_dt:
             # Start during day (12 PM)
             mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)
             interval, _ = scheduler.get_next_poll_interval(0.0)
@@ -270,42 +288,54 @@ class TestTwoPhaseScheduler:
     def test_baseline_level_respected(self, scheduler):
         """Test that baseline level from schedule file is respected."""
         # Setup scheduler with HOT baseline
-        with patch("registrarmonitor.automation.scheduler.get_current_zone_type", return_value=SchedulingLevel.HOT):
+        with patch(
+            "registrarmonitor.automation.scheduler.get_current_zone_type",
+            return_value=SchedulingLevel.HOT,
+        ):
             interval, decision = scheduler.get_next_poll_interval(0.0)
             # Should be capped by HOT baseline interval (300)
             assert interval <= 300
 
     def test_sleep_tier_enforces_long_interval(self):
         """SLEEP baseline must enforce its cap (7200s during day, 14400s during night)."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as log_f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".log", delete=False
+        ) as log_f:
             log_file = log_f.name
 
-        with patch("registrarmonitor.automation.scheduler.get_config") as mock_get_config, \
-             patch("registrarmonitor.automation.scheduler.get_current_zone_type",
-                   return_value=SchedulingLevel.SLEEP), \
-             patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt:
-            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0) # Day hours
+        with (
+            patch(
+                "registrarmonitor.automation.scheduler.get_config"
+            ) as mock_get_config,
+            patch(
+                "registrarmonitor.automation.scheduler.get_current_zone_type",
+                return_value=SchedulingLevel.SLEEP,
+            ),
+            patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt,
+        ):
+            mock_dt.now.return_value = datetime(2024, 1, 15, 12, 0, 0)  # Day hours
             mock_get_config.return_value = {"semesters": {}}
             sched = TwoPhaseScheduler(log_file=log_file)
-            
+
             # Let it decay until it caps (7200s)
             for _ in range(15):
                 interval, decision = sched.get_next_poll_interval(0.0)
-            
+
             assert interval == 7200
 
     def test_milestone_alignment(self, scheduler):
         """Test that get_next_poll_interval shortens the sleep interval to align exactly with an upcoming milestone."""
         now = datetime(2026, 5, 15, 9, 58, 0)
-        milestone = datetime(2026, 5, 15, 10, 0, 0) # 2 minutes (120s) in the future
+        milestone = datetime(2026, 5, 15, 10, 0, 0)  # 2 minutes (120s) in the future
 
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt, \
-             patch.object(scheduler, "get_all_milestones", return_value=[milestone]):
+        with (
+            patch("registrarmonitor.automation.scheduler.datetime.datetime") as mock_dt,
+            patch.object(scheduler, "get_all_milestones", return_value=[milestone]),
+        ):
             mock_dt.now.return_value = now
-            
+
             # Normal calculated quiet interval would be 1800s (since k_n=1)
             # But milestone is at now + 120s, which is within the 1800s window.
             # So the interval should be shortened to 120s!
             interval, decision = scheduler.get_next_poll_interval(0.0)
             assert interval == 120
-

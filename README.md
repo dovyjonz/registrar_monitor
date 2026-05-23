@@ -42,6 +42,8 @@ uv sync
    - Directory paths
    - Notification preferences
 
+Keep real credentials out of `settings.toml`; it only contains non-secret defaults.
+
 ## Usage
 
 ### Basic Commands
@@ -178,6 +180,10 @@ uv sync --group dev
 2. Lint: `uv run ruff check`
 3. Type check: `uv run ty check`
 4. Test: `uv run pytest`
+
+### VPS Deployment
+
+Use [docs/VPS_MIGRATION.md](docs/VPS_MIGRATION.md) when migrating an existing VPS. It covers runtime-data backup, secret rotation, `.env`, and the systemd service.
 
 ## Troubleshooting
 

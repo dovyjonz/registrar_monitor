@@ -32,7 +32,12 @@ class ExcelReader:
 
         if not parsed:
             # Fallback attempts for common formats
-            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M"]:
+            for fmt in [
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%m/%d/%Y %H:%M:%S",
+                "%m/%d/%Y %H:%M",
+            ]:
                 try:
                     datetime_obj = datetime.datetime.strptime(timestamp, fmt)
                     ieee_timestamp = datetime_obj.strftime("%Y-%m-%d %H:%M:%S")
@@ -47,15 +52,29 @@ class ExcelReader:
 
         # Standard case: headers at row 2
         if sheet.nrows > 2:
-            header_values = [str(sheet.cell_value(2, col_idx)) for col_idx in range(sheet.ncols)]
+            header_values = [
+                str(sheet.cell_value(2, col_idx)) for col_idx in range(sheet.ncols)
+            ]
             for row_idx in range(3, sheet.nrows):
-                raw_rows.append([sheet.cell_value(row_idx, col_idx) for col_idx in range(sheet.ncols)])
+                raw_rows.append(
+                    [
+                        sheet.cell_value(row_idx, col_idx)
+                        for col_idx in range(sheet.ncols)
+                    ]
+                )
 
         if not raw_rows and sheet.nrows > 3:
-             # Fallback case (replicating original logic structure)
-             header_values = [str(sheet.cell_value(2, col_idx)) for col_idx in range(sheet.ncols)]
-             for row_idx in range(3, sheet.nrows):
-                raw_rows.append([sheet.cell_value(row_idx, col_idx) for col_idx in range(sheet.ncols)])
+            # Fallback case (replicating original logic structure)
+            header_values = [
+                str(sheet.cell_value(2, col_idx)) for col_idx in range(sheet.ncols)
+            ]
+            for row_idx in range(3, sheet.nrows):
+                raw_rows.append(
+                    [
+                        sheet.cell_value(row_idx, col_idx)
+                        for col_idx in range(sheet.ncols)
+                    ]
+                )
 
         if not raw_rows:
             return semester, ieee_timestamp, []
@@ -95,8 +114,9 @@ class ExcelReader:
             if cap > 0:
                 # Use Decimal for precision matching pandas/numpy "round half to even"
                 fill = float(
-                    (Decimal(enr) / Decimal(cap))
-                    .quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+                    (Decimal(enr) / Decimal(cap)).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_EVEN
+                    )
                 )
                 record["Fill"] = fill
             else:

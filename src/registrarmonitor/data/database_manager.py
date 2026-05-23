@@ -136,8 +136,9 @@ class DatabaseManager:
                 columns = [row[1] for row in cursor.fetchall()]
                 if "instructor" not in columns:
                     cursor.execute("ALTER TABLE sections ADD COLUMN instructor TEXT")
-                    self.logger.info("Migrated database: Added 'instructor' column to 'sections' table.")
-
+                    self.logger.info(
+                        "Migrated database: Added 'instructor' column to 'sections' table."
+                    )
 
                 # Create snapshots table
                 cursor.execute("""
@@ -690,7 +691,12 @@ class DatabaseManager:
                         continue
                     for section_code, section in course.sections.items():
                         sections_data.append(
-                            (course_id, section_code, section.section_type, section.instructor)
+                            (
+                                course_id,
+                                section_code,
+                                section.section_type,
+                                section.instructor,
+                            )
                         )
 
                 cursor.executemany(

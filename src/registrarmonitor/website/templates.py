@@ -91,7 +91,7 @@ def build_semester_page(
         last_updated = "Last updated N/A"
 
     # Calculate json filename
-    json_filename = semester_to_filename(semester).replace('.html', '.json')
+    json_filename = semester_to_filename(semester).replace(".html", ".json")
 
     # Render template
     template = env.get_template("semester.html.jinja")

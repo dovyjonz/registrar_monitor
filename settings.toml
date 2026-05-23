@@ -24,9 +24,10 @@ update_interval = 30
 pages_project_name = "registrar-monitor"
 
 [telegram]
-# Bot token and chat ID for Telegram notifications
-bot_token = "REMOVED_TELEGRAM_BOT_TOKEN"
-chat_id = "-1002289524909"
+# Bot token and chat ID are loaded from TELEGRAM_BOT_TOKEN and
+# TELEGRAM_CHAT_ID in the environment or a local .env file.
+bot_token = ""
+chat_id = ""
 
 # ==============================================================================
 # Registration schedule — single source of truth

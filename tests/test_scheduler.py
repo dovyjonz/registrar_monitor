@@ -51,14 +51,8 @@ class TestParseScheduleFile:
         mock_get_config.return_value = {
             "semesters": {
                 "summer2026": {
-                    "deadlines": [
-                        ["2026-06-01T23:59:00", "Moderate Deadline"]
-                    ],
-                    "priorities": {
-                        "seniors": [
-                            ["2026-05-15T09:00:00", "Milestone 1"]
-                        ]
-                    }
+                    "deadlines": [["2026-06-01T23:59:00", "Moderate Deadline"]],
+                    "priorities": {"seniors": [["2026-05-15T09:00:00", "Milestone 1"]]},
                 }
             }
         }
@@ -71,7 +65,7 @@ class TestParseScheduleFile:
         # Milestone 2026-05-15T09:00:00:
         # HOT: milestone - 5 min to milestone + 30 min
         assert len(result[SchedulingLevel.HOT]) == 2
-        
+
         # first window (Milestone 1):
         assert result[SchedulingLevel.HOT][0] == (
             datetime(2026, 5, 15, 8, 55),
@@ -132,20 +126,21 @@ class TestGetCurrentZoneType:
         mock_get_config.return_value = {
             "semesters": {
                 "summer2026": {
-                    "priorities": {
-                        "seniors": [["2026-05-15T09:00:00", "Milestone"]]
-                    }
+                    "priorities": {"seniors": [["2026-05-15T09:00:00", "Milestone"]]}
                 }
             }
         }
         # HOT zone: 08:55 to 09:30
         mock_now = datetime(2026, 5, 15, 8, 57, 0)
+
         class MockDateTime(datetime):
             @classmethod
             def now(cls, tz=None):
                 return mock_now
 
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime):
+        with patch(
+            "registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime
+        ):
             result = get_current_zone_type()
             assert result == SchedulingLevel.HOT
 
@@ -154,18 +149,19 @@ class TestGetCurrentZoneType:
         """Should return SLEEP when outside defined zones but zones exist."""
         mock_get_config.return_value = {
             "semesters": {
-                "summer2026": {
-                    "deadlines": [["2026-06-01T23:59:00", "Deadline"]]
-                }
+                "summer2026": {"deadlines": [["2026-06-01T23:59:00", "Deadline"]]}
             }
         }
         mock_now = datetime(2026, 6, 1, 12, 0, 0)
+
         class MockDateTime(datetime):
             @classmethod
             def now(cls, tz=None):
                 return mock_now
 
-        with patch("registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime):
+        with patch(
+            "registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime
+        ):
             result = get_current_zone_type()
             assert result == SchedulingLevel.SLEEP
 

@@ -31,7 +31,7 @@ class SchedulingLevel(Enum):
     Each level has a string label and an interval in seconds.
     """
 
-    HOT = ("hot", 300)      # 5 minutes - Inside active windows
+    HOT = ("hot", 300)  # 5 minutes - Inside active windows
     SLEEP = ("sleep", 3600)  # 1 hour - Outside all windows
 
     def __init__(self, label: str, interval: int):
@@ -84,7 +84,9 @@ _SCHEDULE_CACHE = {}
 _CACHE_TTL = 60  # seconds
 
 
-def merge_time_windows(windows: list[tuple[datetime.datetime, datetime.datetime]]) -> list[tuple[datetime.datetime, datetime.datetime]]:
+def merge_time_windows(
+    windows: list[tuple[datetime.datetime, datetime.datetime]],
+) -> list[tuple[datetime.datetime, datetime.datetime]]:
     """Sort and merge overlapping time windows."""
     if not windows:
         return []
@@ -108,7 +110,9 @@ def parse_schedule_file(
 
     HOT zone window: [time - 5 min, time + 30 min]
     """
-    is_mocked = hasattr(get_config, "mock_add_spec") or "Mock" in type(get_config).__name__
+    is_mocked = (
+        hasattr(get_config, "mock_add_spec") or "Mock" in type(get_config).__name__
+    )
     abs_path = os.path.abspath("settings.toml")
     now = time.time()
 
@@ -149,7 +153,9 @@ def parse_schedule_file(
             for p_list in priorities.values():
                 for m_data in p_list:
                     try:
-                        milestone_times.append(datetime.datetime.fromisoformat(m_data[0]))
+                        milestone_times.append(
+                            datetime.datetime.fromisoformat(m_data[0])
+                        )
                     except (IndexError, ValueError) as e:
                         print(f"Warning: skipping milestone {m_data}: {e}")
 
@@ -184,7 +190,9 @@ def parse_schedule_file(
     return zones
 
 
-def get_next_zone_start(now: datetime.datetime | None = None) -> datetime.datetime | None:
+def get_next_zone_start(
+    now: datetime.datetime | None = None,
+) -> datetime.datetime | None:
     """
     Find the start time of the next scheduled HOT zone window after now.
     """
@@ -215,7 +223,6 @@ def get_current_zone_type(now: datetime.datetime | None = None) -> SchedulingLev
             return SchedulingLevel.HOT
 
     return SchedulingLevel.SLEEP
-
 
 
 async def poll_and_get_change_score() -> float:
@@ -319,7 +326,10 @@ async def poll_and_get_change_score() -> float:
                         score += 3.0
 
                 # Bonus for instructor changes
-                if section_change.current_instructor != section_change.previous_instructor:
+                if (
+                    section_change.current_instructor
+                    != section_change.previous_instructor
+                ):
                     score += 1.0
 
         return min(score, 100.0)  # Cap at 100 for sanity
@@ -580,10 +590,12 @@ class TwoPhaseScheduler:
                 await self._run_report_cycle(force_poll=force_poll)
             except Exception as e:
                 self.logger_ops.error(f"Error in background Telegram report cycle: {e}")
-            
+
             if not self._telegram_report_pending:
                 break
-            self.logger_ops.info("Another Telegram report is pending. Running report cycle again.")
+            self.logger_ops.info(
+                "Another Telegram report is pending. Running report cycle again."
+            )
         self.logger_ops.info("Background Telegram report task finished.")
 
     async def _run_website_update_async(self):
@@ -594,10 +606,12 @@ class TwoPhaseScheduler:
                 await asyncio.to_thread(self._run_website_update)
             except Exception as e:
                 self.logger_ops.error(f"Error in background website update: {e}")
-            
+
             if not self._website_update_pending:
                 break
-            self.logger_ops.info("Another website update is pending. Running website update again.")
+            self.logger_ops.info(
+                "Another website update is pending. Running website update again."
+            )
         self.logger_ops.info("Background website update task finished.")
 
     async def _check_and_trigger_updates(self):
@@ -626,8 +640,12 @@ class TwoPhaseScheduler:
 
             # If this is the first run, initialize the reporting log with latest snapshot
             if not last_reported_id:
-                self.logger_ops.info(f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}.")
-                db_manager.add_reporting_log(snapshot_id=latest_snapshot_id, changes_were_found=False)
+                self.logger_ops.info(
+                    f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}."
+                )
+                db_manager.add_reporting_log(
+                    snapshot_id=latest_snapshot_id, changes_were_found=False
+                )
                 return
 
             if latest_snapshot_id == last_reported_id:
@@ -641,7 +659,9 @@ class TwoPhaseScheduler:
                 return
 
             # Compare snapshots
-            comparison = comparator.compare_snapshots(current_snapshot, previous_snapshot)
+            comparison = comparator.compare_snapshots(
+                current_snapshot, previous_snapshot
+            )
 
             # Determine if there is a status change or a high activity score
             score = 0.0
@@ -651,14 +671,16 @@ class TwoPhaseScheduler:
                 score += len(course_change.added_sections) * 2.0
                 score += len(course_change.removed_sections) * 2.0
                 for section_change in course_change.modified_sections:
-                    enrollment_delta = (
-                        abs((section_change.current_enrollment or 0) - (section_change.previous_enrollment or 0))
+                    enrollment_delta = abs(
+                        (section_change.current_enrollment or 0)
+                        - (section_change.previous_enrollment or 0)
                     )
                     score += enrollment_delta / 5.0
                     if (
                         section_change.current_capacity is not None
                         and section_change.previous_capacity is not None
-                        and section_change.current_capacity != section_change.previous_capacity
+                        and section_change.current_capacity
+                        != section_change.previous_capacity
                     ):
                         score += 3.0
 
@@ -672,18 +694,30 @@ class TwoPhaseScheduler:
                         status_changed = True
                         break
                     # Check modified sections for open/full changes
-                    current_course = current_snapshot.courses.get(course_change.course_code)
-                    previous_course = previous_snapshot.courses.get(course_change.course_code)
+                    current_course = current_snapshot.courses.get(
+                        course_change.course_code
+                    )
+                    previous_course = previous_snapshot.courses.get(
+                        course_change.course_code
+                    )
                     if current_course and previous_course:
                         for sec_mod in course_change.modified_sections:
-                             curr_sec = current_course.sections.get(sec_mod.section_id)
-                             prev_sec = previous_course.sections.get(sec_mod.section_id)
-                             if curr_sec and prev_sec:
-                                 was_full = prev_sec.enrollment >= prev_sec.capacity if prev_sec.capacity > 0 else False
-                                 is_full = curr_sec.enrollment >= curr_sec.capacity if curr_sec.capacity > 0 else False
-                                 if was_full != is_full:
-                                     status_changed = True
-                                     break
+                            curr_sec = current_course.sections.get(sec_mod.section_id)
+                            prev_sec = previous_course.sections.get(sec_mod.section_id)
+                            if curr_sec and prev_sec:
+                                was_full = (
+                                    prev_sec.enrollment >= prev_sec.capacity
+                                    if prev_sec.capacity > 0
+                                    else False
+                                )
+                                is_full = (
+                                    curr_sec.enrollment >= curr_sec.capacity
+                                    if curr_sec.capacity > 0
+                                    else False
+                                )
+                                if was_full != is_full:
+                                    status_changed = True
+                                    break
                     if status_changed:
                         break
 
@@ -692,7 +726,9 @@ class TwoPhaseScheduler:
 
             if is_worth_updating:
                 now = datetime.datetime.now()
-                self.logger_ops.info(f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})")
+                self.logger_ops.info(
+                    f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})"
+                )
 
                 # 1. Trigger Report
                 if not self.no_telegram:
@@ -702,16 +738,28 @@ class TwoPhaseScheduler:
                         if self.last_report_sent_time
                         else None
                     )
-                    if seconds_since_last_report is None or seconds_since_last_report >= self.report_cooldown_seconds:
+                    if (
+                        seconds_since_last_report is None
+                        or seconds_since_last_report >= self.report_cooldown_seconds
+                    ):
                         self.logger_ops.info("📝 Triggering Telegram Report...")
-                        if self._telegram_report_task is None or self._telegram_report_task.done():
-                            self._telegram_report_task = asyncio.create_task(self._run_report_cycle_async(force_poll=False))
+                        if (
+                            self._telegram_report_task is None
+                            or self._telegram_report_task.done()
+                        ):
+                            self._telegram_report_task = asyncio.create_task(
+                                self._run_report_cycle_async(force_poll=False)
+                            )
                         else:
                             self._telegram_report_pending = True
                         self.last_report_sent_time = now
                     else:
-                        cooldown_remaining = int(self.report_cooldown_seconds - seconds_since_last_report)
-                        self.logger_ops.info(f"⏳ Telegram Report is on cooldown ({cooldown_remaining}s remaining). Will report next cycle.")
+                        cooldown_remaining = int(
+                            self.report_cooldown_seconds - seconds_since_last_report
+                        )
+                        self.logger_ops.info(
+                            f"⏳ Telegram Report is on cooldown ({cooldown_remaining}s remaining). Will report next cycle."
+                        )
 
                 # 2. Trigger Website Update
                 seconds_since_last_website = (
@@ -719,19 +767,33 @@ class TwoPhaseScheduler:
                     if self.last_website_updated_time
                     else None
                 )
-                if seconds_since_last_website is None or seconds_since_last_website >= self.website_cooldown_seconds:
+                if (
+                    seconds_since_last_website is None
+                    or seconds_since_last_website >= self.website_cooldown_seconds
+                ):
                     self.logger_ops.info("🌐 Triggering Website Update...")
-                    if self._website_update_task is None or self._website_update_task.done():
-                        self._website_update_task = asyncio.create_task(self._run_website_update_async())
+                    if (
+                        self._website_update_task is None
+                        or self._website_update_task.done()
+                    ):
+                        self._website_update_task = asyncio.create_task(
+                            self._run_website_update_async()
+                        )
                     else:
                         self._website_update_pending = True
                     self.last_website_updated_time = now
                 else:
-                    cooldown_remaining = int(self.website_cooldown_seconds - seconds_since_last_website)
-                    self.logger_ops.info(f"⏳ Website Update is on cooldown ({cooldown_remaining}s remaining). Will update next cycle.")
+                    cooldown_remaining = int(
+                        self.website_cooldown_seconds - seconds_since_last_website
+                    )
+                    self.logger_ops.info(
+                        f"⏳ Website Update is on cooldown ({cooldown_remaining}s remaining). Will update next cycle."
+                    )
             else:
                 # If changes are minor, print notice and let them accumulate (do not update reporting log)
-                self.logger_ops.info(f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes.")
+                self.logger_ops.info(
+                    f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes."
+                )
 
         except Exception as e:
             self.logger_ops.error(f"❌ Error in check_and_trigger_updates: {e}")
@@ -774,18 +836,22 @@ class TwoPhaseScheduler:
                 for p_list in priorities.values():
                     for m_data in p_list:
                         try:
-                            milestone_times.append(datetime.datetime.fromisoformat(m_data[0]))
+                            milestone_times.append(
+                                datetime.datetime.fromisoformat(m_data[0])
+                            )
                         except (IndexError, ValueError):
                             pass
 
                 for d_data in sem_data.get("deadlines", []):
                     try:
-                        milestone_times.append(datetime.datetime.fromisoformat(d_data[0]))
+                        milestone_times.append(
+                            datetime.datetime.fromisoformat(d_data[0])
+                        )
                     except (IndexError, ValueError):
                         pass
         except Exception as e:
             print(f"Warning: failed to read milestones from config: {e}")
-        
+
         return sorted(list(set(milestone_times)))
 
     async def _calculate_change_score_for_poll(self, semester: str) -> float:
@@ -796,7 +862,9 @@ class TwoPhaseScheduler:
                 from ..services.monitoring_service import MonitoringService
             except ImportError:
                 from registrarmonitor.data.snapshot_comparator import SnapshotComparator
-                from registrarmonitor.services.monitoring_service import MonitoringService
+                from registrarmonitor.services.monitoring_service import (
+                    MonitoringService,
+                )
 
             monitoring_service = MonitoringService(semester=semester)
             comparator = SnapshotComparator()
@@ -810,7 +878,9 @@ class TwoPhaseScheduler:
             if not previous_snapshot:
                 return 1.0
 
-            comparison = comparator.compare_snapshots(latest_snapshot, previous_snapshot)
+            comparison = comparator.compare_snapshots(
+                latest_snapshot, previous_snapshot
+            )
             score = 0.0
 
             score += len(comparison.new_courses) * 5.0
@@ -821,11 +891,9 @@ class TwoPhaseScheduler:
                 score += len(course_change.removed_sections) * 2.0
 
                 for section_change in course_change.modified_sections:
-                    enrollment_delta = (
-                        abs(
-                            (section_change.current_enrollment or 0)
-                            - (section_change.previous_enrollment or 0)
-                        )
+                    enrollment_delta = abs(
+                        (section_change.current_enrollment or 0)
+                        - (section_change.previous_enrollment or 0)
                     )
                     score += enrollment_delta / 5.0
 
@@ -839,7 +907,10 @@ class TwoPhaseScheduler:
                         ):
                             score += 3.0
 
-                    if section_change.current_instructor != section_change.previous_instructor:
+                    if (
+                        section_change.current_instructor
+                        != section_change.previous_instructor
+                    ):
                         score += 1.0
 
             return min(score, 100.0)
@@ -884,13 +955,17 @@ class TwoPhaseScheduler:
                 try:
                     file_path = await download_task
                     if not file_path:
-                        self.logger_ops.error("❌ Download failed (returned None). Skipping process.")
+                        self.logger_ops.error(
+                            "❌ Download failed (returned None). Skipping process."
+                        )
                         self._last_change_score = 0.0
                         self._new_poll_processed = True
                         continue
 
-                    self.logger_ops.info(f"🔄 Sequentially processing poll from {poll_start_time.strftime('%H:%M:%S')}...")
-                    
+                    self.logger_ops.info(
+                        f"🔄 Sequentially processing poll from {poll_start_time.strftime('%H:%M:%S')}..."
+                    )
+
                     try:
                         from ..cli.commands import PollCommand
                         from ..cli.utils import detect_active_semester
@@ -904,20 +979,27 @@ class TwoPhaseScheduler:
 
                     poll_command = PollCommand(debug=False)
                     success = await poll_command.run(file_path=file_path)
-                    
+
                     if success:
                         self._last_poll_time = datetime.datetime.now()
                         latest_id_after = db_manager.get_latest_snapshot_id()
-                        
-                        if latest_id_before is not None and latest_id_before == latest_id_after:
+
+                        if (
+                            latest_id_before is not None
+                            and latest_id_before == latest_id_after
+                        ):
                             change_score = 0.0
                         else:
-                            change_score = await self._calculate_change_score_for_poll(detected_semester)
-                        
+                            change_score = await self._calculate_change_score_for_poll(
+                                detected_semester
+                            )
+
                         self._last_change_score = change_score
                         self._new_poll_processed = True
 
-                        self.logger_ops.info(f"✅ Sequentially processed poll. Score: {change_score:.2f}")
+                        self.logger_ops.info(
+                            f"✅ Sequentially processed poll. Score: {change_score:.2f}"
+                        )
                         await self._check_and_trigger_updates()
                     else:
                         self.logger_ops.error("❌ Poll command execution failed.")
@@ -1005,7 +1087,7 @@ class TwoPhaseScheduler:
                 i_base = 1800.0
 
             decay_exponent = max(0, self.decay_counter - 1)
-            i_mode = i_base * (1.5 ** decay_exponent)
+            i_mode = i_base * (1.5**decay_exponent)
 
             self.logger_ops.debug(
                 f"[Scheduler Step 2] Quiet base calculation: i_base={i_base}s, decay_exp={decay_exponent}, i_mode={i_mode}s"
@@ -1034,12 +1116,16 @@ class TwoPhaseScheduler:
         # Predicate 1: Significant activity resumes (Sn > 0) and (kn-1 > 0)
         if last_change_score > 0.0 and previous_decay > 0:
             reset_condition = True
-            reset_reasons.append(f"activity resumption (S={last_change_score:.1f}, prev_k={previous_decay})")
+            reset_reasons.append(
+                f"activity resumption (S={last_change_score:.1f}, prev_k={previous_decay})"
+            )
 
         # Predicate 2: Diurnal shift
         if previous_is_day is not None and previous_is_day != current_is_day:
             reset_condition = True
-            reset_reasons.append(f"diurnal shift ({previous_is_day} -> {current_is_day})")
+            reset_reasons.append(
+                f"diurnal shift ({previous_is_day} -> {current_is_day})"
+            )
 
         # Predicate 3: Mode boundary change
         if self.mode != previous_mode:
@@ -1087,7 +1173,9 @@ class TwoPhaseScheduler:
             if seconds_until_next_hot > 0:
                 if seconds_until_next_hot < final_interval:
                     final_interval = seconds_until_next_hot
-                    preemption_reasons.append(f"next HOT zone start alignment ({seconds_until_next_hot:.1f}s remaining)")
+                    preemption_reasons.append(
+                        f"next HOT zone start alignment ({seconds_until_next_hot:.1f}s remaining)"
+                    )
 
         # T_milestone - t_n
         milestones = self.get_all_milestones()
@@ -1097,11 +1185,14 @@ class TwoPhaseScheduler:
             if milestone > timestamp:
                 seconds_until_milestone = (milestone - timestamp).total_seconds()
                 if seconds_until_milestone > 0:
-                    if closest_milestone_diff is None or seconds_until_milestone < closest_milestone_diff:
+                    if (
+                        closest_milestone_diff is None
+                        or seconds_until_milestone < closest_milestone_diff
+                    ):
                         closest_milestone_diff = seconds_until_milestone
                         closest_milestone = milestone
 
-        if closest_milestone_diff is not None:
+        if closest_milestone_diff is not None and closest_milestone is not None:
             if closest_milestone_diff < final_interval:
                 final_interval = closest_milestone_diff
                 preemption_reasons.append(
@@ -1283,7 +1374,7 @@ class TwoPhaseScheduler:
                 await asyncio.sleep(wait_time_poll)
 
                 # 3. Trigger Async Polling and Queue it
-                print(f"\n🔄 Triggering async poll download...")
+                print("\n🔄 Triggering async poll download...")
                 download_task = asyncio.create_task(self.downloader.download())
                 await self.pending_polls.put((download_task, datetime.datetime.now()))
 

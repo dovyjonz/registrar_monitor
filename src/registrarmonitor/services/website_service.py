@@ -59,15 +59,12 @@ class WebsiteService:
 
         # Write JSON data payload for async fetching
         import json
+
         json_filename = filename.replace(".html", ".json")
         json_path = OUTPUT_DIR / json_filename
-        
-        payload = {
-            "data": data,
-            "milestones": milestones,
-            "semester": semester
-        }
-        json_path.write_text(json.dumps(payload, separators=(',', ':')))
+
+        payload = {"data": data, "milestones": milestones, "semester": semester}
+        json_path.write_text(json.dumps(payload, separators=(",", ":")))
 
         # Update checksum
         update_checksum(semester)
@@ -98,9 +95,13 @@ class WebsiteService:
         import json
         import re
 
-        manifest_path = self.website_assets_dir / "public" / "assets" / ".vite" / "manifest.json"
+        manifest_path = (
+            self.website_assets_dir / "public" / "assets" / ".vite" / "manifest.json"
+        )
         if not manifest_path.exists():
-            print("Warning: manifest.json not found — cannot patch asset hashes in HTML.")
+            print(
+                "Warning: manifest.json not found — cannot patch asset hashes in HTML."
+            )
             return False
 
         try:
@@ -110,7 +111,7 @@ class WebsiteService:
             return False
 
         entry = manifest.get("src/main.js", {})
-        new_js = entry.get("file")       # e.g. "main-BTBUBuTQ.js"
+        new_js = entry.get("file")  # e.g. "main-BTBUBuTQ.js"
         css_files = entry.get("css", [])
         new_css = css_files[0] if css_files else None  # e.g. "main-CKing-67.css"
 
@@ -127,7 +128,7 @@ class WebsiteService:
             # Replace any existing hashed JS reference (assets/main-*.js)
             text = re.sub(
                 r'(src="assets/)main-[^"]+\.js(")',
-                rf'\g<1>{new_js}\2',
+                rf"\g<1>{new_js}\2",
                 text,
             )
 
@@ -135,7 +136,7 @@ class WebsiteService:
             if new_css:
                 text = re.sub(
                     r'(href="assets/)main-[^"]+\.css(")',
-                    rf'\g<1>{new_css}\2',
+                    rf"\g<1>{new_css}\2",
                     text,
                 )
 
@@ -143,7 +144,9 @@ class WebsiteService:
                 html_file.write_text(text, encoding="utf-8")
                 patched += 1
 
-        print(f"Patched asset hashes in {patched} HTML file(s) — no page regeneration needed.")
+        print(
+            f"Patched asset hashes in {patched} HTML file(s) — no page regeneration needed."
+        )
         return True
 
     def build_frontend_assets(self) -> bool:
@@ -155,15 +158,16 @@ class WebsiteService:
         Checksums are preserved so incremental logic is unaffected.
         """
         import os
+
         print("Building frontend assets...")
         build_cmd = ["npm", "run", "build"]
-        
+
         # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
         env = os.environ.copy()
         env["NODE_OPTIONS"] = "--max_old_space_size=512"
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"
-        
+
         try:
             # Check if node_modules exists, if not maybe install?
             if not (self.website_assets_dir / "node_modules").exists():
@@ -312,6 +316,7 @@ class WebsiteService:
             True if successful
         """
         import os
+
         print("\n🚀 Deploying to Cloudflare Pages...")
         print(f"   Project: {project_name}")
         if branch:
@@ -330,7 +335,7 @@ class WebsiteService:
 
         if branch:
             deploy_cmd.extend(["--branch", branch])
-            
+
         # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
         env = os.environ.copy()
         env["NODE_OPTIONS"] = "--max_old_space_size=512"

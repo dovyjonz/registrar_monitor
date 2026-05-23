@@ -41,6 +41,21 @@ def reporter(mock_config):
         return reporter
 
 
+def test_telegram_reporter_requires_credentials(mock_config):
+    """Missing Telegram credentials should fail with an actionable message."""
+    mock_config["telegram"] = {"bot_token": "", "chat_id": ""}
+
+    with (
+        patch(
+            "registrarmonitor.reporting.telegram_reporter.get_config",
+            return_value=mock_config,
+        ),
+        patch("registrarmonitor.reporting.telegram_reporter.Bot"),
+        pytest.raises(ValueError, match="TELEGRAM_BOT_TOKEN"),
+    ):
+        TelegramReporter()
+
+
 @pytest.mark.asyncio
 async def test_send_text_report_success(reporter, tmp_path):
     """Test successful text report sending."""

@@ -83,6 +83,3 @@ def update_checksum(semester: str) -> None:
     checksums = load_checksums()
     checksums[semester] = compute_semester_hash(semester)
     save_checksums(checksums)
-
-
-

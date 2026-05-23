@@ -306,9 +306,7 @@ async def handle_schedule_command(args) -> int:
     """Handle the schedule command."""
     debug = getattr(args, "debug", False) or args.debug
     no_telegram = getattr(args, "no_telegram", False)
-    command = ScheduleCommand(
-        debug=debug, no_telegram=no_telegram
-    )
+    command = ScheduleCommand(debug=debug, no_telegram=no_telegram)
     try:
         await command.run()
         return 0

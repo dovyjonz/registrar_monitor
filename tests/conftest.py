@@ -314,7 +314,10 @@ def empty_comparison() -> EnrollmentComparison:
 @pytest.fixture(autouse=True)
 def mock_decision_logger():
     """Prevent DecisionLogger from writing to log files during tests."""
-    with patch("registrarmonitor.automation.scheduler.DecisionLogger.log_decision"), \
-         patch("registrarmonitor.automation.scheduler.DecisionLogger.ensure_log_file_exists"):
+    with (
+        patch("registrarmonitor.automation.scheduler.DecisionLogger.log_decision"),
+        patch(
+            "registrarmonitor.automation.scheduler.DecisionLogger.ensure_log_file_exists"
+        ),
+    ):
         yield
-
