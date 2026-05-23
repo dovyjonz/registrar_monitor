@@ -26,6 +26,10 @@ class TestGetSectionType:
         assert get_section_type("3Lb") == "B"
         assert get_section_type("2B") == "B"
 
+    def test_lab_section_case_insensitive(self):
+        """Lowercase lab suffix should still normalize to 'B'."""
+        assert get_section_type("3lb") == "B"
+
     def test_seminar_section(self):
         """Seminar sections should return 'S'."""
         assert get_section_type("1S") == "S"
