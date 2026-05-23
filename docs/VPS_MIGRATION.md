@@ -32,7 +32,9 @@ Run this from the current VPS project directory before pulling the new version:
 
 ```bash
 mkdir -p ~/registrar-monitor-backups
-tar -czf ~/registrar-monitor-backups/registrar-runtime-$(date +%Y%m%d-%H%M%S).tar.gz data assets/downloads assets/changes logs .env 2>/dev/null || true
+tar -czf ~/registrar-monitor-backups/registrar-runtime-$(date +%Y%m%d-%H%M%S).tar.gz \
+    data assets/downloads assets/changes logs .env settings.toml \
+    assets/website/public 2>/dev/null || true
 ```
 
 The cleaned repo removes generated files from version control, so the pull can delete previously tracked local runtime files. This backup is the copy that wins after the source update.
@@ -52,11 +54,14 @@ git pull --ff-only
 uv sync --locked
 ```
 
-If `git pull --ff-only` refuses because old generated files were modified locally, make a fresh backup first. Then move only those runtime paths out of the checkout and retry:
+If `git pull --ff-only` refuses because old generated files were modified locally, make a fresh backup first. Then move the runtime/build paths out of the checkout and preserve the local VPS `settings.toml` separately:
 
 ```bash
 mkdir -p ~/registrar-monitor-backups/pre-pull-runtime
-mv data assets/downloads assets/changes logs ~/registrar-monitor-backups/pre-pull-runtime/ 2>/dev/null || true
+mv data logs scheduler_decisions.log ~/registrar-monitor-backups/pre-pull-runtime/ 2>/dev/null || true
+mkdir -p ~/registrar-monitor-backups/pre-pull-runtime/assets
+mv assets/downloads assets/changes assets/website/public ~/registrar-monitor-backups/pre-pull-runtime/assets/ 2>/dev/null || true
+cp settings.toml ~/registrar-monitor-backups/pre-pull-runtime/settings.toml
 git pull --ff-only
 ```
 
@@ -69,12 +74,15 @@ mkdir -p data assets/downloads assets/changes logs
 tar -xzf "$RUNTIME_BACKUP" --strip-components=0
 ```
 
+The cleanup commit intentionally replaces `settings.toml` with a secret-free version. Do not restore the old file wholesale if it contains the leaked Telegram token. Instead, copy non-secret VPS-only settings into the new `settings.toml`, and keep Telegram values in `.env`.
+
 If you used the fallback `pre-pull-runtime` directory instead of `RUNTIME_BACKUP`, restore from it:
 
 ```bash
 cp -a ~/registrar-monitor-backups/pre-pull-runtime/data/. data/ 2>/dev/null || true
-cp -a ~/registrar-monitor-backups/pre-pull-runtime/downloads/. assets/downloads/ 2>/dev/null || true
-cp -a ~/registrar-monitor-backups/pre-pull-runtime/changes/. assets/changes/ 2>/dev/null || true
+cp -a ~/registrar-monitor-backups/pre-pull-runtime/assets/downloads/. assets/downloads/ 2>/dev/null || true
+cp -a ~/registrar-monitor-backups/pre-pull-runtime/assets/changes/. assets/changes/ 2>/dev/null || true
+cp -a ~/registrar-monitor-backups/pre-pull-runtime/assets/public/. assets/website/public/ 2>/dev/null || true
 cp -a ~/registrar-monitor-backups/pre-pull-runtime/logs/. logs/ 2>/dev/null || true
 ```
 
