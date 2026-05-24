@@ -9,7 +9,8 @@
     },
     "dependencies": {
         "chart.js": "^4.4.1",
-        "chartjs-plugin-annotation": "^3.0.1"
+        "chartjs-plugin-annotation": "^3.0.1",
+        "chartjs-plugin-zoom": "^2.2.0"
     },
     "devDependencies": {
         "typescript": "^5.0.0",

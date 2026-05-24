@@ -5,8 +5,9 @@
 import './style.css';
 import Chart from 'chart.js/auto';
 import annotationPlugin from 'chartjs-plugin-annotation';
+import zoomPlugin from 'chartjs-plugin-zoom';
 
-Chart.register(annotationPlugin);
+Chart.register(annotationPlugin, zoomPlugin);
 
 // Global state
 let chart = null;
@@ -14,7 +15,7 @@ let selectedCourse = null;
 let selectedSection = null;
 let viewingGraph = false;
 let currentEnrollmentData = [];
-let chartMode = localStorage.getItem('chartMode') || 'phased'; // 'phased' or 'timeline'
+let chartMode = localStorage.getItem('chartMode') || 'phased'; // 'phased', 'snapshots', or 'timeline'
 
 // Cache for last render args so toggle can re-render
 let lastRenderArgs = null;
@@ -383,15 +384,49 @@ function getPhasedMapper(timestamps, milestones) {
 }
 
 /**
- * Map real timestamps to clipped timeline mode (max 7 days visual gap)
+ * Return sorted finite numbers with duplicates removed.
+ */
+function getSortedUniqueNumbers(values) {
+    return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);
+}
+
+/**
+ * Return the median distance between adjacent values.
+ */
+function getMedianPositiveGap(values) {
+    const sorted = getSortedUniqueNumbers(values);
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++) {
+        const gap = sorted[i] - sorted[i - 1];
+        if (gap > 0) gaps.push(gap);
+    }
+    if (gaps.length === 0) return 0;
+    gaps.sort((a, b) => a - b);
+    const middle = Math.floor(gaps.length / 2);
+    return gaps.length % 2 === 0 ? (gaps[middle - 1] + gaps[middle]) / 2 : gaps[middle];
+}
+
+/**
+ * Cap empty timeline gaps relative to observed polling cadence.
+ */
+function getAdaptiveTimelineGapCap(timestamps, allTimes) {
+    const oneHour = 60 * 60 * 1000;
+    const oneDay = 24 * oneHour;
+    const medianGap = getMedianPositiveGap(timestamps) || getMedianPositiveGap(allTimes);
+    if (!medianGap) return oneDay;
+    return Math.min(Math.max(medianGap * 6, oneHour), oneDay);
+}
+
+/**
+ * Map real timestamps to timeline mode with adaptive empty-gap compression.
  */
 function getTimelineMapper(timestamps, milestones) {
-    const maxGapMs = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const mTimes = milestones.map(m => new Date(m.time).getTime());
-    const allTimes = [...new Set([...timestamps, ...mTimes])].sort((a, b) => a - b);
+    const mTimes = (milestones || []).map(m => new Date(m.time).getTime()).filter(Number.isFinite);
+    const allTimes = getSortedUniqueNumbers([...timestamps, ...mTimes]);
     
     if (allTimes.length === 0) return { xValues: [], mapTime: t => t };
 
+    const maxGapMs = getAdaptiveTimelineGapCap(timestamps, allTimes);
     const timeMap = new Map();
     let currentClipped = allTimes[0];
     timeMap.set(allTimes[0], currentClipped);
@@ -413,7 +448,8 @@ function getTimelineMapper(timestamps, milestones) {
                     return timeMap.get(allTimes[i]) + frac * (timeMap.get(allTimes[i+1]) - timeMap.get(allTimes[i]));
                 }
             }
-            return t;
+            if (t < allTimes[0]) return timeMap.get(allTimes[0]);
+            return timeMap.get(allTimes[allTimes.length - 1]);
         }
     };
 }
@@ -437,6 +473,58 @@ function getSnapshotsMapper(timestamps) {
     };
     
     return { xValues: timestamps.map((_, i) => i), mapTime };
+}
+
+/**
+ * Build stable x-axis bounds and zoom limits for the current mapped chart.
+ */
+function getXScaleBounds(xValues) {
+    const sorted = getSortedUniqueNumbers(xValues);
+    if (sorted.length === 0) {
+        return { min: 0, max: 1, minRange: 1 };
+    }
+    if (sorted.length === 1) {
+        const center = sorted[0];
+        return { min: center - 1, max: center + 1, minRange: 1 };
+    }
+
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    const range = Math.max(max - min, 1);
+    const medianGap = getMedianPositiveGap(sorted) || range;
+    const padding = Math.min(Math.max(medianGap * 0.5, range * 0.02), range * 0.08);
+    const minRange = Math.min(Math.max(medianGap * 2, range * 0.03), range);
+
+    return {
+        min: min - padding,
+        max: max + padding,
+        minRange: Math.max(minRange, Number.EPSILON),
+    };
+}
+
+function setZoomControlsState(isZoomed) {
+    const resetBtn = document.getElementById('chartZoomReset');
+    const status = document.getElementById('chartZoomStatus');
+    if (resetBtn) {
+        resetBtn.disabled = !chart || !isZoomed;
+    }
+    if (status) {
+        status.textContent = chart && isZoomed ? 'Zoomed' : '';
+    }
+}
+
+function updateZoomControls() {
+    const isZoomed = chart && typeof chart.isZoomedOrPanned === 'function'
+        ? chart.isZoomedOrPanned()
+        : false;
+    setZoomControlsState(Boolean(isZoomed));
+}
+
+function resetChartZoom() {
+    if (chart && typeof chart.resetZoom === 'function') {
+        chart.resetZoom('none');
+    }
+    updateZoomControls();
 }
 
 /**
@@ -744,6 +832,7 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
     }
     
     const { xValues, mapTime } = mapper;
+    const xBounds = getXScaleBounds(xValues);
 
     // Labels to exclude from non-phased mode (they clutter the chart)
     const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
@@ -793,6 +882,7 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
     canvas.offsetHeight;
 
     if (chart) { chart.destroy(); chart = null; }
+    setZoomControlsState(false);
 
     // Point styling
     const pointStyles = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : 'circle');
@@ -822,6 +912,37 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
             plugins: {
                 annotation: { annotations },
                 legend: { display: false },
+                zoom: {
+                    limits: {
+                        x: { min: xBounds.min, max: xBounds.max, minRange: xBounds.minRange },
+                        y: { min: 0, max: 100 }
+                    },
+                    pan: {
+                        enabled: true,
+                        mode: 'x',
+                        threshold: 8,
+                        onPanComplete: updateZoomControls
+                    },
+                    zoom: {
+                        mode: 'x',
+                        wheel: {
+                            enabled: true,
+                            speed: 0.08
+                        },
+                        pinch: {
+                            enabled: true
+                        },
+                        drag: {
+                            enabled: true,
+                            modifierKey: 'shift',
+                            threshold: 8,
+                            backgroundColor: 'rgba(255, 215, 0, 0.16)',
+                            borderColor: '#ffd700',
+                            borderWidth: 1
+                        },
+                        onZoomComplete: updateZoomControls
+                    }
+                },
                 tooltip: {
                     backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
                     borderColor: '#3a3a5e', borderWidth: 1,
@@ -844,10 +965,8 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
                 x: {
                     type: 'linear',
                     display: false,
-                    ...(chartMode === 'phased' || xValues.length === 0 ? {} : {
-                        min: xValues[0] - (xValues.length > 1 ? (xValues[1] - xValues[0]) * 0.5 : 60000),
-                        max: xValues[xValues.length-1] + (xValues.length > 1 ? (xValues[xValues.length-1] - xValues[xValues.length-2]) * 0.5 : 60000)
-                    })
+                    min: xBounds.min,
+                    max: xBounds.max
                 },
                 y: {
                     min: 0, max: 100,
@@ -859,6 +978,7 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
             interaction: { intersect: false, mode: 'index' }
         }
     });
+    updateZoomControls();
 }
 
 /**
@@ -879,6 +999,7 @@ function closeModal() {
         chart.destroy();
         chart = null;
     }
+    setZoomControlsState(false);
 }
 
 /**
@@ -1178,6 +1299,7 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         chartMode = btn.dataset.mode;
         localStorage.setItem('chartMode', chartMode);
+        setZoomControlsState(false);
         document.querySelectorAll('.chart-mode-btn').forEach(b => {
             const isActive = b.dataset.mode === chartMode;
             b.classList.toggle('active', isActive);
@@ -1189,6 +1311,8 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
         }
     });
 });
+
+document.getElementById('chartZoomReset')?.addEventListener('click', resetChartZoom);
 
 // ============================================
 // Deep Linking via URL Hash
