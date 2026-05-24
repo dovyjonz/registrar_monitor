@@ -149,6 +149,44 @@ class WebsiteService:
         )
         return True
 
+    def _frontend_dependencies_need_install(self) -> bool:
+        """Return True when frontend dependencies are missing or stale."""
+        import json
+
+        node_modules = self.website_assets_dir / "node_modules"
+        if not node_modules.exists():
+            return True
+
+        package_json = self.website_assets_dir / "package.json"
+        try:
+            package_data = json.loads(package_json.read_text())
+        except (OSError, json.JSONDecodeError):
+            return True
+
+        frontend_dependencies = {
+            *package_data.get("dependencies", {}).keys(),
+            *package_data.get("devDependencies", {}).keys(),
+        }
+        if any(
+            not (node_modules / dependency).exists()
+            for dependency in frontend_dependencies
+        ):
+            return True
+
+        installed_lock = node_modules / ".package-lock.json"
+        if not installed_lock.exists():
+            return True
+
+        installed_mtime = installed_lock.stat().st_mtime
+        dependency_sources = [
+            self.website_assets_dir / "package-lock.json",
+            package_json,
+        ]
+        return any(
+            source.exists() and source.stat().st_mtime > installed_mtime
+            for source in dependency_sources
+        )
+
     def build_frontend_assets(self) -> bool:
         """Build the frontend assets using npm/vite.
 
@@ -169,9 +207,8 @@ class WebsiteService:
         env["NO_UPDATE_NOTIFIER"] = "1"
 
         try:
-            # Check if node_modules exists, if not maybe install?
-            if not (self.website_assets_dir / "node_modules").exists():
-                print("Installing frontend dependencies...")
+            if self._frontend_dependencies_need_install():
+                print("Installing/updating frontend dependencies...")
                 subprocess.run(
                     ["npm", "install"], cwd=self.website_assets_dir, check=True, env=env
                 )
