@@ -51,6 +51,7 @@ Keep real credentials out of `settings.toml`; it only contains non-secret defaul
 ```bash
 # Download and process enrollment data
 monitor poll
+monitor fetch                    # Alias for poll
 monitor poll --file data.xlsx      # Process specific file
 monitor poll --debug               # Verbose output
 
@@ -61,6 +62,7 @@ monitor report --stateful          # Only report if changes detected
 
 # Complete workflow (poll + report)
 monitor run
+monitor sync                      # Alias for run
 monitor run --no-telegram
 
 # Check course status
@@ -71,7 +73,6 @@ monitor status "CSCI 101" "BUS 201"
 
 ```bash
 monitor schedule                   # Start hybrid scheduler
-monitor schedule --scheduler two-phase
 monitor schedule --no-telegram     # Disable Telegram during scheduling
 ```
 
@@ -88,6 +89,7 @@ monitor db migrate                 # Migrate legacy JSON files to database
 
 ```bash
 monitor deploy                     # Generate website
+monitor website                    # Alias for deploy
 monitor deploy --deploy            # Generate and deploy to Cloudflare
 monitor deploy --semester fall2025 # Generate for specific semester
 ```
@@ -120,7 +122,7 @@ monitor
 ├── status COURSES... [--semester] [--debug]
 ├── report [--debug] [--no-telegram] [--stateful]
 ├── run [--debug] [--no-telegram]
-├── schedule [--scheduler TYPE] [--no-telegram] [--debug]
+├── schedule [--no-telegram] [--debug]
 ├── deploy [--deploy] [--semester] [--force] [--minify] [--debug]
 └── db
     ├── stats [--debug]
@@ -147,8 +149,8 @@ monitor
 │   ├── automation/             # Scheduler, downloader
 │   └── main.py                # CLI entry point
 ├── scripts/                    # Utility and maintenance scripts
-├── assets/                     # Generated output (gitignored)
-│   ├── website/               # Cloudflare Workers deployment
+├── assets/
+│   ├── website/               # Vite/Cloudflare Workers dashboard scaffold
 │   ├── downloads/             # Downloaded XLS files
 │   └── changes/               # Text change reports
 ├── data/                       # SQLite databases (gitignored)
@@ -173,6 +175,18 @@ uv sync --group dev
 | `ruff` | Formatting       | `uv run ruff format` |
 | `ty`   | Type checking    | `uv run ty check`    |
 | `pytest` | Testing        | `uv run pytest`      |
+| `vite` | Website build    | `npm --prefix assets/website run build` |
+
+Convenience `make` targets wrap the common commands:
+
+```bash
+make format
+make lint
+make type
+make test
+make website-build
+make check
+```
 
 ### Pre-commit Checklist
 
@@ -180,6 +194,7 @@ uv sync --group dev
 2. Lint: `uv run ruff check`
 3. Type check: `uv run ty check`
 4. Test: `uv run pytest`
+5. Website build when dashboard code changed: `npm --prefix assets/website run build`
 
 ### VPS Deployment
 

@@ -1,8 +1,10 @@
 [project]
 name = "registrar-monitor"
 version = "0.1.0"
+description = "Monitor registrar enrollment snapshots, reports, and website dashboards."
 readme = "README.md"
 requires-python = ">=3.13"
+keywords = ["registrar", "enrollment", "monitoring", "sqlite", "telegram"]
 dependencies = [
     "toml",
     "xlrd",
