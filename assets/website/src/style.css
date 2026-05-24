@@ -899,13 +899,21 @@ header p {
 }
 
 /* ============================================
-   Chart Mode Toggle (Phased / Timeline)
+   Chart Controls
    ============================================ */
+
+.chart-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
 
 .chart-mode-toggle {
     display: flex;
     gap: 2px;
-    margin-bottom: 10px;
     background: hsl(var(--background));
     border-radius: var(--radius);
     padding: 2px;
@@ -938,6 +946,42 @@ header p {
     background: hsl(var(--accent));
     color: hsl(var(--accent-foreground));
     font-weight: 600;
+}
+
+.chart-zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+}
+
+.chart-zoom-btn {
+    min-height: 32px;
+    padding: 5px 12px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    border-radius: calc(var(--radius) - 2px);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.72rem;
+    transition: border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.chart-zoom-btn:hover:not(:disabled) {
+    border-color: hsl(var(--ring));
+    color: hsl(var(--ring));
+}
+
+.chart-zoom-btn:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+.chart-zoom-status {
+    min-width: 48px;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.68rem;
 }
 
 /* ============================================
@@ -1391,10 +1435,30 @@ header {
         height: 180px;
     }
 
+    .chart-toolbar {
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .chart-mode-toggle {
+        flex: 1 1 100%;
+    }
+
     .chart-mode-btn {
+        flex: 1;
         padding: 5px 14px;
         min-height: 36px;
         font-size: 0.72rem;
+    }
+
+    .chart-zoom-controls {
+        flex: 1 1 100%;
+        justify-content: space-between;
+    }
+
+    .chart-zoom-btn {
+        min-height: 38px;
+        padding: 6px 12px;
     }
 
     .event-history {

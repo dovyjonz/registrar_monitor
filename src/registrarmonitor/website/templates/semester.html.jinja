@@ -92,11 +92,17 @@
                 <div class="section-list" id="sectionList" role="list"></div>
 
                 <div class="chart-container" id="chartContainer">
-                    <!-- Chart mode toggle -->
-                    <div class="chart-mode-toggle" id="chartModeToggle" role="group" aria-label="Chart display mode">
-                        <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true">Phased</button>
-                        <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false">Snapshots</button>
-                        <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false">Timeline</button>
+                    <div class="chart-toolbar">
+                        <!-- Chart mode toggle -->
+                        <div class="chart-mode-toggle" id="chartModeToggle" role="group" aria-label="Chart display mode">
+                            <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true">Phased</button>
+                            <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false">Snapshots</button>
+                            <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false">Timeline</button>
+                        </div>
+                        <div class="chart-zoom-controls">
+                            <button type="button" class="chart-zoom-btn" id="chartZoomReset" disabled title="Reset chart zoom">Reset zoom</button>
+                            <span class="chart-zoom-status" id="chartZoomStatus" aria-live="polite"></span>
+                        </div>
                     </div>
                     <div class="chart-wrapper">
                         <div class="chart-placeholder" id="chartPlaceholder">
