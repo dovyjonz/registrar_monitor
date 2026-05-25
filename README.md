@@ -205,7 +205,7 @@ The hooks cover Ruff formatting/linting, TOML/YAML/basic file hygiene, private-k
 
 ### VPS Deployment
 
-Use [docs/VPS_MIGRATION.md](docs/VPS_MIGRATION.md) when migrating an existing VPS. It covers runtime-data backup, secret rotation, `.env`, and the systemd service.
+When migrating to a new VPS, remember to back up the `data/` directory (SQLite databases), the `.env` file with secrets, and the systemd service unit. Runtime data and secrets are not stored in the repository.
 
 ## Troubleshooting
 
