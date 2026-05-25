@@ -1135,6 +1135,7 @@ header p {
 html.modal-open,
 html.modal-open body {
     overflow: hidden;
+    overscroll-behavior: contain;
     touch-action: none;
 }
 

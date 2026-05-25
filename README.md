@@ -58,9 +58,10 @@ monitor report                     # Generate and send to Telegram
 monitor report --no-telegram       # Generate locally only
 monitor report --stateful          # Only report if changes detected
 
-# Complete workflow (poll + report)
+# Complete workflow (poll + report + website generation)
 monitor run
 monitor run --no-telegram
+monitor run --deploy              # Also deploy the generated website
 
 # Check course status
 monitor status "CSCI 101" "BUS 201"
@@ -88,6 +89,7 @@ monitor db migrate                 # Migrate legacy JSON files to database
 monitor deploy                     # Generate website
 monitor deploy --deploy            # Generate and deploy to Cloudflare
 monitor deploy --semester fall2025 # Generate for specific semester
+monitor deploy --no-minify         # Disable minified generated output
 ```
 
 ### Debug Mode
@@ -117,9 +119,9 @@ monitor
 ├── [--debug] poll [--file PATH]
 ├── [--debug] status COURSES... [--semester]
 ├── [--debug] report [--no-telegram] [--stateful]
-├── [--debug] run [--no-telegram]
+├── [--debug] run [--no-telegram] [--deploy]
 ├── [--debug] schedule [--no-telegram]
-├── [--debug] deploy [--deploy] [--semester] [--force] [--minify]
+├── [--debug] deploy [--deploy] [--semester] [--force] [--no-minify]
 └── db
     ├── stats
     ├── cleanup [--keep COUNT]

@@ -108,3 +108,38 @@ def test_build_frontend_assets_returns_false_when_install_fails(tmp_path):
         side_effect=subprocess.CalledProcessError(1, ["npm", "install"]),
     ):
         assert service.build_frontend_assets() is False
+
+
+def test_generate_fails_when_frontend_build_fails(tmp_path):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+
+    with (
+        patch.object(service, "is_any_semester_active", return_value=True),
+        patch.object(service, "build_frontend_assets", return_value=False),
+    ):
+        assert service.generate(force=True) is False
+
+
+def test_deploy_command_refuses_deploy_after_skipped_generation():
+    from registrarmonitor.cli.commands import DeployCommand
+
+    with patch("registrarmonitor.cli.commands.WebsiteService") as service_cls:
+        service = service_cls.return_value
+        service.generate.return_value = True
+        service.last_generation_skipped = True
+
+        assert DeployCommand().run(deploy=True) is False
+
+    service.deploy.assert_not_called()
+
+
+def test_wrangler_deploy_uses_minify(tmp_path):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+
+    with patch("subprocess.run") as run:
+        run.return_value.returncode = 0
+        assert service.deploy(project_name="registrar-monitor") is True
+
+    assert "--minify" in run.call_args.args[0]

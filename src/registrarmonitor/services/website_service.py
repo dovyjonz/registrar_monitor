@@ -21,6 +21,7 @@ class WebsiteService:
 
     def __init__(self):
         self.logger = get_logger(__name__)
+        self.last_generation_skipped = False
         # Correct path to assets/website
         # src/registrarmonitor/services/website_service.py -> .../repo/assets/website
         self.website_assets_dir = (
@@ -258,7 +259,7 @@ class WebsiteService:
         self,
         semester_key: Optional[str] = None,
         force: bool = False,
-        minify: bool = False,
+        minify: bool = True,
     ) -> bool:
         """
         Generate the website.
@@ -272,17 +273,21 @@ class WebsiteService:
             True if successful
         """
         try:
+            self.last_generation_skipped = False
             # Skip if not active (unless forced)
             if not force and not self.is_any_semester_active():
                 print("💤 Outside active registration windows. Skipping build/deploy.")
                 print("   (Use --force to override)")
+                self.last_generation_skipped = True
                 return True
 
             # Ensure output directory exists
             OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
             # Build frontend assets first
-            self.build_frontend_assets()
+            if not self.build_frontend_assets():
+                print("❌ Frontend build failed. Aborting website generation.")
+                return False
 
             if semester_key:
                 # Generate only the specified semester
@@ -368,6 +373,7 @@ class WebsiteService:
             "public",
             "--project-name",
             project_name,
+            "--minify",
         ]
 
         if branch:

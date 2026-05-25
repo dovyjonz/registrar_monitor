@@ -9,7 +9,7 @@ notifications via Telegram.
 Usage:
     monitor [--debug] poll [--file PATH]
     monitor [--debug] report [--no-telegram]
-    monitor [--debug] run [--no-telegram]
+  monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
     monitor [--debug] db {stats,cleanup,migrate} [--keep COUNT]
 """
@@ -43,7 +43,7 @@ Examples:
   monitor status "CSCI 101"             # Check status of specific course
   monitor report                        # Generate and send reports
   monitor report --no-telegram          # Generate reports without sending
-  monitor run                           # Complete process (poll + report)
+  monitor run                           # Complete workflow (poll + report + website)
   monitor schedule                      # Run the scheduler
   monitor db stats                      # Show database statistics
 
@@ -126,12 +126,17 @@ Telegram Control:
     run_parser = subparsers.add_parser(
         "run",
         help="Run complete process",
-        description="Execute the complete workflow: download data and generate reports",
+        description="Execute the complete workflow: download data, generate reports, and generate the website",
     )
     run_parser.add_argument(
         "--no-telegram",
         action="store_true",
         help="Generate reports without sending to Telegram",
+    )
+    run_parser.add_argument(
+        "--deploy",
+        action="store_true",
+        help="Deploy the generated website to Cloudflare Pages",
     )
 
     # Schedule command
@@ -168,9 +173,9 @@ Telegram Control:
         help="Force regeneration of all pages",
     )
     deploy_parser.add_argument(
-        "--minify",
+        "--no-minify",
         action="store_true",
-        help="Minify generated assets",
+        help="Disable generated asset minification",
     )
     deploy_parser.add_argument(
         "--project",
@@ -247,7 +252,8 @@ async def handle_report_command(args) -> int:
 async def handle_run_command(args) -> int:
     """Handle the run command."""
     no_telegram = getattr(args, "no_telegram", False)
-    command = RunCommand(debug=args.debug, no_telegram=no_telegram)
+    deploy = getattr(args, "deploy", False)
+    command = RunCommand(debug=args.debug, no_telegram=no_telegram, deploy=deploy)
     success = await command.run()
     return 0 if success else 1
 
@@ -270,7 +276,7 @@ async def handle_deploy_command(args) -> int:
         deploy=getattr(args, "deploy", False),
         semester=getattr(args, "semester", None),
         force=getattr(args, "force", False),
-        minify=getattr(args, "minify", False),
+        minify=not getattr(args, "no_minify", False),
         project_name=getattr(args, "project", "registrar-monitor"),
         branch=getattr(args, "branch", None),
     )

@@ -136,6 +136,7 @@ KEY_MAP: dict[str, str] = {
     "currentCapacity": "cc",
     "currentFill": "cf",
     "averageFill": "af",
+    "averageHistory": "ah",
     "history": "h",
     "sections": "s",
     "department": "d",

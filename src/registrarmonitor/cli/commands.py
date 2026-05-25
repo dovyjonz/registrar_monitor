@@ -1,5 +1,6 @@
 """Command implementations for the registrarmonitor CLI."""
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List
 
@@ -8,10 +9,24 @@ from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
 from ..data.migrate_json_to_db import JSONMigrator
+from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..data.instructor_populator import populate_instructors
 from .utils import detect_active_semester
 from ..utils import get_section_sort_key
+
+
+@dataclass(frozen=True)
+class PollResult:
+    """Structured result from a poll/process operation."""
+
+    success: bool
+    snapshot: object | None = None
+    semester: str | None = None
+    snapshot_id_before: int | None = None
+    snapshot_id_after: int | None = None
+    changed: bool = False
+    change_score: float = 0.0
 
 
 class PollCommand:
@@ -31,6 +46,11 @@ class PollCommand:
         Returns:
             bool: True if successful, False otherwise
         """
+        result = await self.run_with_result(file_path=file_path)
+        return result.success
+
+    async def run_with_result(self, file_path: Optional[str] = None) -> PollResult:
+        """Run polling and return a structured result for workflow callers."""
         if self.debug:
             print("🔍 DEBUG MODE: Polling for enrollment data")
 
@@ -40,6 +60,8 @@ class PollCommand:
             # Try to detect active semester first
             detected_semester = await detect_active_semester(self.debug)
             monitoring_service = MonitoringService(semester=detected_semester)
+            db_manager_before = DatabaseManager(semester=detected_semester)
+            snapshot_id_before = db_manager_before.get_latest_snapshot_id()
 
             if file_path:
                 # Process specific file
@@ -87,19 +109,87 @@ class PollCommand:
                     print(f"   🔍 DEBUG: Timestamp: {snapshot.timestamp}")
                     print(f"   🔍 DEBUG: Semester: {snapshot.semester}")
 
-                return True
+                target_db_manager = DatabaseManager.create_for_semester(
+                    snapshot.semester
+                )
+                snapshot_id_after = target_db_manager.get_latest_snapshot_id()
+                changed = (
+                    snapshot_id_before is None
+                    or snapshot_id_after is None
+                    or snapshot_id_before != snapshot_id_after
+                )
+                change_score = self._calculate_change_score(snapshot.semester, changed)
+
+                return PollResult(
+                    success=True,
+                    snapshot=snapshot,
+                    semester=snapshot.semester,
+                    snapshot_id_before=snapshot_id_before,
+                    snapshot_id_after=snapshot_id_after,
+                    changed=changed,
+                    change_score=change_score,
+                )
             else:
                 print("❌ Failed to download or process data")
-                return False
+                return PollResult(
+                    success=False,
+                    semester=detected_semester,
+                    snapshot_id_before=snapshot_id_before,
+                )
 
         except FileProcessingError as e:
             print(f"❌ File processing error: {e}")
             self.logger.error(f"File processing error in polling: {e}")
-            return False
+            return PollResult(success=False)
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             self.logger.error(f"Unexpected error in polling: {e}")
-            return False
+            return PollResult(success=False)
+
+    def _calculate_change_score(self, semester: str, changed: bool) -> float:
+        """Calculate the latest poll's activity score using the stored snapshots."""
+        if not changed:
+            return 0.0
+
+        monitoring_service = MonitoringService(semester=semester)
+        current_snapshot, previous_snapshot = (
+            monitoring_service.get_snapshot_comparison()
+        )
+        if not current_snapshot:
+            return 0.0
+        if not previous_snapshot:
+            return 1.0
+
+        comparison = SnapshotComparator().compare_snapshots(
+            current_snapshot, previous_snapshot
+        )
+        score = 0.0
+        score += len(comparison.new_courses) * 5.0
+        score += len(comparison.removed_courses) * 5.0
+
+        for course_change in comparison.changed_courses:
+            score += len(course_change.added_sections) * 2.0
+            score += len(course_change.removed_sections) * 2.0
+            for section_change in course_change.modified_sections:
+                enrollment_delta = abs(
+                    (section_change.current_enrollment or 0)
+                    - (section_change.previous_enrollment or 0)
+                )
+                score += enrollment_delta / 5.0
+                if (
+                    section_change.current_capacity is not None
+                    and section_change.previous_capacity is not None
+                    and section_change.current_capacity
+                    != section_change.previous_capacity
+                ):
+                    score += 3.0
+                if (
+                    section_change.current_instructor
+                    != section_change.previous_instructor
+                ):
+                    score += 1.0
+
+        return min(score, 100.0)
 
 
 class ReportCommand:
@@ -149,7 +239,8 @@ class ReportCommand:
                     # Return value (bool) just indicates if reports were sent or not,
                     # but for the command CLI, "completed successfully" is what matters.
                     await reporting_service.run_stateful_report_cycle(
-                        debug_mode=self.debug
+                        send_telegram=not self.no_telegram,
+                        debug_mode=self.debug,
                     )
                     return True
                 except Exception as e:
@@ -197,7 +288,9 @@ class ReportCommand:
                 for file_path in generated_files:
                     print(f"   📄 {file_path}")
 
-                if send_telegram:
+                if not generated_files:
+                    print("ℹ️  No comparison report generated")
+                elif send_telegram:
                     print("📱 Reports sent to Telegram")
                 else:
                     print("💾 Reports saved locally (Telegram disabled)")
@@ -221,11 +314,17 @@ class ReportCommand:
 
 
 class RunCommand:
-    """Command for running the complete process (poll + report)."""
+    """Command for running the complete process."""
 
-    def __init__(self, debug: bool = False, no_telegram: bool = False):
+    def __init__(
+        self,
+        debug: bool = False,
+        no_telegram: bool = False,
+        deploy: bool = False,
+    ):
         self.debug = debug
         self.no_telegram = no_telegram
+        self.deploy = deploy
         self.logger = get_logger(__name__)
 
     async def run(self) -> bool:
@@ -244,26 +343,28 @@ class RunCommand:
 
         try:
             if self.debug:
-                print("🚀 Starting complete process: Poll → Report")
+                print("🚀 Starting complete process: Poll → Report → Website")
                 print("=" * 50)
 
             # Step 1: Poll for data
             if self.debug:
-                print("📥 Step 1/2: Polling for enrollment data...")
+                print("📥 Step 1/3: Polling for enrollment data...")
             poll_command = PollCommand(debug=self.debug)
-            poll_success = await poll_command.run()
+            poll_result = await poll_command.run_with_result()
 
-            if not poll_success:
+            if not poll_result.success:
                 print("❌ Polling failed. Aborting complete process.")
                 return False
 
             if self.debug:
-                print("✅ Polling completed successfully")
+                print(
+                    f"✅ Polling completed successfully (activity: {poll_result.change_score:.2f})"
+                )
                 print("-" * 30)
 
             # Step 2: Generate and send reports
             if self.debug:
-                print("📊 Step 2/2: Generating and sending reports...")
+                print("📊 Step 2/3: Generating reports...")
             report_command = ReportCommand(
                 debug=self.debug, no_telegram=self.no_telegram
             )
@@ -272,6 +373,25 @@ class RunCommand:
             if not report_success:
                 print("❌ Reporting failed")
                 return False
+
+            # Step 3: Generate website, and deploy only when explicitly requested.
+            if self.debug:
+                print("🌐 Step 3/3: Generating website...")
+            website_service = WebsiteService()
+            website_success = website_service.generate(
+                semester_key=None,
+                force=False,
+                minify=True,
+            )
+            if not website_success:
+                print("❌ Website generation failed")
+                return False
+            if self.deploy:
+                if getattr(website_service, "last_generation_skipped", False):
+                    print("❌ Website generation was skipped; refusing stale deploy.")
+                    return False
+                if not website_service.deploy():
+                    return False
 
             print("✅ Complete process finished successfully!")
 
@@ -530,7 +650,7 @@ class DeployCommand:
         deploy: bool = False,
         semester: Optional[str] = None,
         force: bool = False,
-        minify: bool = False,
+        minify: bool = True,
         project_name: str = "registrar-monitor",
         branch: Optional[str] = None,
     ) -> bool:
@@ -547,6 +667,9 @@ class DeployCommand:
 
         # Step 2: Deploy if requested
         if deploy:
+            if getattr(service, "last_generation_skipped", False):
+                print("❌ Website generation was skipped; refusing stale deploy.")
+                return False
             return service.deploy(project_name=project_name, branch=branch)
 
         return True

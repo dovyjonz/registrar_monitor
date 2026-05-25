@@ -232,102 +232,14 @@ async def poll_and_get_change_score() -> float:
         - 30+: Extreme activity
     """
     try:
-        # Import here to avoid circular imports
         try:
             from ..cli.commands import PollCommand
-            from ..data.snapshot_comparator import SnapshotComparator
-            from ..services.monitoring_service import MonitoringService
-            from ..cli.utils import detect_active_semester
         except ImportError:
             from registrarmonitor.cli.commands import PollCommand
-            from registrarmonitor.data.snapshot_comparator import SnapshotComparator
-            from registrarmonitor.services.monitoring_service import MonitoringService
-            from registrarmonitor.cli.utils import detect_active_semester
 
-        detected_semester = await detect_active_semester()
-        db_manager = DatabaseManager(semester=detected_semester)
-
-        # Get latest snapshot ID before poll to detect identical deduplication
-        latest_id_before = db_manager.get_latest_snapshot_id()
-
-        # Run only the polling command
         poll_command = PollCommand(debug=False)
-        success = await poll_command.run()
-        if not success:
-            return 0.0
-
-        latest_id_after = db_manager.get_latest_snapshot_id()
-        if latest_id_before is not None and latest_id_before == latest_id_after:
-            # Snapshot was completely identical, so database timestamp was updated
-            # and no new snapshot ID was generated. Return 0.0 change score.
-            return 0.0
-
-        # Calculate change score based on the comparison
-        monitoring_service = MonitoringService(semester=detected_semester)
-        comparator = SnapshotComparator()
-
-        # Get the latest two snapshots for comparison from the database
-        latest_snapshot, previous_snapshot = (
-            monitoring_service.get_snapshot_comparison()
-        )
-        if not latest_snapshot:
-            return 0.0
-
-        if not previous_snapshot:
-            # First snapshot, consider it low activity
-            return 1.0
-
-        # Compare snapshots and calculate score
-        comparison = comparator.compare_snapshots(latest_snapshot, previous_snapshot)
-
-        score = 0.0
-
-        # Points for structural changes
-        score += len(comparison.new_courses) * 5.0  # New courses are significant
-        score += (
-            len(comparison.removed_courses) * 5.0
-        )  # Removed courses are significant
-
-        # Points for course changes
-        for course_change in comparison.changed_courses:
-            # Points for section changes
-            score += len(course_change.added_sections) * 2.0
-            score += len(course_change.removed_sections) * 2.0
-
-            # Points for enrollment changes in sections
-            for section_change in course_change.modified_sections:
-                enrollment_delta = (
-                    abs(
-                        section_change.current_enrollment
-                        - section_change.previous_enrollment
-                    )
-                    if section_change.current_enrollment is not None
-                    and section_change.previous_enrollment is not None
-                    else 0
-                )
-
-                # Scale enrollment changes (1 point per 5 students)
-                score += enrollment_delta / 5.0
-
-                # Bonus for capacity changes
-                if (
-                    section_change.current_capacity is not None
-                    and section_change.previous_capacity is not None
-                ):
-                    if (
-                        section_change.current_capacity
-                        != section_change.previous_capacity
-                    ):
-                        score += 3.0
-
-                # Bonus for instructor changes
-                if (
-                    section_change.current_instructor
-                    != section_change.previous_instructor
-                ):
-                    score += 1.0
-
-        return min(score, 100.0)  # Cap at 100 for sanity
+        result = await poll_command.run_with_result()
+        return result.change_score if result.success else 0.0
 
     except Exception as e:
         print(f"ERROR: Failed to calculate change score: {e}")
@@ -565,7 +477,9 @@ class TwoPhaseScheduler:
             service = WebsiteService()
 
             # Generate (incremental)
-            if service.generate():
+            if service.generate(minify=True) and not getattr(
+                service, "last_generation_skipped", False
+            ):
                 # Deploy
                 service.deploy(project_name=project_name)
 
@@ -913,29 +827,16 @@ class TwoPhaseScheduler:
         """Downloads data and processes it sequentially, returning the change score."""
         try:
             from ..cli.commands import PollCommand
-            from ..cli.utils import detect_active_semester
         except ImportError:
             from registrarmonitor.cli.commands import PollCommand
-            from registrarmonitor.cli.utils import detect_active_semester
 
         file_path = await self.downloader.download()
         if not file_path:
             return 0.0
 
-        semester = await detect_active_semester()
-        db_manager = DatabaseManager(semester=semester)
-        latest_id_before = db_manager.get_latest_snapshot_id()
-
         poll_command = PollCommand(debug=False)
-        success = await poll_command.run(file_path=file_path)
-        if not success:
-            return 0.0
-
-        latest_id_after = db_manager.get_latest_snapshot_id()
-        if latest_id_before is not None and latest_id_before == latest_id_after:
-            return 0.0
-
-        return await self._calculate_change_score_for_poll(semester)
+        result = await poll_command.run_with_result(file_path=file_path)
+        return result.change_score if result.success else 0.0
 
     async def _process_pending_polls_loop(self):
         """Processes downloaded files in strict chronological FIFO order, committing and triggering updates."""
@@ -958,37 +859,19 @@ class TwoPhaseScheduler:
 
                     try:
                         from ..cli.commands import PollCommand
-                        from ..cli.utils import detect_active_semester
                     except ImportError:
                         from registrarmonitor.cli.commands import PollCommand
-                        from registrarmonitor.cli.utils import detect_active_semester
-
-                    detected_semester = await detect_active_semester()
-                    db_manager = DatabaseManager(semester=detected_semester)
-                    latest_id_before = db_manager.get_latest_snapshot_id()
 
                     poll_command = PollCommand(debug=False)
-                    success = await poll_command.run(file_path=file_path)
+                    result = await poll_command.run_with_result(file_path=file_path)
 
-                    if success:
+                    if result.success:
                         self._last_poll_time = datetime.datetime.now()
-                        latest_id_after = db_manager.get_latest_snapshot_id()
-
-                        if (
-                            latest_id_before is not None
-                            and latest_id_before == latest_id_after
-                        ):
-                            change_score = 0.0
-                        else:
-                            change_score = await self._calculate_change_score_for_poll(
-                                detected_semester
-                            )
-
-                        self._last_change_score = change_score
+                        self._last_change_score = result.change_score
                         self._new_poll_processed = True
 
                         self.logger_ops.info(
-                            f"✅ Sequentially processed poll. Score: {change_score:.2f}"
+                            f"✅ Sequentially processed poll. Score: {result.change_score:.2f}"
                         )
                         await self._check_and_trigger_updates()
                     else:
@@ -1279,7 +1162,8 @@ class TwoPhaseScheduler:
             print("📊 Generating report (if needed)...")
             try:
                 changes_found = await self.reporting_service.run_stateful_report_cycle(
-                    debug_mode=False
+                    send_telegram=not self.no_telegram,
+                    debug_mode=False,
                 )
                 if changes_found:
                     print("✅ Report generated and sent.")

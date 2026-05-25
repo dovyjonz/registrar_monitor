@@ -351,6 +351,7 @@ function openCourse(courseCode) {
         showAverageFillChart(courseCode);
     }, 50);
 
+    document.documentElement.classList.add('modal-open');
     document.body.classList.add('modal-open');
 }
 
@@ -422,34 +423,34 @@ function getAdaptiveTimelineGapCap(timestamps, allTimes) {
  */
 function getTimelineMapper(timestamps, milestones) {
     const mTimes = (milestones || []).map(m => new Date(m.time).getTime()).filter(Number.isFinite);
-    const allTimes = getSortedUniqueNumbers([...timestamps, ...mTimes]);
+    const snapshotTimes = getSortedUniqueNumbers(timestamps);
     
-    if (allTimes.length === 0) return { xValues: [], mapTime: t => t };
+    if (snapshotTimes.length === 0) return { xValues: [], mapTime: t => t };
 
-    const maxGapMs = getAdaptiveTimelineGapCap(timestamps, allTimes);
+    const maxGapMs = getAdaptiveTimelineGapCap(snapshotTimes, snapshotTimes);
     const timeMap = new Map();
-    let currentClipped = allTimes[0];
-    timeMap.set(allTimes[0], currentClipped);
+    let currentClipped = snapshotTimes[0];
+    timeMap.set(snapshotTimes[0], currentClipped);
 
-    for (let i = 1; i < allTimes.length; i++) {
-        const diff = allTimes[i] - allTimes[i-1];
+    for (let i = 1; i < snapshotTimes.length; i++) {
+        const diff = snapshotTimes[i] - snapshotTimes[i-1];
         const effectiveDiff = Math.min(diff, maxGapMs);
         currentClipped += effectiveDiff;
-        timeMap.set(allTimes[i], currentClipped);
+        timeMap.set(snapshotTimes[i], currentClipped);
     }
 
     return {
         xValues: timestamps.map(t => timeMap.get(t)),
         mapTime: t => {
             if (timeMap.has(t)) return timeMap.get(t);
-            for (let i = 0; i < allTimes.length - 1; i++) {
-                if (t >= allTimes[i] && t <= allTimes[i+1]) {
-                    const frac = (t - allTimes[i]) / (allTimes[i+1] - allTimes[i]);
-                    return timeMap.get(allTimes[i]) + frac * (timeMap.get(allTimes[i+1]) - timeMap.get(allTimes[i]));
+            for (let i = 0; i < snapshotTimes.length - 1; i++) {
+                if (t >= snapshotTimes[i] && t <= snapshotTimes[i+1]) {
+                    const frac = (t - snapshotTimes[i]) / (snapshotTimes[i+1] - snapshotTimes[i]);
+                    return timeMap.get(snapshotTimes[i]) + frac * (timeMap.get(snapshotTimes[i+1]) - timeMap.get(snapshotTimes[i]));
                 }
             }
-            if (t < allTimes[0]) return timeMap.get(allTimes[0]);
-            return timeMap.get(allTimes[allTimes.length - 1]);
+            if (t < snapshotTimes[0]) return timeMap.get(snapshotTimes[0]);
+            return timeMap.get(snapshotTimes[snapshotTimes.length - 1]);
         }
     };
 }
@@ -702,31 +703,15 @@ function showAverageFillChart(courseCode) {
     const course = data.cr[courseCode];
     if (!course) return;
 
-    const sectionsArr = Object.values(course.s);
-
-    // Build average fill data across all snapshots
-    const snapshotFills = {};
-    for (const section of sectionsArr) {
-        for (const point of section.h) {
-            if (!snapshotFills[point.i]) {
-                snapshotFills[point.i] = [];
-            }
-            snapshotFills[point.i].push(point.f);
-        }
-    }
-
-    // Sort by snapshot index and compute averages
-    const sortedIndices = Object.keys(snapshotFills).map(Number).sort((a, b) => a - b);
     const labels = [];
     const fillData = [];
     const timestamps = [];
     currentEnrollmentData = [];
 
-    for (const idx of sortedIndices) {
-        const snapshot = data.sn[idx];
+    const averageHistory = course.ah || [];
+    for (const point of averageHistory) {
+        const snapshot = data.sn[point.i];
         if (snapshot) {
-            const fills = snapshotFills[idx];
-            const avgFill = fills.reduce((a, b) => a + b, 0) / fills.length;
             const date = new Date(snapshot.ts);
             timestamps.push(date.getTime());
             labels.push(date.toLocaleDateString('en-US', {
@@ -735,7 +720,7 @@ function showAverageFillChart(courseCode) {
                 hour: '2-digit',
                 minute: '2-digit'
             }));
-            fillData.push(Math.round(avgFill * 100));
+            fillData.push(Math.round(point.f * 100));
             currentEnrollmentData.push({
                 enrollment: null,
                 capacity: null,
@@ -986,6 +971,7 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
  */
 function closeModal() {
     document.getElementById('modalOverlay').classList.remove('active');
+    document.documentElement.classList.remove('modal-open');
     document.body.classList.remove('modal-open');
     selectedCourse = null;
     selectedSection = null;
@@ -1028,6 +1014,13 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('chartContainer').addEventListener('touchend', () => {
     setTimeout(clearChartActiveElements, 100);
 });
+
+document.getElementById('chartContainer').addEventListener('wheel', (e) => {
+    if (chart) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}, { passive: false });
 
 document.querySelector('.modal-body').addEventListener('click', (e) => {
     if (!e.target.closest('#chartContainer')) {

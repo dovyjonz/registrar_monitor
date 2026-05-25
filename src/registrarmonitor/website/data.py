@@ -85,6 +85,91 @@ def _filter_snapshots_to_milestone_window(
     return filtered, index_map
 
 
+def _history_indices_in_milestone_window(
+    snapshots: list[dict[str, Any]],
+    milestones: list[dict[str, str]],
+    buffer_hours: int = 1,
+) -> set[int] | None:
+    """Return snapshot indices inside the milestone window, or None if unfiltered."""
+    if not milestones or not snapshots:
+        return None
+
+    milestone_times = []
+    for m in milestones:
+        try:
+            time_str = m.get("time", "")
+            if time_str:
+                milestone_times.append(datetime.fromisoformat(time_str))
+        except (ValueError, TypeError):
+            continue
+
+    if not milestone_times:
+        return None
+
+    window_start = min(milestone_times) - timedelta(hours=buffer_hours)
+    window_end = max(milestone_times) + timedelta(hours=buffer_hours)
+    keep: set[int] = set()
+    for idx, snapshot in enumerate(snapshots):
+        try:
+            ts = datetime.fromisoformat(snapshot.get("timestamp", ""))
+        except (ValueError, TypeError):
+            continue
+        if window_start <= ts <= window_end:
+            keep.add(idx)
+
+    return keep
+
+
+def _compact_section_history(
+    history: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Keep endpoints plus every enrollment/capacity change and its previous point.
+    """
+    if len(history) <= 2:
+        return history
+
+    keep = {0, len(history) - 1}
+    prev = history[0]
+    for idx in range(1, len(history)):
+        point = history[idx]
+        if point.get("enrollment") != prev.get("enrollment") or point.get(
+            "capacity"
+        ) != prev.get("capacity"):
+            keep.add(idx - 1)
+            keep.add(idx)
+        prev = point
+
+    return [history[idx] for idx in sorted(keep)]
+
+
+def _add_course_average_history(course_data: dict[str, Any]) -> None:
+    """Build course-level average fill history from section histories."""
+    fills_by_snapshot: dict[int, list[float]] = {}
+    for section in course_data["sections"].values():
+        for point in section["history"]:
+            fills_by_snapshot.setdefault(point["snapshotIdx"], []).append(point["fill"])
+
+    average_history = []
+    for snapshot_idx in sorted(fills_by_snapshot):
+        fills = fills_by_snapshot[snapshot_idx]
+        average_history.append(
+            {
+                "snapshotIdx": snapshot_idx,
+                "fill": sum(fills) / len(fills),
+            }
+        )
+    course_data["averageHistory"] = average_history
+
+
+def _compact_histories_for_website(data: dict[str, Any]) -> None:
+    """Add course average histories, then compact per-section histories."""
+    for course_data in data["courses"].values():
+        _add_course_average_history(course_data)
+        for section_data in course_data["sections"].values():
+            section_data["history"] = _compact_section_history(section_data["history"])
+
+
 def _build_course_events(
     semester: str, db: DatabaseManager
 ) -> dict[str, list[dict[str, Any]]]:
@@ -424,48 +509,43 @@ def get_semester_data(semester: str, *, minify: bool = True) -> dict[str, Any]:
                 }
             )
 
-    # Apply milestone-based filtering to trim data outside registration window
+    # Apply milestone-based filtering to trim histories outside registration window.
+    # The snapshots array stays intact so counts and snapshotIdx references remain stable.
     milestones = MILESTONES_MAP.get(semester, [])
     if milestones and data["snapshots"]:
-        filtered_snapshots, old_to_new_idx = _filter_snapshots_to_milestone_window(
+        keep_indices = _history_indices_in_milestone_window(
             data["snapshots"], milestones, buffer_hours=1
         )
+        if keep_indices is not None:
+            for course_data in data["courses"].values():
+                for section_data in course_data["sections"].values():
+                    section_data["history"] = [
+                        entry
+                        for entry in section_data["history"]
+                        if entry["snapshotIdx"] in keep_indices
+                    ]
 
-        # Only apply if filtering actually reduced the data
-        if len(filtered_snapshots) < len(data["snapshots"]):
-            # Update snapshots array
-            data["snapshots"] = filtered_snapshots
+    # Calculate average fill and isFilled for each course
+    for course_data in data["courses"].values():
+        sections = course_data["sections"]
+        if sections:
+            total_fill = sum(s["currentFill"] for s in sections.values())
+            course_data["averageFill"] = total_fill / len(sections)
 
-            # Remap history indices for all sections
-            for course_code, course_data in data["courses"].items():
-                for section_code, section_data in course_data["sections"].items():
-                    remapped_history = []
-                    for entry in section_data["history"]:
-                        old_idx = entry["snapshotIdx"]
-                        if old_idx in old_to_new_idx:
-                            entry["snapshotIdx"] = old_to_new_idx[old_idx]
-                            remapped_history.append(entry)
-                    section_data["history"] = remapped_history
+            # Compute isFilled: True when all sections of at least one type are >= 100%
+            sections_by_type: dict[str, list[float]] = {}
+            for section in sections.values():
+                sec_type = section.get("type", "")
+                if sec_type not in sections_by_type:
+                    sections_by_type[sec_type] = []
+                sections_by_type[sec_type].append(section["currentFill"])
 
-        # Calculate average fill and isFilled for each course
-        for course_code, course_data in data["courses"].items():
-            sections = course_data["sections"]
-            if sections:
-                total_fill = sum(s["currentFill"] for s in sections.values())
-                course_data["averageFill"] = total_fill / len(sections)
+            course_data["isFilled"] = any(
+                fills and all(f >= 1.0 for f in fills)
+                for fills in sections_by_type.values()
+            )
 
-                # Compute isFilled: True when all sections of at least one type are >= 100%
-                sections_by_type: dict[str, list[float]] = {}
-                for section in sections.values():
-                    sec_type = section.get("type", "")
-                    if sec_type not in sections_by_type:
-                        sections_by_type[sec_type] = []
-                    sections_by_type[sec_type].append(section["currentFill"])
-
-                course_data["isFilled"] = any(
-                    fills and all(f >= 1.0 for f in fills)
-                    for fills in sections_by_type.values()
-                )
+    _compact_histories_for_website(data)
 
     # Build and attach course events
     try:

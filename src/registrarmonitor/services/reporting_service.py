@@ -174,13 +174,16 @@ class ReportingService:
             self.logger.error(f"Failed to generate comparison report: {e}")
             return False, None
 
-    async def run_stateful_report_cycle(self, debug_mode: bool = False) -> bool:
+    async def run_stateful_report_cycle(
+        self, *, send_telegram: bool = True, debug_mode: bool = False
+    ) -> bool:
         """
         Run a stateful reporting cycle (only report if changes detected).
 
         This method replaces the old StatefulReporter.
 
         Args:
+            send_telegram: Whether to send generated reports via Telegram
             debug_mode: If True, does not send to Telegram
 
         Returns:
@@ -248,7 +251,7 @@ class ReportingService:
             success, _ = await self.generate_and_send_reports(
                 current_snapshot=current_snapshot,
                 previous_snapshot=previous_snapshot,
-                send_telegram=True,
+                send_telegram=send_telegram,
                 debug_mode=debug_mode,
             )
 

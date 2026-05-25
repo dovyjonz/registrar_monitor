@@ -53,12 +53,6 @@ monitor deploy
 monitor db stats
 ```
 
-Aliases exist for common workflows:
-
-- `monitor fetch` is an alias for `monitor poll`.
-- `monitor sync` is an alias for `monitor run`.
-- `monitor website` is an alias for `monitor deploy`.
-
 ## Implementation Notes
 
 - Treat SQLite as the source of truth for enrollment snapshots. Do not introduce
