@@ -12,7 +12,7 @@ dependencies = [
     "fpdf",
     "httpx",
     "types-toml>=0.10.8.20240310",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     "jinja2>=3.1.6",
 ]
 
@@ -75,7 +75,7 @@ dev = [
     "ruff>=0.12.7",
     "ty>=0.0.1a16",
     "types-fpdf2",
-    "pytest>=7.0.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "pre-commit>=4.0.0",
