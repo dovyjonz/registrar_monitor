@@ -30,7 +30,7 @@ echo ""
 # Test the reporter first
 echo "Testing stateful reporter..."
 cd "$PROJECT_DIR"
-if uv run monitor report --stateful --debug > /dev/null 2>&1; then
+if uv run monitor --debug report --stateful > /dev/null 2>&1; then
     echo "✅ Stateful reporter test successful"
 else
     echo "❌ Stateful reporter test failed"

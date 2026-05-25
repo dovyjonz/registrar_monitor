@@ -1,10 +1,10 @@
 # Registrar Monitor
 
-A Python application for monitoring university registrar enrollment data. Downloads enrollment data, processes it into a SQLite database, generates text change reports, and sends notifications via Telegram. Features a modern CLI with debug modes, automated scheduling, and a static website dashboard.
+A Python application for monitoring university registrar enrollment data. Downloads enrollment data, processes it into a SQLite database, generates text change reports, and sends notifications via Telegram. Features a modern CLI with global debug mode, automated scheduling, and a static website dashboard.
 
 ## Features
 
-- **Modern CLI**: Clean command-line interface with subcommands and debug modes
+- **Modern CLI**: Clean command-line interface with subcommands and global debug mode
 - **Data Processing**: Parse Excel enrollment data and create structured snapshots in SQLite
 - **Change Detection**: Compare snapshots to identify new, removed, or modified courses/sections
 - **Text Reports**: Generate compact, emoji-based change summaries
@@ -51,9 +51,7 @@ Keep real credentials out of `settings.toml`; it only contains non-secret defaul
 ```bash
 # Download and process enrollment data
 monitor poll
-monitor fetch                    # Alias for poll
 monitor poll --file data.xlsx      # Process specific file
-monitor poll --debug               # Verbose output
 
 # Generate and send text reports
 monitor report                     # Generate and send to Telegram
@@ -62,7 +60,6 @@ monitor report --stateful          # Only report if changes detected
 
 # Complete workflow (poll + report)
 monitor run
-monitor sync                      # Alias for run
 monitor run --no-telegram
 
 # Check course status
@@ -89,19 +86,18 @@ monitor db migrate                 # Migrate legacy JSON files to database
 
 ```bash
 monitor deploy                     # Generate website
-monitor website                    # Alias for deploy
 monitor deploy --deploy            # Generate and deploy to Cloudflare
 monitor deploy --semester fall2025 # Generate for specific semester
 ```
 
 ### Debug Mode
 
-Add `--debug` to any command for verbose output:
+Put `--debug` before the command for verbose output:
 
 ```bash
-monitor poll --debug
-monitor report --debug
-monitor schedule --debug
+monitor --debug poll
+monitor --debug report
+monitor --debug schedule
 ```
 
 ## Architecture
@@ -118,16 +114,16 @@ Registrar URL → Excel Download → Parse & Process → SQLite Database
 
 ```
 monitor
-├── poll [--file PATH] [--debug]
-├── status COURSES... [--semester] [--debug]
-├── report [--debug] [--no-telegram] [--stateful]
-├── run [--debug] [--no-telegram]
-├── schedule [--no-telegram] [--debug]
-├── deploy [--deploy] [--semester] [--force] [--minify] [--debug]
+├── [--debug] poll [--file PATH]
+├── [--debug] status COURSES... [--semester]
+├── [--debug] report [--no-telegram] [--stateful]
+├── [--debug] run [--no-telegram]
+├── [--debug] schedule [--no-telegram]
+├── [--debug] deploy [--deploy] [--semester] [--force] [--minify]
 └── db
-    ├── stats [--debug]
-    ├── cleanup [--keep COUNT] [--debug]
-    └── migrate [--debug]
+    ├── stats
+    ├── cleanup [--keep COUNT]
+    └── migrate
 ```
 
 ### Key Design Decisions
@@ -175,6 +171,8 @@ uv sync --group dev
 | `ruff` | Formatting       | `uv run ruff format` |
 | `ty`   | Type checking    | `uv run ty check`    |
 | `pytest` | Testing        | `uv run pytest`      |
+| `pre-commit` | Local quality hooks | `uv run pre-commit run --all-files` |
+| `eslint` | Website linting | `npm --prefix assets/website run lint` |
 | `vite` | Website build    | `npm --prefix assets/website run build` |
 
 Convenience `make` targets wrap the common commands:
@@ -184,17 +182,26 @@ make format
 make lint
 make type
 make test
+make website-lint
 make website-build
 make check
 ```
 
 ### Pre-commit Checklist
 
-1. Format: `uv run ruff format`
-2. Lint: `uv run ruff check`
-3. Type check: `uv run ty check`
-4. Test: `uv run pytest`
-5. Website build when dashboard code changed: `npm --prefix assets/website run build`
+Install hooks once:
+
+```bash
+uv run pre-commit install
+```
+
+Run all hooks before committing:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+The hooks cover Ruff formatting/linting, TOML/YAML/basic file hygiene, private-key detection, type checking, and website linting. For larger changes, also run `make check`.
 
 ### VPS Deployment
 

@@ -69,11 +69,6 @@ class SchedulingLevel(Enum):
         return self._interval < other._interval
 
 
-# Backwards compatibility aliases
-ZoneType = SchedulingLevel
-ActivityTier = SchedulingLevel
-
-
 # Cache storage
 # Key: absolute file path
 # Value: dict with keys:
@@ -103,7 +98,7 @@ def merge_time_windows(
 
 def parse_schedule_file(
     force_reload: bool = False,
-) -> dict[ZoneType, list[tuple[datetime.datetime, datetime.datetime]]]:
+) -> dict[SchedulingLevel, list[tuple[datetime.datetime, datetime.datetime]]]:
     """
     Build scheduler zones from milestones and deadlines defined in settings.toml.
     Both deadlines and milestones are treated as milestones and mapped to the HOT zone.
@@ -130,8 +125,8 @@ def parse_schedule_file(
             pass
 
     # ---- load settings.toml ----
-    zones: dict[ZoneType, list[tuple[datetime.datetime, datetime.datetime]]] = {
-        zone_type: [] for zone_type in ZoneType
+    zones: dict[SchedulingLevel, list[tuple[datetime.datetime, datetime.datetime]]] = {
+        zone_type: [] for zone_type in SchedulingLevel
     }
 
     current_mtime = 0.0
@@ -359,11 +354,6 @@ class SchedulingDecision:
         self.reactive_level = reactive_level
         self.final_level = final_level
         self.final_interval = final_interval
-        # Backwards compatibility aliases
-        self.predicted_tier = baseline_level
-        self.reactive_tier = reactive_level
-        self.final_tier = final_level
-        self.zone_type = final_level
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON logging."""
@@ -1461,10 +1451,6 @@ class TwoPhaseScheduler:
             print("  No decisions logged yet.")
 
 
-# Alias for backward compatibility
-TaskScheduler = TwoPhaseScheduler
-
-
 def is_extreme_zone() -> bool:
     """
     Checks if the current time falls within any extreme zone.
@@ -1485,7 +1471,7 @@ def is_hot_zone() -> bool:
     return get_current_zone_type() == SchedulingLevel.HOT
 
 
-def get_next_zone_change() -> tuple[datetime.datetime | None, ZoneType]:
+def get_next_zone_change() -> tuple[datetime.datetime | None, SchedulingLevel]:
     """
     Get the next time when the zone type will change.
 
@@ -1531,7 +1517,7 @@ if __name__ == "__main__":
             print(f"Baseline interval: {baseline_level.interval}s")
             print()
 
-            for zone_type in ZoneType:
+            for zone_type in SchedulingLevel:
                 zone_list = zones[zone_type]
                 if zone_list:
                     print(

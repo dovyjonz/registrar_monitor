@@ -7,11 +7,11 @@ This application can poll for enrollment data, generate reports, and send
 notifications via Telegram.
 
 Usage:
-    monitor poll [--file PATH] [--debug]
-    monitor report [--debug] [--no-telegram]
-    monitor run [--debug] [--no-telegram]
-    monitor schedule [--debug]
-    monitor db {stats,cleanup,migrate} [--debug] [--keep COUNT]
+    monitor [--debug] poll [--file PATH]
+    monitor [--debug] report [--no-telegram]
+    monitor [--debug] run [--no-telegram]
+    monitor [--debug] schedule
+    monitor [--debug] db {stats,cleanup,migrate} [--keep COUNT]
 """
 
 import argparse
@@ -38,18 +38,18 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  monitor fetch                         # Download latest enrollment data (alias for poll)
-  monitor fetch --file data.xlsx        # Process specific file
+  monitor poll                          # Download latest enrollment data
+  monitor poll --file data.xlsx         # Process specific file
   monitor status "CSCI 101"             # Check status of specific course
   monitor report                        # Generate and send reports
   monitor report --no-telegram          # Generate reports without sending
-  monitor sync                          # Complete process (fetch + report) (alias for run)
+  monitor run                           # Complete process (poll + report)
   monitor schedule                      # Run the scheduler
   monitor db stats                      # Show database statistics
-  monitor plot "CSCI 101"               # Plot course history
 
 Debug Mode:
-  Use --debug with any command to enable verbose output.
+  Use --debug before the command to enable verbose output:
+  monitor --debug poll
 
 Telegram Control:
   Use --no-telegram with report/run commands to generate reports locally.
@@ -80,8 +80,7 @@ Telegram Control:
     # Poll command
     poll_parser = subparsers.add_parser(
         "poll",
-        aliases=["fetch"],
-        help="Download and process enrollment data (alias: fetch)",
+        help="Download and process enrollment data",
         description="Poll for new enrollment data from the registrar",
     )
     poll_parser.add_argument(
@@ -89,11 +88,6 @@ Telegram Control:
         type=str,
         metavar="PATH",
         help="Process a specific Excel file instead of downloading latest",
-    )
-    poll_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
     )
     # Status command
     status_parser = subparsers.add_parser(
@@ -111,11 +105,6 @@ Telegram Control:
         type=str,
         help="Specific semester to check (optional)",
     )
-    status_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
-    )
     # Report command
     report_parser = subparsers.add_parser(
         "report",
@@ -132,28 +121,17 @@ Telegram Control:
         action="store_true",
         help="Run in stateful mode (only report if changes detected vs last report)",
     )
-    report_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
-    )
 
     # Run command
     run_parser = subparsers.add_parser(
         "run",
-        aliases=["sync"],
-        help="Run complete process (alias: sync)",
+        help="Run complete process",
         description="Execute the complete workflow: download data and generate reports",
     )
     run_parser.add_argument(
         "--no-telegram",
         action="store_true",
         help="Generate reports without sending to Telegram",
-    )
-    run_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
     )
 
     # Schedule command
@@ -167,16 +145,10 @@ Telegram Control:
         action="store_true",
         help="Run scheduler without sending Telegram reports",
     )
-    schedule_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
-    )
 
     # Deploy command
     deploy_parser = subparsers.add_parser(
         "deploy",
-        aliases=["website"],
         help="Generate and deploy the website",
         description="Generate the enrollment website and optionally deploy to Cloudflare Pages",
     )
@@ -211,11 +183,6 @@ Telegram Control:
         type=str,
         help="Branch name for deployment",
     )
-    deploy_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
-    )
 
     # Database commands
     db_parser = subparsers.add_parser(
@@ -230,15 +197,10 @@ Telegram Control:
     )
 
     # Database stats
-    stats_parser = db_subparsers.add_parser(
+    db_subparsers.add_parser(
         "stats",
         help="Show database statistics",
         description="Display statistics about stored enrollment data",
-    )
-    stats_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
     )
 
     # Database cleanup
@@ -254,59 +216,46 @@ Telegram Control:
         metavar="COUNT",
         help="Number of snapshots to keep (default: 50)",
     )
-    cleanup_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
-    )
 
     # Database migrate
-    migrate_parser = db_subparsers.add_parser(
+    db_subparsers.add_parser(
         "migrate",
         help="Migrate JSON files to database",
         description="Migrate existing JSON enrollment files to the database format",
     )
-    migrate_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode with verbose output",
-    )
-
     return parser
 
 
 async def handle_poll_command(args) -> int:
     """Handle the poll command."""
-    debug = getattr(args, "debug", False) or args.debug
-    command = PollCommand(debug=debug)
+    command = PollCommand(debug=args.debug)
     success = await command.run(file_path=getattr(args, "file", None))
     return 0 if success else 1
 
 
 async def handle_report_command(args) -> int:
     """Handle the report command."""
-    debug = getattr(args, "debug", False) or args.debug
     no_telegram = getattr(args, "no_telegram", False)
     stateful = getattr(args, "stateful", False)
-    command = ReportCommand(debug=debug, no_telegram=no_telegram, stateful=stateful)
+    command = ReportCommand(
+        debug=args.debug, no_telegram=no_telegram, stateful=stateful
+    )
     success = await command.run()
     return 0 if success else 1
 
 
 async def handle_run_command(args) -> int:
     """Handle the run command."""
-    debug = getattr(args, "debug", False) or args.debug
     no_telegram = getattr(args, "no_telegram", False)
-    command = RunCommand(debug=debug, no_telegram=no_telegram)
+    command = RunCommand(debug=args.debug, no_telegram=no_telegram)
     success = await command.run()
     return 0 if success else 1
 
 
 async def handle_schedule_command(args) -> int:
     """Handle the schedule command."""
-    debug = getattr(args, "debug", False) or args.debug
     no_telegram = getattr(args, "no_telegram", False)
-    command = ScheduleCommand(debug=debug, no_telegram=no_telegram)
+    command = ScheduleCommand(debug=args.debug, no_telegram=no_telegram)
     try:
         await command.run()
         return 0
@@ -316,8 +265,7 @@ async def handle_schedule_command(args) -> int:
 
 async def handle_deploy_command(args) -> int:
     """Handle the deploy command."""
-    debug = getattr(args, "debug", False) or args.debug
-    command = DeployCommand(debug=debug)
+    command = DeployCommand(debug=args.debug)
     success = command.run(
         deploy=getattr(args, "deploy", False),
         semester=getattr(args, "semester", None),
@@ -331,8 +279,7 @@ async def handle_deploy_command(args) -> int:
 
 async def handle_status_command(args) -> int:
     """Handle the status command."""
-    debug = getattr(args, "debug", False) or args.debug
-    command = StatusCommand(debug=debug)
+    command = StatusCommand(debug=args.debug)
     success = await command.run(
         courses=args.courses,
         semester=getattr(args, "semester", None),
@@ -342,8 +289,7 @@ async def handle_status_command(args) -> int:
 
 async def handle_db_command(args) -> int:
     """Handle database commands."""
-    debug = getattr(args, "debug", False) or args.debug
-    command = DatabaseCommands(debug=debug)
+    command = DatabaseCommands(debug=args.debug)
 
     if args.db_command == "stats":
         success = await command.stats()
@@ -376,17 +322,17 @@ async def async_main() -> int:
 
     # Handle commands
     try:
-        if args.command in ["poll", "fetch"]:
+        if args.command == "poll":
             return await handle_poll_command(args)
         elif args.command == "status":
             return await handle_status_command(args)
         elif args.command == "report":
             return await handle_report_command(args)
-        elif args.command in ["run", "sync"]:
+        elif args.command == "run":
             return await handle_run_command(args)
         elif args.command == "schedule":
             return await handle_schedule_command(args)
-        elif args.command in ["deploy", "website"]:
+        elif args.command == "deploy":
             return await handle_deploy_command(args)
 
         elif args.command == "db":

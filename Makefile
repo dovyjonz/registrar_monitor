@@ -1,4 +1,4 @@
-.PHONY: help sync format format-check lint type test website-install website-build check
+.PHONY: help sync format format-check lint type test website-install website-lint website-build check
 
 help:
 	@printf '%s\n' \
@@ -10,8 +10,9 @@ help:
 		'  type            Run ty type checks' \
 		'  test            Run pytest' \
 		'  website-install Install website dependencies with npm ci' \
+		'  website-lint    Run website lint checks' \
 		'  website-build   Build website assets' \
-		'  check           Run format-check, lint, type, tests, and website build'
+		'  check           Run format-check, lint, type, tests, website lint, and website build'
 
 sync:
 	uv sync --group dev
@@ -34,7 +35,10 @@ test:
 website-install:
 	npm ci --prefix assets/website
 
+website-lint:
+	npm --prefix assets/website run lint
+
 website-build:
 	npm --prefix assets/website run build
 
-check: format-check lint type test website-build
+check: format-check lint type test website-lint website-build
