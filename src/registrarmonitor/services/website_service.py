@@ -373,7 +373,6 @@ class WebsiteService:
             "public",
             "--project-name",
             project_name,
-            "--minify",
         ]
 
         if branch:

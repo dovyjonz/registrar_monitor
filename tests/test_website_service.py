@@ -134,7 +134,7 @@ def test_deploy_command_refuses_deploy_after_skipped_generation():
     service.deploy.assert_not_called()
 
 
-def test_wrangler_deploy_uses_minify(tmp_path):
+def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(tmp_path):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
 
@@ -142,4 +142,4 @@ def test_wrangler_deploy_uses_minify(tmp_path):
         run.return_value.returncode = 0
         assert service.deploy(project_name="registrar-monitor") is True
 
-    assert "--minify" in run.call_args.args[0]
+    assert "--minify" not in run.call_args.args[0]
