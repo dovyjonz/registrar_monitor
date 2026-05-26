@@ -385,8 +385,20 @@ class WebsiteService:
         env["NO_UPDATE_NOTIFIER"] = "1"
 
         try:
-            # Run inside website_assets_dir where package.json/node_modules are
-            result = subprocess.run(deploy_cmd, cwd=self.website_assets_dir, env=env)
+            # Run inside website_assets_dir where package.json/node_modules are.
+            # Capture output so deployment failures leave the actionable Wrangler
+            # error in scheduler/systemd logs.
+            result = subprocess.run(
+                deploy_cmd,
+                cwd=self.website_assets_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if result.stdout:
+                print(result.stdout.rstrip())
+            if result.stderr:
+                print(result.stderr.rstrip())
             if result.returncode == 0:
                 print("✅ Deployment successful!")
                 return True

@@ -140,6 +140,25 @@ def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(tmp_path):
 
     with patch("subprocess.run") as run:
         run.return_value.returncode = 0
+        run.return_value.stdout = ""
+        run.return_value.stderr = ""
         assert service.deploy(project_name="registrar-monitor") is True
 
     assert "--minify" not in run.call_args.args[0]
+
+
+def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+
+    with patch("subprocess.run") as run:
+        run.return_value.returncode = 1
+        run.return_value.stdout = "stdout details\n"
+        run.return_value.stderr = "stderr details\n"
+
+        assert service.deploy(project_name="registrar-monitor") is False
+
+    output = capsys.readouterr().out
+    assert "stdout details" in output
+    assert "stderr details" in output
+    assert "Deployment failed with exit code: 1" in output
