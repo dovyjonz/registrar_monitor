@@ -11,6 +11,7 @@ from ..models import (
 from ..utils import get_section_type
 from ..validation import validate_directory_exists
 from .database_manager import DatabaseManager
+from .instructor_normalization import aggregate_instructors_by_section
 
 
 class SnapshotProcessor:
@@ -53,6 +54,8 @@ class SnapshotProcessor:
                 timestamp=timestamp, semester=semester, overall_fill=0.0
             )
 
+        normalized_instructors = aggregate_instructors_by_section(filtered_data)
+
         total_enrollment = sum(row.get("Enr", 0) for row in filtered_data)
         total_capacity = sum(row.get("Cap", 0) for row in filtered_data)
 
@@ -87,7 +90,13 @@ class SnapshotProcessor:
             if "Course Title" in first_course_row:
                 course_title = str(first_course_row["Course Title"]).strip()
 
-            fills = [row.get("Fill", 0.0) for row in course_rows]
+            section_rows: dict[str, dict[str, Any]] = {}
+            for row in course_rows:
+                section_id = str(row.get("S/T", "")).strip()
+                if section_id and section_id not in section_rows:
+                    section_rows[section_id] = row
+
+            fills = [row.get("Fill", 0.0) for row in section_rows.values()]
             course_avg_fill = 0.0
             if fills:
                 # Use Decimal for precise mean calculation and rounding
@@ -104,15 +113,16 @@ class SnapshotProcessor:
                 course_title=course_title,
             )
 
-            for section_row in course_rows:
-                section_id = str(section_row.get("S/T", ""))
+            for section_id, section_row in section_rows.items():
                 section = Section(
                     section_id=section_id,
                     section_type=get_section_type(section_id),
                     enrollment=int(section_row.get("Enr", 0)),
                     capacity=int(section_row.get("Cap", 0)),
                     fill=float(section_row.get("Fill", 0.0)),
-                    instructor=section_row.get("Instructor"),
+                    instructor=normalized_instructors.get(
+                        (course_code, section_id), ""
+                    ),
                 )
                 course.sections[section_id] = section
 

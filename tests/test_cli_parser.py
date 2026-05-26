@@ -25,6 +25,7 @@ from registrarmonitor.main import create_parser
         (["db", "stats"], "db"),
         (["db", "cleanup", "--keep", "100"], "db"),
         (["db", "migrate"], "db"),
+        (["db", "dedupe-instructor-changes", "--dry-run"], "db"),
     ],
 )
 def test_canonical_commands_parse(argv, command):

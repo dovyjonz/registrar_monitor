@@ -1,10 +1,12 @@
 """Tests for the database manager module (integration tests with temp SQLite)."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.data.instructor_populator import populate_instructors
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 
 
@@ -354,6 +356,95 @@ class TestStoreEnrollmentSnapshot:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM snapshots")
             assert cursor.fetchone()[0] == 3
+
+    def test_populate_instructors_second_run_is_idempotent(
+        self, db_manager: DatabaseManager, tmp_path: Path
+    ):
+        """Unchanged normalized instructor data should not create repeat changes."""
+        snapshot = EnrollmentSnapshot(
+            timestamp="2024-01-15 10:00:00",
+            semester="Test 2024",
+            overall_fill=0.83,
+            courses={
+                "BUS 101": Course(
+                    "BUS 101",
+                    "BUS",
+                    {"10L": Section("10L", "L", 25, 30, 0.83, "")},
+                    0.83,
+                    "Business",
+                )
+            },
+        )
+        db_manager.store_enrollment_snapshot(snapshot)
+        excel_path = tmp_path / "source.xlsx"
+        excel_path.write_text("placeholder")
+        rows = [
+            {
+                "Course Abbr": "BUS 101",
+                "S/T": "10L",
+                "Instructor": "Smith",
+            },
+            {
+                "Course Abbr": "BUS 101",
+                "S/T": "10L",
+                "Instructor": "Jones",
+            },
+        ]
+
+        with patch(
+            "registrarmonitor.data.instructor_populator.ExcelReader"
+        ) as reader_cls:
+            reader_cls.return_value.read_excel_data.return_value = (None, None, rows)
+            assert populate_instructors(str(db_manager.db_path), str(excel_path))
+            assert populate_instructors(str(db_manager.db_path), str(excel_path))
+
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT instructor FROM sections")
+            assert cursor.fetchone()[0] == "Smith, Jones"
+            cursor.execute("SELECT COUNT(*) FROM instructor_changes")
+            assert cursor.fetchone()[0] == 1
+
+    def test_dedupe_instructor_changes_removes_only_consecutive_duplicates(
+        self, db_manager: DatabaseManager
+    ):
+        course_id = db_manager.insert_course("BUS 101", "Business", "BUS")
+        section_id = db_manager.insert_section(course_id, "10L", "L")
+
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany(
+                """
+                INSERT INTO instructor_changes
+                (section_id, old_instructor, new_instructor, timestamp)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (section_id, "A", "B", "2024-01-15T10:00:00"),
+                    (section_id, "A", "B", "2024-01-15T10:01:00"),
+                    (section_id, "B", "A", "2024-01-15T10:02:00"),
+                    (section_id, "A", "B", "2024-01-15T10:03:00"),
+                ],
+            )
+            conn.commit()
+
+        assert db_manager.dedupe_instructor_changes(dry_run=True) == 1
+        assert db_manager.dedupe_instructor_changes(dry_run=False) == 1
+
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT old_instructor, new_instructor
+                FROM instructor_changes
+                ORDER BY timestamp ASC, change_id ASC
+                """
+            )
+            assert [tuple(row) for row in cursor.fetchall()] == [
+                ("A", "B"),
+                ("B", "A"),
+                ("A", "B"),
+            ]
 
 
 class TestDetermineStatus:

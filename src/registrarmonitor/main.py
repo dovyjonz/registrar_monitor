@@ -11,7 +11,7 @@ Usage:
     monitor [--debug] report [--no-telegram]
   monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
-    monitor [--debug] db {stats,cleanup,migrate} [--keep COUNT]
+    monitor [--debug] db {stats,cleanup,migrate,dedupe-instructor-changes} [--keep COUNT]
 """
 
 import argparse
@@ -228,6 +228,17 @@ Telegram Control:
         help="Migrate JSON files to database",
         description="Migrate existing JSON enrollment files to the database format",
     )
+
+    dedupe_parser = db_subparsers.add_parser(
+        "dedupe-instructor-changes",
+        help="Remove repeated instructor change artifacts",
+        description="Delete consecutive duplicate instructor_changes rows while preserving real toggles",
+    )
+    dedupe_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report duplicate count without deleting rows",
+    )
     return parser
 
 
@@ -304,6 +315,10 @@ async def handle_db_command(args) -> int:
         success = await command.cleanup(keep_count=keep_count)
     elif args.db_command == "migrate":
         success = command.migrate()
+    elif args.db_command == "dedupe-instructor-changes":
+        success = await command.dedupe_instructor_changes(
+            dry_run=getattr(args, "dry_run", False)
+        )
     else:
         print("❌ Invalid database command")
         return 1

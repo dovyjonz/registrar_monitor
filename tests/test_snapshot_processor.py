@@ -195,3 +195,76 @@ class TestProcessData:
         assert len(snapshot.courses) == 1
         assert "CS 101" in snapshot.courses
         assert "CS 501" not in snapshot.courses
+
+    def test_aggregates_multiple_instructor_rows_for_same_section(
+        self, processor: SnapshotProcessor
+    ):
+        """Multiple raw instructor rows for one section should produce one stable string."""
+        data = [
+            {
+                "Course Abbr": "BUS 101",
+                "S/T": "10L",
+                "Enr": 25,
+                "Cap": 30,
+                "Fill": 0.83,
+                "Instructor": "Smith",
+                "Level": "UG",
+                "Course Title": "Business",
+            },
+            {
+                "Course Abbr": "BUS 101",
+                "S/T": "10L",
+                "Enr": 25,
+                "Cap": 30,
+                "Fill": 0.83,
+                "Instructor": "Jones",
+                "Level": "UG",
+                "Course Title": "Business",
+            },
+            {
+                "Course Abbr": "BUS 101",
+                "S/T": "10L",
+                "Enr": 25,
+                "Cap": 30,
+                "Fill": 0.83,
+                "Instructor": "TBA",
+                "Level": "UG",
+                "Course Title": "Business",
+            },
+        ]
+
+        snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
+
+        course = snapshot.courses["BUS 101"]
+        assert len(course.sections) == 1
+        assert course.sections["10L"].instructor == "Smith, Jones"
+
+    def test_tba_and_empty_instructors_normalize_to_empty(
+        self, processor: SnapshotProcessor
+    ):
+        data = [
+            {
+                "Course Abbr": "BUS 101",
+                "S/T": "10L",
+                "Enr": 25,
+                "Cap": 30,
+                "Fill": 0.83,
+                "Instructor": "TBA TBA",
+                "Level": "UG",
+                "Course Title": "Business",
+            },
+            {
+                "Course Abbr": "BUS 101",
+                "S/T": "10L",
+                "Enr": 25,
+                "Cap": 30,
+                "Fill": 0.83,
+                "Instructor": "",
+                "Level": "UG",
+                "Course Title": "Business",
+            },
+        ]
+
+        snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
+
+        assert snapshot.courses["BUS 101"].sections["10L"].instructor == ""

@@ -162,10 +162,31 @@ def _add_course_average_history(course_data: dict[str, Any]) -> None:
     course_data["averageHistory"] = average_history
 
 
+def _compact_average_history(
+    history: list[dict[str, Any]], *, tolerance: float = 1e-9
+) -> list[dict[str, Any]]:
+    """Keep endpoints plus points where average fill changes."""
+    if len(history) <= 2:
+        return history
+
+    keep = {0, len(history) - 1}
+    prev_fill = history[0].get("fill", 0.0)
+    for idx in range(1, len(history)):
+        fill = history[idx].get("fill", 0.0)
+        if abs(fill - prev_fill) > tolerance:
+            keep.add(idx)
+        prev_fill = fill
+
+    return [history[idx] for idx in sorted(keep)]
+
+
 def _compact_histories_for_website(data: dict[str, Any]) -> None:
     """Add course average histories, then compact per-section histories."""
     for course_data in data["courses"].values():
         _add_course_average_history(course_data)
+        course_data["averageHistory"] = _compact_average_history(
+            course_data["averageHistory"]
+        )
         for section_data in course_data["sections"].values():
             section_data["history"] = _compact_section_history(section_data["history"])
 
@@ -197,136 +218,124 @@ def _build_course_events(
         )
         snapshots = cursor.fetchall()
 
-        if len(snapshots) < 2:
-            return events_by_course
-
-        # Pre-fetch all enrollment data grouped by snapshot
-        # For each snapshot, build: { (course_code, section_code): {enrollment, capacity, instructor} }
-        def _get_snapshot_state(
-            snapshot_id: int,
-        ) -> dict[str, dict[str, dict[str, Any]]]:
-            """Get state of all courses/sections for a snapshot.
-            Returns: { course_code: { section_code: { enrollment, capacity, instructor } } }
-            """
-            cursor.execute(
-                """
-                SELECT c.course_code, s.section_code, s.instructor,
-                       ed.enrollment_count, ed.capacity_count
-                FROM enrollment_data ed
-                JOIN sections s ON ed.section_id = s.section_id
-                JOIN courses c ON s.course_id = c.course_id
-                WHERE ed.snapshot_id = ?
-                """,
-                (snapshot_id,),
-            )
-            state: dict[str, dict[str, dict[str, Any]]] = {}
-            for row in cursor.fetchall():
-                course_code, section_code, instructor, enrollment, capacity = row
-                if course_code not in state:
-                    state[course_code] = {}
-                state[course_code][section_code] = {
-                    "enrollment": enrollment,
-                    "capacity": capacity,
-                    "instructor": instructor or "",
-                }
-            return state
-
-        prev_state = _get_snapshot_state(snapshots[0][0])
-
-        for i in range(1, len(snapshots)):
-            snapshot_id = snapshots[i][0]
-            snapshot_ts = snapshots[i][1]
-            curr_state = _get_snapshot_state(snapshot_id)
-
-            prev_courses = set(prev_state.keys())
-            curr_courses = set(curr_state.keys())
-
-            # Course added
-            for cc in curr_courses - prev_courses:
-                events_by_course.setdefault(cc, []).append(
-                    {
-                        "eventType": "course_added",
-                        "snapshotTimestamp": snapshot_ts,
-                    }
+        if len(snapshots) >= 2:
+            # Pre-fetch all enrollment data grouped by snapshot.
+            def _get_snapshot_state(
+                snapshot_id: int,
+            ) -> dict[str, dict[str, dict[str, Any]]]:
+                """Get state of all courses/sections for a snapshot."""
+                cursor.execute(
+                    """
+                    SELECT c.course_code, s.section_code,
+                           ed.enrollment_count, ed.capacity_count
+                    FROM enrollment_data ed
+                    JOIN sections s ON ed.section_id = s.section_id
+                    JOIN courses c ON s.course_id = c.course_id
+                    WHERE ed.snapshot_id = ?
+                    """,
+                    (snapshot_id,),
                 )
-
-            # Course removed
-            for cc in prev_courses - curr_courses:
-                events_by_course.setdefault(cc, []).append(
-                    {
-                        "eventType": "course_removed",
-                        "snapshotTimestamp": snapshot_ts,
+                state: dict[str, dict[str, dict[str, Any]]] = {}
+                for row in cursor.fetchall():
+                    course_code, section_code, enrollment, capacity = row
+                    if course_code not in state:
+                        state[course_code] = {}
+                    state[course_code][section_code] = {
+                        "enrollment": enrollment,
+                        "capacity": capacity,
                     }
-                )
+                return state
 
-            # Diff sections for courses present in both
-            for cc in curr_courses & prev_courses:
-                prev_sections = set(prev_state[cc].keys())
-                curr_sections = set(curr_state[cc].keys())
+            prev_state = _get_snapshot_state(snapshots[0][0])
 
-                # Section added
-                for sc in curr_sections - prev_sections:
+            for i in range(1, len(snapshots)):
+                snapshot_id = snapshots[i][0]
+                snapshot_ts = snapshots[i][1]
+                curr_state = _get_snapshot_state(snapshot_id)
+
+                prev_courses = set(prev_state.keys())
+                curr_courses = set(curr_state.keys())
+
+                # Course added
+                for cc in curr_courses - prev_courses:
                     events_by_course.setdefault(cc, []).append(
                         {
-                            "eventType": "section_added",
-                            "sectionCode": sc,
+                            "eventType": "course_added",
                             "snapshotTimestamp": snapshot_ts,
                         }
                     )
 
-                # Section removed
-                for sc in prev_sections - curr_sections:
+                # Course removed
+                for cc in prev_courses - curr_courses:
                     events_by_course.setdefault(cc, []).append(
                         {
-                            "eventType": "section_removed",
-                            "sectionCode": sc,
+                            "eventType": "course_removed",
                             "snapshotTimestamp": snapshot_ts,
                         }
                     )
 
-                # Diff shared sections for capacity and instructor changes
-                for sc in curr_sections & prev_sections:
-                    prev_sec = prev_state[cc][sc]
-                    curr_sec = curr_state[cc][sc]
+                # Diff sections for courses present in both
+                for cc in curr_courses & prev_courses:
+                    prev_sections = set(prev_state[cc].keys())
+                    curr_sections = set(curr_state[cc].keys())
 
-                    # Capacity changed
-                    if prev_sec["capacity"] != curr_sec["capacity"]:
+                    # Section added
+                    for sc in curr_sections - prev_sections:
                         events_by_course.setdefault(cc, []).append(
                             {
-                                "eventType": "capacity_changed",
+                                "eventType": "section_added",
                                 "sectionCode": sc,
-                                "oldValue": str(prev_sec["capacity"]),
-                                "newValue": str(curr_sec["capacity"]),
                                 "snapshotTimestamp": snapshot_ts,
                             }
                         )
 
-                    # Instructor changed
-                    if prev_sec["instructor"] != curr_sec["instructor"]:
+                    # Section removed
+                    for sc in prev_sections - curr_sections:
                         events_by_course.setdefault(cc, []).append(
                             {
-                                "eventType": "instructor_changed",
+                                "eventType": "section_removed",
                                 "sectionCode": sc,
-                                "oldValue": prev_sec["instructor"] or "TBA",
-                                "newValue": curr_sec["instructor"] or "TBA",
                                 "snapshotTimestamp": snapshot_ts,
                             }
                         )
 
-            prev_state = curr_state
+                    # Diff shared sections for capacity changes.
+                    for sc in curr_sections & prev_sections:
+                        prev_sec = prev_state[cc][sc]
+                        curr_sec = curr_state[cc][sc]
+
+                        if prev_sec["capacity"] != curr_sec["capacity"]:
+                            events_by_course.setdefault(cc, []).append(
+                                {
+                                    "eventType": "capacity_changed",
+                                    "sectionCode": sc,
+                                    "oldValue": str(prev_sec["capacity"]),
+                                    "newValue": str(curr_sec["capacity"]),
+                                    "snapshotTimestamp": snapshot_ts,
+                                }
+                            )
+
+                prev_state = curr_state
 
         # Query historical instructor changes from the dedicated instructor_changes table
         try:
             cursor.execute(
                 """
-                SELECT c.course_code, s.section_code, ic.old_instructor, ic.new_instructor, ic.timestamp
+                SELECT ic.section_id, c.course_code, s.section_code,
+                       ic.old_instructor, ic.new_instructor, ic.timestamp
                 FROM instructor_changes ic
                 JOIN sections s ON ic.section_id = s.section_id
                 JOIN courses c ON s.course_id = c.course_id
+                ORDER BY ic.section_id ASC, ic.timestamp ASC, ic.change_id ASC
                 """
             )
+            last_transition_by_section: dict[int, tuple[str, str]] = {}
             for row in cursor.fetchall():
-                cc, sc, old_val, new_val, ts = row
+                section_id, cc, sc, old_val, new_val, ts = row
+                transition = (old_val or "", new_val or "")
+                if last_transition_by_section.get(section_id) == transition:
+                    continue
+                last_transition_by_section[section_id] = transition
                 events_by_course.setdefault(cc, []).append(
                     {
                         "eventType": "instructor_changed",

@@ -134,9 +134,23 @@ def test_deploy_command_refuses_deploy_after_skipped_generation():
     service.deploy.assert_not_called()
 
 
-def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(tmp_path):
+def test_deploy_missing_cloudflare_api_token_skips_wrangler(tmp_path, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+
+    with patch("subprocess.run") as run:
+        assert service.deploy(project_name="registrar-monitor") is False
+
+    run.assert_not_called()
+
+
+def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(
+    tmp_path, monkeypatch
+):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
 
     with patch("subprocess.run") as run:
         run.return_value.returncode = 0
@@ -147,9 +161,10 @@ def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(tmp_path):
     assert "--minify" not in run.call_args.args[0]
 
 
-def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys):
+def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
 
     with patch("subprocess.run") as run:
         run.return_value.returncode = 1
@@ -162,3 +177,25 @@ def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys):
     assert "stdout details" in output
     assert "stderr details" in output
     assert "Deployment failed with exit code: 1" in output
+
+
+def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+
+    with patch("subprocess.run") as run:
+        run.return_value.returncode = 0
+        run.return_value.stdout = ""
+        run.return_value.stderr = ""
+        assert service.deploy(project_name="registrar-monitor") is True
+
+    assert run.call_args.args[0] == [
+        "npx",
+        "wrangler",
+        "pages",
+        "deploy",
+        "public",
+        "--project-name",
+        "registrar-monitor",
+    ]

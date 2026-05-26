@@ -380,6 +380,14 @@ class WebsiteService:
 
         # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
         env = os.environ.copy()
+        if not env.get("CLOUDFLARE_API_TOKEN", "").strip():
+            print("❌ Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN is not set.")
+            print(
+                "   Add CLOUDFLARE_API_TOKEN=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
+            )
+            print("   Then restart the systemd service so EnvironmentFile is reloaded.")
+            return False
+
         env["NODE_OPTIONS"] = "--max_old_space_size=512"
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"

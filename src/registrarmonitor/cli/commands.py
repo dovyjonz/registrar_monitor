@@ -567,6 +567,28 @@ class DatabaseCommands:
             self.logger.error(f"Database migration error: {e}")
             return False
 
+    async def dedupe_instructor_changes(self, *, dry_run: bool = False) -> bool:
+        """Remove consecutive duplicate instructor change records."""
+        try:
+            detected_semester = await detect_active_semester(self.debug)
+            db_manager = DatabaseManager(semester=detected_semester)
+            duplicate_count = db_manager.dedupe_instructor_changes(dry_run=dry_run)
+
+            if dry_run:
+                print(
+                    f"✅ Dry run complete: {duplicate_count} duplicate instructor change row(s) found"
+                )
+            else:
+                print(
+                    f"✅ Removed {duplicate_count} duplicate instructor change row(s)"
+                )
+            return True
+
+        except Exception as e:
+            print(f"❌ Error deduping instructor changes: {e}")
+            self.logger.error(f"Instructor change dedupe error: {e}")
+            return False
+
 
 class StatusCommand:
     """Command for checking status of specific courses."""

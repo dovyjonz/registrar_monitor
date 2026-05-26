@@ -985,6 +985,55 @@ class DatabaseManager:
             self.logger.error(f"Unexpected error during cleanup: {e}")
             raise
 
+    def dedupe_instructor_changes(self, *, dry_run: bool = True) -> int:
+        """
+        Delete consecutive duplicate instructor change rows.
+
+        Duplicates are scoped to one section and only removed when the immediately
+        preceding row has the same old/new transition. Real toggles remain intact.
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT change_id, section_id, old_instructor, new_instructor
+                    FROM instructor_changes
+                    ORDER BY section_id ASC, timestamp ASC, change_id ASC
+                    """
+                )
+
+                duplicate_ids: list[int] = []
+                last_transition_by_section: dict[int, tuple[str, str]] = {}
+                for row in cursor.fetchall():
+                    change_id = int(row["change_id"])
+                    section_id = int(row["section_id"])
+                    transition = (
+                        row["old_instructor"] or "",
+                        row["new_instructor"] or "",
+                    )
+                    if last_transition_by_section.get(section_id) == transition:
+                        duplicate_ids.append(change_id)
+                    else:
+                        last_transition_by_section[section_id] = transition
+
+                if not dry_run and duplicate_ids:
+                    placeholders = ",".join(["?"] * len(duplicate_ids))
+                    cursor.execute(
+                        f"DELETE FROM instructor_changes WHERE change_id IN ({placeholders})",
+                        duplicate_ids,
+                    )
+                    conn.commit()
+
+                return len(duplicate_ids)
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error deduping instructor changes: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Unexpected error deduping instructor changes: {e}")
+            raise
+
     def get_latest_snapshot_id(self) -> Optional[int]:
         """Finds the ID of the most recent snapshot."""
         try:

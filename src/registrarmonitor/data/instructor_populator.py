@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from ..data.excel_reader import ExcelReader
 from ..core import get_logger
+from .instructor_normalization import aggregate_instructors_by_section
 
 logger = get_logger(__name__)
 
@@ -72,24 +73,13 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
             section_map[(c_code, s_code)] = (s_id, inst if inst is not None else "")
 
         # Step 1: Aggregate instructors by section from excel data
-        aggregated_data = {}
+        aggregated_data = aggregate_instructors_by_section(data)
         for row in data:
-            course_code = str(row.get("Course Abbr") or "").strip()
-            section_code = str(row.get("S/T") or "").strip()
-            instructor = row.get("Instructor")
-
-            if not course_code or not section_code:
+            if (
+                not str(row.get("Course Abbr") or "").strip()
+                or not str(row.get("S/T") or "").strip()
+            ):
                 skipped_count += 1
-                continue
-
-            if not isinstance(instructor, str):
-                instructor = ""
-            instructor = instructor.strip()
-
-            key = (course_code, section_code)
-            if key not in aggregated_data:
-                aggregated_data[key] = []
-            aggregated_data[key].append(instructor)
 
         # Step 2: Process the aggregated sections
         updates = []
@@ -98,32 +88,13 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
         seen_section_ids = set()
 
         logger.info("Processing sections for instructor updates...")
-        for (course_code, section_code), raw_instructors in aggregated_data.items():
+        for (course_code, section_code), final_instructor in aggregated_data.items():
             # Lookup the section_id and old instructor
             result = section_map.get((course_code, section_code))
 
             if result:
                 section_id, old_instructor = result
                 seen_section_ids.add(section_id)
-
-                # Process raw instructors to find co-instructors and filter out TBA/empty
-                names = []
-                for inst in raw_instructors:
-                    for part in inst.split(","):
-                        p = part.strip()
-                        if p and p.upper() not in {"TBA", "TBA TBA", "TBA1 TBA1"}:
-                            if p not in names:
-                                names.append(p)
-
-                # If we have valid instructor names, join them. Otherwise, if there was TBA or empty, use empty or TBA
-                if names:
-                    final_instructor = ", ".join(names)
-                else:
-                    non_empty_raws = [r for r in raw_instructors if r]
-                    if non_empty_raws:
-                        final_instructor = non_empty_raws[0]
-                    else:
-                        final_instructor = ""
 
                 if old_instructor != final_instructor:
                     if not dry_run:
