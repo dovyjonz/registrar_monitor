@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.data.snapshot_processor import SnapshotProcessor
 
 

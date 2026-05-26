@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.data.migrate_json_to_db import JSONMigrator
 
 

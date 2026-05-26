@@ -1,4 +1,13 @@
 """Tests for the scheduler module (beyond heat decay)."""
+import pytest
+
+pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _use_mock_decision_logger(mock_decision_logger):
+    """Pull in mock_decision_logger from conftest for this module."""
+
 
 from datetime import datetime
 from unittest.mock import AsyncMock, patch

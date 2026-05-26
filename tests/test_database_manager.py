@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.data.instructor_populator import populate_instructors
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section

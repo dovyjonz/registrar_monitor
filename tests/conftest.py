@@ -311,7 +311,7 @@ def empty_comparison() -> EnrollmentComparison:
     )
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def mock_decision_logger():
     """Prevent DecisionLogger from writing to log files during tests."""
     with (

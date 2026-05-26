@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.services.monitoring_service import MonitoringService
 

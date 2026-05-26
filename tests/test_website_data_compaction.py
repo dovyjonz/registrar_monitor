@@ -1,3 +1,10 @@
+"""Tests."""
+
+import pytest
+
+pytestmark = pytest.mark.unit
+
+
 from registrarmonitor.website.data import (
     _add_course_average_history,
     _build_course_events,

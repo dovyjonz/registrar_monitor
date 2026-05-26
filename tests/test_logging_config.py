@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.core.logging_config import (
     ColoredFormatter,
     get_logger,

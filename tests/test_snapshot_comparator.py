@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.data.snapshot_comparator import SnapshotComparator
 from registrarmonitor.models import (
     Course,

@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.cli.utils import detect_active_semester
 
 

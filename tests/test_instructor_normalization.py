@@ -1,4 +1,8 @@
 """Tests for the instructor normalization module."""
+import pytest
+
+pytestmark = pytest.mark.unit
+
 
 from registrarmonitor.data.instructor_normalization import (
     aggregate_instructors_by_section,

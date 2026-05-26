@@ -1,4 +1,8 @@
 """Tests for the models module (Section, Course, EnrollmentSnapshot dataclasses)."""
+import pytest
+
+pytestmark = pytest.mark.unit
+
 
 from registrarmonitor.models import (
     Course,

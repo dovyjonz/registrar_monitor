@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.models import (
     Course,
     CourseChangeDetail,

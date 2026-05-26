@@ -1,4 +1,8 @@
 """Extended tests for the website service (generate/deploy pathways)."""
+import pytest
+
+pytestmark = pytest.mark.unit
+
 
 import json
 from unittest.mock import MagicMock, patch

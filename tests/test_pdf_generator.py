@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.models import Course, Section
 from registrarmonitor.reporting.pdf_generator import (
     PDFGenerator,

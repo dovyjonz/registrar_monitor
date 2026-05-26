@@ -1,8 +1,14 @@
+"""Tests for the website service."""
+
 from __future__ import annotations
 
 import os
 import subprocess
 from unittest.mock import patch
+
+import pytest
+
+pytestmark = pytest.mark.unit
 
 from registrarmonitor.services.website_service import WebsiteService
 

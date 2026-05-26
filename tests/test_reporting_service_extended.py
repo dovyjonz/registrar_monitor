@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.services.reporting_service import ReportingService
 
 

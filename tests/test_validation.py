@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from registrarmonitor.core.exceptions import FileProcessingError
 from registrarmonitor.validation import (
     validate_directory_exists,
