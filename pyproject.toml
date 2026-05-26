@@ -61,10 +61,10 @@ addopts = [
     "--cov=src/registrarmonitor",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
-    "--cov-fail-under=70",
+    "--cov-fail-under=75",
 ]
+asyncio_mode = "strict"
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
 ]

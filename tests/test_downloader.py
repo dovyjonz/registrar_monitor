@@ -78,3 +78,69 @@ async def test_download_http_error(mock_config, mock_httpx_client):
 
     with pytest.raises(FileProcessingError, match="HTTP error"):
         await downloader.download()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status_code",
+    [400, 403, 404, 429, 500, 502, 503],
+)
+async def test_download_various_http_errors(
+    mock_config, mock_httpx_client, status_code
+):
+    """All HTTP error status codes should raise FileProcessingError."""
+    import httpx
+
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_error = httpx.HTTPStatusError(
+        f"HTTP {status_code}", request=MagicMock(), response=mock_response
+    )
+    mock_response.raise_for_status.side_effect = mock_error
+    mock_httpx_client.get.return_value = mock_response
+
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError, match="HTTP error"):
+        await downloader.download()
+
+
+@pytest.mark.asyncio
+async def test_download_timeout(mock_config, mock_httpx_client):
+    """Timeout should raise FileProcessingError."""
+    import httpx
+
+    mock_httpx_client.get.side_effect = httpx.TimeoutException("Connection timed out")
+
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError, match="timeout"):
+        await downloader.download()
+
+
+@pytest.mark.asyncio
+async def test_download_connect_error(mock_config, mock_httpx_client):
+    """Connection refused should raise FileProcessingError."""
+    import httpx
+
+    mock_httpx_client.get.side_effect = httpx.ConnectError("Connection refused")
+
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError, match="Connection error"):
+        await downloader.download()
+
+
+@pytest.mark.asyncio
+async def test_download_request_error(mock_config, mock_httpx_client):
+    """Generic request errors should raise FileProcessingError."""
+    import httpx
+
+    mock_httpx_client.get.side_effect = httpx.RequestError(
+        "Bad request", request=MagicMock()
+    )
+
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError, match="Request error"):
+        await downloader.download()

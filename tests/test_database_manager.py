@@ -452,21 +452,22 @@ class TestStoreEnrollmentSnapshot:
 class TestDetermineStatus:
     """Tests for _determine_status method."""
 
-    def test_open_status(self, db_manager: DatabaseManager):
-        """Fill below 75% should be OPEN."""
-        assert db_manager._determine_status(0.50) == "OPEN"
-        assert db_manager._determine_status(0.74) == "OPEN"
-
-    def test_near_status(self, db_manager: DatabaseManager):
-        """Fill between 75% and 100% should be NEAR."""
-        assert db_manager._determine_status(0.75) == "NEAR"
-        assert db_manager._determine_status(0.90) == "NEAR"
-        assert db_manager._determine_status(0.99) == "NEAR"
-
-    def test_full_status(self, db_manager: DatabaseManager):
-        """Fill at 100% or above should be FULL."""
-        assert db_manager._determine_status(1.0) == "FULL"
-        assert db_manager._determine_status(1.15) == "FULL"
+    @pytest.mark.parametrize(
+        ("fill", "expected"),
+        [
+            (0.0, "OPEN"),
+            (0.50, "OPEN"),
+            (0.74, "OPEN"),
+            (0.75, "NEAR"),
+            (0.90, "NEAR"),
+            (0.99, "NEAR"),
+            (1.0, "FULL"),
+            (1.15, "FULL"),
+        ],
+    )
+    def test_fill_threshold_boundaries(self, db_manager, fill, expected):
+        """Status should match fill thresholds: <0.75 OPEN, <1.0 NEAR, >=1.0 FULL."""
+        assert db_manager._determine_status(fill) == expected
 
 
 class TestSanitizeSemesterName:
