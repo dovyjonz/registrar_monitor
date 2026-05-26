@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Registrar Monitor",
-  "domain": "UC Berkeley Summer 2026 Registrar enrollment monitoring, snapshot comparison, and reporting",
+  "domain": "Nazarbayev University Summer 2026 Registrar enrollment monitoring, snapshot comparison, and reporting",
   "timezone": "UTC",
   "paths": {
     "raw": "raw",
