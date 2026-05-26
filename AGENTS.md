@@ -69,6 +69,10 @@ monitor db stats
   - `website/` for static page/data generation
 - When adding tests, keep fixtures in `tests/conftest.py` if they are reused.
 
+## Commits
+
+Do not add `Co-Authored-By` trailers to commit messages.
+
 ## Verification
 
 Before handing off code changes, run the narrow relevant checks. For scaffold or
