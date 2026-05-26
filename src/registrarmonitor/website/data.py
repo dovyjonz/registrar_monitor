@@ -174,6 +174,7 @@ def _compact_average_history(
     for idx in range(1, len(history)):
         fill = history[idx].get("fill", 0.0)
         if abs(fill - prev_fill) > tolerance:
+            keep.add(idx - 1)
             keep.add(idx)
         prev_fill = fill
 

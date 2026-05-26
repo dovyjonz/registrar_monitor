@@ -130,6 +130,22 @@ def test_compact_histories_builds_course_average_before_section_compaction():
     ]
 
 
+def test_average_history_compaction_preserves_previous_point_before_change():
+    """When average fill changes, keep the point before the change as anchor for stepped interpolation."""
+    history = [
+        {"snapshotIdx": 0, "fill": 0.0},
+        {"snapshotIdx": 1, "fill": 0.0},
+        {"snapshotIdx": 2, "fill": 0.0},
+        {"snapshotIdx": 3, "fill": 0.4},
+        {"snapshotIdx": 4, "fill": 0.4},
+    ]
+
+    compacted = _compact_average_history(history)
+
+    # idx 0 endpoint, idx 2 is before-change anchor, idx 3 is change, idx 4 endpoint
+    assert [point["snapshotIdx"] for point in compacted] == [0, 2, 3, 4]
+
+
 def test_average_history_compaction_removes_unchanged_middle_points():
     history = [
         {"snapshotIdx": 0, "fill": 0.5},
