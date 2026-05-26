@@ -145,12 +145,25 @@ def test_deploy_missing_cloudflare_api_token_skips_wrangler(tmp_path, monkeypatc
     run.assert_not_called()
 
 
+def test_deploy_missing_cloudflare_account_id_skips_wrangler(tmp_path, monkeypatch):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+
+    with patch("subprocess.run") as run:
+        assert service.deploy(project_name="registrar-monitor") is False
+
+    run.assert_not_called()
+
+
 def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(
     tmp_path, monkeypatch
 ):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
 
     with patch("subprocess.run") as run:
         run.return_value.returncode = 0
@@ -165,6 +178,7 @@ def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys, monkeypat
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
 
     with patch("subprocess.run") as run:
         run.return_value.returncode = 1
@@ -183,6 +197,7 @@ def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
 
     with patch("subprocess.run") as run:
         run.return_value.returncode = 0

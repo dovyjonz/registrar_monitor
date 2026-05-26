@@ -885,7 +885,7 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
             datasets: [{
                 label: chartLabel, data: dataPoints,
                 borderColor: '#ffd700', backgroundColor: 'rgba(255, 215, 0, 0.1)',
-                fill: true, tension: 0.3,
+                fill: true, tension: 0, stepped: 'after',
                 pointStyle: pointStyles, pointRadius: pointRadii, pointHoverRadius: 6,
                 pointBackgroundColor: pointColors, pointBorderColor: pointBorderColors,
                 pointBorderWidth: pointBorderWidths,

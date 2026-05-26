@@ -387,6 +387,16 @@ class WebsiteService:
             )
             print("   Then restart the systemd service so EnvironmentFile is reloaded.")
             return False
+        if not env.get("CLOUDFLARE_ACCOUNT_ID", "").strip():
+            print("❌ Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set.")
+            print(
+                "   Add CLOUDFLARE_ACCOUNT_ID=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
+            )
+            print(
+                "   Wrangler custom API tokens can fail account discovery without it."
+            )
+            print("   Then restart the systemd service so EnvironmentFile is reloaded.")
+            return False
 
         env["NODE_OPTIONS"] = "--max_old_space_size=512"
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
