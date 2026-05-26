@@ -1,4 +1,5 @@
 """Tests for the checksum-based incremental update detection."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

@@ -1,4 +1,5 @@
 """Tests for the utils module (formatting, sorting, analysis functions)."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

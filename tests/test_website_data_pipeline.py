@@ -1,4 +1,5 @@
 """Tests for the website data pipeline helper functions."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

@@ -1,4 +1,5 @@
 """Tests for the scheduler module (beyond heat decay)."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

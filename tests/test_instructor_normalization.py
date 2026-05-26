@@ -1,4 +1,5 @@
 """Tests for the instructor normalization module."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

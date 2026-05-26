@@ -1,4 +1,5 @@
 """Tests for the website template module."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

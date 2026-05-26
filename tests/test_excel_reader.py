@@ -1,4 +1,5 @@
 """Tests for the Excel reader module (with mocked xlrd)."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

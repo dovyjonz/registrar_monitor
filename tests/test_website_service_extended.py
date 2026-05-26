@@ -1,4 +1,5 @@
 """Extended tests for the website service (generate/deploy pathways)."""
+
 import pytest
 
 pytestmark = pytest.mark.unit

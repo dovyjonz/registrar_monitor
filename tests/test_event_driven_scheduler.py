@@ -11,6 +11,7 @@ pytestmark = pytest.mark.unit
 def _use_mock_decision_logger(mock_decision_logger):
     """Pull in mock_decision_logger from conftest for this module."""
 
+
 from registrarmonitor.automation.scheduler import TwoPhaseScheduler, SchedulingLevel
 
 
