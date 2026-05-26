@@ -151,8 +151,10 @@ class TestSinglePollAndProcess:
     @pytest.mark.asyncio
     async def test_download_failure_returns_zero(self):
         scheduler = TwoPhaseScheduler(no_telegram=True)
-        scheduler.downloader.download = AsyncMock(return_value=None)
-        score = await scheduler._single_poll_and_process()
+        with patch.object(
+            scheduler.downloader, "download", AsyncMock(return_value=None)
+        ):
+            score = await scheduler._single_poll_and_process()
         assert score == 0.0
 
     @pytest.mark.asyncio
@@ -161,8 +163,14 @@ class TestSinglePollAndProcess:
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.change_score = 7.5
-        scheduler.downloader.download = AsyncMock(return_value="/tmp/data.xls")
-        with patch("registrarmonitor.cli.commands.PollCommand") as mock_cls:
+        with (
+            patch.object(
+                scheduler.downloader,
+                "download",
+                AsyncMock(return_value="/tmp/data.xls"),
+            ),
+            patch("registrarmonitor.cli.commands.PollCommand") as mock_cls,
+        ):
             mock_cls.return_value.run_with_result = AsyncMock(return_value=mock_result)
             score = await scheduler._single_poll_and_process()
         assert score == 7.5

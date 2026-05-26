@@ -105,6 +105,7 @@ class TestGetLastReportedSnapshotId:
 
     def test_returns_reported_id_after_log_entry(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         seeded_db.add_reporting_log(sid, changes_were_found=True)
         assert seeded_db.get_last_reported_snapshot_id() == sid
 
@@ -114,6 +115,7 @@ class TestAddReportingLog:
 
     def test_adds_entry_to_reporting_log(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         seeded_db.add_reporting_log(sid, changes_were_found=True)
 
         with seeded_db.get_connection() as conn:
@@ -127,6 +129,7 @@ class TestAddReportingLog:
 
     def test_adds_entry_with_no_changes(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         seeded_db.add_reporting_log(sid, changes_were_found=False)
 
         with seeded_db.get_connection() as conn:
@@ -146,6 +149,7 @@ class TestGetSnapshotData:
 
     def test_reconstructs_snapshot(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         snapshot = seeded_db.get_snapshot_data(sid)
 
         assert snapshot is not None
@@ -155,6 +159,7 @@ class TestGetSnapshotData:
 
     def test_includes_courses(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         snapshot = seeded_db.get_snapshot_data(sid)
 
         assert "CS 101" in snapshot.courses
@@ -162,6 +167,7 @@ class TestGetSnapshotData:
 
     def test_includes_sections(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         snapshot = seeded_db.get_snapshot_data(sid)
 
         cs = snapshot.courses["CS 101"]
@@ -172,6 +178,7 @@ class TestGetSnapshotData:
 
     def test_computes_average_fill(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         snapshot = seeded_db.get_snapshot_data(sid)
 
         math = snapshot.courses["MATH 201"]
@@ -199,6 +206,7 @@ class TestGetEnrollmentSummary:
 
     def test_returns_counts_by_status(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         summary = seeded_db.get_enrollment_summary(sid)
 
         # CS 101: 10L=0.83(NEAR), 11L=0.93(NEAR), 1R=0.80(NEAR), MATH 201: 20L=1.0(FULL)
@@ -208,6 +216,7 @@ class TestGetEnrollmentSummary:
 
     def test_all_statuses_present(self, seeded_db: DatabaseManager):
         sid = seeded_db.get_latest_snapshot_id()
+        assert sid is not None
         summary = seeded_db.get_enrollment_summary(sid)
 
         for status in ["OPEN", "NEAR", "FULL"]:

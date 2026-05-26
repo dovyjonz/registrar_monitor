@@ -173,7 +173,6 @@ async def test_send_long_report_two_courses_split_cleanly(reporter):
     split cleanly on the course boundary (second course starts new message)."""
     header = "Previous Snapshot: 2024-01-01\nCurrent Snapshot: 2024-01-02\n"
 
-
     # Build two course blocks each ~2500 chars (exceeds max_length together)
     def make_block(name: str, size: int) -> str:
         first_line = f"{name}\n"
