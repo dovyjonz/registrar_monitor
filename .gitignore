@@ -64,6 +64,9 @@ assets/website/node_modules/
 # Generated schedule file
 schedule.txt
 
+# Generated wiki metadata
+meta/
+
 # Generated deployment files
 scripts/registrarmonitor.service
 

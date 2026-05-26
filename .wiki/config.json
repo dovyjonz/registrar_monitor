@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "title": "Registrar Monitor",
+  "domain": "UC Berkeley Summer 2026 Registrar enrollment monitoring, snapshot comparison, and reporting",
+  "timezone": "UTC",
+  "paths": {
+    "raw": "raw",
+    "wiki": "wiki",
+    "meta": "meta"
+  },
+  "pageTypes": {
+    "source": "wiki/sources",
+    "concept": "wiki/concepts",
+    "entity": "wiki/entities",
+    "synthesis": "wiki/syntheses",
+    "analysis": "wiki/analyses"
+  },
+  "templates": {
+    "source": ".wiki/templates/source.md",
+    "concept": ".wiki/templates/concept.md",
+    "entity": ".wiki/templates/entity.md",
+    "synthesis": ".wiki/templates/synthesis.md",
+    "analysis": ".wiki/templates/analysis.md"
+  },
+  "linkStyle": "wikilink-folder-qualified",
+  "citationStyle": "source-page-id-link",
+  "protect": [
+    "raw/**",
+    "meta/registry.json",
+    "meta/backlinks.json",
+    "meta/events.jsonl",
+    "meta/index.md",
+    "meta/log.md",
+    "meta/lint-report.md"
+  ],
+  "search": {
+    "defaultLimit": 10
+  }
+}
