@@ -40,6 +40,32 @@ make website-build
 make check
 ```
 
+## Website Local Debugging
+
+- To inspect the generated dashboard locally, serve the generated static site,
+  not the Vite asset base:
+
+```bash
+cd assets/website/public
+python3 -m http.server 8000 --bind 127.0.0.1
+```
+
+- Open `http://127.0.0.1:8000/` or a semester page such as
+  `http://127.0.0.1:8000/summer2026.html`.
+- Do not use `http://127.0.0.1:5173/assets/` for generated pages; that path is
+  only the production asset base and will 404 under Vite dev serving.
+- After running `npm --prefix assets/website run build`, make sure generated
+  HTML files point at the current hashed JS/CSS from
+  `assets/website/public/assets/.vite/manifest.json`. If the page stays on
+  "Loading enrollment data...", check the local server log for missing
+  `assets/main-*.js` requests and run:
+
+```bash
+UV_CACHE_DIR=/private/tmp/uv-cache uv run python -c "from registrarmonitor.services.website_service import WebsiteService; WebsiteService()._patch_asset_hashes_in_html()"
+```
+
+- If a browser appears stuck, hard refresh after patching asset hashes.
+
 ## CLI
 
 The package installs the `monitor` command:
@@ -72,6 +98,20 @@ monitor db stats
 ## Commits
 
 Do not add `Co-Authored-By` trailers to commit messages.
+
+## Agent skills
+
+### Issue tracker
+
+Local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ## Verification
 

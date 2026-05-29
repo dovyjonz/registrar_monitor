@@ -6,6 +6,13 @@ import './style.css';
 import Chart from 'chart.js/auto';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import zoomPlugin from 'chartjs-plugin-zoom';
+import {
+    buildAverageChartPoints,
+    buildCourseChartDomain,
+    buildSectionChartPoints,
+    getChartMapper,
+    getXScaleBounds,
+} from './chartMapping.mjs';
 
 Chart.register(annotationPlugin, zoomPlugin);
 
@@ -355,154 +362,6 @@ function openCourse(courseCode) {
     document.body.classList.add('modal-open');
 }
 
-/**
- * Map real timestamps to phased mode (equal segment widths)
- */
-function getPhasedMapper(timestamps, milestones) {
-    if (!milestones || milestones.length < 2) return { xValues: timestamps, mapTime: t => t };
-    
-    const mTimes = milestones.map(m => new Date(m.time).getTime()).sort((a, b) => a - b);
-    const firstData = timestamps.length ? timestamps[0] : mTimes[0];
-    const lastData = timestamps.length ? timestamps[timestamps.length - 1] : mTimes[mTimes.length - 1];
-    
-    const allBounds = [Math.min(firstData, mTimes[0]), ...mTimes, Math.max(lastData, mTimes[mTimes.length - 1])];
-    const bounds = [...new Set(allBounds)].sort((a, b) => a - b);
-    const segCount = bounds.length - 1;
-    if (segCount <= 0) return { xValues: timestamps, mapTime: t => t };
-    
-    const segWidth = 100;
-    const mapTime = (t) => {
-        for (let s = 0; s < segCount; s++) {
-            if (t <= bounds[s + 1]) {
-                const frac = bounds[s+1] === bounds[s] ? 0.5 : (t - bounds[s]) / (bounds[s+1] - bounds[s]);
-                return s * segWidth + frac * segWidth;
-            }
-        }
-        return (segCount - 1) * segWidth + segWidth;
-    };
-    
-    return { xValues: timestamps.map(mapTime), mapTime };
-}
-
-/**
- * Return sorted finite numbers with duplicates removed.
- */
-function getSortedUniqueNumbers(values) {
-    return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);
-}
-
-/**
- * Return the median distance between adjacent values.
- */
-function getMedianPositiveGap(values) {
-    const sorted = getSortedUniqueNumbers(values);
-    const gaps = [];
-    for (let i = 1; i < sorted.length; i++) {
-        const gap = sorted[i] - sorted[i - 1];
-        if (gap > 0) gaps.push(gap);
-    }
-    if (gaps.length === 0) return 0;
-    gaps.sort((a, b) => a - b);
-    const middle = Math.floor(gaps.length / 2);
-    return gaps.length % 2 === 0 ? (gaps[middle - 1] + gaps[middle]) / 2 : gaps[middle];
-}
-
-/**
- * Cap empty timeline gaps relative to observed polling cadence.
- */
-function getAdaptiveTimelineGapCap(timestamps, allTimes) {
-    const oneHour = 60 * 60 * 1000;
-    const oneDay = 24 * oneHour;
-    const medianGap = getMedianPositiveGap(timestamps) || getMedianPositiveGap(allTimes);
-    if (!medianGap) return oneDay;
-    return Math.min(Math.max(medianGap * 6, oneHour), oneDay);
-}
-
-/**
- * Map real timestamps to timeline mode with adaptive empty-gap compression.
- */
-function getTimelineMapper(timestamps, milestones) {
-    const mTimes = (milestones || []).map(m => new Date(m.time).getTime()).filter(Number.isFinite);
-    const snapshotTimes = getSortedUniqueNumbers(timestamps);
-    
-    if (snapshotTimes.length === 0) return { xValues: [], mapTime: t => t };
-
-    const maxGapMs = getAdaptiveTimelineGapCap(snapshotTimes, snapshotTimes);
-    const timeMap = new Map();
-    let currentClipped = snapshotTimes[0];
-    timeMap.set(snapshotTimes[0], currentClipped);
-
-    for (let i = 1; i < snapshotTimes.length; i++) {
-        const diff = snapshotTimes[i] - snapshotTimes[i-1];
-        const effectiveDiff = Math.min(diff, maxGapMs);
-        currentClipped += effectiveDiff;
-        timeMap.set(snapshotTimes[i], currentClipped);
-    }
-
-    return {
-        xValues: timestamps.map(t => timeMap.get(t)),
-        mapTime: t => {
-            if (timeMap.has(t)) return timeMap.get(t);
-            for (let i = 0; i < snapshotTimes.length - 1; i++) {
-                if (t >= snapshotTimes[i] && t <= snapshotTimes[i+1]) {
-                    const frac = (t - snapshotTimes[i]) / (snapshotTimes[i+1] - snapshotTimes[i]);
-                    return timeMap.get(snapshotTimes[i]) + frac * (timeMap.get(snapshotTimes[i+1]) - timeMap.get(snapshotTimes[i]));
-                }
-            }
-            if (t < snapshotTimes[0]) return timeMap.get(snapshotTimes[0]);
-            return timeMap.get(snapshotTimes[snapshotTimes.length - 1]);
-        }
-    };
-}
-
-/**
- * Map real timestamps to snapshot indices
- */
-function getSnapshotsMapper(timestamps) {
-    const mapTime = (t) => {
-        if (timestamps.length === 0) return 0;
-        if (t <= timestamps[0]) return 0;
-        if (t >= timestamps[timestamps.length - 1]) return timestamps.length - 1;
-        
-        for (let i = 0; i < timestamps.length - 1; i++) {
-            if (t >= timestamps[i] && t <= timestamps[i+1]) {
-                const frac = (t - timestamps[i]) / (timestamps[i+1] - timestamps[i]);
-                return i + frac;
-            }
-        }
-        return 0;
-    };
-    
-    return { xValues: timestamps.map((_, i) => i), mapTime };
-}
-
-/**
- * Build stable x-axis bounds and zoom limits for the current mapped chart.
- */
-function getXScaleBounds(xValues) {
-    const sorted = getSortedUniqueNumbers(xValues);
-    if (sorted.length === 0) {
-        return { min: 0, max: 1, minRange: 1 };
-    }
-    if (sorted.length === 1) {
-        const center = sorted[0];
-        return { min: center - 1, max: center + 1, minRange: 1 };
-    }
-
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
-    const range = Math.max(max - min, 1);
-    const medianGap = getMedianPositiveGap(sorted) || range;
-    const padding = Math.min(Math.max(medianGap * 0.5, range * 0.02), range * 0.08);
-    const minRange = Math.min(Math.max(medianGap * 2, range * 0.03), range);
-
-    return {
-        min: min - padding,
-        max: max + padding,
-        minRange: Math.max(minRange, Number.EPSILON),
-    };
-}
-
 function setZoomControlsState(isZoomed) {
     const resetBtn = document.getElementById('chartZoomReset');
     const status = document.getElementById('chartZoomStatus');
@@ -703,35 +562,12 @@ function showAverageFillChart(courseCode) {
     const course = data.cr[courseCode];
     if (!course) return;
 
-    const labels = [];
-    const fillData = [];
-    const timestamps = [];
-    currentEnrollmentData = [];
-
-    const averageHistory = course.ah || [];
-    for (const point of averageHistory) {
-        const snapshot = data.sn[point.i];
-        if (snapshot) {
-            const date = new Date(snapshot.ts);
-            timestamps.push(date.getTime());
-            labels.push(date.toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            }));
-            fillData.push(Math.round(point.f * 100));
-            currentEnrollmentData.push({
-                enrollment: null,
-                capacity: null,
-                prevCapacity: null,
-                capacityChanged: false
-            });
-        }
-    }
+    const chartPoints = buildAverageChartPoints(course, data.sn);
+    const chartDomain = buildCourseChartDomain(course, data.sn);
+    currentEnrollmentData = chartPoints;
 
     document.getElementById('chartLegend').classList.remove('visible');
-    renderChart(courseCode, labels, fillData, timestamps, false);
+    renderChart(courseCode, chartPoints, chartDomain, false);
 }
 
 /**
@@ -760,64 +596,32 @@ function selectSection(sectionCode) {
 
     const section = data.cr[selectedCourse].s[sectionCode];
 
-    // Prepare chart data with capacity change tracking
-    const labels = [];
-    const fillData = [];
-    const timestamps = [];
-    currentEnrollmentData = [];
-    let prevCapacity = null;
-
-    for (const point of section.h) {
-        const snapshot = data.sn[point.i];
-        if (snapshot) {
-            const date = new Date(snapshot.ts);
-            timestamps.push(date.getTime());
-            labels.push(date.toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            }));
-            fillData.push(Math.round(point.f * 100));
-
-            const capacityChanged = prevCapacity !== null && point.c !== prevCapacity;
-            currentEnrollmentData.push({
-                enrollment: point.e,
-                capacity: point.c,
-                prevCapacity: prevCapacity,
-                capacityChanged: capacityChanged
-            });
-            prevCapacity = point.c;
-        }
-    }
+    const course = data.cr[selectedCourse];
+    const chartPoints = buildSectionChartPoints(section, data.sn);
+    const chartDomain = buildCourseChartDomain(course, data.sn);
+    currentEnrollmentData = chartPoints;
 
     // Show legend if there are capacity changes
     const hasCapacityChanges = currentEnrollmentData.some(d => d.capacityChanged);
     document.getElementById('chartLegend').classList.toggle('visible', hasCapacityChanges);
 
-    renderChart(`${sectionCode} Enrollment %`, labels, fillData, timestamps, true);
+    renderChart(`${sectionCode} Enrollment %`, chartPoints, chartDomain, true);
 }
 
 /**
  * Render enrollment chart with milestones and phased/timeline/snapshots mode.
  */
-function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarkers) {
+function renderChart(chartLabel, chartPoints, chartDomain, showCapacityMarkers) {
     // Cache args for mode toggle re-render
-    lastRenderArgs = { chartLabel, labels, fillData, timestamps, showCapacityMarkers };
+    lastRenderArgs = { chartLabel, chartPoints, chartDomain, showCapacityMarkers };
 
     const milestones = getMilestones();
-    
-    let mapper;
-    if (chartMode === 'phased') {
-        mapper = getPhasedMapper(timestamps, milestones);
-    } else if (chartMode === 'snapshots') {
-        mapper = getSnapshotsMapper(timestamps);
-    } else {
-        mapper = getTimelineMapper(timestamps, milestones);
-    }
-    
-    const { xValues, mapTime } = mapper;
-    const xBounds = getXScaleBounds(xValues);
+    const labels = chartPoints.map(point => point.label);
+    const fillData = chartPoints.map(point => point.fill);
+    const timestamps = chartPoints.map(point => point.timestamp);
+    const domainTimestamps = chartDomain.map(point => point.timestamp);
+    const { xValues, domainXValues, mapTime } = getChartMapper(chartMode, chartPoints, chartDomain, milestones);
+    const xBounds = getXScaleBounds(domainXValues.length > 0 ? domainXValues : xValues);
 
     // Labels to exclude from non-phased mode (they clutter the chart)
     const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
@@ -832,9 +636,9 @@ function renderChart(chartLabel, labels, fillData, timestamps, showCapacityMarke
             const mTime = new Date(m.time).getTime();
 
             // In non-phased mode, skip milestones outside data range
-            if (chartMode !== 'phased' && timestamps.length > 0) {
-                const dataMin = Math.min(...timestamps);
-                const dataMax = Math.max(...timestamps);
+            if (chartMode !== 'phased' && domainTimestamps.length > 0) {
+                const dataMin = Math.min(...domainTimestamps);
+                const dataMax = Math.max(...domainTimestamps);
                 if (mTime < dataMin || mTime > dataMax) return;
             }
 
@@ -1300,7 +1104,7 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
         });
         if (lastRenderArgs) {
             const a = lastRenderArgs;
-            renderChart(a.chartLabel, a.labels, a.fillData, a.timestamps, a.showCapacityMarkers);
+            renderChart(a.chartLabel, a.chartPoints, a.chartDomain, a.showCapacityMarkers);
         }
     });
 });
