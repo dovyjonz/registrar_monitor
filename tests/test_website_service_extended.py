@@ -6,7 +6,7 @@ pytestmark = pytest.mark.unit
 
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from registrarmonitor.services.website_service import WebsiteService
 
@@ -99,13 +99,13 @@ class TestGenerate:
         assert result is True
         assert service.last_generation_skipped is True
 
-    def test_force_overrides_inactive(self):
+    def test_force_overrides_inactive(self, tmp_path):
         service = WebsiteService()
         with (
             patch.object(service, "is_any_semester_active", return_value=False),
             patch.object(service, "build_frontend_assets", return_value=True),
             patch(
-                "registrarmonitor.website.checksums.get_semesters_needing_update",
+                "registrarmonitor.services.website_service.get_semesters_needing_update",
                 return_value=[],
             ),
             patch.object(service, "generate_semester_page", return_value=(None, 0.0)),
@@ -113,14 +113,51 @@ class TestGenerate:
                 "registrarmonitor.website.templates.build_redirect_index",
                 return_value="<html>redirect</html>",
             ),
-            patch("registrarmonitor.services.website_service.OUTPUT_DIR") as mock_dir,
+            patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
+            patch.object(service, "validate_public_output", return_value=[]),
         ):
-            mock_dir.__truediv__.return_value.write_text = MagicMock()
-            mock_dir.mkdir = MagicMock()
             result = service.generate(force=True)
 
         assert result is True
         assert service.last_generation_skipped is False
+
+
+class TestGenerateCourseSharePages:
+    def test_removes_stale_share_pages_before_regenerating(self, tmp_path):
+        stale_dir = tmp_path / "courses" / "summer-2026"
+        stale_dir.mkdir(parents=True)
+        stale_page = stale_dir / "old-course.html"
+        stale_page.write_text("<html>stale</html>")
+
+        def semester_data(semester, minify=True):
+            if semester == "Summer 2026":
+                return {
+                    "cr": {
+                        "CSCI 101": {
+                            "ti": "Intro to CS",
+                            "af": 0.5,
+                            "s": {"001": {}},
+                        }
+                    }
+                }
+            return {"cr": {}}
+
+        service = WebsiteService()
+        with (
+            patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
+            patch(
+                "registrarmonitor.services.website_service.get_semester_data",
+                side_effect=semester_data,
+            ),
+            patch(
+                "registrarmonitor.website.templates.build_course_share_page",
+                return_value="<html>current</html>",
+            ),
+        ):
+            service._generate_course_share_pages()
+
+        assert not stale_page.exists()
+        assert (tmp_path / "courses" / "summer-2026" / "csci-101.html").exists()
 
 
 class TestIsAnySemesterActive:
@@ -145,3 +182,92 @@ class TestIsAnySemesterActive:
         ):
             service = WebsiteService()
             assert service.is_any_semester_active() is True
+
+
+class TestValidatePublicOutput:
+    """Tests for the public output validation guard."""
+
+    def test_returns_empty_for_clean_output(self, tmp_path):
+        service = WebsiteService()
+        # Create allowed files
+        (tmp_path / "summer2026.html").write_text("<html>")
+        (tmp_path / "summer2026.json").write_text("{}")
+        (tmp_path / "_headers").write_text("/*")
+        (tmp_path / "robots.txt").write_text("User-agent: *")
+        (tmp_path / ".checksums.json").write_text("{}")
+        (tmp_path / "assets").mkdir()
+        (tmp_path / "assets" / "main.js").write_text("")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert errors == []
+
+    def test_detects_database_files(self, tmp_path):
+        service = WebsiteService()
+        (tmp_path / "data").mkdir()
+        (tmp_path / "data" / "enrollment.db").write_text("")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        # data/ is not an allowed directory, so it is flagged
+        assert any("data" in e for e in errors)
+
+    def test_detects_log_files(self, tmp_path):
+        service = WebsiteService()
+        (tmp_path / "app.log").write_text("")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert any("app.log" in e for e in errors)
+
+    def test_detects_env_files(self, tmp_path):
+        service = WebsiteService()
+        (tmp_path / ".env").write_text("SECRET=1")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert any(".env" in e for e in errors)
+
+    def test_detects_ds_store(self, tmp_path):
+        service = WebsiteService()
+        (tmp_path / ".DS_Store").write_text("")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert any(".DS_Store" in e for e in errors)
+
+    def test_allows_courses_directory(self, tmp_path):
+        service = WebsiteService()
+        (tmp_path / "courses").mkdir()
+        (tmp_path / "courses" / "summer-2026").mkdir()
+        (tmp_path / "courses" / "summer-2026" / "csci-101.html").write_text("")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert errors == []
+
+    def test_detects_unexpected_directory(self, tmp_path):
+        service = WebsiteService()
+        (tmp_path / "logs").mkdir()
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert any("logs" in e for e in errors)
+
+    def test_detects_db_in_assets(self, tmp_path):
+        service = WebsiteService()
+        assets = tmp_path / "assets"
+        assets.mkdir()
+        (assets / "data.db").write_text("")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert any("data.db" in e for e in errors)

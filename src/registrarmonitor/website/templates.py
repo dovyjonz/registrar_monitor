@@ -7,7 +7,15 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
-from .config import ALL_SEMESTERS, LATEST_SEMESTER, semester_to_filename
+from .config import (
+    ALL_SEMESTERS,
+    LATEST_SEMESTER,
+    semester_to_filename,
+    BASE_URL,
+    INDEXING,
+    semester_to_slug,
+    course_to_slug,
+)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 # Output is assets/website/public. Assets are in assets/website/public/assets.
@@ -93,6 +101,8 @@ def build_semester_page(
     # Calculate json filename
     json_filename = semester_to_filename(semester).replace(".html", ".json")
 
+    canonical_url = f"{BASE_URL}/{semester_to_filename(semester)}"
+
     # Render template
     template = env.get_template("semester.html.jinja")
     return template.render(
@@ -102,6 +112,56 @@ def build_semester_page(
         json_filename=json_filename,
         js_file=js_file,
         css_file=css_file,
+        asset_base_url="assets/",
+        canonical_url=canonical_url,
+        indexing=INDEXING,
+    )
+
+
+def build_course_share_page(
+    semester: str,
+    course_code: str,
+    course_title: str,
+    course_fill: float,
+    section_count: int,
+) -> str:
+    """Build a course-specific share page with OG/Twitter metadata.
+
+    The page includes:
+    - Course-specific title and description meta tags
+    - OG and Twitter Card metadata for social unfurls
+    - robots noindex directive
+    - JavaScript redirect to the semester page with course hash
+    - Fallback link for users with JS disabled
+    """
+    sem_slug = semester_to_slug(semester)
+    course_slug = course_to_slug(course_code)
+
+    semester_url = f"{BASE_URL}/{semester_to_filename(semester)}"
+    share_url = f"{BASE_URL}/courses/{sem_slug}/{course_slug}.html"
+
+    fill_pct = round(course_fill * 100)
+    title = f"{course_code}" + (f" - {course_title}" if course_title else "")
+    description = (
+        f"{course_code} enrollment at {fill_pct}% "
+        f"({section_count} section{'s' if section_count != 1 else ''}) "
+        f"for {semester} at Nazarbayev University."
+    )
+
+    redirect_url = f"{semester_url}#{course_code.replace(' ', '-')}"
+
+    template = env.get_template("course-share.html.jinja")
+    return template.render(
+        title=title,
+        description=description,
+        share_url=share_url,
+        redirect_url=redirect_url,
+        course_code=course_code,
+        semester=semester,
+        fill_pct=fill_pct,
+        indexing=INDEXING,
+        js_file=None,
+        css_file=None,
         asset_base_url="assets/",
     )
 

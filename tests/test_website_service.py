@@ -220,3 +220,97 @@ def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
         "--project-name",
         "registrar-monitor",
     ]
+
+
+def test_generate_headers_contains_security_headers(tmp_path):
+    """_headers should include X-Frame-Options, X-Content-Type-Options, etc."""
+    service = WebsiteService()
+    with (
+        patch.object(service, "is_any_semester_active", return_value=True),
+        patch.object(service, "build_frontend_assets", return_value=True),
+        patch(
+            "registrarmonitor.website.checksums.get_semesters_needing_update",
+            return_value=[],
+        ),
+        patch.object(service, "_generate_course_share_pages"),
+        patch(
+            "registrarmonitor.website.templates.build_redirect_index",
+            return_value="<html>redirect</html>",
+        ),
+        patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
+        patch.object(service, "validate_public_output", return_value=[]),
+    ):
+        tmp_path.mkdir(exist_ok=True)
+        service.generate(force=True)
+
+    headers_path = tmp_path / "_headers"
+    assert headers_path.exists()
+    content = headers_path.read_text()
+    assert "X-Frame-Options: DENY" in content
+    assert "X-Content-Type-Options: nosniff" in content
+    assert "Referrer-Policy:" in content
+    assert "Permissions-Policy:" in content
+    assert "X-Robots-Tag:" in content
+
+
+def test_generate_creates_robots_txt(tmp_path):
+    """generate() should create robots.txt that disallows all."""
+    service = WebsiteService()
+    with (
+        patch.object(service, "is_any_semester_active", return_value=True),
+        patch.object(service, "build_frontend_assets", return_value=True),
+        patch(
+            "registrarmonitor.website.checksums.get_semesters_needing_update",
+            return_value=[],
+        ),
+        patch.object(service, "_generate_course_share_pages"),
+        patch(
+            "registrarmonitor.website.templates.build_redirect_index",
+            return_value="<html>redirect</html>",
+        ),
+        patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
+        patch.object(service, "validate_public_output", return_value=[]),
+    ):
+        tmp_path.mkdir(exist_ok=True)
+        service.generate(force=True)
+
+    robots_path = tmp_path / "robots.txt"
+    assert robots_path.exists()
+    content = robots_path.read_text()
+    assert "Disallow: /" in content
+
+
+def test_generate_allows_indexing_when_configured():
+    service = WebsiteService()
+
+    with patch(
+        "registrarmonitor.services.website_service._get_indexing", return_value=""
+    ):
+        assert "X-Robots-Tag" not in service._build_headers_content()
+        assert "Allow: /" in service._build_robots_content()
+
+
+def test_generate_fails_when_public_validation_has_issues(tmp_path):
+    service = WebsiteService()
+
+    with (
+        patch.object(service, "is_any_semester_active", return_value=True),
+        patch.object(service, "build_frontend_assets", return_value=True),
+        patch(
+            "registrarmonitor.services.website_service.get_semesters_needing_update",
+            return_value=[],
+        ),
+        patch.object(service, "_generate_course_share_pages"),
+        patch(
+            "registrarmonitor.website.templates.build_redirect_index",
+            return_value="<html>redirect</html>",
+        ),
+        patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
+        patch.object(
+            service,
+            "validate_public_output",
+            return_value=["Unexpected directory: data/"],
+        ),
+    ):
+        tmp_path.mkdir(exist_ok=True)
+        assert service.generate(force=True) is False

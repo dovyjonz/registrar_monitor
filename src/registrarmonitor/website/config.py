@@ -4,6 +4,61 @@ from pathlib import Path
 from typing import Any
 
 
+def _get_base_url() -> str:
+    """Get the base URL for canonical links and sharing.
+
+    Reads from settings.toml [website].base_url. Falls back to
+    https://{pages_project_name}.pages.dev.
+    """
+    cfg = _load_settings()
+    website = cfg.get("website", {})
+    base = website.get("base_url", "").strip().rstrip("/")
+    if base:
+        return base
+    project = website.get("pages_project_name", "registrar-monitor")
+    return f"https://{project}.pages.dev"
+
+
+def _get_indexing() -> str:
+    """Get the indexing directive from settings."""
+    cfg = _load_settings()
+    return cfg.get("website", {}).get("indexing", "noindex")
+
+
+def semester_to_slug(semester: str) -> str:
+    """Convert semester display name to URL slug.
+
+    "Summer 2026" -> "summer-2026"
+    """
+    return semester.lower().replace(" ", "-")
+
+
+def course_to_slug(course_code: str) -> str:
+    """Convert course code to URL-friendly slug.
+
+    "CSCI 101" -> "csci-101"
+    "MATH 201A" -> "math-201a"
+    "ANT 214/SOC 214" -> "ant-214soc-214"
+    """
+    import re
+
+    slug = course_code.lower().replace(" ", "-")
+    # Remove filesystem-unsafe characters (/, \, :, *, ?, ", <, >, |)
+    slug = re.sub(r'[/\\:*?"<>|]', "", slug)
+    return slug
+
+
+def slug_to_course_code(slug: str) -> str:
+    """Convert URL slug back to course code.
+
+    "csci-101" -> "CSCI 101"
+    """
+    parts = slug.split("-", 1)
+    if len(parts) == 2:
+        return f"{parts[0].upper()} {parts[1]}"
+    return slug.upper()
+
+
 # CLI argument to semester display name mapping
 SEMESTER_MAP: dict[str, str] = {
     "summer2026": "Summer 2026",
@@ -63,6 +118,11 @@ def _load_settings() -> dict[str, Any]:
         settings_path = Path(__file__).parent.parent.parent.parent / "settings.toml"
         with open(settings_path, "rb") as f:
             return tomllib.load(f)
+
+
+# Settings-dependent constants (must come after _load_settings)
+BASE_URL: str = _get_base_url()
+INDEXING: str = _get_indexing()
 
 
 def _assign_deadline_colors(

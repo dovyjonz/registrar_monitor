@@ -10,7 +10,7 @@
     --card-foreground: 0 0% 92%;
 
     --muted: 215 50% 22%;
-    --muted-foreground: 0 0% 63%;
+    --muted-foreground: 0 0% 70%;
 
     --accent: 48 100% 50%;
     --accent-foreground: 234 45% 13%;
@@ -81,7 +81,7 @@ body {
     background: var(--yellow-fill);
     color: var(--bg-primary);
     padding: 8px 16px;
-    z-index: 10000;
+    z-index: 1001;
     font-weight: bold;
     text-decoration: none;
     border-radius: 0 0 4px;
@@ -157,46 +157,12 @@ header {
 header h1 {
     font-size: clamp(1.25rem, 4vw, 1.8rem);
     margin-bottom: 8px;
-    background: linear-gradient(90deg, hsl(var(--destructive)), hsl(var(--accent)));
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: hsl(var(--accent));
 }
 
 header p {
     color: hsl(var(--muted-foreground));
     font-size: 0.9rem;
-}
-
-/* Semester toggle (combined mode only) */
-.semester-toggle {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin: 15px 0;
-}
-
-.semester-btn {
-    padding: 8px 16px;
-    border: 1px solid hsl(var(--border));
-    background: hsl(var(--muted));
-    color: hsl(var(--muted-foreground));
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 0.85rem;
-    transition: all var(--transition-fast);
-}
-
-.semester-btn:hover {
-    background: hsl(var(--card));
-    color: hsl(var(--foreground));
-}
-
-.semester-btn.active {
-    background: linear-gradient(135deg, hsl(var(--accent)), hsl(30 100% 50%));
-    color: hsl(var(--accent-foreground));
-    border-color: hsl(var(--accent));
-    font-weight: bold;
 }
 
 /* Stats */
@@ -243,13 +209,28 @@ header p {
     color: hsl(var(--success));
 }
 
-/* Search input */
-.search-container {
-    max-width: 400px;
-    margin: 0 auto 20px;
-    position: relative;
+.legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
 }
 
+.legend-full .legend-dot {
+    background: hsl(var(--destructive));
+}
+
+.legend-near .legend-dot {
+    background: hsl(var(--warning));
+}
+
+.legend-open .legend-dot {
+    background: hsl(var(--success));
+}
+
+/* Search input */
 .search-input {
     width: 100%;
     padding: 10px 15px;
@@ -336,7 +317,7 @@ header p {
 }
 
 .filter-btn {
-    padding: 6px 12px;
+    padding: 8px 12px;
     border: 1px solid hsl(var(--border));
     background: hsl(var(--muted));
     color: hsl(var(--muted-foreground));
@@ -345,6 +326,7 @@ header p {
     font-size: 0.75rem;
     cursor: pointer;
     transition: all var(--transition-fast);
+    min-height: 44px;
 }
 
 .filter-btn:hover {
@@ -370,6 +352,7 @@ header p {
     font-size: 0.75rem;
     cursor: pointer;
     appearance: none;
+    min-height: 44px;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 8px center;
@@ -404,6 +387,11 @@ header p {
     border-radius: var(--radius);
     transition: all var(--transition-fast);
     color: hsl(var(--muted-foreground));
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .bookmark-btn:hover {
@@ -412,6 +400,29 @@ header p {
 
 .bookmark-btn.starred {
     color: hsl(var(--accent));
+}
+
+/* Share link button */
+.share-btn {
+    background: none;
+    border: none;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    margin-right: 4px;
+    border-radius: var(--radius);
+    transition: all var(--transition-fast);
+    color: hsl(var(--muted-foreground));
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.share-btn:hover {
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground));
 }
 
 /* Toast notifications */
@@ -469,6 +480,45 @@ header p {
     display: none;
 }
 
+/* Empty state: shown when search/filter yields no results */
+.empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem 1rem;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.9rem;
+}
+
+/* Error state: shown when data fetch fails */
+.error-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem 1rem;
+    color: hsl(var(--destructive));
+    font-size: 0.9rem;
+}
+
+.error-state button {
+    margin-top: 12px;
+    padding: 8px 16px;
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.85rem;
+}
+
+/* Timeout state: shown when fetch is slow */
+.timeout-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem 1rem;
+    color: hsl(var(--warning));
+    font-size: 0.9rem;
+}
+
 /* Course grid */
 .course-grid {
     display: grid;
@@ -498,6 +548,9 @@ header p {
     padding: 4px 8px;
     border-radius: var(--radius-sm);
     transition: all var(--transition-fast);
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
 }
 
 .jump-to-nav a:hover {
@@ -557,6 +610,7 @@ header p {
 .course-cell:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
+    background: hsl(220 45% 20%);
 }
 
 .course-cell.full {
@@ -673,6 +727,13 @@ header p {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.modal-header-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 /* --- Body: scrollable, block layout (NOT flex) --- */
@@ -930,7 +991,7 @@ header p {
     cursor: pointer;
     border-radius: calc(var(--radius) - 2px);
     transition: all var(--transition-fast);
-    min-height: 28px;
+    min-height: 44px;
 }
 
 .chart-mode-btn:hover {
@@ -956,7 +1017,7 @@ header p {
 }
 
 .chart-zoom-btn {
-    min-height: 32px;
+    min-height: 44px;
     padding: 5px 12px;
     border: 1px solid hsl(var(--border));
     background: hsl(var(--background));
@@ -1077,7 +1138,7 @@ header p {
     cursor: pointer;
     transition: all var(--transition-fast);
     white-space: nowrap;
-    min-height: 24px;
+    min-height: 32px;
 }
 
 .ef-pill:hover {
@@ -1094,7 +1155,7 @@ header p {
     font-family: inherit;
     font-size: 0.65rem;
     cursor: pointer;
-    min-height: 24px;
+    min-height: 32px;
 }
 
 .ef-select:focus-visible {
@@ -1139,29 +1200,12 @@ html.modal-open body {
     touch-action: none;
 }
 
-/* ============================================
-   Modern CSS Features (Phase 3)
-   ============================================ */
-
-/* View Transitions API for smooth modal animations */
-@view-transition {
-    navigation: auto;
-}
-
-::view-transition-old(modal),
-::view-transition-new(modal) {
-    animation-duration: 0.25s;
-}
-
-.modal {
-    view-transition-name: modal;
-}
-
-/* Container queries for section list responsiveness */
-@container (max-width: 400px) {
-    .section-list {
-        grid-template-columns: 1fr;
-    }
+/* Inert background: dimmed when modal is open */
+[inert] {
+    pointer-events: none;
+    user-select: none;
+    opacity: 0.5;
+    transition: opacity var(--transition-normal);
 }
 
 /* Scroll-driven animation for chart (when supported) */
@@ -1189,84 +1233,7 @@ html.modal-open body {
    Visual Polish (Phase 5)
    ============================================ */
 
-/* Glassmorphism modal */
-.modal {
-    background: hsl(var(--card) / 0.95);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid hsl(var(--border) / 0.5);
-}
-
-/* Animated gradient header */
-header {
-    background: linear-gradient(135deg,
-            hsl(var(--card)) 0%,
-            hsl(var(--muted)) 50%,
-            hsl(var(--card)) 100%);
-    background-size: 200% 200%;
-    animation: gradientShift 8s ease infinite;
-}
-
-@keyframes gradientShift {
-
-    0%,
-    100% {
-        background-position: 0% 50%;
-    }
-
-    50% {
-        background-position: 100% 50%;
-    }
-}
-
-/* Shimmer hover effect for course cells */
-.course-cell {
-    position: relative;
-    overflow: hidden;
-}
-
-.course-cell::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg,
-            transparent,
-            hsl(var(--foreground) / 0.08),
-            transparent);
-    transform: translateX(-100%);
-    transition: transform 0.5s ease;
-}
-
-.course-cell:hover::before {
-    transform: translateX(100%);
-}
-
-/* Staggered entry animation - simple approach */
-@keyframes fadeUp {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
 /* Modal open animation */
-.modal-overlay {
-    visibility: hidden;
-    opacity: 0;
-    transition: opacity var(--transition-normal), visibility 0s var(--transition-normal);
-}
-
-.modal-overlay.active {
-    visibility: visible;
-    opacity: 1;
-    transition: opacity var(--transition-normal), visibility 0s 0s;
-}
-
 .modal {
     transform: scale(0.95) translateY(20px);
     transition: transform var(--transition-normal);
@@ -1274,34 +1241,6 @@ header {
 
 .modal-overlay.active .modal {
     transform: scale(1) translateY(0);
-}
-
-
-
-/* Reduce animations on mobile and for reduced motion */
-@media (prefers-reduced-motion: reduce) {
-
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-    }
-}
-
-@media (max-width: 768px) {
-    header {
-        animation: none;
-    }
-
-    .course-cell {
-        animation: none;
-    }
-
-    .course-cell::before {
-        display: none;
-    }
 }
 
 
@@ -1324,7 +1263,6 @@ header {
 
     header h1 {
         font-size: 1.4rem;
-        border-radius: 4px;
     }
 
     /* Fix weird spaces under semester links */
@@ -1339,16 +1277,6 @@ header {
         display: flex;
         align-items: center;
         justify-content: center;
-    }
-
-    .semester-toggle {
-        flex-wrap: wrap;
-        margin: 8px 0;
-    }
-
-    .semester-btn {
-        padding: 6px 12px;
-        font-size: 0.8rem;
     }
 
     .stats {
@@ -1478,7 +1406,7 @@ header {
 
     .ef-pill, .ef-select {
         font-size: 0.6rem;
-        min-height: 28px;
+        min-height: 32px;
     }
 
     /* Other mobile overrides */
@@ -1490,7 +1418,6 @@ header {
         gap: 8px;
     }
 
-    .search-container,
     .controls-panel .search-input {
         max-width: none;
         flex: 1 1 100%;
@@ -1498,6 +1425,15 @@ header {
 
     .filter-buttons {
         justify-content: center;
+    }
+
+    .filter-btn {
+        min-height: 44px;
+        padding: 8px 12px;
+    }
+
+    .sort-select {
+        min-height: 44px;
     }
 
     .color-legend {
@@ -1525,9 +1461,30 @@ header {
         min-height: 44px;
     }
 
-    .semester-btn,
     .semester-nav-link {
         min-height: 40px;
         padding: 8px 14px;
+    }
+
+    .filter-btn {
+        min-height: 44px;
+    }
+
+    .sort-select {
+        min-height: 44px;
+    }
+
+    .chart-mode-btn {
+        min-height: 44px;
+    }
+
+    .chart-zoom-btn {
+        min-height: 44px;
+    }
+
+    .bookmark-btn,
+    .share-btn {
+        min-width: 44px;
+        min-height: 44px;
     }
 }

@@ -1,6 +1,7 @@
 """Service for generating and deploying the website."""
 
 import subprocess
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,9 @@ from ..website.config import (
     OUTPUT_DIR,
     SEMESTER_MAP,
     semester_to_filename,
+    semester_to_slug,
+    course_to_slug,
+    _get_indexing,
 )
 from ..website.data import get_semester_data
 from ..website.templates import build_redirect_index, build_semester_page
@@ -232,6 +236,117 @@ class WebsiteService:
             print("Error: npm not found. Is Node.js installed?")
             return False
 
+    def _generate_course_share_pages(self) -> None:
+        """Generate per-course share pages with OG/Twitter metadata."""
+        from ..website.templates import build_course_share_page
+
+        share_dir = OUTPUT_DIR / "courses"
+        if share_dir.exists():
+            shutil.rmtree(share_dir)
+        share_dir.mkdir(parents=True, exist_ok=True)
+
+        generated = 0
+
+        for semester in SEMESTER_MAP.values():
+            data = get_semester_data(semester, minify=True)
+            courses = data.get("cr", {})
+            if not courses:
+                continue
+
+            sem_slug = semester_to_slug(semester)
+            sem_dir = share_dir / sem_slug
+            sem_dir.mkdir(parents=True, exist_ok=True)
+
+            for code, course in courses.items():
+                title = course.get("ti", "")
+                fill = course.get("af", 0)
+                section_count = len(course.get("s", {}))
+
+                html = build_course_share_page(
+                    semester=semester,
+                    course_code=code,
+                    course_title=title,
+                    course_fill=fill,
+                    section_count=section_count,
+                )
+
+                course_slug = course_to_slug(code)
+                out_path = sem_dir / f"{course_slug}.html"
+                out_path.write_text(html)
+                generated += 1
+
+        print(f"Generated {generated} course share pages")
+
+    def _build_headers_content(self) -> str:
+        """Build Cloudflare Pages headers for generated public output."""
+        indexing = _get_indexing().strip()
+        robots_header = f"  X-Robots-Tag: {indexing}\n" if indexing else ""
+        return f"""/*
+  Cache-Control: public, max-age=0, must-revalidate
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+{robots_header}
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.json
+  Cache-Control: public, max-age=60, stale-while-revalidate=300
+
+/courses/*
+  Cache-Control: public, max-age=300, stale-while-revalidate=600
+"""
+
+    def _build_robots_content(self) -> str:
+        """Build robots.txt from the configured indexing directive."""
+        indexing = _get_indexing().strip().lower()
+        blocks_indexing = "noindex" in indexing or "none" in indexing
+        directive = "Disallow: /" if blocks_indexing else "Allow: /"
+        return f"User-agent: *\n{directive}\n"
+
+    def validate_public_output(self) -> list[str]:
+        """Validate that the public output directory contains only allowed files.
+
+        Returns a list of error messages for disallowed artifacts.
+        Allowed: HTML, JSON, assets/, _headers, robots.txt, courses/, .checksums.json
+        """
+        errors = []
+        allowed_extensions = {".html", ".json"}
+        allowed_names = {"_headers", "robots.txt", ".checksums.json"}
+        allowed_dirs = {"assets", "courses"}
+
+        for item in OUTPUT_DIR.iterdir():
+            name = item.name
+            if item.is_dir():
+                if name not in allowed_dirs:
+                    errors.append(f"Unexpected directory: {name}/")
+                elif name == "assets":
+                    # Check for non-Vite artifacts in assets
+                    for sub in item.rglob("*"):
+                        if sub.is_file() and sub.suffix in {
+                            ".db",
+                            ".log",
+                            ".sqlite",
+                            ".env",
+                        }:
+                            errors.append(
+                                f"Private artifact in assets/: {sub.relative_to(OUTPUT_DIR)}"
+                            )
+            elif item.is_file():
+                if name in allowed_names:
+                    continue
+                ext = item.suffix
+                if ext in allowed_extensions:
+                    continue
+                if name.startswith("."):
+                    # Hidden files like .DS_Store
+                    errors.append(f"Hidden file: {name}")
+                else:
+                    errors.append(f"Unexpected file: {name}")
+
+        return errors
+
     def is_any_semester_active(self, buffer_days: int = 7) -> bool:
         """Check if we are currently within an active registration window."""
         import datetime
@@ -316,25 +431,32 @@ class WebsiteService:
                         f"\nGenerated {len(semesters_to_update)} pages ({total_size:.1f} KB total)"
                     )
 
+                # Generate course share pages
+                self._generate_course_share_pages()
+
                 # Always regenerate index.html (redirect page)
                 index_html = build_redirect_index()
                 index_path = OUTPUT_DIR / "index.html"
                 index_path.write_text(index_html)
                 print("Updated index.html (redirect)")
 
-                # Generate Cloudflare _headers file
-                headers_content = """/*
-  Cache-Control: public, max-age=0, must-revalidate
-
-/assets/*
-  Cache-Control: public, max-age=31536000, immutable
-
-/*.json
-  Cache-Control: public, max-age=60, stale-while-revalidate=300
-"""
+                # Generate Cloudflare _headers file with security headers
                 headers_path = OUTPUT_DIR / "_headers"
-                headers_path.write_text(headers_content)
+                headers_path.write_text(self._build_headers_content())
                 print("Generated Cloudflare _headers")
+
+                # Generate robots.txt
+                robots_path = OUTPUT_DIR / "robots.txt"
+                robots_path.write_text(self._build_robots_content())
+                print("Generated robots.txt")
+
+            # Validate public output before any deploy can publish private artifacts.
+            issues = self.validate_public_output()
+            if issues:
+                print("Public output validation errors:")
+                for issue in issues:
+                    print(f"   - {issue}")
+                return False
 
             print(f"\nOutput directory: {OUTPUT_DIR}")
             return True

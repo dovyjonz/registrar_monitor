@@ -4,9 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Enrollment Monitor{% endblock %}</title>
+    <meta name="description" content="{% block description %}Track real-time course enrollment at Nazarbayev University. View fill percentages, capacity changes, and registration trends across semesters.{% endblock %}">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='8' fill='%23ff9100'/></svg>">
-    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#ffd700">
+
+    {# Indexing directive #}
+    {% block robots %}{% if indexing %}<meta name="robots" content="{{ indexing }}">{% endif %}{% endblock %}
+
+    {# Open Graph tags for social sharing #}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Enrollment Monitor">
+    <meta property="og:title" content="{% block og_title %}Enrollment Monitor{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Track real-time course enrollment at Nazarbayev University. View fill percentages, capacity changes, and registration trends.{% endblock %}">
+    {% block og_url %}{% if canonical_url %}<meta property="og:url" content="{{ canonical_url }}">{% endif %}{% endblock %}
+    {% block og_tags %}{% endblock %}
+
+    {# Twitter Card tags #}
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{% block twitter_title %}Enrollment Monitor{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}Track real-time course enrollment at Nazarbayev University.{% endblock %}">
+
+    {# Canonical URL #}
+    {% block canonical %}{% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}{% endblock %}
 
     {# Inject CSS from Vite build #}
     {% if css_file %}
@@ -15,7 +34,7 @@
 
     {% block head %}{% endblock %}
 </head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
     {% block content %}{% endblock %}
 
     {# Inject JS from Vite build #}

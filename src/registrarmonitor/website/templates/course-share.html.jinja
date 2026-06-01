@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <meta name="description" content="{{ description }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='8' fill='%23ff9100'/></svg>">
+    <meta name="theme-color" content="#ffd700">
+    {% if indexing %}<meta name="robots" content="{{ indexing }}">{% endif %}
+
+    {# Open Graph #}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Enrollment Monitor">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ description }}">
+    {% if share_url %}<meta property="og:url" content="{{ share_url }}">{% endif %}
+
+    {# Twitter Card #}
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{ title }}">
+    <meta name="twitter:description" content="{{ description }}">
+
+    {% if share_url %}<link rel="canonical" href="{{ share_url }}">{% endif %}
+
+    <script>
+        // Redirect to the semester page with the course hash
+        (function() {
+            var url = "{{ redirect_url }}";
+            if (url) window.location.replace(url);
+        })();
+    </script>
+</head>
+<body>
+    <p>Redirecting to <a href="{{ redirect_url }}">{{ course_code }} — {{ semester }}</a>...</p>
+    <p style="margin-top:1rem;font-size:0.85rem;color:#666;">
+        Enrollment: {{ fill_pct }}% full
+    </p>
+</body>
+</html>

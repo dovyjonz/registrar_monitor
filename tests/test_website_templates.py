@@ -155,3 +155,119 @@ class TestBuildRedirectIndex:
         html = build_redirect_index()
         latest_file = semester_to_filename(LATEST_SEMESTER)
         assert latest_file in html
+
+
+class TestBuildSemesterPageNewParams:
+    """Tests for the new template parameters added to build_semester_page."""
+
+    def test_passes_canonical_url(self):
+        with (
+            patch(
+                "registrarmonitor.website.templates._get_asset_info",
+                return_value=(None, None),
+            ),
+            patch(
+                "registrarmonitor.website.templates.env.get_template"
+            ) as mock_template,
+            patch(
+                "registrarmonitor.website.templates.BASE_URL",
+                "https://registrar-monitor.pages.dev",
+            ),
+        ):
+            mock_template.return_value.render.return_value = "<html>test</html>"
+            build_semester_page(
+                data={},
+                milestones=[],
+                semester="Summer 2026",
+            )
+            kwargs = mock_template.return_value.render.call_args[1]
+            assert (
+                kwargs["canonical_url"]
+                == "https://registrar-monitor.pages.dev/summer2026.html"
+            )
+
+    def test_passes_indexing(self):
+        with (
+            patch(
+                "registrarmonitor.website.templates._get_asset_info",
+                return_value=(None, None),
+            ),
+            patch(
+                "registrarmonitor.website.templates.env.get_template"
+            ) as mock_template,
+            patch(
+                "registrarmonitor.website.templates.INDEXING",
+                "noindex",
+            ),
+        ):
+            mock_template.return_value.render.return_value = "<html>test</html>"
+            build_semester_page(
+                data={},
+                milestones=[],
+                semester="Summer 2026",
+            )
+            kwargs = mock_template.return_value.render.call_args[1]
+            assert kwargs["indexing"] == "noindex"
+
+
+class TestBuildCourseSharePage:
+    """Tests for the new build_course_share_page function."""
+
+    def test_generates_share_page_with_metadata(self):
+        from registrarmonitor.website.templates import build_course_share_page
+
+        with (
+            patch(
+                "registrarmonitor.website.templates.env.get_template"
+            ) as mock_template,
+            patch(
+                "registrarmonitor.website.templates.BASE_URL",
+                "https://registrar-monitor.pages.dev",
+            ),
+            patch(
+                "registrarmonitor.website.templates.INDEXING",
+                "noindex",
+            ),
+        ):
+            mock_template.return_value.render.return_value = "<html>share</html>"
+            build_course_share_page(
+                semester="Summer 2026",
+                course_code="CSCI 101",
+                course_title="Intro to CS",
+                course_fill=0.85,
+                section_count=3,
+            )
+            kwargs = mock_template.return_value.render.call_args[1]
+            assert kwargs["course_code"] == "CSCI 101"
+            assert kwargs["semester"] == "Summer 2026"
+            assert kwargs["fill_pct"] == 85
+            assert "csci-101" in kwargs["share_url"]
+            assert "summer-2026" in kwargs["share_url"]
+            assert kwargs["indexing"] == "noindex"
+
+    def test_redirect_url_contains_course_hash(self):
+        from registrarmonitor.website.templates import build_course_share_page
+
+        with (
+            patch(
+                "registrarmonitor.website.templates.env.get_template"
+            ) as mock_template,
+            patch(
+                "registrarmonitor.website.templates.BASE_URL",
+                "https://registrar-monitor.pages.dev",
+            ),
+        ):
+            mock_template.return_value.render.return_value = "<html>share</html>"
+            build_course_share_page(
+                semester="Summer 2026",
+                course_code="CSCI 101",
+                course_title="Intro to CS",
+                course_fill=0.5,
+                section_count=1,
+            )
+            kwargs = mock_template.return_value.render.call_args[1]
+            assert (
+                "CSCI-101" in kwargs["redirect_url"]
+                or "CSCI 101" in kwargs["redirect_url"]
+            )
+            assert "summer2026.html" in kwargs["redirect_url"]

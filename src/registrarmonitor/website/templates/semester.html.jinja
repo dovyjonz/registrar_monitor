@@ -1,12 +1,19 @@
 {% extends "base.html.jinja" %}
 
 {% block title %}{{ title }}{% endblock %}
+{% block description %}{{ title }} enrollment dashboard — track course fill percentages, section availability, and registration trends at Nazarbayev University.{% endblock %}
+{% block og_title %}{{ title }}{% endblock %}
+{% block og_description %}Real-time enrollment tracking for {{ title }} at Nazarbayev University. View course availability, capacity changes, and registration trends.{% endblock %}
+{% block twitter_title %}{{ title }}{% endblock %}
+{% block twitter_description %}Real-time enrollment tracking for {{ title }} at Nazarbayev University.{% endblock %}
+
+{% block body_attrs %} data-json-url="{{ json_filename }}"{% endblock %}
 
 {% block content %}
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
     <header>
-        <h1>📊 Enrollment Monitor</h1>
+        <h1>Enrollment Monitor</h1>
         <nav class="semester-links" aria-label="Semester navigation">
             {{ nav_html | safe }}
         </nav>
@@ -26,15 +33,15 @@
                 <div class="stat-value" id="fullSections">0</div>
                 <div class="stat-label">Full</div>
             </div>
-            <div class="stat">
+            <div class="stat" title="Number of data snapshots collected over time">
                 <div class="stat-value" id="snapshotCount">0</div>
                 <div class="stat-label">Snapshots</div>
             </div>
         </section>
         <div class="color-legend" aria-label="Fill status legend">
-            <span class="legend-item legend-full">●</span> Full
-            <span class="legend-item legend-near">●</span> Near Full
-            <span class="legend-item legend-open">●</span> Open
+            <span class="legend-item legend-full"><span class="legend-dot" aria-hidden="true"></span><span>Full</span></span>
+            <span class="legend-item legend-near"><span class="legend-dot" aria-hidden="true"></span><span>Near Full</span></span>
+            <span class="legend-item legend-open"><span class="legend-dot" aria-hidden="true"></span><span>Open</span></span>
         </div>
     </header>
 
@@ -46,14 +53,14 @@
             <span id="searchAnnouncement" aria-live="polite" class="visually-hidden" style="position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0;"></span>
 
             <div class="filter-buttons" role="group" aria-label="Filter by status">
-                <button class="filter-btn active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="full">Full</button>
-                <button class="filter-btn" data-filter="near">Near</button>
-                <button class="filter-btn" data-filter="open">Open</button>
-                <button class="filter-btn" data-filter="starred" title="Bookmarked">⭐</button>
+                <button class="filter-btn active" data-filter="all" title="Show all courses">All</button>
+                <button class="filter-btn" data-filter="full" title="Show full courses only">Full</button>
+                <button class="filter-btn" data-filter="near" title="Show near-full courses">Near</button>
+                <button class="filter-btn" data-filter="open" title="Show open courses">Open</button>
+                <button class="filter-btn" data-filter="starred" title="Show bookmarked courses" aria-label="Show bookmarked courses">★ Starred</button>
             </div>
 
-            <select id="sortSelect" class="sort-select" aria-label="Sort courses">
+            <select id="sortSelect" class="sort-select" aria-label="Sort courses" title="Sort courses by">
                 <option value="department">By Department</option>
                 <option value="code">By Code</option>
                 <option value="fill-desc">Fill % (High→Low)</option>
@@ -85,7 +92,11 @@
                         title="Bookmark this course">☆</button>
                     <h2 id="modalTitle">Course Details</h2>
                 </div>
-                <button type="button" class="close-btn" onclick="closeModal()" aria-label="Close modal">&times;</button>
+                <div class="modal-header-right">
+                    <button type="button" class="share-btn" id="modalShareLink" aria-label="Copy share link"
+                        title="Copy share link" style="display:none;">🔗</button>
+                    <button type="button" class="close-btn" id="modalCloseBtn" aria-label="Close modal">&times;</button>
+                </div>
             </div>
             <div class="modal-body">
                 <div class="section-type-selector" id="sectionTypeSelector"></div>
@@ -95,9 +106,9 @@
                     <div class="chart-toolbar">
                         <!-- Chart mode toggle -->
                         <div class="chart-mode-toggle" id="chartModeToggle" role="group" aria-label="Chart display mode">
-                            <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true">Phased</button>
-                            <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false">Snapshots</button>
-                            <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false">Timeline</button>
+                            <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true" title="Show phased enrollment view">Phased</button>
+                            <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false" title="Show individual snapshots">Snapshots</button>
+                            <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false" title="Show continuous timeline">Timeline</button>
                         </div>
                         <div class="chart-zoom-controls">
                             <button type="button" class="chart-zoom-btn" id="chartZoomReset" disabled title="Reset chart zoom">Reset zoom</button>
@@ -108,7 +119,7 @@
                         <div class="chart-placeholder" id="chartPlaceholder">
                             Click a section to view enrollment history
                         </div>
-                        <canvas id="enrollment-chart" class="chart-hidden"></canvas>
+                        <canvas id="enrollment-chart" class="chart-hidden" aria-label="Enrollment chart" role="img"></canvas>
                     </div>
                     <div class="chart-legend" id="chartLegend">
                         <div class="chart-legend-item">
@@ -121,7 +132,7 @@
                 <!-- Collapsible event history -->
                 <details class="event-history" id="eventHistory">
                     <summary class="event-history-summary">
-                        <span class="event-history-icon">📋</span>
+                        <span class="event-history-icon">&gt;</span>
                         Course Event History
                         <span class="event-count" id="eventCount"></span>
                     </summary>
@@ -131,9 +142,4 @@
             </div>
         </div>
     </div>
-
-    <script>
-        // Store URL to fetch data from
-        window.JSON_URL = "{{ json_filename }}";
-    </script>
 {% endblock %}

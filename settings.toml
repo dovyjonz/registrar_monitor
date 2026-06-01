@@ -22,6 +22,10 @@ dry_run = false
 update_interval = 30
 # Cloudflare Pages project name
 pages_project_name = "registrar-monitor"
+# Base URL for canonical links and social sharing (default: https://{pages_project_name}.pages.dev)
+base_url = ""
+# Indexing directive: "noindex" prevents search engines while allowing social unfurls
+indexing = "noindex"
 
 [telegram]
 # Bot token and chat ID are loaded from TELEGRAM_BOT_TOKEN and
@@ -41,7 +45,6 @@ chat_id = ""
 [semesters."Summer 2026"]
 deadlines = [
     ["2026-06-03T12:00:00", "Drop"],
-    ["2026-06-03T13:00:00", "WL"],
     ["2026-06-05T17:30:00", "Close"]
 ]
 [semesters."Summer 2026".priorities]

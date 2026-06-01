@@ -3,9 +3,6 @@
  */
 
 import './style.css';
-import Chart from 'chart.js/auto';
-import annotationPlugin from 'chartjs-plugin-annotation';
-import zoomPlugin from 'chartjs-plugin-zoom';
 import {
     buildAverageChartPoints,
     buildCourseChartDomain,
@@ -13,8 +10,27 @@ import {
     getChartMapper,
     getXScaleBounds,
 } from './chartMapping.mjs';
+import {
+    courseToSlug,
+    getEnrollmentJsonUrl,
+    semesterToSlug,
+} from './urlSlugs.mjs';
 
-Chart.register(annotationPlugin, zoomPlugin);
+// Lazy-loaded Chart.js modules (loaded on first chart use)
+let chartJsLoaded = false;
+let Chart = null;
+
+async function loadChartJs() {
+    if (chartJsLoaded) return;
+    const [chartModule, annotationModule, zoomModule] = await Promise.all([
+        import('chart.js/auto'),
+        import('chartjs-plugin-annotation'),
+        import('chartjs-plugin-zoom'),
+    ]);
+    Chart = chartModule.default;
+    Chart.register(annotationModule.default, zoomModule.default);
+    chartJsLoaded = true;
+}
 
 // Global state
 let chart = null;
@@ -141,10 +157,14 @@ function renderSemesterToggle() {
     const toggle = document.getElementById('semesterToggle');
     if (!toggle) return;
 
-    toggle.innerHTML = COMBINED_DATA.sems.map(sem => `
-        <button class="semester-btn ${sem === activeSemester ? 'active' : ''}"
-                onclick="window.switchSemester('${sem}')">${sem}</button>
-    `).join('');
+    toggle.textContent = '';
+    for (const sem of COMBINED_DATA.sems) {
+        const btn = document.createElement('button');
+        btn.className = `semester-btn${sem === activeSemester ? ' active' : ''}`;
+        btn.textContent = sem;
+        btn.addEventListener('click', () => window.switchSemester(sem));
+        toggle.appendChild(btn);
+    }
 }
 
 /**
@@ -171,7 +191,7 @@ function renderCourseGrid() {
     const data = getData();
     const grid = document.getElementById('courseGrid');
     if (!grid) return;
-    grid.innerHTML = '';
+    grid.textContent = '';
 
     // Update header text
     const lastUpdatedEl = document.getElementById('lastUpdated');
@@ -203,10 +223,19 @@ function renderCourseGrid() {
         const header = document.createElement('div');
         header.className = 'dept-header';
         header.id = `dept-${dept}`;
-        header.innerHTML = `
-            <span>${dept}</span>
-            <a href="#" class="back-to-top" onclick="event.preventDefault(); window.scrollTo({top: 0, behavior: 'smooth'});">↑ Top</a>
-        `;
+        header.textContent = '';
+        const deptSpan = document.createElement('span');
+        deptSpan.textContent = dept;
+        header.appendChild(deptSpan);
+        const topLink = document.createElement('a');
+        topLink.href = '#';
+        topLink.className = 'back-to-top';
+        topLink.textContent = '↑ Top';
+        topLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        header.appendChild(topLink);
         grid.appendChild(header);
 
         const courses = deptCourses[dept];
@@ -233,11 +262,16 @@ function renderCourseGrid() {
             cell.setAttribute('data-fill', course.af);
             cell.setAttribute('tabindex', '0');
             cell.setAttribute('role', 'listitem');
+            cell.setAttribute('aria-label', `${formatCourseCode(course.code)} — ${Math.round(course.af * 100)}% full`);
             cell.style.setProperty('--cell-index', totalCourses);
-            cell.innerHTML = `
-                <span class="course-code">${formatCourseCode(course.code)}</span>
-                <span class="course-fill">${Math.round(course.af * 100)}%</span>
-            `;
+            const codeSpan = document.createElement('span');
+            codeSpan.className = 'course-code';
+            codeSpan.textContent = formatCourseCode(course.code);
+            cell.appendChild(codeSpan);
+            const fillSpan = document.createElement('span');
+            fillSpan.className = 'course-fill';
+            fillSpan.textContent = `${Math.round(course.af * 100)}%`;
+            cell.appendChild(fillSpan);
             cell.onclick = () => openCourse(course.code);
             cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
             grid.appendChild(cell);
@@ -253,9 +287,13 @@ function renderCourseGrid() {
     // Render jump-to navigation
     const jumpNav = document.getElementById('jumpToNav');
     if (jumpNav) {
-        jumpNav.innerHTML = sortedDepts.map(dept =>
-            `<a href="#dept-${dept}">${dept}</a>`
-        ).join('');
+        jumpNav.textContent = '';
+        for (const dept of sortedDepts) {
+            const a = document.createElement('a');
+            a.href = `#dept-${dept}`;
+            a.textContent = dept;
+            jumpNav.appendChild(a);
+        }
     }
 
     // Re-apply filters if any are active
@@ -283,7 +321,7 @@ function openCourse(courseCode) {
     updateModalBookmark(courseCode);
 
     const sectionList = document.getElementById('sectionList');
-    sectionList.innerHTML = '';
+    sectionList.textContent = '';
 
     // Sort sections by type then by ID (using minified keys)
     const sections = Object.entries(course.s).sort((a, b) => {
@@ -304,7 +342,7 @@ function openCourse(courseCode) {
 
     // Render section type selector
     const sectionTypeSelector = document.getElementById('sectionTypeSelector');
-    sectionTypeSelector.innerHTML = '';
+    sectionTypeSelector.textContent = '';
 
     for (const [type, typeSections] of Object.entries(sectionsByType)) {
         const typeGroup = document.createElement('div');
@@ -323,14 +361,28 @@ function openCourse(courseCode) {
             const item = document.createElement('div');
             item.className = `section-item ${getStatusClass(section.cf)}`;
             item.id = `section-${section.code}`;
-            item.innerHTML = `
-                <div class="section-id">${section.code}</div>
-                ${section.in ? `<div class="section-instructor">${section.in}</div>` : ''}
-                <div class="section-stats">
-                    <span class="section-fill">${Math.round(section.cf * 100)}%</span>
-                    <span>(${section.ce}/${section.cc})</span>
-                </div>
-            `;
+            const sectionId = document.createElement('div');
+            sectionId.className = 'section-id';
+            sectionId.textContent = section.code;
+            item.appendChild(sectionId);
+
+            if (section.in) {
+                const instructor = document.createElement('div');
+                instructor.className = 'section-instructor';
+                instructor.textContent = section.in;
+                item.appendChild(instructor);
+            }
+
+            const stats = document.createElement('div');
+            stats.className = 'section-stats';
+            const fillEl = document.createElement('span');
+            fillEl.className = 'section-fill';
+            fillEl.textContent = `${Math.round(section.cf * 100)}%`;
+            stats.appendChild(fillEl);
+            const countEl = document.createElement('span');
+            countEl.textContent = `(${section.ce}/${section.cc})`;
+            stats.appendChild(countEl);
+            item.appendChild(stats);
             item.onclick = () => selectSection(section.code);
             groupList.appendChild(item);
         }
@@ -360,6 +412,26 @@ function openCourse(courseCode) {
 
     document.documentElement.classList.add('modal-open');
     document.body.classList.add('modal-open');
+
+    // Store opener for focus restoration
+    modalOpener = document.activeElement;
+
+    // Make background inert
+    document.getElementById('main-content').setAttribute('inert', '');
+    document.querySelector('header').setAttribute('inert', '');
+    document.querySelector('.controls-panel').setAttribute('inert', '');
+
+    // Show share button
+    const shareBtn = document.getElementById('modalShareLink');
+    if (shareBtn) shareBtn.style.display = '';
+
+    // Focus the first focusable element in the modal
+    setTimeout(() => {
+        const focusable = getModalFocusableElements();
+        if (focusable.length > 0) {
+            focusable[0].focus();
+        }
+    }, 50);
 }
 
 function setZoomControlsState(isZoomed) {
@@ -394,7 +466,7 @@ function renderMilestoneProgress() {
     const container = document.getElementById('milestoneProgress');
     if (!container) return;
     const milestones = getMilestones();
-    if (!milestones || milestones.length < 2) { container.innerHTML = ''; return; }
+    if (!milestones || milestones.length < 2) { container.textContent = ''; return; }
 
     const now = Date.now();
     const mTimes = milestones.map(m => ({ time: new Date(m.time).getTime(), label: m.label, color: m.color })).sort((a, b) => a.time - b.time);
@@ -418,17 +490,32 @@ function renderMilestoneProgress() {
         fillPct = ((filledSegments - 1 + Math.min(1, Math.max(0, segFrac))) / (count - 1)) * 100;
     }
 
-    const dots = mTimes.map((m, i) => {
-        const pos = (i / (count - 1)) * 100; // Equal spacing
-        const passed = now >= m.time;
-        return `<div class="mp-dot${passed ? ' passed' : ''}" style="left:${pos}%;background:${passed ? m.color : ''}" title="${m.label}"><span class="mp-dot-label">${m.label}</span></div>`;
-    }).join('');
+    container.textContent = '';
+    const track = document.createElement('div');
+    track.className = 'mp-track';
 
-    container.innerHTML = `
-        <div class="mp-track">
-            <div class="mp-fill" style="clip-path: inset(0 calc(100% - ${fillPct}%) 0 0)"></div>
-            ${dots}
-        </div>`;
+    const fill = document.createElement('div');
+    fill.className = 'mp-fill';
+    fill.style.clipPath = `inset(0 calc(100% - ${fillPct}%) 0 0)`;
+    track.appendChild(fill);
+
+    for (let i = 0; i < count; i++) {
+        const m = mTimes[i];
+        const pos = (i / (count - 1)) * 100;
+        const passed = now >= m.time;
+        const dot = document.createElement('div');
+        dot.className = `mp-dot${passed ? ' passed' : ''}`;
+        dot.style.left = `${pos}%`;
+        if (passed) dot.style.background = m.color;
+        dot.title = m.label;
+        const label = document.createElement('span');
+        label.className = 'mp-dot-label';
+        label.textContent = m.label;
+        dot.appendChild(label);
+        track.appendChild(dot);
+    }
+
+    container.appendChild(track);
 }
 
 // Global state for event history
@@ -489,23 +576,52 @@ function renderEventHistory(courseCode) {
 
     const filtersEl = document.getElementById('eventFilters');
     if (filtersEl) {
-        let html = '<div class="ef-row">';
-        // Sort toggle
-        html += `<button class="ef-pill ef-sort" data-sort="newest" title="Sort order">↓ Newest</button>`;
-        // Type filter
-        html += `<select class="ef-select" id="efType" aria-label="Filter by type"><option value="all">All types</option>`;
+        filtersEl.textContent = '';
+        const efRow = document.createElement('div');
+        efRow.className = 'ef-row';
+
+        const sortBtn = document.createElement('button');
+        sortBtn.className = 'ef-pill ef-sort';
+        sortBtn.dataset.sort = 'newest';
+        sortBtn.title = 'Sort order';
+        sortBtn.textContent = '↓ Newest';
+        efRow.appendChild(sortBtn);
+
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'ef-select';
+        typeSelect.id = 'efType';
+        typeSelect.setAttribute('aria-label', 'Filter by type');
+        const allTypesOpt = document.createElement('option');
+        allTypesOpt.value = 'all';
+        allTypesOpt.textContent = 'All types';
+        typeSelect.appendChild(allTypesOpt);
         for (const t of types) {
-            html += `<option value="${t}">${EVENT_ICONS[t] || ''} ${EVENT_LABELS[t] || t}</option>`;
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = `${EVENT_ICONS[t] || ''} ${EVENT_LABELS[t] || t}`;
+            typeSelect.appendChild(opt);
         }
-        html += '</select>';
-        // Section filter
+        efRow.appendChild(typeSelect);
+
         if (sections.length > 1) {
-            html += `<select class="ef-select" id="efSection" aria-label="Filter by section"><option value="all">All sections</option>`;
-            for (const s of sections) html += `<option value="${s}">${s}</option>`;
-            html += '</select>';
+            const sectionSelect = document.createElement('select');
+            sectionSelect.className = 'ef-select';
+            sectionSelect.id = 'efSection';
+            sectionSelect.setAttribute('aria-label', 'Filter by section');
+            const allSectionsOpt = document.createElement('option');
+            allSectionsOpt.value = 'all';
+            allSectionsOpt.textContent = 'All sections';
+            sectionSelect.appendChild(allSectionsOpt);
+            for (const s of sections) {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                sectionSelect.appendChild(opt);
+            }
+            efRow.appendChild(sectionSelect);
         }
-        html += '</div>';
-        filtersEl.innerHTML = html;
+
+        filtersEl.appendChild(efRow);
 
         // Wire up events
         filtersEl.querySelector('.ef-sort')?.addEventListener('click', (e) => {
@@ -544,20 +660,43 @@ function _renderFilteredEvents() {
 
     if (countEl) countEl.textContent = `(${filtered.length}/${_currentEvents.length})`;
 
-    container.innerHTML = filtered.length === 0
-        ? '<div class="event-item" style="color:hsl(var(--muted-foreground));justify-content:center;">No matching events</div>'
-        : filtered.map(e => {
-            const icon = EVENT_ICONS[e.et] || '📝';
-            const desc = eventDesc(e);
-            const ts = e.st ? new Date(e.st).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-            return `<div class="event-item"><span class="event-icon">${icon}</span><span class="event-desc">${desc}</span><span class="event-ts">${ts}</span></div>`;
-        }).join('');
+    container.textContent = '';
+    if (filtered.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'event-item';
+        emptyMsg.style.color = 'hsl(var(--muted-foreground))';
+        emptyMsg.style.justifyContent = 'center';
+        emptyMsg.textContent = 'No matching events';
+        container.appendChild(emptyMsg);
+    } else {
+        for (const e of filtered) {
+            const row = document.createElement('div');
+            row.className = 'event-item';
+
+            const icon = document.createElement('span');
+            icon.className = 'event-icon';
+            icon.textContent = EVENT_ICONS[e.et] || '📝';
+            row.appendChild(icon);
+
+            const desc = document.createElement('span');
+            desc.className = 'event-desc';
+            desc.textContent = eventDesc(e);
+            row.appendChild(desc);
+
+            const ts = document.createElement('span');
+            ts.className = 'event-ts';
+            ts.textContent = e.st ? new Date(e.st).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+            row.appendChild(ts);
+
+            container.appendChild(row);
+        }
+    }
 }
 
 /**
  * Show average fill chart for a course.
  */
-function showAverageFillChart(courseCode) {
+async function showAverageFillChart(courseCode) {
     const data = getData();
     const course = data.cr[courseCode];
     if (!course) return;
@@ -567,13 +706,13 @@ function showAverageFillChart(courseCode) {
     currentEnrollmentData = chartPoints;
 
     document.getElementById('chartLegend').classList.remove('visible');
-    renderChart(courseCode, chartPoints, chartDomain, false);
+    await renderChart(courseCode, chartPoints, chartDomain, false);
 }
 
 /**
  * Select a section and show its enrollment chart.
  */
-function selectSection(sectionCode) {
+async function selectSection(sectionCode) {
     const data = getData();
 
     // Toggle selection if clicking same section
@@ -582,7 +721,7 @@ function selectSection(sectionCode) {
         selectedSection = null;
         viewingGraph = false;
         currentEnrollmentData = [];
-        showAverageFillChart(selectedCourse);
+        await showAverageFillChart(selectedCourse);
         return;
     }
 
@@ -605,13 +744,14 @@ function selectSection(sectionCode) {
     const hasCapacityChanges = currentEnrollmentData.some(d => d.capacityChanged);
     document.getElementById('chartLegend').classList.toggle('visible', hasCapacityChanges);
 
-    renderChart(`${sectionCode} Enrollment %`, chartPoints, chartDomain, true);
+    await renderChart(`${sectionCode} Enrollment %`, chartPoints, chartDomain, true);
 }
 
 /**
  * Render enrollment chart with milestones and phased/timeline/snapshots mode.
  */
-function renderChart(chartLabel, chartPoints, chartDomain, showCapacityMarkers) {
+async function renderChart(chartLabel, chartPoints, chartDomain, showCapacityMarkers) {
+    await loadChartJs();
     // Cache args for mode toggle re-render
     lastRenderArgs = { chartLabel, chartPoints, chartDomain, showCapacityMarkers };
 
@@ -777,6 +917,22 @@ function closeModal() {
     document.getElementById('modalOverlay').classList.remove('active');
     document.documentElement.classList.remove('modal-open');
     document.body.classList.remove('modal-open');
+
+    // Remove inert from background
+    document.getElementById('main-content')?.removeAttribute('inert');
+    document.querySelector('header')?.removeAttribute('inert');
+    document.querySelector('.controls-panel')?.removeAttribute('inert');
+
+    // Hide share button
+    const shareBtn = document.getElementById('modalShareLink');
+    if (shareBtn) shareBtn.style.display = 'none';
+
+    // Restore focus to the opener
+    if (modalOpener && typeof modalOpener.focus === 'function') {
+        modalOpener.focus();
+        modalOpener = null;
+    }
+
     selectedCourse = null;
     selectedSection = null;
     viewingGraph = false;
@@ -811,9 +967,81 @@ document.getElementById('modalOverlay').addEventListener('click', (e) => {
     if (e.target.id === 'modalOverlay') closeModal();
 });
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+// Track the element that opened the modal for focus restoration
+let modalOpener = null;
+
+/**
+ * Get all focusable elements within the modal.
+ */
+function getModalFocusableElements() {
+    const modal = document.querySelector('.modal');
+    if (!modal) return [];
+    return [...modal.querySelectorAll(
+        'button:not([disabled]):not([tabindex="-1"]), ' +
+        '[href], input:not([disabled]), select:not([disabled]), ' +
+        'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
+    )];
+}
+
+/**
+ * Trap focus within the modal on Tab/Shift+Tab.
+ */
+function trapFocus(e) {
+    if (e.key !== 'Tab') return;
+    const focusable = getModalFocusableElements();
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (e.shiftKey) {
+        if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        }
+    } else {
+        if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    }
+}
+
+// Add focus trap keydown listener on the modal overlay
+document.getElementById('modalOverlay').addEventListener('keydown', trapFocus);
+
+// Close button event listener
+document.getElementById('modalCloseBtn')?.addEventListener('click', closeModal);
+
+// Share link button
+document.getElementById('modalShareLink')?.addEventListener('click', async () => {
+    if (!selectedCourse) return;
+    const semSlug = semesterToSlug(IS_COMBINED ? activeSemester : getData().sem || '');
+    const courseSlug = courseToSlug(selectedCourse);
+    const shareUrl = `${window.location.origin}/courses/${semSlug}/${courseSlug}.html`;
+
+    try {
+        await navigator.clipboard.writeText(shareUrl);
+        showToast('🔗 Share link copied!');
+    } catch {
+        // Fallback: select a temporary input
+        const input = document.createElement('input');
+        input.value = shareUrl;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+        showToast('🔗 Share link copied!');
+    }
 });
+
+// Use window capture phase so this fires before any child element (e.g. the
+// search input) can call stopPropagation() and swallow the Escape event.
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('modalOverlay').classList.contains('active')) {
+        closeModal();
+    }
+}, true);
 
 document.getElementById('chartContainer').addEventListener('touchend', () => {
     setTimeout(clearChartActiveElements, 100);
@@ -912,6 +1140,75 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     });
 });
 
+/**
+ * Show empty state message in the course grid when no courses match.
+ */
+function showEmptyState(query) {
+    hideEmptyState();
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    const div = document.createElement('div');
+    div.className = 'empty-state';
+    div.textContent = `No courses match '${query}'. Try a different search term.`;
+    grid.appendChild(div);
+}
+
+/**
+ * Remove the empty state message from the course grid.
+ */
+function hideEmptyState() {
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    const existing = grid.querySelector('.empty-state');
+    if (existing) existing.remove();
+}
+
+/**
+ * Show error state in the course grid with a retry button.
+ */
+function showErrorState() {
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    // Remove any existing error or empty states
+    grid.querySelectorAll('.empty-state, .error-state, .timeout-state').forEach(el => el.remove());
+    const div = document.createElement('div');
+    div.className = 'error-state';
+    div.textContent = 'Failed to load enrollment data. ';
+    const retryBtn = document.createElement('button');
+    retryBtn.id = 'retryFetch';
+    retryBtn.textContent = 'Retry';
+    retryBtn.addEventListener('click', () => {
+        div.remove();
+        initApp();
+    });
+    div.appendChild(retryBtn);
+    grid.appendChild(div);
+}
+
+/**
+ * Show a timeout warning in the course grid.
+ */
+function showTimeoutWarning() {
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    // Don't add duplicate warnings
+    if (grid.querySelector('.timeout-state')) return;
+    const div = document.createElement('div');
+    div.className = 'timeout-state';
+    div.textContent = 'Still loading... This is taking longer than expected.';
+    grid.appendChild(div);
+}
+
+/**
+ * Remove the timeout warning from the course grid.
+ */
+function hideTimeoutWarning() {
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    const existing = grid.querySelector('.timeout-state');
+    if (existing) existing.remove();
+}
+
 function applyFilters() {
     const searchQuery = searchInput?.value.toLowerCase().trim() || '';
     const cells = document.querySelectorAll('.course-cell');
@@ -949,6 +1246,13 @@ function applyFilters() {
         }
         header.style.display = nextCells.some(c => !c.classList.contains('hidden')) ? '' : 'none';
     });
+
+    // Show empty state if no courses are visible (and we have cells to filter)
+    if (cells.length > 0 && visibleCount === 0) {
+        showEmptyState(searchInput?.value || '');
+    } else {
+        hideEmptyState();
+    }
 }
 
 // Override original filterCourses to use applyFilters
@@ -995,7 +1299,19 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
                 const header = document.createElement('div');
                 header.className = 'dept-header';
                 header.id = `dept-${dept}`;
-                header.innerHTML = `${dept} <a href="#" class="back-to-top" onclick="scrollTo({top:0,behavior:'smooth'});return false;">↑ Top</a>`;
+                const sortDeptSpan = document.createElement('span');
+                sortDeptSpan.textContent = dept;
+                header.appendChild(sortDeptSpan);
+                header.appendChild(document.createTextNode(' '));
+                const sortTopLink = document.createElement('a');
+                sortTopLink.href = '#';
+                sortTopLink.className = 'back-to-top';
+                sortTopLink.textContent = '↑ Top';
+                sortTopLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                });
+                header.appendChild(sortTopLink);
                 grid.appendChild(header);
             }
             grid.appendChild(cell);
@@ -1003,11 +1319,17 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
         // Rebuild jump nav
         const jumpNav = document.getElementById('jumpToNav');
         const depts = [...new Set(cells.map(c => c.dataset.course.split(' ')[0]))];
-        jumpNav.innerHTML = depts.map(d => `<a href="#dept-${d}">${d}</a>`).join('');
+        jumpNav.textContent = '';
+        for (const d of depts) {
+            const a = document.createElement('a');
+            a.href = `#dept-${d}`;
+            a.textContent = d;
+            jumpNav.appendChild(a);
+        }
     } else {
         // No headers for other sorts
         cells.forEach(c => grid.appendChild(c));
-        document.getElementById('jumpToNav').innerHTML = '';
+        document.getElementById('jumpToNav').textContent = '';
     }
 });
 
@@ -1093,7 +1415,7 @@ function updateModalBookmark(code) {
 // ============================================
 
 document.querySelectorAll('.chart-mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
         chartMode = btn.dataset.mode;
         localStorage.setItem('chartMode', chartMode);
         setZoomControlsState(false);
@@ -1104,7 +1426,7 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
         });
         if (lastRenderArgs) {
             const a = lastRenderArgs;
-            renderChart(a.chartLabel, a.chartPoints, a.chartDomain, a.showCapacityMarkers);
+            await renderChart(a.chartLabel, a.chartPoints, a.chartDomain, a.showCapacityMarkers);
         }
     });
 });
@@ -1133,22 +1455,29 @@ window.addEventListener('hashchange', handleHashNavigation);
 
 async function initApp() {
     // If JSON_URL is provided, fetch it asynchronously
-    if (window.JSON_URL && !DATA) {
+    const jsonUrl = getEnrollmentJsonUrl(document, window);
+    if (jsonUrl && !DATA) {
+        // Show loading timeout warning after 12 seconds
+        const timeoutId = setTimeout(showTimeoutWarning, 12000);
+
         try {
-            const res = await fetch(window.JSON_URL);
+            const res = await fetch(jsonUrl);
             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             const payload = await res.json();
             DATA = payload.data;
             MILESTONES = payload.milestones;
-            
+
+            clearTimeout(timeoutId);
+            hideTimeoutWarning();
             const loader = document.getElementById('loadingIndicator');
             if (loader) loader.remove();
         } catch (error) {
             console.error("Failed to load enrollment data:", error);
+            clearTimeout(timeoutId);
+            hideTimeoutWarning();
             const loader = document.getElementById('loadingIndicator');
-            if (loader) {
-                loader.innerHTML = `<div style="color: #ff1744;">Failed to load data. Please refresh.</div>`;
-            }
+            if (loader) loader.remove();
+            showErrorState();
             return;
         }
     }
