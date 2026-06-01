@@ -433,7 +433,7 @@ def get_semester_data(semester: str, *, minify: bool = True) -> dict[str, Any]:
         # Get all sections with their latest enrollment data
         cursor.execute(
             """
-            SELECT 
+            SELECT
                 s.section_id,
                 s.course_id,
                 s.section_code,
@@ -481,7 +481,7 @@ def get_semester_data(semester: str, *, minify: bool = True) -> dict[str, Any]:
 
         # Get enrollment history for all sections
         cursor.execute("""
-            SELECT 
+            SELECT
                 ed.section_id,
                 ed.snapshot_id,
                 ed.fill_percentage,

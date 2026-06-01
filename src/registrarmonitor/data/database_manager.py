@@ -1222,7 +1222,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
 
                 query = """
-                    SELECT 
+                    SELECT
                         s.timestamp,
                         sec.section_code,
                         e.fill_percentage,
