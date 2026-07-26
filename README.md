@@ -19,15 +19,25 @@ A Python application for monitoring university registrar enrollment data. Downlo
 
 - Python 3.13+
 - [`uv`](https://docs.astral.sh/uv/) package manager
+- [`jj`](https://jj-vcs.github.io/jj/) version control
 - Telegram bot token and chat ID (optional, for notifications)
 
 ### Installation
 
 ```bash
-git clone <repo-url>
+jj git clone <repo-url>
 cd registrar_monitor
 uv sync
 ```
+
+For an existing Git checkout, initialize Jujutsu in colocated mode:
+
+```bash
+jj git init --colocate .
+```
+
+The colocated repository keeps `.git` for GitHub and Git-aware tooling while
+using Jujutsu for normal local version-control work.
 
 ### Configuration
 
@@ -159,6 +169,39 @@ monitor
 
 ## Development
 
+### Version Control
+
+Use Jujutsu for day-to-day work. The working copy is already a commit, so there
+is no staging area.
+
+```bash
+# Inspect the working copy and recent changes
+jj status
+jj diff
+jj log -r 'present(@) | ancestors(@, 5) | present(trunk())'
+
+# Start, describe, and finish a change
+jj new 'trunk()' -m "Implement feature"
+jj describe -m "Implement feature"
+jj commit -m "Implement feature"
+```
+
+Bookmarks are named pointers used when sharing changes; they do not follow the
+working copy automatically. Fetch before publishing, set or advance the
+intended bookmark, preview the push, and then push only that bookmark:
+
+```bash
+jj git fetch --remote origin
+jj bookmark set feature-name -r @-
+jj git push --dry-run --remote origin --bookmark feature-name
+jj git push --remote origin --bookmark feature-name
+```
+
+Use `jj op log` to inspect repository operations and `jj undo` to reverse the
+latest operation. Avoid Git commands that rewrite the worktree or history
+inside this colocated repository; they can leave Jujutsu's working-copy state
+out of sync.
+
 ### Setup
 
 ```bash
@@ -189,15 +232,10 @@ make website-build
 make check
 ```
 
-### Pre-commit Checklist
+### Change Validation
 
-Install hooks once:
-
-```bash
-uv run pre-commit install
-```
-
-Run all hooks before committing:
+Jujutsu changes do not invoke Git commit hooks. Run the checks explicitly
+before publishing:
 
 ```bash
 uv run pre-commit run --all-files

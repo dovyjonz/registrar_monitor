@@ -6,7 +6,6 @@ dist/
 wheels/
 *.egg-info
 *.egg
-.DS_Store
 
 # Virtual environments
 .venv/
@@ -59,7 +58,6 @@ assets/website/node_modules/
 
 # macOS
 .DS_Store
-**/.DS_Store
 
 # Generated schedule file
 schedule.txt
