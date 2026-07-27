@@ -1,9 +1,9 @@
 import asyncio
-import time
 import os
 import sys
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 

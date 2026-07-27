@@ -16,7 +16,6 @@ from registrarmonitor.reporting.pdf_generator import (
     _group_sections_by_type,
 )
 
-
 # ── Helper function tests ─────────────────────────────────────────
 
 

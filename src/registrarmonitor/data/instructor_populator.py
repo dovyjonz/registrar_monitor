@@ -1,8 +1,9 @@
-import sqlite3
 import os
+import sqlite3
 from datetime import datetime
-from ..data.excel_reader import ExcelReader
+
 from ..core import get_logger
+from ..data.excel_reader import ExcelReader
 from .instructor_normalization import aggregate_instructors_by_section
 
 logger = get_logger(__name__)

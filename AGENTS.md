@@ -51,7 +51,7 @@ python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
 - Open `http://127.0.0.1:8000/` or a semester page such as
-  `http://127.0.0.1:8000/summer2026.html`.
+  `http://127.0.0.1:8000/fall2026.html`.
 - Do not use `http://127.0.0.1:5173/assets/` for generated pages; that path is
   only the production asset base and will 404 under Vite dev serving.
 - After running `npm --prefix assets/website run build`, make sure generated

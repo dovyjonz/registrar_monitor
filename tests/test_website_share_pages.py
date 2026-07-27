@@ -15,6 +15,9 @@ from registrarmonitor.website.config import (
 
 
 class TestSemesterToSlug:
+    def test_fall_2026(self):
+        assert semester_to_slug("Fall 2026") == "fall-2026"
+
     def test_summer_2026(self):
         assert semester_to_slug("Summer 2026") == "summer-2026"
 

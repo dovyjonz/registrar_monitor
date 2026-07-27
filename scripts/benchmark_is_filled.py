@@ -1,6 +1,6 @@
 import json
-import timeit
 import sys
+import timeit
 from pathlib import Path
 
 # Add src to python path so we can import models
@@ -10,7 +10,7 @@ from registrarmonitor.models import EnrollmentSnapshot
 
 
 def load_snapshot(filepath):
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         data = json.load(f)
     return EnrollmentSnapshot.from_dict(data)
 

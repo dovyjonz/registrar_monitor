@@ -36,7 +36,6 @@ async function loadChartJs() {
 let chart = null;
 let selectedCourse = null;
 let selectedSection = null;
-let viewingGraph = false;
 let currentEnrollmentData = [];
 let chartMode = localStorage.getItem('chartMode') || 'phased'; // 'phased', 'snapshots', or 'timeline'
 
@@ -309,7 +308,6 @@ function openCourse(courseCode) {
     const data = getData();
     selectedCourse = courseCode;
     selectedSection = null;
-    viewingGraph = false;
 
     const course = data.cr[courseCode];
     if (!course) return;
@@ -478,7 +476,7 @@ function renderMilestoneProgress() {
         if (now >= mTimes[i].time) filledSegments = i + 1;
     }
     // Interpolate within current segment
-    let fillPct = 0;
+    let fillPct;
     if (filledSegments >= count) {
         fillPct = 100;
     } else if (filledSegments === 0) {
@@ -719,7 +717,6 @@ async function selectSection(sectionCode) {
     if (selectedSection === sectionCode) {
         document.getElementById(`section-${sectionCode}`)?.classList.remove('selected');
         selectedSection = null;
-        viewingGraph = false;
         currentEnrollmentData = [];
         await showAverageFillChart(selectedCourse);
         return;
@@ -730,7 +727,6 @@ async function selectSection(sectionCode) {
         document.getElementById(`section-${selectedSection}`)?.classList.remove('selected');
     }
     selectedSection = sectionCode;
-    viewingGraph = true;
     document.getElementById(`section-${sectionCode}`)?.classList.add('selected');
 
     const section = data.cr[selectedCourse].s[sectionCode];
@@ -935,7 +931,6 @@ function closeModal() {
 
     selectedCourse = null;
     selectedSection = null;
-    viewingGraph = false;
     currentEnrollmentData = [];
     lastRenderArgs = null;
     document.getElementById('chartLegend').classList.remove('visible');
@@ -1066,33 +1061,6 @@ document.querySelector('.modal-body').addEventListener('click', (e) => {
 // ============================================
 
 const searchInput = document.getElementById('courseSearch');
-
-/**
- * Filter courses based on search query.
- */
-function filterCourses(query) {
-    const cells = document.querySelectorAll('.course-cell');
-    const normalizedQuery = query.toLowerCase().trim();
-
-    cells.forEach(cell => {
-        const code = cell.getAttribute('data-course').toLowerCase();
-        const matches = !normalizedQuery || code.includes(normalizedQuery);
-        cell.classList.toggle('hidden', !matches);
-    });
-
-    // Show/hide department headers based on visible courses
-    document.querySelectorAll('.dept-header').forEach(header => {
-        const nextCells = [];
-        let sibling = header.nextElementSibling;
-        while (sibling && !sibling.classList.contains('dept-header')) {
-            if (sibling.classList.contains('course-cell')) {
-                nextCells.push(sibling);
-            }
-            sibling = sibling.nextElementSibling;
-        }
-        header.style.display = nextCells.some(c => !c.classList.contains('hidden')) ? '' : 'none';
-    });
-}
 
 // Keyboard shortcut: "/" to focus search
 document.addEventListener('keydown', (e) => {
@@ -1255,7 +1223,6 @@ function applyFilters() {
     }
 }
 
-// Override original filterCourses to use applyFilters
 searchInput?.addEventListener('input', () => applyFilters());
 
 // ============================================

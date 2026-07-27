@@ -1,7 +1,7 @@
 import os
-import toml
 from typing import Any
 
+import toml
 from dotenv import load_dotenv
 
 
@@ -10,7 +10,7 @@ class Config:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(Config, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             try:
                 cls._instance.load_config()
             except Exception:
@@ -29,7 +29,7 @@ class Config:
             root_dir = Path(__file__).parent.parent.parent
             settings_path = root_dir / "settings.toml"
 
-            with open(settings_path, "r") as f:
+            with open(settings_path) as f:
                 self.config = toml.load(f)
 
             # Make all directory paths absolute relative to the project root

@@ -1,9 +1,7 @@
-from typing import Optional
-
 from ..data.database_manager import DatabaseManager
 
 
-async def detect_active_semester(debug: bool = False) -> Optional[str]:
+async def detect_active_semester(debug: bool = False) -> str | None:
     """Detect which semester database has the most recent data."""
     try:
         available_semesters = DatabaseManager.get_semester_databases()

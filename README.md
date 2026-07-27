@@ -17,9 +17,11 @@ A Python application for monitoring university registrar enrollment data. Downlo
 
 ### Prerequisites
 
-- Python 3.13+
+- Python 3.13.5 (the default pin; Python 3.14 is also tested in CI)
+- Node.js 24.18.0 LTS and npm 11.x for the website tooling
 - [`uv`](https://docs.astral.sh/uv/) package manager
 - [`jj`](https://jj-vcs.github.io/jj/) version control
+- Codex CLI 0.144.0 or newer for the project tooling workflow
 - Telegram bot token and chat ID (optional, for notifications)
 
 ### Installation
@@ -27,7 +29,7 @@ A Python application for monitoring university registrar enrollment data. Downlo
 ```bash
 jj git clone <repo-url>
 cd registrar_monitor
-uv sync
+make bootstrap
 ```
 
 For an existing Git checkout, initialize Jujutsu in colocated mode:
@@ -205,8 +207,14 @@ out of sync.
 ### Setup
 
 ```bash
-uv sync --group dev
+make bootstrap
+make doctor
 ```
+
+`make bootstrap` installs the lockfile-pinned Python and website dependencies;
+it does not install Python or Node itself. Use the versions in `.python-version`
+and `.node-version`, then run `make doctor` to verify the tools, configuration,
+paths, and optional secret-file presence.
 
 ### Tooling
 
@@ -229,8 +237,34 @@ make type
 make test
 make website-lint
 make website-build
+make check-fast
 make check
 ```
+
+`make check` intentionally retains its existing full quality gate: formatting,
+Ruff, ty, pytest, website lint, and website build. The new `make check-fast`
+runs the Python formatting/lint/type/unit-test loop only. Browser and production
+site checks remain opt-in so that pre-commit stays quick:
+
+```bash
+make test-browser  # Chromium check against generated dashboard output
+make site-smoke    # generate and crawl deployable output
+```
+
+`make clean-generated` removes only reproducible website output (HTML, JSON,
+headers, Vite assets, and course pages). It deliberately leaves runtime data,
+logs, and databases untouched. `make site-smoke` fails if those non-publishable
+files are present in `assets/website/public`, which prevents accidental
+deployment of local data.
+
+### Reproducible Baseline and Benchmarks
+
+Use `make baseline` to write `output/tooling-baseline.json`. The JSON is stable
+for identical tracked tooling inputs and records the Python/Node pins plus
+SHA-256 hashes of `pyproject.toml`, `uv.lock`, and the website lockfile. Compare
+it with a previous baseline using a JSON-aware diff after a deliberate tooling
+change. `make benchmark` is opt-in and runs the deterministic mocked downloader
+benchmark; it does not run during pre-commit or `make check`.
 
 ### Change Validation
 
@@ -241,7 +275,7 @@ before publishing:
 uv run pre-commit run --all-files
 ```
 
-The hooks cover Ruff formatting/linting, TOML/YAML/basic file hygiene, private-key detection, type checking, and website linting. For larger changes, also run `make check`.
+The hooks cover Ruff formatting/linting, TOML/YAML/basic file hygiene, private-key detection, type checking, and website linting. They intentionally exclude full pytest and browser checks; for larger changes, run `make check` and the opt-in browser/site targets when relevant.
 
 ### VPS Deployment
 

@@ -6,7 +6,6 @@ to eliminate code duplication.
 """
 
 from pathlib import Path
-from typing import List
 
 from .core.exceptions import FileProcessingError
 
@@ -47,7 +46,7 @@ def validate_excel_file(file_path: str) -> None:
         raise FileProcessingError("Input file must be an Excel file (.xls or .xlsx)")
 
 
-def validate_multiple_files(file_paths: List[str], file_type: str = "File") -> None:
+def validate_multiple_files(file_paths: list[str], file_type: str = "File") -> None:
     """
     Validate that multiple files exist.
 

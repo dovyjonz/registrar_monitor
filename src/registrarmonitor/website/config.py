@@ -61,6 +61,7 @@ def slug_to_course_code(slug: str) -> str:
 
 # CLI argument to semester display name mapping
 SEMESTER_MAP: dict[str, str] = {
+    "fall2026": "Fall 2026",
     "summer2026": "Summer 2026",
     "spring2026": "Spring 2026",
     "fall2025": "Fall 2025",
@@ -68,7 +69,13 @@ SEMESTER_MAP: dict[str, str] = {
 }
 
 # All semesters in display order (latest first)
-ALL_SEMESTERS: list[str] = ["Summer 2026", "Spring 2026", "Fall 2025", "Summer 2025"]
+ALL_SEMESTERS: list[str] = [
+    "Fall 2026",
+    "Summer 2026",
+    "Spring 2026",
+    "Fall 2025",
+    "Summer 2025",
+]
 
 # Latest semester (used for index.html redirect)
 LATEST_SEMESTER: str = ALL_SEMESTERS[0]

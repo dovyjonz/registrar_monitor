@@ -9,7 +9,7 @@ logs = "logs"
 
 [data_source]
 # University registrar data URL
-url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=824"
+url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=825"
 
 [notifications]
 # File write delay before sending notifications (seconds)
@@ -41,6 +41,29 @@ chat_id = ""
 #   high    = [+10min, +30min] after each milestone
 #   moderate = [-30min, +30min] around each deadline
 # Colors are auto-assigned by priority group number.
+
+# Fall 2026 undergraduate registration key dates.
+[semesters."Fall 2026"]
+deadlines = [
+    ["2026-08-26T12:00:00", "Drop"],
+    ["2026-08-28T17:30:00", "Close"],
+]
+[semesters."Fall 2026".priorities]
+"1" = [
+    ["2026-08-05T09:00:00", "Y4+"],
+    ["2026-08-05T11:00:00", "Y3"],
+    ["2026-08-05T13:00:00", "Y2"],
+    ["2026-08-12T09:00:00", "Y1"],
+]
+"2" = [
+    ["2026-08-13T09:00:00", "Y4+"],
+    ["2026-08-13T11:00:00", "Y3"],
+    ["2026-08-13T13:00:00", "Y2"],
+    ["2026-08-13T15:00:00", "Y1"],
+]
+"3" = [
+    ["2026-08-14T09:00:00", "ALL"],
+]
 
 [semesters."Summer 2026"]
 deadlines = [

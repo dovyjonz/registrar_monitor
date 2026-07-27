@@ -2,7 +2,6 @@ import asyncio
 import os
 import uuid
 from datetime import datetime
-from typing import Optional
 
 import httpx
 
@@ -27,7 +26,7 @@ class DataDownloader:
         with open(filename, "wb") as f:
             f.write(content)
 
-    async def download(self) -> Optional[str]:
+    async def download(self) -> str | None:
         """
         Download the enrollment data file.
 

@@ -1,9 +1,8 @@
 """Service for generating and deploying the website."""
 
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Optional
 
 from ..core import get_logger
 from ..website.checksums import get_semesters_needing_update, update_checksum
@@ -11,10 +10,10 @@ from ..website.config import (
     MILESTONES_MAP,
     OUTPUT_DIR,
     SEMESTER_MAP,
+    _get_indexing,
+    course_to_slug,
     semester_to_filename,
     semester_to_slug,
-    course_to_slug,
-    _get_indexing,
 )
 from ..website.data import get_semester_data
 from ..website.templates import build_redirect_index, build_semester_page
@@ -34,7 +33,7 @@ class WebsiteService:
 
     def generate_semester_page(
         self, semester: str, *, minify_assets: bool = False
-    ) -> tuple[Optional[Path], float]:
+    ) -> tuple[Path | None, float]:
         """
         Generate a single semester page.
 
@@ -350,7 +349,8 @@ class WebsiteService:
     def is_any_semester_active(self, buffer_days: int = 7) -> bool:
         """Check if we are currently within an active registration window."""
         import datetime
-        from ..website.config import get_milestones, ALL_SEMESTERS
+
+        from ..website.config import ALL_SEMESTERS, get_milestones
 
         now = datetime.datetime.now()
 
@@ -372,7 +372,7 @@ class WebsiteService:
 
     def generate(
         self,
-        semester_key: Optional[str] = None,
+        semester_key: str | None = None,
         force: bool = False,
         minify: bool = True,
     ) -> bool:
@@ -467,7 +467,7 @@ class WebsiteService:
             return False
 
     def deploy(
-        self, project_name: str = "registrar-monitor", branch: Optional[str] = None
+        self, project_name: str = "registrar-monitor", branch: str | None = None
     ) -> bool:
         """
         Deploy the website to Cloudflare Pages.

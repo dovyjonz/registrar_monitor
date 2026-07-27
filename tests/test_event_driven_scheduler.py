@@ -12,7 +12,7 @@ def _use_mock_decision_logger(mock_decision_logger):
     """Pull in mock_decision_logger from conftest for this module."""
 
 
-from registrarmonitor.automation.scheduler import TwoPhaseScheduler, SchedulingLevel
+from registrarmonitor.automation.scheduler import SchedulingLevel, TwoPhaseScheduler
 
 
 def _make_snapshot(courses=None):
@@ -134,8 +134,8 @@ class TestCheckAndTriggerUpdates:
         mock_db = MagicMock()
         mock_db.get_latest_snapshot_id.return_value = "snap_002"
         mock_db.get_last_reported_snapshot_id.return_value = "snap_001"
-        mock_db.get_snapshot_data.side_effect = (
-            lambda sid: curr_snap if sid == "snap_002" else prev_snap
+        mock_db.get_snapshot_data.side_effect = lambda sid: (
+            curr_snap if sid == "snap_002" else prev_snap
         )
 
         mock_comparator = MagicMock()

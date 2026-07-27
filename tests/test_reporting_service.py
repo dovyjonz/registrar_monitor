@@ -81,6 +81,7 @@ async def test_stateful_report_cycle_honors_no_telegram(
             assert await service.run_stateful_report_cycle(send_telegram=False) is True
 
     generate_and_send_reports.assert_awaited_once()
+    assert generate_and_send_reports.await_args is not None
     assert generate_and_send_reports.await_args.kwargs["send_telegram"] is False
     telegram_cls.assert_not_called()
 

@@ -68,5 +68,8 @@ meta/
 # Generated deployment files
 scripts/registrarmonitor.service
 
+# Reproducible local tooling artifacts
+/output/
+
 # Local jj metadata
 .jj/

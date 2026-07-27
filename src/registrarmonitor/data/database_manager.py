@@ -10,7 +10,7 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..config import get_config
 from ..core import get_logger
@@ -21,7 +21,7 @@ from ..validation import validate_directory_exists
 class DatabaseManager:
     """Manages SQLite database operations for enrollment data."""
 
-    def __init__(self, db_path: Optional[str] = None, semester: Optional[str] = None):
+    def __init__(self, db_path: str | None = None, semester: str | None = None):
         """
         Initialize database manager.
 
@@ -264,8 +264,8 @@ class DatabaseManager:
     def insert_course(
         self,
         course_code: str,
-        course_title: Optional[str] = None,
-        department: Optional[str] = None,
+        course_title: str | None = None,
+        department: str | None = None,
     ) -> int:
         """
         Insert or get existing course.
@@ -347,8 +347,8 @@ class DatabaseManager:
         self,
         course_id: int,
         section_code: str,
-        section_type: Optional[str] = None,
-        instructor: Optional[str] = None,
+        section_type: str | None = None,
+        instructor: str | None = None,
     ) -> int:
         """
         Insert or get existing section.
@@ -771,7 +771,7 @@ class DatabaseManager:
             raise
 
     @staticmethod
-    def get_semester_databases(data_dir: Optional[str] = None) -> Dict[str, Path]:
+    def get_semester_databases(data_dir: str | None = None) -> dict[str, Path]:
         """
         Get all semester-specific database files.
 
@@ -805,7 +805,7 @@ class DatabaseManager:
 
     @staticmethod
     def create_for_semester(
-        semester: str, data_dir: Optional[str] = None
+        semester: str, data_dir: str | None = None
     ) -> "DatabaseManager":
         """
         Create a DatabaseManager instance for a specific semester.
@@ -841,9 +841,7 @@ class DatabaseManager:
         safe_name = re.sub(r"[-\s]+", "_", safe_name)
         return safe_name.lower()
 
-    def get_latest_snapshot_timestamp(
-        self, semester: Optional[str] = None
-    ) -> Optional[str]:
+    def get_latest_snapshot_timestamp(self, semester: str | None = None) -> str | None:
         """
         Get timestamp of the most recent snapshot.
 
@@ -884,7 +882,7 @@ class DatabaseManager:
             self.logger.error(f"Unexpected error getting latest snapshot: {e}")
             raise
 
-    def get_enrollment_summary(self, snapshot_id: int) -> Dict[str, int]:
+    def get_enrollment_summary(self, snapshot_id: int) -> dict[str, int]:
         """
         Get enrollment summary for a snapshot.
 
@@ -1034,7 +1032,7 @@ class DatabaseManager:
             self.logger.error(f"Unexpected error deduping instructor changes: {e}")
             raise
 
-    def get_latest_snapshot_id(self) -> Optional[int]:
+    def get_latest_snapshot_id(self) -> int | None:
         """Finds the ID of the most recent snapshot."""
         try:
             with self.get_connection() as conn:
@@ -1050,7 +1048,7 @@ class DatabaseManager:
             self.logger.error(f"Unexpected error getting latest snapshot ID: {e}")
             raise
 
-    def get_last_reported_snapshot_id(self) -> Optional[int]:
+    def get_last_reported_snapshot_id(self) -> int | None:
         """Finds the ID of the snapshot from the last report log."""
         try:
             with self.get_connection() as conn:
@@ -1093,7 +1091,7 @@ class DatabaseManager:
             self.logger.error(f"Unexpected error adding reporting log: {e}")
             raise
 
-    def get_snapshot_data(self, snapshot_id: int) -> Optional[EnrollmentSnapshot]:
+    def get_snapshot_data(self, snapshot_id: int) -> EnrollmentSnapshot | None:
         """
         Reconstructs an EnrollmentSnapshot object for a given snapshot ID.
         """
@@ -1205,8 +1203,8 @@ class DatabaseManager:
             raise
 
     def get_course_history(
-        self, course_code: str, semester: Optional[str] = None
-    ) -> list[Dict[str, Any]]:
+        self, course_code: str, semester: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Get historical enrollment data for a specific course.
 

@@ -1,6 +1,6 @@
 import itertools
-from decimal import Decimal, ROUND_HALF_EVEN
-from typing import Any, Optional, List, Dict
+from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Any
 
 from ..config import get_config
 from ..models import (
@@ -17,7 +17,7 @@ from .instructor_normalization import aggregate_instructors_by_section
 class SnapshotProcessor:
     """Processes data into EnrollmentSnapshot objects and stores them in the database."""
 
-    def __init__(self, data_dir: Optional[str] = None):
+    def __init__(self, data_dir: str | None = None):
         if data_dir is None:
             config = get_config()
             data_dir = config["directories"]["data_storage"]
@@ -25,11 +25,11 @@ class SnapshotProcessor:
         validate_directory_exists(data_dir, create_if_missing=True)
 
         # Database manager will be created per semester
-        self.db_manager: Optional[DatabaseManager] = None
-        self._current_semester: Optional[str] = None
+        self.db_manager: DatabaseManager | None = None
+        self._current_semester: str | None = None
 
     def process_data(
-        self, data: List[Dict[str, Any]], semester: str, timestamp: str
+        self, data: list[dict[str, Any]], semester: str, timestamp: str
     ) -> EnrollmentSnapshot:
         """Process data list into EnrollmentSnapshot model."""
         if not data:

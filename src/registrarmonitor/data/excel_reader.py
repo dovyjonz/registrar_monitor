@@ -1,8 +1,8 @@
 import datetime
 import os
 import re
-from decimal import Decimal, ROUND_HALF_EVEN
-from typing import Tuple, List, Dict, Any
+from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Any
 
 import xlrd
 
@@ -10,7 +10,7 @@ import xlrd
 class ExcelReader:
     """Reads and processes Excel data files."""
 
-    def read_excel_data(self, input_file: str) -> Tuple[str, str, List[Dict[str, Any]]]:
+    def read_excel_data(self, input_file: str) -> tuple[str, str, list[dict[str, Any]]]:
         """Read and process the Excel data file."""
         wb = xlrd.open_workbook(input_file, ignore_workbook_corruption=True)
         sheet = wb.sheet_by_index(0)
@@ -47,8 +47,8 @@ class ExcelReader:
                     continue
 
         # Extract data
-        header_values: List[str] = []
-        raw_rows: List[List[Any]] = []
+        header_values: list[str] = []
+        raw_rows: list[list[Any]] = []
 
         # Standard case: headers at row 2
         if sheet.nrows > 2:
@@ -79,11 +79,11 @@ class ExcelReader:
         if not raw_rows:
             return semester, ieee_timestamp, []
 
-        processed_data: List[Dict[str, Any]] = []
+        processed_data: list[dict[str, Any]] = []
 
         for row in raw_rows:
             # Create dict based on headers
-            record: Dict[str, Any] = {}
+            record: dict[str, Any] = {}
             for i, header in enumerate(header_values):
                 if i < len(row):
                     record[header] = row[i]

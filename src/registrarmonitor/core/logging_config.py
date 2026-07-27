@@ -9,7 +9,6 @@ import logging
 import logging.handlers
 import sys
 from pathlib import Path
-from typing import Optional
 
 from ..config import get_config
 
@@ -42,7 +41,7 @@ class ColoredFormatter(logging.Formatter):
 
 def setup_logging(
     level: str = "INFO",
-    log_dir: Optional[str] = None,
+    log_dir: str | None = None,
     enable_console: bool = True,
     enable_file: bool = True,
     max_file_size: int = 10_000_000,  # 10MB
@@ -144,7 +143,7 @@ def setup_logging(
         logger.info(f"Log files location: {log_path}")
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     """
     Get a logger instance with consistent configuration.
 
