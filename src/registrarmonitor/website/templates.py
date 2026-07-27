@@ -9,12 +9,12 @@ from jinja2 import Environment, FileSystemLoader
 
 from .config import (
     ALL_SEMESTERS,
-    LATEST_SEMESTER,
-    semester_to_filename,
     BASE_URL,
     INDEXING,
-    semester_to_slug,
+    LATEST_SEMESTER,
     course_to_slug,
+    semester_to_filename,
+    semester_to_slug,
 )
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"

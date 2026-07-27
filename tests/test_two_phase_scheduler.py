@@ -1,7 +1,7 @@
 """Tests for the TwoPhaseScheduler."""
 
-from datetime import datetime
 import tempfile
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
@@ -15,9 +15,9 @@ def _use_mock_decision_logger(mock_decision_logger):
 
 
 from registrarmonitor.automation.scheduler import (
-    TwoPhaseScheduler,
-    TwoPhaseDecision,
     SchedulingLevel,
+    TwoPhaseDecision,
+    TwoPhaseScheduler,
 )
 
 

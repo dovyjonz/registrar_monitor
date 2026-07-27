@@ -1,12 +1,11 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from fpdf import FPDF
 
 from ..config import get_config
-from ..models import EnrollmentSnapshot, Course
+from ..models import Course, EnrollmentSnapshot
 from ..utils import get_section_type, get_sort_priority
 from ..validation import validate_directory_exists
-
 
 # ── PDF-local utility helpers ──────────────────────────────────────
 
@@ -30,11 +29,11 @@ def _format_course_code(code: str, width: int = 8) -> str:
 
 def _group_sections_by_type(
     course_sections: list[dict[str, Any]],
-) -> tuple[dict[str, list[int]], set[int]]:
+) -> tuple[dict[str, list[float]], set[float]]:
     """Group sections by type and collect their fill percentages."""
-    section_types: dict[str, list[int]] = {}
+    section_types: dict[str, list[float]] = {}
     seen_sections: set[tuple[str, str]] = set()
-    all_fills: set[int] = set()
+    all_fills: set[float] = set()
 
     for section in course_sections:
         s_type = get_section_type(section["S/T"])
@@ -54,7 +53,9 @@ def _group_sections_by_type(
     return section_types, all_fills
 
 
-def _format_type_summary(s_type: str, fills: list[int], num_section_types: int) -> str:
+def _format_type_summary(
+    s_type: str, fills: list[float], num_section_types: int
+) -> str:
     """Format a summary string for a single section type."""
     if not fills:
         return ""
@@ -172,7 +173,7 @@ class EnrollmentPDF(FPDF):
         border: int = 1,
         force_red: bool = False,
         align: str = "L",
-        course_sections: Optional[List[Dict[str, Any]]] = None,
+        course_sections: list[dict[str, Any]] | None = None,
     ):
         """Draw a cell with background color based on fill value."""
         # Store current position
@@ -265,7 +266,7 @@ class EnrollmentPDF(FPDF):
 class PDFGenerator:
     """Generate PDF enrollment reports."""
 
-    def __init__(self, config_dict: Optional[Dict[str, Any]] = None):
+    def __init__(self, config_dict: dict[str, Any] | None = None):
         if config_dict is None:
             config_dict = get_config()
 
@@ -318,7 +319,7 @@ class PDFGenerator:
 
     def _generate_pdf_to_path(
         self,
-        courses: List[Course],
+        courses: list[Course],
         semester: str,
         timestamp: str,
         overall_fill: float,
@@ -355,11 +356,11 @@ class PDFGenerator:
         pdf.output(output_path)
         return output_path
 
-    def _group_courses_by_department(self, courses: List[Course]) -> List[List[Course]]:
+    def _group_courses_by_department(self, courses: list[Course]) -> list[list[Course]]:
         """Group courses by department while maintaining overall order."""
         dept_groups = []
         current_dept = None
-        current_group: List[Course] = []
+        current_group: list[Course] = []
 
         for course in courses:
             dept = course.department
@@ -378,15 +379,15 @@ class PDFGenerator:
 
     def _distribute_courses_to_columns(
         self,
-        dept_groups: List[List[Course]],
+        dept_groups: list[list[Course]],
         rows_per_column: int,
         use_legacy_dept_rows: bool = False,
-    ) -> Tuple[List[List[Course]], Set[str]]:
+    ) -> tuple[list[list[Course]], set[str]]:
         """Distribute course data across columns for display."""
         columns_data = []
         current_column = []
         current_row_count = 0.0
-        split_depts: Set[str] = set()
+        split_depts: set[str] = set()
 
         for dept_group in dept_groups:
             if use_legacy_dept_rows:
@@ -420,7 +421,7 @@ class PDFGenerator:
 
     def _create_pdf_layout(
         self,
-        columns_data: List[List[Course]],
+        columns_data: list[list[Course]],
         pdf: EnrollmentPDF,
     ) -> None:
         """Layout the course data in columns on the PDF."""

@@ -8,7 +8,7 @@ This module provides reusable test fixtures including:
 """
 
 from pathlib import Path
-from typing import Any, List, Dict
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -19,7 +19,6 @@ from registrarmonitor.models import (
     EnrollmentSnapshot,
     Section,
 )
-
 
 # =============================================================================
 # Model Factory Fixtures
@@ -238,7 +237,7 @@ def patched_config(mock_config: dict[str, Any]):
 
 
 @pytest.fixture
-def sample_enrollment_data() -> List[Dict[str, Any]]:
+def sample_enrollment_data() -> list[dict[str, Any]]:
     """Create a sample enrollment data list."""
     return [
         {
@@ -281,7 +280,7 @@ def sample_enrollment_data() -> List[Dict[str, Any]]:
 
 
 @pytest.fixture
-def empty_data() -> List[Dict[str, Any]]:
+def empty_data() -> list[dict[str, Any]]:
     """Create an empty data list."""
     return []
 

@@ -6,7 +6,6 @@ dist/
 wheels/
 *.egg-info
 *.egg
-.DS_Store
 
 # Virtual environments
 .venv/
@@ -59,7 +58,6 @@ assets/website/node_modules/
 
 # macOS
 .DS_Store
-**/.DS_Store
 
 # Generated schedule file
 schedule.txt
@@ -69,6 +67,9 @@ meta/
 
 # Generated deployment files
 scripts/registrarmonitor.service
+
+# Reproducible local tooling artifacts
+/output/
 
 # Local jj metadata
 .jj/

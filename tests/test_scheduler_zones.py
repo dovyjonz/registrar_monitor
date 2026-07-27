@@ -11,12 +11,12 @@ pytestmark = pytest.mark.unit
 from registrarmonitor.automation.scheduler import (
     DecisionLogger,
     SchedulingDecision,
+    SchedulingLevel,
     TwoPhaseDecision,
     get_next_zone_start,
     merge_time_windows,
     poll_and_get_change_score,
 )
-from registrarmonitor.automation.scheduler import SchedulingLevel
 
 
 class TestMergeTimeWindows:

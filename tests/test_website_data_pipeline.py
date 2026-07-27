@@ -5,6 +5,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
+from typing import Any, cast
 from unittest.mock import patch
 
 from registrarmonitor.website.data import (
@@ -150,7 +151,7 @@ class TestCompactSectionHistory:
 
 class TestAddCourseAverageHistory:
     def test_computes_average_from_sections(self):
-        course_data = {
+        course_data: dict[str, Any] = {
             "sections": {
                 "10L": {
                     "history": [
@@ -198,7 +199,7 @@ class TestCompactAverageHistory:
 
 class TestCompactHistoriesForWebsite:
     def test_compacts_all_histories(self):
-        data = {
+        data: dict[str, Any] = {
             "courses": {
                 "CS 101": {
                     "sections": {
@@ -234,7 +235,7 @@ class TestCompactHistoriesForWebsite:
             }
         }
         _compact_histories_for_website(data)
-        cs = data["courses"]["CS 101"]
+        cs = cast(dict[str, Any], data["courses"]["CS 101"])
         assert len(cs["sections"]["10L"]["history"]) <= 3
         assert len(cs["averageHistory"]) <= 3
 

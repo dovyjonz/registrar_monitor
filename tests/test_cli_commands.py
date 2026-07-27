@@ -9,7 +9,6 @@ pytestmark = pytest.mark.unit
 
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 
-
 # ── Fixtures ──────────────────────────────────────────────────────
 
 

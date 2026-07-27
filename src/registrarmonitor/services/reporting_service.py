@@ -8,7 +8,6 @@ providing a clean interface that reduces coupling in the main module.
 import asyncio
 from functools import partial
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from ..core import get_logger
 from ..core.exceptions import NotificationError, ReportGenerationError
@@ -30,7 +29,7 @@ class ReportingService:
     as a standalone method.
     """
 
-    def __init__(self, semester: Optional[str] = None):
+    def __init__(self, semester: str | None = None):
         """
         Initialize the reporting service.
 
@@ -44,10 +43,10 @@ class ReportingService:
         self.db_manager = DatabaseManager(semester=semester)
         self.snapshot_comparator = SnapshotComparator()
         self.report_formatter = ReportFormatter()
-        self._telegram_reporter: Optional[TelegramReporter] = None
+        self._telegram_reporter: TelegramReporter | None = None
 
         # PDF generator is lazy-loaded only when explicitly requested
-        self._pdf_generator: Optional[PDFGenerator] = None
+        self._pdf_generator: PDFGenerator | None = None
 
         self.logger.info(
             f"Reporting service initialized for semester: {semester or 'default'}"
@@ -70,10 +69,10 @@ class ReportingService:
     async def generate_and_send_reports(
         self,
         current_snapshot: EnrollmentSnapshot,
-        previous_snapshot: Optional[EnrollmentSnapshot] = None,
+        previous_snapshot: EnrollmentSnapshot | None = None,
         send_telegram: bool = True,
         debug_mode: bool = False,
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """
         Generate text reports and optionally send them via Telegram.
 
@@ -90,7 +89,7 @@ class ReportingService:
             f"Starting report generation - Telegram: {send_telegram}, Debug: {debug_mode}"
         )
 
-        generated_files: List[str] = []
+        generated_files: list[str] = []
 
         try:
             # Generate text report if we have a previous snapshot for comparison
@@ -116,9 +115,9 @@ class ReportingService:
     async def generate_pdf_report_only(
         self,
         current_snapshot: EnrollmentSnapshot,
-        previous_snapshot: Optional[EnrollmentSnapshot] = None,
-        custom_filename: Optional[str] = None,
-    ) -> Optional[str]:
+        previous_snapshot: EnrollmentSnapshot | None = None,
+        custom_filename: str | None = None,
+    ) -> str | None:
         """
         Generate only a PDF report without sending it.
 
@@ -146,7 +145,7 @@ class ReportingService:
         current_snapshot: EnrollmentSnapshot,
         previous_snapshot: EnrollmentSnapshot,
         send_telegram: bool = False,
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """
         Generate a detailed comparison report between two snapshots.
 
@@ -279,7 +278,7 @@ class ReportingService:
 
         return changes_found
 
-    async def send_existing_reports(self, txt_path: Optional[str] = None) -> bool:
+    async def send_existing_reports(self, txt_path: str | None = None) -> bool:
         """
         Send existing report files via Telegram.
 
@@ -296,7 +295,7 @@ class ReportingService:
             self.logger.error(f"Failed to send existing reports: {e}")
             return False
 
-    def get_available_reports(self, limit: int = 10) -> List[dict]:
+    def get_available_reports(self, limit: int = 10) -> list[dict]:
         """
         Get a list of recently generated text reports.
 
@@ -312,7 +311,7 @@ class ReportingService:
             config = get_config()
             txt_dir = Path(config["directories"]["text_reports"])
 
-            reports: List[dict] = []
+            reports: list[dict] = []
 
             # Get text reports
             if txt_dir.exists():
@@ -330,7 +329,7 @@ class ReportingService:
                     )
 
             # Sort by modification time
-            reports.sort(key=lambda x: x["modified"], reverse=True)  # type: ignore
+            reports.sort(key=lambda x: x["modified"], reverse=True)
             return reports[:limit]
 
         except Exception as e:
@@ -340,9 +339,9 @@ class ReportingService:
     async def _generate_pdf_report(
         self,
         current_snapshot: EnrollmentSnapshot,
-        previous_snapshot: Optional[EnrollmentSnapshot] = None,
-        custom_filename: Optional[str] = None,
-    ) -> Optional[str]:
+        previous_snapshot: EnrollmentSnapshot | None = None,
+        custom_filename: str | None = None,
+    ) -> str | None:
         """
         Generate a PDF report (internal helper for opt-in PDF generation).
 
@@ -403,7 +402,7 @@ class ReportingService:
         self,
         current_snapshot: EnrollmentSnapshot,
         previous_snapshot: EnrollmentSnapshot,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Generate a text comparison report.
 
@@ -456,7 +455,7 @@ class ReportingService:
             self.logger.error(f"Failed to generate text report: {e}")
             raise ReportGenerationError(f"Text report generation failed: {e}") from e
 
-    async def _send_reports_via_telegram(self, txt_path: Optional[str]) -> None:
+    async def _send_reports_via_telegram(self, txt_path: str | None) -> None:
         """
         Send text reports via Telegram.
 

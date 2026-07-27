@@ -2,18 +2,16 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List
-
 
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
+from ..data.instructor_populator import populate_instructors
 from ..data.migrate_json_to_db import JSONMigrator
 from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
-from ..data.instructor_populator import populate_instructors
-from .utils import detect_active_semester
 from ..utils import get_section_sort_key
+from .utils import detect_active_semester
 
 
 @dataclass(frozen=True)
@@ -36,7 +34,7 @@ class PollCommand:
         self.debug = debug
         self.logger = get_logger(__name__)
 
-    async def run(self, file_path: Optional[str] = None) -> bool:
+    async def run(self, file_path: str | None = None) -> bool:
         """
         Run the polling command.
 
@@ -49,7 +47,7 @@ class PollCommand:
         result = await self.run_with_result(file_path=file_path)
         return result.success
 
-    async def run_with_result(self, file_path: Optional[str] = None) -> PollResult:
+    async def run_with_result(self, file_path: str | None = None) -> PollResult:
         """Run polling and return a structured result for workflow callers."""
         if self.debug:
             print("🔍 DEBUG MODE: Polling for enrollment data")
@@ -597,7 +595,7 @@ class StatusCommand:
         self.debug = debug
         self.logger = get_logger(__name__)
 
-    async def run(self, courses: List[str], semester: Optional[str] = None) -> bool:
+    async def run(self, courses: list[str], semester: str | None = None) -> bool:
         """
         Run the status command.
 
@@ -670,11 +668,11 @@ class DeployCommand:
     def run(
         self,
         deploy: bool = False,
-        semester: Optional[str] = None,
+        semester: str | None = None,
         force: bool = False,
         minify: bool = True,
         project_name: str = "registrar-monitor",
-        branch: Optional[str] = None,
+        branch: str | None = None,
     ) -> bool:
         """Run the deploy command."""
         if self.debug:

@@ -6,8 +6,10 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(project_root, "src"))
 
-from registrarmonitor.data.instructor_populator import populate_instructors  # noqa: E402
 from registrarmonitor.core import setup_logging  # noqa: E402
+from registrarmonitor.data.instructor_populator import (  # noqa: E402
+    populate_instructors,
+)
 
 
 def main():

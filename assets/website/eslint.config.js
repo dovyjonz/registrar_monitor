@@ -7,7 +7,7 @@ module.exports = [
     },
     js.configs.recommended,
     {
-        files: ['**/*.js'],
+        files: ['**/*.{js,mjs}'],
         languageOptions: {
             ecmaVersion: 2023,
             sourceType: 'module',
@@ -15,9 +15,6 @@ module.exports = [
                 ...globals.browser,
                 ...globals.node,
             },
-        },
-        rules: {
-            'no-unused-vars': 'off',
         },
     },
 ];

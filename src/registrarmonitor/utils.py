@@ -1,6 +1,6 @@
-from pathlib import Path
 import re
-from typing import Any, Optional, Tuple, List, Union
+from pathlib import Path
+from typing import Any
 
 
 def get_section_type(section: Any) -> str:
@@ -37,8 +37,8 @@ def get_sort_priority(section_type: str) -> int:
 
 
 def get_section_sort_key(
-    section_id: str, section_type: Optional[str] = None
-) -> Tuple[int, List[Union[int, str]]]:
+    section_id: str, section_type: str | None = None
+) -> tuple[int, list[int | str]]:
     """
     Get sorting key for a section.
 

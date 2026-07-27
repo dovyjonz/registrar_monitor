@@ -3,7 +3,6 @@
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-
 TBA_INSTRUCTOR_VALUES = {"TBA", "TBA TBA", "TBA1 TBA1"}
 
 

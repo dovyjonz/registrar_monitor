@@ -18,7 +18,6 @@ from registrarmonitor.main import (
     handle_status_command,
 )
 
-
 # ── Helpers ───────────────────────────────────────────────────────
 
 

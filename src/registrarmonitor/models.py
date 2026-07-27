@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
-from typing import MutableMapping, Optional
 from collections import UserDict
+from collections.abc import MutableMapping
+from dataclasses import dataclass, field
 from functools import cached_property
 
 
@@ -48,7 +48,7 @@ class Section:
     enrollment: int
     capacity: int
     fill: float
-    instructor: Optional[str] = None
+    instructor: str | None = None
 
     @property
     def is_filled(self) -> bool:
@@ -88,7 +88,7 @@ class Course:
     department: str
     sections: MutableMapping[str, Section] = field(default_factory=dict)
     average_fill: float = 0.0
-    course_title: Optional[str] = None
+    course_title: str | None = None
 
     def __post_init__(self):
         if not isinstance(self.sections, ObservableDict):
@@ -263,21 +263,21 @@ class EnrollmentSnapshot:
 @dataclass
 class SectionChangeDetail:
     section_id: str
-    previous_fill: Optional[float] = None
-    current_fill: Optional[float] = None
-    previous_enrollment: Optional[int] = None
-    current_enrollment: Optional[int] = None
-    previous_capacity: Optional[int] = None
-    current_capacity: Optional[int] = None
-    previous_instructor: Optional[str] = None
-    current_instructor: Optional[str] = None
+    previous_fill: float | None = None
+    current_fill: float | None = None
+    previous_enrollment: int | None = None
+    current_enrollment: int | None = None
+    previous_capacity: int | None = None
+    current_capacity: int | None = None
+    previous_instructor: str | None = None
+    current_instructor: str | None = None
 
 
 @dataclass
 class CourseChangeDetail:
     course_code: str
-    previous_average_fill: Optional[float] = None
-    current_average_fill: Optional[float] = None
+    previous_average_fill: float | None = None
+    current_average_fill: float | None = None
     added_sections: list[Section] = field(default_factory=list)
     removed_sections: list[Section] = field(default_factory=list)
     modified_sections: list[SectionChangeDetail] = field(default_factory=list)

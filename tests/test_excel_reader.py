@@ -5,6 +5,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
+from collections.abc import Mapping
 from unittest.mock import MagicMock, patch
 
 from registrarmonitor.data.excel_reader import ExcelReader
@@ -13,7 +14,7 @@ from registrarmonitor.data.excel_reader import ExcelReader
 def _make_mock_sheet(
     nrows: int,
     ncols: int,
-    cells: dict[tuple[int, int], str | float | int],
+    cells: Mapping[tuple[int, int], str | float | int],
 ) -> MagicMock:
     """Build a mock sheet with given dimensions and cell values."""
     sheet = MagicMock()

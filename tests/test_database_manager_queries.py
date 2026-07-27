@@ -9,7 +9,6 @@ pytestmark = pytest.mark.integration
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 
-
 # ── fixtures ─────────────────────────────────────────────────────
 
 
@@ -162,6 +161,7 @@ class TestGetSnapshotData:
         assert sid is not None
         snapshot = seeded_db.get_snapshot_data(sid)
 
+        assert snapshot is not None
         assert "CS 101" in snapshot.courses
         assert "MATH 201" in snapshot.courses
 
@@ -170,6 +170,7 @@ class TestGetSnapshotData:
         assert sid is not None
         snapshot = seeded_db.get_snapshot_data(sid)
 
+        assert snapshot is not None
         cs = snapshot.courses["CS 101"]
         assert len(cs.sections) == 3
         assert "10L" in cs.sections
@@ -181,6 +182,7 @@ class TestGetSnapshotData:
         assert sid is not None
         snapshot = seeded_db.get_snapshot_data(sid)
 
+        assert snapshot is not None
         math = snapshot.courses["MATH 201"]
         assert math.average_fill == pytest.approx(1.0)
 

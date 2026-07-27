@@ -5,6 +5,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
+from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.website.data import (
     _add_course_average_history,
     _build_course_events,
@@ -12,7 +13,6 @@ from registrarmonitor.website.data import (
     _compact_histories_for_website,
     _compact_section_history,
 )
-from registrarmonitor.data.database_manager import DatabaseManager
 
 
 def test_section_history_compaction_preserves_endpoints_changes_and_previous_points():

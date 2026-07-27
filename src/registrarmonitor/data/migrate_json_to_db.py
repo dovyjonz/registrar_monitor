@@ -8,7 +8,6 @@ database using the DatabaseManager.
 import json
 import logging
 from pathlib import Path
-from typing import List
 
 from ..config import get_config
 from ..core import get_logger
@@ -32,7 +31,7 @@ class JSONMigrator:
         # Set up logging
         self.logger = get_logger(__name__)
 
-    def find_json_files(self) -> List[Path]:
+    def find_json_files(self) -> list[Path]:
         """
         Find all JSON snapshot files in the data directory.
 
@@ -68,7 +67,7 @@ class JSONMigrator:
             Exception: If file cannot be loaded or parsed
         """
         try:
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 data = json.load(f)
 
             snapshot = EnrollmentSnapshot(

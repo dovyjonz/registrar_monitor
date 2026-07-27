@@ -51,7 +51,7 @@ python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
 - Open `http://127.0.0.1:8000/` or a semester page such as
-  `http://127.0.0.1:8000/summer2026.html`.
+  `http://127.0.0.1:8000/fall2026.html`.
 - Do not use `http://127.0.0.1:5173/assets/` for generated pages; that path is
   only the production asset base and will 404 under Vite dev serving.
 - After running `npm --prefix assets/website run build`, make sure generated
@@ -94,6 +94,22 @@ monitor db stats
   - `services/` for workflow orchestration
   - `website/` for static page/data generation
 - When adding tests, keep fixtures in `tests/conftest.py` if they are reused.
+
+## Version Control
+
+- Use Jujutsu for normal repository inspection and changes. Start with
+  `jj status`, a bounded `jj log`, and `jj diff`.
+- Treat `@` as the working-copy commit and use change IDs when referring to
+  evolving work. There is no Git-style staging area.
+- Use bookmarks only when a named pointer is needed for sharing. Inspect local
+  and remote bookmark targets, fetch first, and preview pushes with
+  `jj git push --dry-run`.
+- This is a colocated repository: `.git` remains for GitHub and compatibility
+  tooling, while `.jj` owns the working-copy workflow. Do not use Git commands
+  that rewrite or clean the worktree or history unless Git-specific behavior is
+  explicitly required and the Jujutsu consequences have been inspected.
+- Use `jj op log` before recovery operations. Prefer `jj undo` or a targeted
+  operation restore/revert over Git reset commands.
 
 ## Commits
 

@@ -1,7 +1,5 @@
 """Formats enrollment data into human-readable reports."""
 
-from typing import Optional, Set
-
 from ..models import (
     Course,
     EnrollmentComparison,
@@ -18,7 +16,7 @@ class ReportFormatter:
     """Formats enrollment data into human-readable reports."""
 
     def _get_status_emoji(
-        self, fill: float, is_course: bool = False, course: Optional[Course] = None
+        self, fill: float, is_course: bool = False, course: Course | None = None
     ) -> str:
         """Get status emoji based on fill percentage.
 
@@ -70,7 +68,7 @@ class ReportFormatter:
         removed_course_codes = {c.course_code for c in comparison.removed_courses}
         changed_courses_dict = {cc.course_code: cc for cc in comparison.changed_courses}
 
-        all_course_codes: Set[str] = (
+        all_course_codes: set[str] = (
             new_course_codes | removed_course_codes | set(changed_courses_dict.keys())
         )
 

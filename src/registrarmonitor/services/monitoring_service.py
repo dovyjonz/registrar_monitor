@@ -6,7 +6,6 @@ providing a clean interface that reduces coupling in the main module.
 """
 
 from pathlib import Path
-from typing import Optional, Tuple
 
 from ..automation.downloader import DataDownloader
 from ..core import get_logger
@@ -25,7 +24,7 @@ class MonitoringService:
     and storing enrollment data while maintaining separation of concerns.
     """
 
-    def __init__(self, semester: Optional[str] = None):
+    def __init__(self, semester: str | None = None):
         """
         Initialize the monitoring service.
 
@@ -47,7 +46,7 @@ class MonitoringService:
 
     async def download_and_process_latest(
         self,
-    ) -> Tuple[bool, Optional[EnrollmentSnapshot], Optional[str]]:
+    ) -> tuple[bool, EnrollmentSnapshot | None, str | None]:
         """
         Download and process the latest enrollment data.
 
@@ -81,7 +80,7 @@ class MonitoringService:
 
     def process_specific_file(
         self, file_path: str
-    ) -> Tuple[bool, Optional[EnrollmentSnapshot]]:
+    ) -> tuple[bool, EnrollmentSnapshot | None]:
         """
         Process a specific Excel file.
 
@@ -110,7 +109,7 @@ class MonitoringService:
             self.logger.error(f"Failed to process file {file_path}: {e}")
             return False, None
 
-    def get_latest_snapshot(self) -> Optional[EnrollmentSnapshot]:
+    def get_latest_snapshot(self) -> EnrollmentSnapshot | None:
         """
         Get the latest enrollment snapshot from the database.
 
@@ -137,7 +136,7 @@ class MonitoringService:
 
     def get_snapshot_comparison(
         self,
-    ) -> Tuple[Optional[EnrollmentSnapshot], Optional[EnrollmentSnapshot]]:
+    ) -> tuple[EnrollmentSnapshot | None, EnrollmentSnapshot | None]:
         """
         Get the current and previous snapshots for comparison.
 
@@ -260,7 +259,7 @@ class MonitoringService:
             self.logger.error(f"Failed to get course history for {course_code}: {e}")
             return []
 
-    async def _download_data(self) -> Optional[str]:
+    async def _download_data(self) -> str | None:
         """
         Download the latest enrollment data.
 
@@ -281,7 +280,7 @@ class MonitoringService:
             self.logger.error(f"Download failed: {e}")
             raise FileProcessingError(f"Download failed: {e}") from e
 
-    def _process_file(self, file_path: str) -> Optional[EnrollmentSnapshot]:
+    def _process_file(self, file_path: str) -> EnrollmentSnapshot | None:
         """
         Process an Excel file into an enrollment snapshot.
 

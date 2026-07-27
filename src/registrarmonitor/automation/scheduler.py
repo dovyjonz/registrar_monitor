@@ -1,19 +1,18 @@
 import asyncio
 import datetime
 import json
-from collections import deque
 import os
 import subprocess
 import sys
 import time
+from collections import deque
 from enum import Enum
 from pathlib import Path
 
-
 from ..config import get_config
+from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from .downloader import DataDownloader
-from ..core import get_logger
 
 # ReportingService is imported lazily to avoid circular import
 # (reporting_service imports TwoPhaseScheduler, scheduler imports ReportingService)
@@ -306,7 +305,7 @@ class DecisionLogger:
         """Get the most recent scheduling decisions."""
         decisions = []
         try:
-            with open(self.log_file, "r") as f:
+            with open(self.log_file) as f:
                 # Use deque to only keep the last `count` lines in memory
                 last_lines = deque(f, maxlen=count)
 
@@ -525,11 +524,11 @@ class TwoPhaseScheduler:
         enough to warrant a report / website update.
         """
         try:
-            from ..data.snapshot_comparator import SnapshotComparator
             from ..cli.utils import detect_active_semester
+            from ..data.snapshot_comparator import SnapshotComparator
         except ImportError:
-            from registrarmonitor.data.snapshot_comparator import SnapshotComparator
             from registrarmonitor.cli.utils import detect_active_semester
+            from registrarmonitor.data.snapshot_comparator import SnapshotComparator
 
         try:
             semester = await detect_active_semester()
@@ -1279,7 +1278,7 @@ class TwoPhaseScheduler:
         print(f"📅 Schedule Status (Current time: {now.strftime('%Y-%m-%d %H:%M')})")
         print(f"   Current zone: {current_zone.label.upper()}")
 
-        zones = parse_schedule_file(self.schedule_file)
+        zones = parse_schedule_file()
         active_zones = []
         upcoming_zones = []
 
@@ -1423,4 +1422,4 @@ if __name__ == "__main__":
     else:
         # Default to TwoPhaseScheduler
         scheduler = TwoPhaseScheduler()
-        scheduler.start()
+        asyncio.run(scheduler.start())
