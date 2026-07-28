@@ -1,7 +1,7 @@
 {
     "name": "registrar-monitor-website",
     "private": true,
-    "description": "Cloudflare Workers deployment for Registrar Monitor website",
+    "description": "Cloudflare Pages frontend for Registrar Monitor",
     "engines": {
         "node": ">=24.18.0 <25",
         "npm": ">=11 <12"
@@ -11,8 +11,7 @@
         "test": "node --test test/*.test.mjs",
         "test:browser": "playwright test",
         "lint": "eslint .",
-        "build": "vite build",
-        "deploy": "wrangler deploy --assets=public --name=monitor --compatibility-date=2025-12-18 --minify"
+        "build": "vite build"
     },
     "dependencies": {
         "chart.js": "^4.4.1",

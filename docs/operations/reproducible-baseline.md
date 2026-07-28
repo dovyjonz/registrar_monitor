@@ -183,19 +183,11 @@ The status terms below distinguish repository support from production activity:
 - **Runtime state:** validated generated public assets, Node/npm, Wrangler, and
   Cloudflare network access.
 
-### Cloudflare Worker asset deployment
+### Retired Cloudflare Worker asset deployment
 
-- **Entry point:** `npm --prefix assets/website run deploy` runs
-  `wrangler deploy --assets=public --name=monitor`; `worker.js` delegates requests
-  to `env.ASSETS`.
-- **Configuration:** `assets/website/package.json`, `wrangler.toml`, `worker.js`,
-  the Worker name, compatibility date, and generated public assets.
-- **Status:** **repository path present; inferred inactive alternate in
-  production**. Production evidence shows Pages deployment and no Worker
-  deployment. Whether the Worker path remains supported or should be retired is
-  unknown.
-- **Secrets:** Wrangler authentication and Cloudflare account context.
-- **Runtime state:** built public assets and installed Node dependencies.
+- **Status:** **retired**. The unobserved `wrangler deploy --assets` script and
+  Worker entry point were removed. Direct Cloudflare Pages upload through
+  `WebsiteService.deploy()` is the only supported deployment path.
 
 ## Confirmed production findings
 
@@ -207,7 +199,8 @@ The 2026-07-28 read-only production inspection established:
 4. the last successful poll was 2026-06-10 15:32:18 +05;
 5. the last successful report was 2026-06-10 15:32:23 +05;
 6. the last successful Pages deployment was 2026-06-10 15:33:17 +05;
-7. production uses direct Cloudflare Pages upload, not a verified Worker path;
+7. production uses direct Cloudflare Pages upload; the unverified Worker path
+   has been retired;
 8. the VPS checkout was revision `668893f`, older than this local repository;
 9. no local Registrar Monitor backup job or backup files were found in the
    inspected bounded locations;

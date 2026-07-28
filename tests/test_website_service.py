@@ -145,7 +145,10 @@ def test_deploy_missing_cloudflare_api_token_skips_wrangler(tmp_path, monkeypatc
     service.website_assets_dir = tmp_path
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
 
-    with patch("subprocess.run") as run:
+    with (
+        patch.object(service, "validate_public_output", return_value=[]),
+        patch("subprocess.run") as run,
+    ):
         assert service.deploy(project_name="registrar-monitor") is False
 
     run.assert_not_called()
@@ -157,7 +160,10 @@ def test_deploy_missing_cloudflare_account_id_skips_wrangler(tmp_path, monkeypat
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
 
-    with patch("subprocess.run") as run:
+    with (
+        patch.object(service, "validate_public_output", return_value=[]),
+        patch("subprocess.run") as run,
+    ):
         assert service.deploy(project_name="registrar-monitor") is False
 
     run.assert_not_called()
@@ -171,7 +177,10 @@ def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
 
-    with patch("subprocess.run") as run:
+    with (
+        patch.object(service, "validate_public_output", return_value=[]),
+        patch("subprocess.run") as run,
+    ):
         run.return_value.returncode = 0
         run.return_value.stdout = ""
         run.return_value.stderr = ""
@@ -186,7 +195,10 @@ def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys, monkeypat
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
 
-    with patch("subprocess.run") as run:
+    with (
+        patch.object(service, "validate_public_output", return_value=[]),
+        patch("subprocess.run") as run,
+    ):
         run.return_value.returncode = 1
         run.return_value.stdout = "stdout details\n"
         run.return_value.stderr = "stderr details\n"
@@ -205,7 +217,10 @@ def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
 
-    with patch("subprocess.run") as run:
+    with (
+        patch.object(service, "validate_public_output", return_value=[]),
+        patch("subprocess.run") as run,
+    ):
         run.return_value.returncode = 0
         run.return_value.stdout = ""
         run.return_value.stderr = ""
@@ -220,6 +235,25 @@ def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
         "--project-name",
         "registrar-monitor",
     ]
+
+
+def test_wrangler_pages_deploy_rejects_private_output(tmp_path, monkeypatch):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+    public = tmp_path / "public"
+    private_file = public / "courses" / "summer-2026" / "registrar.db"
+    private_file.parent.mkdir(parents=True)
+    private_file.write_text("")
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
+
+    with (
+        patch("registrarmonitor.services.website_service.OUTPUT_DIR", public),
+        patch("subprocess.run") as run,
+    ):
+        assert service.deploy(project_name="registrar-monitor") is False
+
+    run.assert_not_called()
 
 
 def test_generate_headers_contains_security_headers(tmp_path):

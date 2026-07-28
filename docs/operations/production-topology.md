@@ -133,12 +133,8 @@ Classification meanings:
   generated `assets/website/public` output and the configured Pages project.
 - **Verified:** Scheduler journal output shows that this Pages deployment mechanism
   completed successfully on 2026-06-10.
-- **Verified:** `assets/website/package.json` also defines an asset-serving Worker
-  deployment using `wrangler deploy`.
-- **Inferred:** The Worker command is an inactive alternate path because the
-  production project is a Pages project, journal evidence shows Pages deployment,
-  and no Worker deployment was observed.
-- **Unknown:** Whether the Worker path remains supported or should be retired.
+- **Verified:** Direct Pages upload is the only supported deployment path. The
+  unobserved asset-serving Worker command and entry point have been retired.
 
 ## Last successful operations
 

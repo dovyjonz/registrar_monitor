@@ -271,3 +271,14 @@ class TestValidatePublicOutput:
             errors = service.validate_public_output()
 
         assert any("data.db" in e for e in errors)
+
+    def test_detects_private_artifact_in_nested_courses_directory(self, tmp_path):
+        service = WebsiteService()
+        course = tmp_path / "courses" / "summer-2026"
+        course.mkdir(parents=True)
+        (course / "enrollment.sqlite3").write_text("")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert any("courses/summer-2026/enrollment.sqlite3" in e for e in errors)
