@@ -47,7 +47,7 @@ class TestComputeSemesterHash:
 
             conn2 = make_db()
             conn2.execute.return_value.fetchone.return_value = (10, "2024-09-01")
-            mock_db_cls.return_value = make_db()  # noqa
+            mock_db_cls.return_value = make_db()
             h2 = compute_semester_hash("Fall 2024")
 
         assert h1 != h2

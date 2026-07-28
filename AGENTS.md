@@ -129,6 +129,23 @@ Five canonical roles: needs-triage, needs-info, ready-for-agent, ready-for-human
 
 Single-context layout — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Google Cloud operations
+
+- Use the `gcloud` CLI for inspection and administration of the production
+  Google Cloud environment.
+- Before performing `gcloud` work, use the authoritative `gcloud` agent skill
+  from Google's official `google/skills` repository. If it is unavailable,
+  search for and install the official `google/skills@gcloud` skill through the
+  agent skill discovery/installer workflow; do not substitute an
+  unaffiliated community skill without explicit operator approval.
+- Follow the installed skill's guardrails: validate exact leaf-command syntax
+  with `gcloud help`, specify the project and region or zone explicitly, bound
+  list output with filters/limits/formats, and start with read-only inspection.
+- Never print credentials, environment contents, Telegram identifiers, or
+  unrestricted runtime configuration. Require explicit operator authorization
+  before destructive, IAM, billing, organization, KMS, API-enabling, or other
+  materially state-changing commands.
+
 ## Verification
 
 Before handing off code changes, run the narrow relevant checks. For scaffold or
