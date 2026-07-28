@@ -5,8 +5,9 @@ export default defineConfig({
   build: {
     // Output to public/assets
     outDir: resolve(__dirname, 'public/assets'),
-    // Ensure we don't delete other files in public if any (though we probably should control it)
-    emptyOutDir: true,
+    // Generated HTML can reference an earlier hashed bundle until Python patches
+    // every page, so preserve prior bundles during standalone frontend builds.
+    emptyOutDir: false,
     assetsDir: '', // Put assets directly in outDir to avoid assets/assets/
     manifest: true, // Generate manifest.json for Python to read
     rollupOptions: {

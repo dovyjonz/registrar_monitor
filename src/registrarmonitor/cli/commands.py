@@ -6,7 +6,6 @@ from pathlib import Path
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
-from ..data.instructor_populator import populate_instructors
 from ..data.migrate_json_to_db import JSONMigrator
 from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
@@ -65,40 +64,16 @@ class PollCommand:
                 # Process specific file
                 print(f"📁 Processing specific file: {Path(file_path).name}")
                 success, snapshot = monitoring_service.process_specific_file(file_path)
-                excel_source = file_path
             else:
                 # Download and process latest
                 print("📥 Downloading and processing latest enrollment data...")
                 (
                     success,
                     snapshot,
-                    downloaded_path,
+                    _,
                 ) = await monitoring_service.download_and_process_latest()
-                excel_source = downloaded_path
 
             if success and snapshot:
-                try:
-                    # Always use the semester from the snapshot to find the correct database
-                    # This handles the case where we just started monitoring a new semester
-                    target_db_manager = DatabaseManager.create_for_semester(
-                        snapshot.semester
-                    )
-                    current_db_path = str(target_db_manager.db_path)
-
-                    if current_db_path:
-                        if excel_source:
-                            self.logger.info(
-                                f"Populating instructor data for {snapshot.semester} in {current_db_path}"
-                            )
-                            populate_instructors(current_db_path, excel_source)
-                        else:
-                            self.logger.warning(
-                                "Could not find Excel file source to populate instructors."
-                            )
-
-                except Exception as e:
-                    self.logger.error(f"Failed to populate instructors: {e}")
-
                 print(
                     f"✅ Successfully processed {len(snapshot.courses)} courses for {snapshot.semester}"
                 )
@@ -112,7 +87,8 @@ class PollCommand:
                 )
                 snapshot_id_after = target_db_manager.get_latest_snapshot_id()
                 changed = (
-                    snapshot_id_before is None
+                    snapshot.semester != detected_semester
+                    or snapshot_id_before is None
                     or snapshot_id_after is None
                     or snapshot_id_before != snapshot_id_after
                 )

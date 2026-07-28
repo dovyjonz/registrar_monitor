@@ -314,24 +314,28 @@ class WebsiteService:
         allowed_extensions = {".html", ".json"}
         allowed_names = {"_headers", "robots.txt", ".checksums.json"}
         allowed_dirs = {"assets", "courses"}
+        private_names = {".DS_Store", ".env"}
+        private_suffixes = {".db", ".key", ".log", ".pem", ".sqlite", ".sqlite3"}
+
+        if not OUTPUT_DIR.is_dir():
+            return [f"Output directory does not exist: {OUTPUT_DIR}"]
+
+        for item in OUTPUT_DIR.rglob("*"):
+            if not item.is_file():
+                continue
+            name = item.name
+            if (
+                name in private_names
+                or name.startswith(".env.")
+                or item.suffix.lower() in private_suffixes
+            ):
+                errors.append(f"Private artifact: {item.relative_to(OUTPUT_DIR)}")
 
         for item in OUTPUT_DIR.iterdir():
             name = item.name
             if item.is_dir():
                 if name not in allowed_dirs:
                     errors.append(f"Unexpected directory: {name}/")
-                elif name == "assets":
-                    # Check for non-Vite artifacts in assets
-                    for sub in item.rglob("*"):
-                        if sub.is_file() and sub.suffix in {
-                            ".db",
-                            ".log",
-                            ".sqlite",
-                            ".env",
-                        }:
-                            errors.append(
-                                f"Private artifact in assets/: {sub.relative_to(OUTPUT_DIR)}"
-                            )
             elif item.is_file():
                 if name in allowed_names:
                     continue
@@ -485,6 +489,13 @@ class WebsiteService:
         print(f"   Project: {project_name}")
         if branch:
             print(f"   Branch: {branch}")
+
+        issues = self.validate_public_output()
+        if issues:
+            print("❌ Cloudflare deploy skipped: public output validation failed.")
+            for issue in issues:
+                print(f"   - {issue}")
+            return False
 
         # Command: npx wrangler pages deploy public --project-name <name> [--branch <branch>]
         deploy_cmd = [

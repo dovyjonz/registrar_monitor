@@ -45,7 +45,7 @@ let lastRenderArgs = null;
 // Access global variables injected by Python
 let DATA = window.DATA || null;
 let MILESTONES = window.MILESTONES || [];
-let COMBINED_DATA = window.COMBINED_DATA;
+const COMBINED_DATA = window.COMBINED_DATA;
 
 // Determine mode from data structure
 const IS_COMBINED = typeof COMBINED_DATA !== 'undefined';
@@ -402,7 +402,7 @@ function openCourse(courseCode) {
     renderEventHistory(courseCode);
 
     // Update URL hash for deep linking
-    history.replaceState(null, '', '#' + courseCode.replace(/\s+/g, '-'));
+    history.replaceState(null, '', `#${courseCode.replace(/\s+/g, '-')}`);
 
     setTimeout(() => {
         showAverageFillChart(courseCode);
@@ -994,11 +994,9 @@ function trapFocus(e) {
             e.preventDefault();
             last.focus();
         }
-    } else {
-        if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-        }
+    } else if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
     }
 }
 
@@ -1187,8 +1185,8 @@ function applyFilters() {
         const status = cell.dataset.status;
         const isStarred = cell.classList.contains('starred');
 
-        let matchesSearch = !searchQuery || code.includes(searchQuery);
-        let matchesFilter = currentFilter === 'all' ||
+        const matchesSearch = !searchQuery || code.includes(searchQuery);
+        const matchesFilter = currentFilter === 'all' ||
             (currentFilter === 'starred' && isStarred) ||
             status === currentFilter;
 

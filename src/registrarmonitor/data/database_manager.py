@@ -681,7 +681,19 @@ class DatabaseManager:
                 course_id_map = {row[0]: row[1] for row in cursor.fetchall()}
 
                 # --- Step 4: Bulk upsert sections ---
+                cursor.execute(
+                    """
+                    SELECT section_id, course_id, section_code, instructor
+                    FROM sections
+                    """
+                )
+                existing_sections = {
+                    (row[1], row[2]): (row[0], row[3]) for row in cursor.fetchall()
+                }
+
                 sections_data = []
+                instructor_changes = []
+                current_section_keys = set()
                 for course_code, course in snapshot.courses.items():
                     course_id = course_id_map.get(course_code)
                     if course_id is None:
@@ -699,6 +711,51 @@ class DatabaseManager:
                             )
                         )
 
+                        existing_section = existing_sections.get(
+                            (course_id, section_code)
+                        )
+                        current_section_keys.add((course_id, section_code))
+                        if (
+                            existing_section is not None
+                            and section.instructor is not None
+                        ):
+                            section_id, stored_instructor = existing_section
+                            old_instructor = stored_instructor or ""
+                            if old_instructor != section.instructor:
+                                instructor_changes.append(
+                                    (
+                                        section_id,
+                                        old_instructor,
+                                        section.instructor,
+                                        snapshot.timestamp,
+                                    )
+                                )
+
+                stale_section_updates = []
+                for section_key, (
+                    section_id,
+                    stored_instructor,
+                ) in existing_sections.items():
+                    if section_key not in current_section_keys and stored_instructor:
+                        stale_section_updates.append((section_id,))
+                        instructor_changes.append(
+                            (
+                                section_id,
+                                stored_instructor,
+                                "",
+                                snapshot.timestamp,
+                            )
+                        )
+
+                cursor.executemany(
+                    """
+                    INSERT INTO instructor_changes
+                    (section_id, old_instructor, new_instructor, timestamp)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    instructor_changes,
+                )
+
                 cursor.executemany(
                     """
                     INSERT INTO sections (course_id, section_code, section_type, instructor)
@@ -709,6 +766,14 @@ class DatabaseManager:
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     sections_data,
+                )
+                cursor.executemany(
+                    """
+                    UPDATE sections
+                    SET instructor = '', updated_at = CURRENT_TIMESTAMP
+                    WHERE section_id = ?
+                    """,
+                    stale_section_updates,
                 )
 
                 # --- Step 5: Fetch section IDs ---
