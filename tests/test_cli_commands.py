@@ -37,12 +37,10 @@ def _mock_services():
     )
     ms_patch = patch("registrarmonitor.cli.commands.MonitoringService")
     db_patch = patch("registrarmonitor.cli.commands.DatabaseManager")
-    pop_patch = patch("registrarmonitor.cli.commands.populate_instructors")
     detect_patch.start()
     ms_cls = ms_patch.start()
     db_cls = db_patch.start()
-    pop_cls = pop_patch.start()
-    return ms_cls, db_cls, pop_cls, [detect_patch, ms_patch, db_patch, pop_patch]
+    return ms_cls, db_cls, [detect_patch, ms_patch, db_patch]
 
 
 # ── PollCommand tests ─────────────────────────────────────────────
@@ -67,7 +65,7 @@ class TestPollCommand:
     async def test_run_with_result_download_success(self, sample_snapshot):
         from registrarmonitor.cli.commands import PollCommand
 
-        ms_cls, db_cls, pop_cls, patches = _mock_services()
+        ms_cls, db_cls, patches = _mock_services()
 
         monitoring = ms_cls.return_value
         monitoring.download_and_process_latest = AsyncMock(
@@ -99,7 +97,7 @@ class TestPollCommand:
     async def test_run_with_result_download_failure(self):
         from registrarmonitor.cli.commands import PollCommand
 
-        ms_cls, db_cls, pop_cls, patches = _mock_services()
+        ms_cls, db_cls, patches = _mock_services()
 
         monitoring = ms_cls.return_value
         monitoring.download_and_process_latest = AsyncMock(
@@ -126,7 +124,7 @@ class TestPollCommand:
         file_path = str(tmp_path / "data.xls")
         Path(file_path).write_bytes(b"")
 
-        ms_cls, db_cls, pop_cls, patches = _mock_services()
+        ms_cls, db_cls, patches = _mock_services()
 
         monitoring = ms_cls.return_value
         monitoring.process_specific_file.return_value = (True, sample_snapshot)
@@ -147,6 +145,52 @@ class TestPollCommand:
         finally:
             for p in patches:
                 p.stop()
+
+    @pytest.mark.asyncio
+    async def test_run_with_result_marks_new_semester_with_reused_id_as_changed(
+        self, sample_course, tmp_path
+    ):
+        from registrarmonitor.cli.commands import PollCommand
+
+        file_path = str(tmp_path / "fall-data.xls")
+        Path(file_path).write_bytes(b"")
+        new_semester_snapshot = EnrollmentSnapshot(
+            timestamp="2024-08-15 10:00:00",
+            semester="Fall 2024",
+            overall_fill=0.75,
+            courses={"CS 101": sample_course},
+        )
+        ms_cls, db_cls, patches = _mock_services()
+
+        monitoring = ms_cls.return_value
+        monitoring.process_specific_file.return_value = (
+            True,
+            new_semester_snapshot,
+        )
+        monitoring.get_snapshot_comparison.return_value = (
+            new_semester_snapshot,
+            None,
+        )
+
+        db_before = MagicMock()
+        db_before.get_latest_snapshot_id.return_value = 1
+        db_cls.return_value = db_before
+        db_after = MagicMock()
+        db_after.get_latest_snapshot_id.return_value = 1
+        db_cls.create_for_semester.return_value = db_after
+
+        try:
+            result = await PollCommand().run_with_result(file_path=file_path)
+
+            assert result.success is True
+            assert result.semester == "Fall 2024"
+            assert result.snapshot_id_before == 1
+            assert result.snapshot_id_after == 1
+            assert result.changed is True
+            assert result.change_score == 1.0
+        finally:
+            for patcher in patches:
+                patcher.stop()
 
     def test_calculate_change_score_no_change(self):
         from registrarmonitor.cli.commands import PollCommand

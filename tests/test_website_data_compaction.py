@@ -6,6 +6,7 @@ pytestmark = pytest.mark.unit
 
 
 from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.website.data import (
     _add_course_average_history,
     _build_course_events,
@@ -261,3 +262,106 @@ def test_instructor_events_dedupe_consecutive_duplicates_and_preserve_toggles(
         for event in events
         if event["eventType"] == "instructor_changed"
     ] == [("A", "B"), ("B", "A"), ("A", "B")]
+
+
+def test_snapshot_instructor_transition_is_recorded_once_and_emitted(tmp_path):
+    db = DatabaseManager(db_path=str(tmp_path / "events.db"), semester="Test 2024")
+
+    def snapshot(timestamp: str, instructor: str, enrollment: int):
+        section = Section(
+            "10L",
+            "L",
+            enrollment,
+            20,
+            enrollment / 20,
+            instructor,
+        )
+        course = Course(
+            "BUS 101",
+            "BUS",
+            {"10L": section},
+            enrollment / 20,
+            "Business",
+        )
+        return EnrollmentSnapshot(
+            timestamp=timestamp,
+            semester="Test 2024",
+            overall_fill=enrollment / 20,
+            courses={"BUS 101": course},
+        )
+
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:00:00", "Alice", 10))
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:15:00", "Bob", 11))
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:30:00", "Bob", 12))
+
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT old_instructor, new_instructor, timestamp
+            FROM instructor_changes
+            ORDER BY change_id
+            """
+        ).fetchall()
+
+    assert [tuple(row) for row in rows] == [("Alice", "Bob", "2024-01-15T10:15:00")]
+
+    instructor_events = [
+        event
+        for event in _build_course_events("Test 2024", db)["BUS 101"]
+        if event["eventType"] == "instructor_changed"
+    ]
+    assert instructor_events == [
+        {
+            "eventType": "instructor_changed",
+            "sectionCode": "10L",
+            "oldValue": "Alice",
+            "newValue": "Bob",
+            "snapshotTimestamp": "2024-01-15T10:15:00",
+        }
+    ]
+
+
+def test_removed_section_clears_stale_instructor_before_reappearing(tmp_path):
+    db = DatabaseManager(db_path=str(tmp_path / "events.db"), semester="Test 2024")
+
+    def snapshot(timestamp: str, instructor: str | None):
+        courses = {}
+        overall_fill = 0.0
+        if instructor is not None:
+            section = Section("10L", "L", 10, 20, 0.5, instructor)
+            courses["BUS 101"] = Course(
+                "BUS 101",
+                "BUS",
+                {"10L": section},
+                0.5,
+                "Business",
+            )
+            overall_fill = 0.5
+        return EnrollmentSnapshot(
+            timestamp=timestamp,
+            semester="Test 2024",
+            overall_fill=overall_fill,
+            courses=courses,
+        )
+
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:00:00", "Alice"))
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:15:00", None))
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:30:00", "Bob"))
+
+    with db.get_connection() as conn:
+        instructor = conn.execute(
+            "SELECT instructor FROM sections WHERE section_code = '10L'"
+        ).fetchone()[0]
+        rows = conn.execute(
+            """
+            SELECT old_instructor, new_instructor, timestamp
+            FROM instructor_changes
+            ORDER BY change_id
+            """
+        ).fetchall()
+
+    assert instructor == "Bob"
+    assert [tuple(row) for row in rows] == [
+        ("Alice", "", "2024-01-15T10:15:00"),
+        ("", "Bob", "2024-01-15T10:30:00"),
+    ]
