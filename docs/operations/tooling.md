@@ -27,8 +27,9 @@ HTML page. It combines `WebsiteService.validate_public_output()` with checks for
 missing same-origin links, assets, and JSON payloads. The structured result is
 written to `output/generated-site-crawl.json`.
 
-CI seeds a small deterministic Fall 2026 SQLite fixture before this job. The
-fixture exists only in ignored runtime output and is never used by production.
+CI seeds one small deterministic SQLite fixture for each configured semester
+before this job. The fixtures exist only in ignored runtime output and are never
+used by production.
 
 ## Operational doctor
 
