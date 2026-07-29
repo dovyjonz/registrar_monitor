@@ -2,6 +2,12 @@
 
 This document describes the SQLite database schema and management workflows for the Registrar Monitor.
 
+Operational diagnostics use SQLite `PRAGMA integrity_check`,
+`PRAGMA foreign_key_check`, and `PRAGMA user_version`. Run `monitor doctor` for
+human-readable results or `monitor doctor --json` for structured output. New or
+opened databases are marked with the application's expected schema version;
+the diagnostic itself remains read-only.
+
 ## Overview
 
 All enrollment data is stored in SQLite databases (one per semester, e.g., `data/enrollment_summer_2026.db`). The database provides normalized storage with better data integrity, querying, and performance compared to flat files.
@@ -85,8 +91,6 @@ monitor db stats
 # Clean up old snapshots (keep most recent N)
 monitor db cleanup --keep 50
 
-# Migrate legacy JSON files to database
-monitor db migrate
 ```
 
 ## Indexes
@@ -161,7 +165,6 @@ ORDER BY s.timestamp DESC;
 | Issue | Solution |
 |-------|----------|
 | Database locked | Ensure no other processes are accessing the database |
-| Migration fails | Run `monitor db migrate --debug` for detailed output |
 | Performance issues | Run `VACUUM`, consider `monitor db cleanup` |
 
 ## Python API

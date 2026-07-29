@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -30,7 +32,7 @@ def local_path(value: str, page: Path) -> Path | None:
     return page.parent / parsed.path
 
 
-def main() -> None:
+def main(report_path: Path | None = None) -> None:
     issues = WebsiteService().validate_public_output()
     pages = sorted(OUTPUT_DIR.rglob("*.html"))
     if not pages:
@@ -41,13 +43,55 @@ def main() -> None:
         parser.feed(page.read_text(encoding="utf-8"))
         for value in parser.links:
             target = local_path(value, page)
-            if target and not target.exists():
+            if not target:
+                continue
+            try:
+                target.resolve().relative_to(OUTPUT_DIR.resolve())
+            except ValueError:
+                issues.append(
+                    f"{page.relative_to(OUTPUT_DIR)}: path escapes output: {value}"
+                )
+                continue
+            if not target.exists():
                 issues.append(f"{page.relative_to(OUTPUT_DIR)}: missing {value}")
+                continue
+            if target.suffix == ".json":
+                try:
+                    json.loads(target.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as error:
+                    issues.append(
+                        f"{page.relative_to(OUTPUT_DIR)}: invalid JSON {value}: {error}"
+                    )
 
     if issues:
+        if report_path:
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {"format": 1, "ok": False, "pages": len(pages), "issues": issues},
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
         raise SystemExit("Site smoke check failed:\n- " + "\n- ".join(issues))
+    if report_path:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(
+                {"format": 1, "ok": True, "pages": len(pages), "issues": []},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     print(f"Site smoke check passed for {len(pages)} page(s).")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", type=Path, dest="report_path")
+    arguments = parser.parse_args()
+    main(arguments.report_path)

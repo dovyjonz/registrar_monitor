@@ -1,159 +1,151 @@
-# Agent Notes
+# Agent guide
 
-## Project Overview
+## Start here
 
-Registrar Monitor is a Python 3.13 application for downloading registrar
-enrollment spreadsheets, storing normalized snapshots in SQLite, comparing
-changes, sending Telegram reports, and generating a static website dashboard.
+Registrar Monitor is a Python 3.13 application that downloads registrar
+spreadsheets, stores normalized enrollment snapshots in SQLite, reports changes,
+and publishes a static dashboard to Cloudflare Pages.
 
-The Python package lives under `src/registrarmonitor`. The browser dashboard has
-its own Vite/Cloudflare Workers scaffold under `assets/website`.
+Use these sources in this order:
 
-## Setup
+1. `AGENTS.md` for repository constraints and safe working practices.
+2. `settings.toml` for semester dates, milestones, timezone, paths, and website
+   settings.
+3. `docs/operations/production-topology.md` for current runtime state and the
+   production verification runbook.
+4. `README.md` and `DATABASE.md` for operator usage and storage details.
+5. `docs/adr/` and `CONTEXT.md`, when present, for recorded domain decisions.
 
-- Use `uv sync --group dev` for the Python environment.
-- Use `npm ci --prefix assets/website` for website dependencies when needed.
-- Secrets belong in `.env`; keep real tokens out of `settings.toml`, tests, and
-  committed files.
-- Runtime output is intentionally gitignored: `data/`, `logs/`,
-  `assets/downloads/`, `assets/changes/`, generated website files, coverage
+Do not copy command inventories into this file. The Makefile and
+`monitor --help` are the authoritative, easily discoverable command references.
+
+## Current production state
+
+As verified on 2026-07-29:
+
+- Google Cloud project `registrarmonitor` contains the runtime VM
+  `instance-20260501-152532` in `us-east1-c`.
+- Monitoring is intentionally paused. No poll, report, deploy, or scheduler
+  process is running.
+- `registrarmonitor.service` is the sole supported systemd unit. It is installed,
+  disabled, and failed/inactive.
+- The obsolete `registrar-monitor.service` unit was removed from the host.
+- The cron daemon is active, but no active Registrar Monitor entry exists in the
+  runtime-user, root, operator, or system crontabs.
+
+Do not start or enable monitoring unless the operator explicitly asks and the
+planned data changes have been verified. A service activation request is
+separate from repository setup or deployment work.
+
+## Repository invariants
+
+- SQLite is the source of truth for enrollment snapshots. Do not add JSON
+  snapshot persistence to the normal monitor path.
+- `settings.toml` is the single source of truth for semester milestones,
+  deadlines, and the registrar timezone. Scheduler and website behavior derive
+  from it.
+- Secrets belong in `.env`. Never commit, print, or copy tokens, chat IDs,
+  process environments, or unrestricted runtime configuration.
+- Generated and runtime output stays untracked: `data/`, `logs/`,
+  `assets/downloads/`, `assets/changes/`, `assets/website/public/`, coverage
   output, and local caches.
+- Direct Cloudflare Pages upload is the supported website deployment path.
+  Do not reintroduce the retired Worker asset-deployment path.
+- Keep generated website pages and payloads out of source edits unless the task
+  explicitly concerns generated artifacts.
 
-## Common Commands
+## Code layout
+
+The Python package is under `src/registrarmonitor`; the Vite dashboard is under
+`assets/website`.
+
+Prefer existing boundaries:
+
+- `automation/`: downloading and scheduler behavior
+- `data/`: parsing, SQLite, migrations, and comparisons
+- `reporting/`: text, Telegram, and optional PDF output
+- `services/`: workflow orchestration
+- `website/`: static page and payload generation
+- `models.py`: enrollment domain models
+
+Put reusable pytest fixtures in `tests/conftest.py`.
+
+## Setup and verification
+
+Use the pinned toolchains and lockfiles:
 
 ```bash
-uv run ruff format
-uv run ruff check
-uv run ty check
-uv run pytest
-npm --prefix assets/website run build
+make bootstrap
+make doctor
 ```
 
-The same checks are available through `make`:
+For a narrow change, run the closest relevant test or check. For Python-only
+iteration use `make check-fast`. Before handing off scaffold or cross-cutting
+changes, run:
 
 ```bash
-make format
-make lint
-make type
-make test
-make website-build
 make check
 ```
 
-## Website Local Debugging
+Use `UV_CACHE_DIR=/private/tmp/uv-cache` if the default uv cache is unavailable
+in a sandbox.
 
-- To inspect the generated dashboard locally, serve the generated static site,
-  not the Vite asset base:
+### Generated dashboard debugging
+
+Serve generated output, not Vite's asset base:
 
 ```bash
 cd assets/website/public
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
-- Open `http://127.0.0.1:8000/` or a semester page such as
-  `http://127.0.0.1:8000/fall2026.html`.
-- Do not use `http://127.0.0.1:5173/assets/` for generated pages; that path is
-  only the production asset base and will 404 under Vite dev serving.
-- After running `npm --prefix assets/website run build`, make sure generated
-  HTML files point at the current hashed JS/CSS from
-  `assets/website/public/assets/.vite/manifest.json`. If the page stays on
-  "Loading enrollment data...", check the local server log for missing
-  `assets/main-*.js` requests and run:
+If generated HTML references stale asset hashes after a website build, compare it
+with `assets/website/public/assets/.vite/manifest.json`, then run:
 
 ```bash
 UV_CACHE_DIR=/private/tmp/uv-cache uv run python -c "from registrarmonitor.services.website_service import WebsiteService; WebsiteService()._patch_asset_hashes_in_html()"
 ```
 
-- If a browser appears stuck, hard refresh after patching asset hashes.
+Hard-refresh the browser after patching.
 
-## CLI
+## Version control
 
-The package installs the `monitor` command:
+This is a colocated Jujutsu/Git repository. Use Jujutsu for normal inspection and
+changes:
 
-```bash
-monitor poll
-monitor report --no-telegram
-monitor run --no-telegram
-monitor schedule --no-telegram
-monitor deploy
-monitor db stats
-```
+1. Start with `jj status`, a bounded `jj log`, and `jj diff`.
+2. Treat `@` as the working-copy commit and use change IDs for evolving work.
+3. Preserve unrelated working-copy changes.
+4. Fetch and inspect bookmarks before sharing; preview pushes with
+   `jj git push --dry-run`.
+5. Inspect `jj op log` before recovery. Prefer `jj undo` or a targeted operation
+   restore/revert over Git reset commands.
 
-## Implementation Notes
+Do not use Git commands that rewrite or clean the worktree or history unless
+Git-specific behavior is explicitly required and the Jujutsu consequences have
+been inspected. Do not add `Co-Authored-By` trailers.
 
-- Treat SQLite as the source of truth for enrollment snapshots. Do not introduce
-  new JSON snapshot persistence for normal monitor data.
-- `settings.toml` is the single source for semester milestones and deadlines.
-  Website milestone rendering and scheduler behavior derive from it.
-- Keep generated website pages and payloads out of source edits unless the task
-  is explicitly about generated artifacts.
-- Prefer existing service boundaries:
-  - `automation/` for download and scheduler behavior
-  - `data/` for parsing, database, migration, and comparison logic
-  - `reporting/` for report formatting and Telegram/PDF output
-  - `services/` for workflow orchestration
-  - `website/` for static page/data generation
-- When adding tests, keep fixtures in `tests/conftest.py` if they are reused.
+## Production operations
 
-## Version Control
+Use `gcloud` for the Google Cloud runtime and follow the authoritative
+`google/skills@gcloud` skill:
 
-- Use Jujutsu for normal repository inspection and changes. Start with
-  `jj status`, a bounded `jj log`, and `jj diff`.
-- Treat `@` as the working-copy commit and use change IDs when referring to
-  evolving work. There is no Git-style staging area.
-- Use bookmarks only when a named pointer is needed for sharing. Inspect local
-  and remote bookmark targets, fetch first, and preview pushes with
-  `jj git push --dry-run`.
-- This is a colocated repository: `.git` remains for GitHub and compatibility
-  tooling, while `.jj` owns the working-copy workflow. Do not use Git commands
-  that rewrite or clean the worktree or history unless Git-specific behavior is
-  explicitly required and the Jujutsu consequences have been inspected.
-- Use `jj op log` before recovery operations. Prefer `jj undo` or a targeted
-  operation restore/revert over Git reset commands.
+- validate every exact leaf command with `gcloud help`;
+- specify project and zone explicitly;
+- bound list output with filters, limits, or projections;
+- use read-only inspection before mutation;
+- preview `gcloud compute ssh` with `--dry-run`;
+- never expose credentials, Telegram identifiers, environment contents, or full
+  crontabs.
 
-## Commits
+Require explicit operator authorization for destructive, IAM, billing,
+organization, KMS, API-enabling, service-activation, or other materially
+state-changing operations. The safe runtime checks and current resource
+identifiers are maintained in
+`docs/operations/production-topology.md`.
 
-Do not add `Co-Authored-By` trailers to commit messages.
+## Agent workflows
 
-## Agent skills
-
-### Issue tracker
-
-Local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Five canonical roles: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-### Google Cloud operations
-
-- Use the `gcloud` CLI for inspection and administration of the production
-  Google Cloud environment.
-- Before performing `gcloud` work, use the authoritative `gcloud` agent skill
-  from Google's official `google/skills` repository. If it is unavailable,
-  search for and install the official `google/skills@gcloud` skill through the
-  agent skill discovery/installer workflow; do not substitute an
-  unaffiliated community skill without explicit operator approval.
-- Follow the installed skill's guardrails: validate exact leaf-command syntax
-  with `gcloud help`, specify the project and region or zone explicitly, bound
-  list output with filters/limits/formats, and start with read-only inspection.
-- Never print credentials, environment contents, Telegram identifiers, or
-  unrestricted runtime configuration. Require explicit operator authorization
-  before destructive, IAM, billing, organization, KMS, API-enabling, or other
-  materially state-changing commands.
-
-## Verification
-
-Before handing off code changes, run the narrow relevant checks. For scaffold or
-cross-cutting changes, run:
-
-```bash
-make check
-```
-
-If `uv` cannot access its default cache in a sandboxed environment, rerun the
-same command with an approved cache location or normal cache permissions.
+- Local issue files: `docs/agents/issue-tracker.md`
+- Canonical triage roles: `docs/agents/triage-labels.md`
+- Domain-document conventions: `docs/agents/domain.md`

@@ -17,6 +17,8 @@ from ..core import get_logger
 from ..models import EnrollmentSnapshot
 from ..validation import validate_directory_exists
 
+EXPECTED_SCHEMA_VERSION = 1
+
 
 class DatabaseManager:
     """Manages SQLite database operations for enrollment data."""
@@ -249,6 +251,7 @@ class DatabaseManager:
                     ON instructor_changes (section_id)
                 """)
 
+                cursor.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
                 conn.commit()
                 self.logger.debug("Database schema initialized successfully")
 

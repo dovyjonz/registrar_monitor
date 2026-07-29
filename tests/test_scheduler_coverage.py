@@ -1,5 +1,6 @@
 """Additional scheduler tests to increase coverage of untested paths."""
 
+import asyncio
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -96,15 +97,143 @@ class TestTopLevelHelpers:
 
 
 class TestGetNextReportTime:
-    def test_returns_next_quarter_hour(self):
-        with patch("registrarmonitor.automation.scheduler.datetime") as mock_dt:
-            mock_now = datetime.datetime(2024, 1, 15, 10, 10, 0)
-            mock_dt.datetime.now.return_value = mock_now
-            mock_dt.timedelta = datetime.timedelta
+    @pytest.mark.parametrize(
+        ("now", "expected"),
+        [
+            (
+                datetime.datetime(2024, 1, 15, 10, 10),
+                datetime.datetime(2024, 1, 15, 10, 15),
+            ),
+            (
+                datetime.datetime(2024, 1, 15, 10, 15),
+                datetime.datetime(2024, 1, 15, 10, 45),
+            ),
+            (
+                datetime.datetime(2024, 1, 15, 10, 46),
+                datetime.datetime(2024, 1, 15, 11, 15),
+            ),
+            (
+                datetime.datetime(2024, 1, 15, 23, 46),
+                datetime.datetime(2024, 1, 16, 0, 15),
+            ),
+        ],
+    )
+    def test_returns_next_twice_hourly_deadline(self, now, expected):
+        with patch(
+            "registrarmonitor.automation.scheduler._registrar_now",
+            return_value=now,
+        ):
             scheduler = TwoPhaseScheduler(no_telegram=True)
             result = scheduler._get_next_report_time()
-        assert result.minute in (15, 45)
-        assert result > mock_now
+        assert result == expected
+
+    def test_uses_configured_registrar_timezone(self):
+        aware_now = datetime.datetime(
+            2024,
+            7,
+            15,
+            5,
+            10,
+            tzinfo=datetime.UTC,
+        )
+        with (
+            patch(
+                "registrarmonitor.automation.scheduler.datetime.datetime"
+            ) as mock_datetime,
+            patch(
+                "registrarmonitor.automation.scheduler.get_config",
+                return_value={"timezone": "Asia/Almaty"},
+            ),
+        ):
+            mock_datetime.now.return_value = aware_now
+            mock_datetime.fromisoformat = datetime.datetime.fromisoformat
+            scheduler = TwoPhaseScheduler(no_telegram=True)
+            result = scheduler._get_next_report_time()
+
+        assert result == datetime.datetime(2024, 7, 15, 10, 15)
+
+
+class TestScheduledReportLoop:
+    @pytest.mark.asyncio
+    async def test_runs_without_forcing_poll_and_honors_no_telegram(self):
+        scheduler = TwoPhaseScheduler(no_telegram=True)
+        scheduler._get_next_report_time = MagicMock(
+            return_value=datetime.datetime(2024, 1, 15, 10, 15)
+        )
+
+        with (
+            patch(
+                "registrarmonitor.automation.scheduler._registrar_now",
+                return_value=datetime.datetime(2024, 1, 15, 10, 10),
+            ),
+            patch(
+                "registrarmonitor.automation.scheduler.asyncio.sleep",
+                AsyncMock(side_effect=[None, asyncio.CancelledError]),
+            ) as sleep,
+            patch.object(
+                scheduler,
+                "_run_report_cycle",
+                AsyncMock(),
+            ) as report,
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await scheduler._scheduled_report_loop()
+
+        sleep.assert_any_await(300.0)
+        report.assert_awaited_once_with(force_poll=False)
+
+    @pytest.mark.asyncio
+    async def test_report_failure_does_not_stop_loop(self):
+        scheduler = TwoPhaseScheduler(no_telegram=True)
+        scheduler._get_next_report_time = MagicMock(
+            return_value=datetime.datetime(2024, 1, 15, 10, 15)
+        )
+
+        with (
+            patch(
+                "registrarmonitor.automation.scheduler._registrar_now",
+                return_value=datetime.datetime(2024, 1, 15, 10, 10),
+            ),
+            patch(
+                "registrarmonitor.automation.scheduler.asyncio.sleep",
+                AsyncMock(side_effect=[None, None, asyncio.CancelledError]),
+            ),
+            patch.object(
+                scheduler,
+                "_run_report_cycle",
+                AsyncMock(side_effect=[RuntimeError("boom"), None]),
+            ) as report,
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await scheduler._scheduled_report_loop()
+
+        assert report.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_report_cycles_are_serialized(self):
+        scheduler = TwoPhaseScheduler(no_telegram=True)
+        active = 0
+        maximum_active = 0
+
+        async def run_unlocked(*, force_poll):
+            nonlocal active, maximum_active
+            active += 1
+            maximum_active = max(maximum_active, active)
+            await asyncio.sleep(0)
+            active -= 1
+            return 0.0
+
+        with patch.object(
+            scheduler,
+            "_run_report_cycle_unlocked",
+            side_effect=run_unlocked,
+        ):
+            await asyncio.gather(
+                scheduler._run_report_cycle(force_poll=False),
+                scheduler._run_report_cycle(force_poll=False),
+            )
+
+        assert maximum_active == 1
 
 
 class TestShowScheduleStatus:
@@ -252,6 +381,7 @@ class TestStartInitialization:
             patch.object(
                 scheduler, "_process_pending_polls_loop", new_callable=AsyncMock
             ),
+            patch.object(scheduler, "_scheduled_report_loop", new_callable=AsyncMock),
             patch.object(
                 scheduler, "get_next_poll_interval", return_value=(60, MagicMock())
             ),

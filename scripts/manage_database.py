@@ -151,10 +151,9 @@ Examples:
   %(prog)s vacuum                          # Optimize database
   %(prog)s export courses courses.csv      # Export table to CSV
 
-Note: For basic operations like stats, cleanup, and migration, use:
+Note: For basic operations like stats and cleanup, use:
   monitor db stats
   monitor db cleanup
-  monitor db migrate
         """,
     )
 

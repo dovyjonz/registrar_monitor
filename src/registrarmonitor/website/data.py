@@ -7,7 +7,7 @@ from typing import Any
 from registrarmonitor.config import get_timezone
 from registrarmonitor.data.database_manager import DatabaseManager
 
-from .config import ALL_SEMESTERS, KEY_MAP, MILESTONES_MAP, course_to_slug
+from .config import KEY_MAP, MILESTONES_MAP, course_to_slug
 
 
 def _parse_registrar_timestamp(value: str) -> datetime:
@@ -884,32 +884,3 @@ def get_semester_data(semester: str, *, minify: bool = True) -> dict[str, Any]:
     if minify:
         return _minify_keys(data)
     return data
-
-
-def get_combined_data(*, minify: bool = True) -> dict[str, Any]:
-    """
-    Get data for all semesters combined into a single structure.
-
-    Args:
-        minify: Whether to minify JSON keys for smaller output
-
-    Returns:
-        Combined data structure with all semesters accessible via toggle.
-    """
-    combined: dict[str, Any] = {
-        "semesters": ALL_SEMESTERS,
-        "activeSemester": ALL_SEMESTERS[0],
-        "semesterData": {},
-        "milestonesData": {},
-    }
-
-    for semester in ALL_SEMESTERS:
-        print(f"  Loading {semester}...")
-        # Get data with minify=False since we'll minify the whole structure at the end
-        data = get_semester_data(semester, minify=False)
-        combined["semesterData"][semester] = data
-        combined["milestonesData"][semester] = MILESTONES_MAP.get(semester, [])
-
-    if minify:
-        return _minify_keys(combined)
-    return combined

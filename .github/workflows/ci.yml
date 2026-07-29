@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   python:
-    name: Python checks
+    name: Python 3.13 canonical checks
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +23,7 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install Python
+      - name: Install canonical Python
         run: uv python install 3.13.5
 
       - name: Install dependencies
@@ -39,11 +39,26 @@ jobs:
         run: uv run ty check
 
       - name: Test
-        run: uv run pytest
+        run: |
+          mkdir -p output/tests
+          uv run pytest \
+            --junitxml=output/tests/pytest-3.13.xml \
+            --cov-report=xml:output/tests/coverage-3.13.xml \
+            --cov-report=term-missing
+
+      - name: Upload Python test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-3.13-test-reports
+          path: output/tests/
+          if-no-files-found: error
 
   python-3-14:
     name: Python 3.14 compatibility
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.14"
 
     steps:
       - name: Check out repository
@@ -54,7 +69,7 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install Python
+      - name: Install compatibility Python
         run: uv python install 3.14
 
       - name: Install dependencies
@@ -62,11 +77,23 @@ jobs:
 
       - name: Test compatibility
         run: |
-          uv run python --version
-          uv run pytest
+          mkdir -p output/tests
+          uv run --python 3.14 python --version
+          uv run --python 3.14 pytest \
+            --junitxml=output/tests/pytest-3.14.xml \
+            --cov-report=xml:output/tests/coverage-3.14.xml \
+            --cov-report=term-missing
+
+      - name: Upload compatibility test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-3.14-test-reports
+          path: output/tests/
+          if-no-files-found: error
 
   website:
-    name: Website build
+    name: Frontend unit tests and build
     runs-on: ubuntu-latest
 
     defaults:
@@ -90,5 +117,124 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Run pure JavaScript unit tests
+        run: npm run test:unit
+
       - name: Build
         run: npm run build
+
+  generated-site:
+    name: Generated output crawl and Chromium smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.13.5
+
+      - name: Install Python dependencies
+        run: uv sync --locked --group dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: assets/website/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix assets/website
+
+      - name: Install Chromium
+        run: npm --prefix assets/website exec playwright install --with-deps chromium
+
+      - name: Seed deterministic smoke data
+        run: uv run python scripts/seed_smoke_data.py
+
+      - name: Generate and crawl production output
+        run: make site-smoke
+
+      - name: Run Playwright against generated output
+        run: npm --prefix assets/website run test:e2e
+
+      - name: Upload generated-site and Playwright reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-site-smoke-reports
+          path: |
+            output/generated-site-crawl.json
+            output/playwright/
+          if-no-files-found: warn
+
+  dependency-review:
+    name: Dependency and security review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: assets/website/package-lock.json
+
+      - name: Audit frontend lockfile
+        run: npm audit --prefix assets/website --audit-level=high
+
+  benchmark:
+    name: Synthetic performance benchmark artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Install Python and dependencies
+        run: |
+          uv python install 3.13.5
+          uv sync --locked --group dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: assets/website/package-lock.json
+
+      - name: Install frontend dependencies and Chromium
+        run: |
+          npm ci --prefix assets/website
+          npm --prefix assets/website exec playwright install chromium
+
+      - name: Record short synthetic benchmark
+        run: make benchmark-synthetic PERF_COLD=1 PERF_WARM=2
+
+      - name: Upload benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline-synthetic
+          path: output/performance-baseline.json
+          if-no-files-found: error

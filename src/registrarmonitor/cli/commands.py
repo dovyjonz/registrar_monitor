@@ -6,7 +6,6 @@ from pathlib import Path
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
-from ..data.migrate_json_to_db import JSONMigrator
 from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..utils import get_section_sort_key
@@ -509,36 +508,6 @@ class DatabaseCommands:
         except Exception as e:
             print(f"❌ Error cleaning up snapshots: {e}")
             self.logger.error(f"Database cleanup error: {e}")
-            return False
-
-    def migrate(self) -> bool:
-        """Migrate JSON files to database."""
-        try:
-            if self.debug:
-                print("🔍 DEBUG: Starting JSON to database migration")
-
-            migrator = JSONMigrator()
-
-            print("🔄 Starting JSON to database migration...")
-            results = migrator.migrate_all()
-
-            if results:
-                total_migrated = sum(results.values())
-                print(f"✅ Migration completed! {total_migrated} files migrated")
-                for semester, count in results.items():
-                    print(f"   {semester}: {count} files")
-
-                if self.debug:
-                    print("🔍 DEBUG: Migration details available in logs")
-
-                return True
-            else:
-                print("ℹ️  No files to migrate")
-                return True
-
-        except Exception as e:
-            print(f"❌ Migration error: {e}")
-            self.logger.error(f"Database migration error: {e}")
             return False
 
     async def dedupe_instructor_changes(self, *, dry_run: bool = False) -> bool:

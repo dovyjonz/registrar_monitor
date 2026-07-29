@@ -442,26 +442,26 @@ class TwoPhaseScheduler:
         self._website_update_pending: bool = False
         self._telegram_report_task: asyncio.Task | None = None
         self._telegram_report_pending: bool = False
+        self._report_cycle_lock = asyncio.Lock()
 
         # Initialize ReportingService (lazy import to avoid circular dep)
         self._detected_semester: str | None = None
         self.reporting_service = None
         self._reporting_service_class = None
 
-        if not no_telegram:
+        try:
+            from ..services.reporting_service import ReportingService as RS
+
+            self._reporting_service_class = RS  # type: ignore[assignment]
+        except ImportError:
             try:
-                from ..services.reporting_service import ReportingService as RS
+                from registrarmonitor.services.reporting_service import (
+                    ReportingService as RS,
+                )
 
                 self._reporting_service_class = RS  # type: ignore[assignment]
             except ImportError:
-                try:
-                    from registrarmonitor.services.reporting_service import (
-                        ReportingService as RS,
-                    )
-
-                    self._reporting_service_class = RS  # type: ignore[assignment]
-                except ImportError:
-                    print("⚠️  Warning: ReportingService unavailable")
+                print("⚠️  Warning: ReportingService unavailable")
 
         # Initialize caffeinate process for sleep prevention
         self.caffeinate_process = None
@@ -1124,10 +1124,12 @@ class TwoPhaseScheduler:
 
     def _get_next_report_time(self) -> datetime.datetime:
         """
-        Calculate the next scheduled report time (:15 or :45).
-        Returns a datetime object for the next occurrence.
+        Calculate the next :15 or :45 report in registrar-local wall time.
+
+        Returns a naive datetime for compatibility with the scheduler's existing
+        wall-time calculations.
         """
-        now = datetime.datetime.now()
+        now = _registrar_now()
         candidates = []
 
         for minute in [15, 45]:
@@ -1142,6 +1144,11 @@ class TwoPhaseScheduler:
         return min(candidates)
 
     async def _run_report_cycle(self, force_poll: bool = True) -> float:
+        """Serialize stateful reporting across scheduled and event-driven triggers."""
+        async with self._report_cycle_lock:
+            return await self._run_report_cycle_unlocked(force_poll=force_poll)
+
+    async def _run_report_cycle_unlocked(self, force_poll: bool = True) -> float:
         """
         Execute the reporting cycle:
         1. Force fresh poll (if force_poll is True)
@@ -1201,6 +1208,27 @@ class TwoPhaseScheduler:
         print("-" * 40)
         return change_score
 
+    async def _scheduled_report_loop(self) -> None:
+        """Run stateful reports at :15 and :45 without forcing an extra poll."""
+        while True:
+            next_report_time = self._get_next_report_time()
+            wait_seconds = max(
+                0.0,
+                (next_report_time - _registrar_now()).total_seconds(),
+            )
+            self.logger_ops.info(
+                "Next scheduled stateful report at %s registrar time",
+                next_report_time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            await asyncio.sleep(wait_seconds)
+
+            try:
+                await self._run_report_cycle(force_poll=False)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.logger_ops.error(f"Scheduled stateful report failed: {e}")
+
     async def start(self):
         """The main execution loop for two-phase scheduling (event-driven)."""
         print("🚀 Starting Two-Phase Scheduler (Event-Driven Polling)")
@@ -1251,6 +1279,7 @@ class TwoPhaseScheduler:
 
         # Start background processor for sequential processing in FIFO order
         processor_task = asyncio.create_task(self._process_pending_polls_loop())
+        scheduled_report_task = asyncio.create_task(self._scheduled_report_loop())
 
         try:
             while True:
@@ -1279,11 +1308,12 @@ class TwoPhaseScheduler:
         except KeyboardInterrupt:
             print("\n⚠️  Scheduler interrupted by user.")
         finally:
-            processor_task.cancel()
-            try:
-                await processor_task
-            except asyncio.CancelledError:
-                pass
+            for task in (processor_task, scheduled_report_task):
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
             for task in (self._website_update_task, self._telegram_report_task):
                 if task and not task.done():
                     task.cancel()

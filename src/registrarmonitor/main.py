@@ -11,12 +11,14 @@ Usage:
     monitor [--debug] report [--no-telegram]
   monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
-    monitor [--debug] db {stats,cleanup,migrate,dedupe-instructor-changes} [--keep COUNT]
+    monitor [--debug] db {stats,cleanup,dedupe-instructor-changes} [--keep COUNT]
 """
 
 import argparse
 import asyncio
+import json
 import sys
+from pathlib import Path
 
 from .cli import (
     DatabaseCommands,
@@ -28,6 +30,7 @@ from .cli import (
     StatusCommand,
 )
 from .core import get_logger, setup_logging
+from .operational import build_doctor_report, write_json
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -195,6 +198,23 @@ Telegram Control:
     )
 
     # Database commands
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Check local operational prerequisites and database health",
+        description="Check tools, configuration, writable paths, frontend prerequisites, and SQLite health",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the full machine-readable report",
+    )
+    doctor_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Also write the JSON report to this path",
+    )
+
+    # Database commands
     db_parser = subparsers.add_parser(
         "db",
         help="Database operations",
@@ -225,13 +245,6 @@ Telegram Control:
         default=50,
         metavar="COUNT",
         help="Number of snapshots to keep (default: 50)",
-    )
-
-    # Database migrate
-    db_subparsers.add_parser(
-        "migrate",
-        help="Migrate JSON files to database",
-        description="Migrate existing JSON enrollment files to the database format",
     )
 
     dedupe_parser = db_subparsers.add_parser(
@@ -319,8 +332,6 @@ async def handle_db_command(args) -> int:
     elif args.db_command == "cleanup":
         keep_count = getattr(args, "keep", 50)
         success = await command.cleanup(keep_count=keep_count)
-    elif args.db_command == "migrate":
-        success = command.migrate()
     elif args.db_command == "dedupe-instructor-changes":
         success = await command.dedupe_instructor_changes(
             dry_run=getattr(args, "dry_run", False)
@@ -332,14 +343,38 @@ async def handle_db_command(args) -> int:
     return 0 if success else 1
 
 
+async def handle_doctor_command(args) -> int:
+    """Handle bounded operational diagnostics."""
+    report = build_doctor_report()
+    output = getattr(args, "output", None)
+    if output:
+        write_json(report, output)
+    if getattr(args, "json", False):
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        for check in report["checks"]:
+            print(f"[{check['status'].upper():4}] {check['name']}: {check['message']}")
+        summary = report["summary"]
+        print(
+            f"Doctor: {summary['pass']} passed, {summary['warn']} warnings, "
+            f"{summary['fail']} failed"
+        )
+    return 0 if report["ok"] else 1
+
+
 async def async_main() -> int:
     """Main async entry point."""
     parser = create_parser()
     args = parser.parse_args()
 
-    # Set up logging based on arguments
+    # Keep structured doctor output free of log lines and side effects.
     log_level = "DEBUG" if args.debug else args.log_level
-    setup_logging(level=log_level, enable_console=True, enable_file=True)
+    is_doctor = args.command == "doctor"
+    setup_logging(
+        level=log_level,
+        enable_console=not is_doctor,
+        enable_file=not is_doctor,
+    )
 
     logger = get_logger(__name__)
     logger.info(f"Starting Registrar Monitor CLI with command: {args.command}")
@@ -361,7 +396,8 @@ async def async_main() -> int:
             return await handle_schedule_command(args)
         elif args.command == "deploy":
             return await handle_deploy_command(args)
-
+        elif args.command == "doctor":
+            return await handle_doctor_command(args)
         elif args.command == "db":
             return await handle_db_command(args)
         else:

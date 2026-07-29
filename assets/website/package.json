@@ -8,8 +8,9 @@
     },
     "scripts": {
         "dev": "vite",
-        "test": "node --test test/*.test.mjs",
-        "test:browser": "playwright test",
+        "test": "npm run test:unit",
+        "test:unit": "node --test test/*.test.mjs",
+        "test:e2e": "playwright test",
         "lint": "eslint .",
         "build": "vite build"
     },
@@ -23,7 +24,6 @@
         "@playwright/test": "1.62.0",
         "eslint": "10.8.0",
         "globals": "17.8.0",
-        "typescript": "7.0.2",
         "vite": "8.1.5",
         "wrangler": "4.114.0"
     }

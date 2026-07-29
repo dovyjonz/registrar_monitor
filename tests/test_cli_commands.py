@@ -402,26 +402,6 @@ class TestDatabaseCommands:
         assert result is True
         ms_cls.return_value.cleanup_old_data.assert_called_once_with(20)
 
-    def test_migrate_success(self):
-        from registrarmonitor.cli.commands import DatabaseCommands
-
-        with patch("registrarmonitor.cli.commands.JSONMigrator") as mig_cls:
-            mig_cls.return_value.migrate_all.return_value = {"Spring 2024": 3}
-            cmd = DatabaseCommands()
-            result = cmd.migrate()
-
-        assert result is True
-
-    def test_migrate_empty(self):
-        from registrarmonitor.cli.commands import DatabaseCommands
-
-        with patch("registrarmonitor.cli.commands.JSONMigrator") as mig_cls:
-            mig_cls.return_value.migrate_all.return_value = {}
-            cmd = DatabaseCommands()
-            result = cmd.migrate()
-
-        assert result is True
-
     @pytest.mark.asyncio
     async def test_dedupe_dry_run(self):
         from registrarmonitor.cli.commands import DatabaseCommands

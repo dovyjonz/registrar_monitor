@@ -11,6 +11,7 @@ from registrarmonitor.main import (
     cli_main,
     handle_db_command,
     handle_deploy_command,
+    handle_doctor_command,
     handle_poll_command,
     handle_report_command,
     handle_run_command,
@@ -150,6 +151,24 @@ class TestHandleDeployCommand:
         assert code == 1
 
 
+class TestHandleDoctorCommand:
+    @pytest.mark.asyncio
+    async def test_json_report_returns_report_status(self, capsys):
+        report = {
+            "format": 1,
+            "ok": True,
+            "summary": {"pass": 1, "warn": 0, "fail": 0},
+            "checks": [],
+        }
+        with patch("registrarmonitor.main.build_doctor_report", return_value=report):
+            code = await handle_doctor_command(
+                make_args("doctor", json=True, output=None)
+            )
+
+        assert code == 0
+        assert '"ok": true' in capsys.readouterr().out
+
+
 class TestHandleStatusCommand:
     @pytest.mark.asyncio
     async def test_found_returns_zero(self):
@@ -188,16 +207,6 @@ class TestHandleDbCommand:
             code = await handle_db_command(args)
 
         assert code == 0
-
-    def test_migrate_success(self):
-        with patch("registrarmonitor.main.DatabaseCommands") as mock_cls:
-            mock_cls.return_value.migrate.return_value = True
-            args = make_args("db", db_command="migrate")
-            code = handle_db_command(args)  # not async, but returns awaitable
-
-        import asyncio
-
-        assert asyncio.run(code) == 0
 
     @pytest.mark.asyncio
     async def test_dedupe_success(self):

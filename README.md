@@ -1,296 +1,194 @@
 # Registrar Monitor
 
-A Python application for monitoring university registrar enrollment data. Downloads enrollment data, processes it into a SQLite database, generates text change reports, and sends notifications via Telegram. Features a modern CLI with global debug mode, automated scheduling, and a static website dashboard.
+Registrar Monitor downloads university registrar enrollment spreadsheets,
+normalizes them into SQLite snapshots, detects enrollment changes, sends
+optional Telegram reports, and generates a static Cloudflare Pages dashboard.
 
-## Features
+## What it provides
 
-- **Modern CLI**: Clean command-line interface with subcommands and global debug mode
-- **Data Processing**: Parse Excel enrollment data and create structured snapshots in SQLite
-- **Change Detection**: Compare snapshots to identify new, removed, or modified courses/sections
-- **Text Reports**: Generate compact, emoji-based change summaries
-- **Telegram Notifications**: Send change reports automatically via Telegram bot
-- **Automated Scheduling**: Activity-aware hybrid scheduler with configurable time zones
-- **Website Dashboard**: Generate and deploy a static enrollment dashboard to Cloudflare Pages
-- **Database Management**: Built-in tools for stats, cleanup, and JSON migration
+- Excel ingestion and normalized, per-semester SQLite storage
+- Course and section change detection
+- Stateful text reporting with optional Telegram delivery
+- Activity-aware scheduling derived from configured registrar milestones
+- Static dashboard generation and direct Cloudflare Pages deployment
+- Database inspection and cleanup tools
 
-## Quick Start
+## Quick start
 
-### Prerequisites
+### Requirements
 
-- Python 3.13.5 (the default pin; Python 3.14 is also tested in CI)
-- Node.js 24.18.0 LTS and npm 11.x for the website tooling
-- [`uv`](https://docs.astral.sh/uv/) package manager
-- [`jj`](https://jj-vcs.github.io/jj/) version control
-- Codex CLI 0.144.0 or newer for the project tooling workflow
-- Telegram bot token and chat ID (optional, for notifications)
+- Python version from `.python-version`
+- Node.js version from `.node-version`
+- [`uv`](https://docs.astral.sh/uv/)
+- [`jj`](https://jj-vcs.github.io/jj/) for the repository workflow
 
-### Installation
+Clone and bootstrap:
 
 ```bash
 jj git clone <repo-url>
 cd registrar_monitor
 make bootstrap
-```
-
-For an existing Git checkout, initialize Jujutsu in colocated mode:
-
-```bash
-jj git init --colocate .
-```
-
-The colocated repository keeps `.git` for GitHub and Git-aware tooling while
-using Jujutsu for normal local version-control work.
-
-### Configuration
-
-1. Copy `.env.example` to `.env` and fill in your Telegram credentials:
-   ```
-   TELEGRAM_BOT_TOKEN=your_token_here
-   TELEGRAM_CHAT_ID=your_chat_id_here
-   ```
-
-2. Edit `settings.toml` to configure:
-   - Data source URL
-   - Directory paths
-   - Notification preferences
-
-Keep real credentials out of `settings.toml`; it only contains non-secret defaults.
-
-## Usage
-
-### Basic Commands
-
-```bash
-# Download and process enrollment data
-monitor poll
-monitor poll --file data.xlsx      # Process specific file
-
-# Generate and send text reports
-monitor report                     # Generate and send to Telegram
-monitor report --no-telegram       # Generate locally only
-monitor report --stateful          # Only report if changes detected
-
-# Complete workflow (poll + report + website generation)
-monitor run
-monitor run --no-telegram
-monitor run --deploy              # Also deploy the generated website
-
-# Check course status
-monitor status "CSCI 101" "BUS 201"
-```
-
-### Scheduler
-
-```bash
-monitor schedule                   # Start hybrid scheduler
-monitor schedule --no-telegram     # Disable Telegram during scheduling
-```
-
-### Database Operations
-
-```bash
-monitor db stats                   # Show database statistics
-monitor db cleanup                 # Clean up old snapshots (keep 50)
-monitor db cleanup --keep 100      # Keep 100 most recent
-monitor db migrate                 # Migrate legacy JSON files to database
-```
-
-### Website
-
-```bash
-monitor deploy                     # Generate website
-monitor deploy --deploy            # Generate and deploy to Cloudflare
-monitor deploy --semester fall2025 # Generate for specific semester
-monitor deploy --no-minify         # Disable minified generated output
-```
-
-### Debug Mode
-
-Put `--debug` before the command for verbose output:
-
-```bash
-monitor --debug poll
-monitor --debug report
-monitor --debug schedule
-```
-
-## Architecture
-
-### Data Flow
-
-```
-Registrar URL → Excel Download → Parse & Process → SQLite Database
-                                                        ↓
-                                          Snapshot Comparison → Text Report → Telegram
-```
-
-### Command Structure
-
-```
-monitor
-├── [--debug] poll [--file PATH]
-├── [--debug] status COURSES... [--semester]
-├── [--debug] report [--no-telegram] [--stateful]
-├── [--debug] run [--no-telegram] [--deploy]
-├── [--debug] schedule [--no-telegram]
-├── [--debug] deploy [--deploy] [--semester] [--force] [--no-minify]
-└── db
-    ├── stats
-    ├── cleanup [--keep COUNT]
-    └── migrate
-```
-
-### Key Design Decisions
-
-- **Database-first storage**: All enrollment data is persisted in SQLite databases (one per semester). No JSON snapshot files are written.
-- **Text-only automated reports**: The automated pipeline generates compact text reports with emoji-based formatting. PDF generation remains available as an opt-in library method but is not part of the standard workflow.
-- **Stateful reporting**: The `--stateful` flag enables change-based reporting — reports are only sent when differences are detected vs. the last reported snapshot.
-
-## Project Structure
-
-```
-├── src/registrarmonitor/
-│   ├── cli/                    # CLI command implementations
-│   ├── core/                   # Logging, exceptions
-│   ├── data/                   # Database, Excel reader, snapshot processing
-│   ├── models/                 # Data models (EnrollmentSnapshot, Course, Section)
-│   ├── reporting/              # Report formatter, Telegram reporter, PDF generator
-│   ├── services/               # High-level service orchestrators
-│   ├── automation/             # Scheduler, downloader
-│   └── main.py                # CLI entry point
-├── scripts/                    # Utility and maintenance scripts
-├── assets/
-│   ├── website/               # Vite/Cloudflare Workers dashboard scaffold
-│   ├── downloads/             # Downloaded XLS files
-│   └── changes/               # Text change reports
-├── data/                       # SQLite databases (gitignored)
-├── tests/                      # Unit tests
-├── settings.toml               # Application configuration
-└── schedule.txt                # Scheduler time zones (generated)
-```
-
-## Development
-
-### Version Control
-
-Use Jujutsu for day-to-day work. The working copy is already a commit, so there
-is no staging area.
-
-```bash
-# Inspect the working copy and recent changes
-jj status
-jj diff
-jj log -r 'present(@) | ancestors(@, 5) | present(trunk())'
-
-# Start, describe, and finish a change
-jj new 'trunk()' -m "Implement feature"
-jj describe -m "Implement feature"
-jj commit -m "Implement feature"
-```
-
-Bookmarks are named pointers used when sharing changes; they do not follow the
-working copy automatically. Fetch before publishing, set or advance the
-intended bookmark, preview the push, and then push only that bookmark:
-
-```bash
-jj git fetch --remote origin
-jj bookmark set feature-name -r @-
-jj git push --dry-run --remote origin --bookmark feature-name
-jj git push --remote origin --bookmark feature-name
-```
-
-Use `jj op log` to inspect repository operations and `jj undo` to reverse the
-latest operation. Avoid Git commands that rewrite the worktree or history
-inside this colocated repository; they can leave Jujutsu's working-copy state
-out of sync.
-
-### Setup
-
-```bash
-make bootstrap
 make doctor
 ```
 
-`make bootstrap` installs the lockfile-pinned Python and website dependencies;
-it does not install Python or Node itself. Use the versions in `.python-version`
-and `.node-version`, then run `make doctor` to verify the tools, configuration,
-paths, and optional secret-file presence.
+For an existing Git checkout, initialize colocated Jujutsu with
+`jj git init --colocate .`.
 
-### Tooling
+### Configuration
 
-| Tool   | Purpose          | Command              |
-|--------|------------------|----------------------|
-| `ruff` | Linting          | `uv run ruff check`  |
-| `ruff` | Formatting       | `uv run ruff format` |
-| `ty`   | Type checking    | `uv run ty check`    |
-| `pytest` | Testing        | `uv run pytest`      |
-| `pre-commit` | Local quality hooks | `uv run pre-commit run --all-files` |
-| `eslint` | Website linting | `npm --prefix assets/website run lint` |
-| `vite` | Website build    | `npm --prefix assets/website run build` |
+Copy `.env.example` to `.env` and add only the credentials you need. Telegram
+delivery uses `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`; Cloudflare deployment
+uses its documented API credentials. Keep all real credentials out of
+`settings.toml`.
 
-Convenience `make` targets wrap the common commands:
+Edit `settings.toml` for non-secret application configuration:
+
+- registrar source and timezone;
+- data and generated-output paths;
+- semesters, milestones, and deadlines;
+- reporting and website behavior;
+- Cloudflare Pages project settings.
+
+`settings.toml` is the authoritative source for semester scheduling. No generated
+`schedule.txt` is required.
+
+## Usage
+
+The installed entry point is `monitor`. Use `monitor --help` and
+`monitor <command> --help` for the complete option reference.
+
+Common workflows:
 
 ```bash
-make format
-make lint
-make type
-make test
-make website-lint
-make website-build
+monitor poll
+monitor report --no-telegram
+monitor report --stateful
+monitor run --no-telegram
+monitor schedule --no-telegram
+monitor deploy
+monitor deploy --deploy
+monitor db stats
+```
+
+Put the global `--debug` option before the command, for example
+`monitor --debug poll`.
+
+## Architecture
+
+```text
+Registrar XLS
+    ↓
+download → parse and normalize → per-semester SQLite snapshots
+                                      ↓
+                              compare snapshots
+                               ↙            ↘
+                     text/Telegram       static dashboard
+                                              ↓
+                                      Cloudflare Pages
+```
+
+Key decisions:
+
+- SQLite, not JSON files, is the source of truth for normal enrollment data.
+- Legacy JSON snapshot migration is no longer a supported operator path.
+- Automated reports are compact text; PDF generation is an opt-in library
+  capability, not part of the default pipeline.
+- Stateful reporting records the last reported snapshot in SQLite.
+- Scheduler decisions and dashboard milestone rendering use the registrar
+  timezone and milestones from `settings.toml`.
+- Direct Pages upload through `WebsiteService` is the supported production
+  deployment path.
+
+## Repository layout
+
+```text
+src/registrarmonitor/
+├── automation/       downloader and scheduler
+├── cli/              command implementations
+├── core/             logging and exceptions
+├── data/             parsing, SQLite, migrations, comparisons
+├── reporting/        text, Telegram, and PDF output
+├── services/         workflow orchestration
+├── website/          static page and payload generation
+├── models.py         enrollment domain models
+└── main.py           CLI entry point
+
+assets/website/       Vite frontend and Cloudflare Pages configuration
+scripts/              maintenance and host-setup utilities
+tests/                automated tests
+settings.toml         non-secret application configuration
+```
+
+Runtime databases, downloads, reports, logs, generated site output, caches, and
+coverage artifacts are intentionally gitignored.
+
+## Development
+
+Use Jujutsu for normal local version-control work. There is no Git staging area:
+
+```bash
+jj status
+jj diff
+jj log -r 'present(@) | ancestors(@, 5) | present(trunk())'
+```
+
+The Makefile is the command index for setup and verification:
+
+```bash
 make check-fast
 make check
+make test-browser
+make site-smoke
 ```
 
-`make check` intentionally retains its existing full quality gate: formatting,
-Ruff, ty, pytest, website lint, and website build. The new `make check-fast`
-runs the Python formatting/lint/type/unit-test loop only. Browser and production
-site checks remain opt-in so that pre-commit stays quick:
+- `make check-fast` runs the Python formatting, lint, type, and test loop.
+- `make check` adds the full website quality gate.
+- `make test-browser` checks generated dashboard behavior in Chromium.
+- `make site-smoke` generates and crawls deployable output.
 
-```bash
-make test-browser  # Chromium check against generated dashboard output
-make site-smoke    # generate and crawl deployable output
-```
+`make clean-generated` removes only reproducible website output and deliberately
+leaves runtime databases, downloads, reports, and logs untouched.
 
-`make clean-generated` removes only reproducible website output (HTML, JSON,
-headers, Vite assets, and course pages). It deliberately leaves runtime data,
-logs, and databases untouched. `make site-smoke` fails if those non-publishable
-files are present in `assets/website/public`, which prevents accidental
-deployment of local data.
+Jujutsu changes do not run Git commit hooks automatically. Run
+`uv run pre-commit run --all-files` before publishing when the full hook suite is
+appropriate.
 
-### Reproducible Baseline and Benchmarks
+## Production
 
-Use `make baseline` to write `output/tooling-baseline.json`. The JSON is stable
-for identical tracked tooling inputs and records the Python/Node pins plus
-SHA-256 hashes of `pyproject.toml`, `uv.lock`, and the website lockfile. Compare
-it with a previous baseline using a JSON-aware diff after a deliberate tooling
-change. `make benchmark` is opt-in and runs the deterministic mocked downloader
-benchmark; it does not run during pre-commit or `make check`.
+Production monitoring is intentionally paused as of 2026-07-29. The canonical
+unit is `registrarmonitor.service`; it is installed but disabled and inactive.
+The obsolete `registrar-monitor.service` unit has been removed. Cron is running
+but is not a Registrar Monitor execution path. When the canonical daemon is
+active, it owns adaptive polling, event-driven updates, and stateful reports at
+minutes 15 and 45 in the registrar timezone.
 
-### Change Validation
+Do not infer that deployment work authorizes service activation. See
+[`docs/operations/production-topology.md`](docs/operations/production-topology.md)
+for current resource identifiers, safe inspection commands, activation
+preconditions, and evidence boundaries.
 
-Jujutsu changes do not invoke Git commit hooks. Run the checks explicitly
-before publishing:
+When migrating a host, protect the SQLite databases and `.env` separately. The
+canonical unit is reproducibly generated by `scripts/setup_vps.sh`; do not treat
+the installed unit file as the only copy.
 
-```bash
-uv run pre-commit run --all-files
-```
+## Documentation
 
-The hooks cover Ruff formatting/linting, TOML/YAML/basic file hygiene, private-key detection, type checking, and website linting. They intentionally exclude full pytest and browser checks; for larger changes, run `make check` and the opt-in browser/site targets when relevant.
-
-### VPS Deployment
-
-When migrating to a new VPS, remember to back up the `data/` directory (SQLite databases), the `.env` file with secrets, and the systemd service unit. Runtime data and secrets are not stored in the repository.
+- [`DATABASE.md`](DATABASE.md): schema and database operations
+- [`docs/operations/production-topology.md`](docs/operations/production-topology.md):
+  current production topology and runbook
+- [`docs/operations/reproducible-baseline.md`](docs/operations/reproducible-baseline.md):
+  reproducibility contract and latest verification evidence
+- [`docs/operations/tooling.md`](docs/operations/tooling.md): unit, browser,
+  generated-output, doctor, baseline, CI, and dependency-update tooling
+- [`AGENTS.md`](AGENTS.md): repository constraints for coding agents
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Import errors | Ensure you're in the project directory and have run `uv sync` |
-| Telegram errors | Verify `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env` |
-| Database errors | Run `monitor db stats` to check database health |
-| Permission errors | Check file permissions for `data/` and `assets/` directories |
-
-Check `logs/` directory for detailed error information.
+- Run `make doctor` for toolchain, path, and optional-secret checks.
+- Use `monitor db stats` for database visibility.
+- Check `logs/` for application diagnostics.
+- For generated dashboard failures, follow the local serving and asset-hash notes
+  in `AGENTS.md`.
 
 ## License
 

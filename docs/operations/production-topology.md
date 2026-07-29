@@ -1,373 +1,223 @@
 # Production topology
 
-This document records a read-only inspection of the Registrar Monitor production
-VPS performed on **2026-07-28**. Runtime timestamps below use the VPS local time
-unless stated otherwise. The evidence combines operator-authorized command output
-from the VPS with the repository documentation and source at the time of review.
+This is the current operator-facing description of Registrar Monitor production.
+The full host was inspected on 2026-07-28; systemd, processes, and cron were
+re-verified after cleanup on 2026-07-29. Runtime timestamps use `Asia/Almaty`
+unless stated otherwise.
 
-Classification meanings:
+## Evidence labels
 
-- **Verified** — directly established by production command output or repository
-  source for the behavior being described.
-- **Inferred** — strongly supported by the combined evidence, but not directly
-  observed in the production runtime.
-- **Unknown** — not established by the available evidence.
+- **Verified**: directly observed in production or current repository source.
+- **Inferred**: strongly supported but not directly observed.
+- **Unknown**: not established by available evidence.
 
-## Executive status
+## Current status
 
-- **Verified:** No Registrar Monitor polling, reporting, deployment, or scheduler
-  process was running when the VPS was inspected.
-- **Verified:** The cron daemon was active, but there was no active Registrar
-  Monitor job in the inspected user, service-user, root, or system crontabs.
-- **Verified:** Neither of the two installed Registrar Monitor systemd units was
-  active. `registrarmonitor.service` was disabled and failed;
-  `registrar-monitor.service` was enabled and failed at the 2026-07-28
-  inspection.
-- **Verified:** Production polling, reporting, and website deployment have been
-  stale since 2026-06-10.
-- **Verified (2026-07-29):** `registrarmonitor.service` is the canonical unit.
-  The obsolete `registrar-monitor.service` was disabled, and both units remain
-  inactive while monitoring is intentionally paused.
-
-## Runtime host and paths
-
-| Item | Classification | Production value or finding |
+| Concern | Status | Evidence |
 |---|---|---|
-| Host platform | **Verified** | Google Compute Engine VM running Debian 12 |
-| Authoritative timezone | **Verified** | `Asia/Almaty` (`UTC+05`) |
-| Clock state | **Verified** | System clock synchronized; NTP active; RTC maintained in UTC |
-| Project root | **Verified** | `/home/dmitry_s_ivanenko/registrar_monitor` |
-| Database directory | **Verified** | `/home/dmitry_s_ivanenko/registrar_monitor/data` |
-| Runtime environment file | **Verified** | `/home/dmitry_s_ivanenko/registrar_monitor/.env` |
-| Current deployed revision | **Verified** | Git revision beginning `668893f`, committed 2026-06-01 |
-| Relationship to this repository | **Verified** | The VPS revision predates the repository revision used for this report |
+| Monitoring | **Paused** | No poll, report, deploy, or scheduler process on 2026-07-29 |
+| Canonical systemd unit | **Installed, disabled, failed/inactive** | `registrarmonitor.service` |
+| Obsolete systemd unit | **Removed** | `registrar-monitor.service` is absent and `LoadState=not-found` |
+| Cron daemon | **Active** | `cron.service` active |
+| Registrar Monitor cron jobs | **None active** | Zero matching entries for runtime user, root, SSH operator, and system cron |
+| Latest successful poll | **Stale** | 2026-06-10 15:32:18 +05 |
+| Latest successful report | **Stale** | 2026-06-10 15:32:23 +05 |
+| Latest successful Pages deployment | **Stale** | 2026-06-10 15:33:17 +05 |
+| Database backups | **Unconfirmed** | No local job or backup files found in bounded locations |
 
-- **Verified:** `settings.toml` resolves relative directory settings from the
-  project root. Its production `data_storage = "data"` setting therefore resolves
-  to the database directory shown above.
-- **Verified:** Enrollment history is stored in one SQLite database per semester
-  under the database directory, with a legacy/default `enrollment.db` also present.
-- **Verified:** The runtime `.env` file exists with restrictive file permissions.
-  Its contents were not printed or copied during this review.
+Monitoring must remain paused until the planned data changes are complete and an
+operator explicitly verifies them. Repository setup, code deployment, and unit
+installation do not authorize activation.
 
-## Polling and process supervision
+## Runtime identity
 
-### Installed units
+| Item | Verified value |
+|---|---|
+| Google Cloud project | `registrarmonitor` |
+| Compute Engine VM | `instance-20260501-152532` |
+| Zone | `us-east1-c` |
+| Host OS | Debian 12 |
+| Host timezone | `Asia/Almaty` (`UTC+05`) |
+| Runtime user | `dmitry_s_ivanenko` |
+| Project root | `/home/dmitry_s_ivanenko/registrar_monitor` |
+| Database directory | `/home/dmitry_s_ivanenko/registrar_monitor/data` |
+| Environment file | `/home/dmitry_s_ivanenko/registrar_monitor/.env` |
+| Last inspected deployed revision | prefix `668893f` |
 
-The states in this table are historical evidence from the 2026-07-28
-inspection, before the retirement action described below.
+The deployed checkout predates the repository revision used for this document.
+The `.env` exists with restrictive permissions; its contents were not printed or
+copied.
 
-| Unit | Classification | Enabled state | Runtime state | Command | Restart policy |
-|---|---|---:|---|---|---|
-| `registrarmonitor.service` | **Verified** | Disabled | Failed since 2026-06-10 16:42:56 +05 | `uv run monitor schedule` | Always; 5-second delay |
-| `registrar-monitor.service` | **Verified** | Enabled | Failed since 2026-05-26 14:52:29 +05 | `uv run monitor schedule` | Always; 10-second delay |
+## Process supervision
 
-- **Verified:** Both units specify a start limit of five starts within ten seconds.
-- **Verified:** Both units last recorded exit status 143 after systemd stop
-  operations. Neither subsequently restored an active scheduler.
-- **Verified:** The enabled hyphenated unit had no recorded automatic restarts
-  after its last stop (`NRestarts=0`).
-- **Inferred:** `Restart=always` did not restore either unit because systemd treats
-  an operator-initiated stop differently from an unexpected process failure.
-- **Verified:** Host-level recovery is currently ineffective because no Registrar
-  Monitor service is active.
+### Canonical unit
 
-### Canonical unit and intentional pause
+`scripts/setup_vps.sh` generates `registrarmonitor.service` with:
 
-- **Verified (2026-07-29):** `registrarmonitor.service` is the only supported
-  unit definition. It remains disabled and inactive.
-- **Verified (2026-07-29):** The obsolete `registrar-monitor.service` was
-  disabled. It remains installed only as historical runtime residue and is not
-  supported.
-- **Verified (2026-07-29):** Disabling the obsolete unit did not start polling,
-  reporting, deployment, or scheduler processes.
-- Monitoring must remain paused until the planned data changes are complete and
-  an operator has explicitly verified them. Future activation is a separate
-  manual operation; repository setup does not enable or start the service.
+- working directory at the project root;
+- optional loading of the project-local `.env`;
+- `ExecStart=/usr/bin/env uv run monitor schedule`;
+- `Restart=always` with a five-second delay;
+- journal output.
+
+The installed unit is disabled and failed/inactive. It is the only supported
+unit name. `scripts/setup_vps.sh` installs dependencies and generates the unit,
+but intentionally does not enable or start it.
+
+### Retired unit
+
+The older `registrar-monitor.service` duplicated the scheduler with a different
+restart delay. It was disabled on 2026-07-29 and removed from
+`/etc/systemd/system/registrar-monitor.service` later that day. After
+`daemon-reload` and failure-state cleanup, systemd reported it as not found.
+
+No process was started by the cleanup.
 
 ### Scheduler behavior
 
-- **Verified:** `monitor schedule` performs polling and can trigger background
-  report generation and website deployment after significant changes, subject to
-  scheduler cooldowns.
-- **Verified:** The scheduler catches and logs many poll, report, and deployment
-  exceptions so that an individual workflow failure does not necessarily terminate
-  the scheduler loop.
-- **Inferred:** A failure escaping the scheduler process should normally cause
-  systemd to retry according to the installed unit's restart and start-limit
-  settings.
-- **Unknown:** There is no evidence of an external health check or alert that
-  notices a stopped scheduler or stale poll/report/deployment timestamps.
+`monitor schedule` polls the registrar and can trigger reporting and direct
+Cloudflare Pages deployment after qualifying changes and cooldowns. Individual
+workflow errors are often caught and logged; an escaping process failure should
+normally be handled by systemd's restart policy.
 
-## systemd and cron responsibilities
+There is no verified external alert for a stopped scheduler or stale
+poll/report/deploy timestamps.
 
-- **Verified:** The cron daemon was active at inspection time.
-- **Verified:** The service user's only Registrar Monitor-related crontab material
-  was commented out and described website deployment, not polling or reporting.
-- **Verified:** The repository's `scripts/setup_cron.sh` can install
-  `monitor report --stateful` jobs at 15 and 45 minutes past every hour.
-- **Inferred:** Cron can produce stateful reports if those repository-provided jobs
-  are explicitly installed and enabled.
-- **Verified:** No active production cron job was found that could currently
-  produce a Registrar Monitor report.
-- **Verified:** The systemd scheduler path can produce reports without cron because
-  reporting is invoked from the scheduler after qualifying changes.
-- **Unknown:** Whether cron reporting is intended as a fallback, an obsolete
-  deployment strategy, or a separately desired reporting guarantee.
+## Cron responsibilities
 
-## Telegram configuration
+Cron is not a supported Registrar Monitor production path.
 
-- **Verified:** Both the generated systemd setup in the repository and the
-  inspected `registrarmonitor.service` load
-  `/home/dmitry_s_ivanenko/registrar_monitor/.env`.
-- **Verified:** Application configuration loads the same project-local `.env` and
-  reads `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`; environment values override
-  non-secret TOML defaults.
-- **Verified:** The active configuration path for Telegram credentials is therefore
-  `/home/dmitry_s_ivanenko/registrar_monitor/.env`.
-- **Unknown:** Whether the configured bot and destination remain valid, because no
-  secret values or Telegram identifiers were requested or tested.
-- **Verified:** A credential-like value was present in commented service-user
-  crontab material. Its value is intentionally omitted from this report.
-- **Unknown:** Whether that credential has been rotated.
+- `cron.service` was active on 2026-07-29.
+- No active Registrar Monitor job was found for `dmitry_s_ivanenko`, `root`, the
+  SSH operator account, `/etc/crontab`, or `/etc/cron.d`.
+- The external cron installer has been retired.
+- The systemd scheduler owns stateful reporting at minutes 15 and 45 in the
+  registrar timezone. It consumes existing SQLite snapshots and does not force
+  an additional poll.
 
-## Cloudflare topology and deployment
+Commented crontab material is not an active job. A credential-like value was
+previously observed in a comment and is intentionally omitted here; rotation
+remains unconfirmed.
 
-| Item | Classification | Finding |
-|---|---|---|
-| Cloudflare account | **Verified** | `spooktaken` |
-| Pages project | **Verified** | `registrar-monitor` |
-| Pages domain | **Verified** | `registrar-monitor.pages.dev` |
-| Project Git integration | **Verified** | None reported by Cloudflare |
-| Observed deployment environment | **Verified** | Production, branch `main` |
-| Observed deployment source | **Verified** | Revision beginning `668893f` |
+## Data, notifications, and website
 
-- **Verified:** Production authentication is supplied through
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from the project-local
-  environment file. No values are documented here.
-- **Verified:** The observed production mechanism is a direct Cloudflare Pages
-  upload. `WebsiteService.deploy()` runs Wrangler Pages deployment against the
-  generated `assets/website/public` output and the configured Pages project.
-- **Verified:** Scheduler journal output shows that this Pages deployment mechanism
-  completed successfully on 2026-06-10.
-- **Verified:** Direct Pages upload is the only supported deployment path. The
-  unobserved asset-serving Worker command and entry point have been retired.
+Enrollment history is stored in one SQLite database per semester under `data/`.
+A legacy/default `enrollment.db` is also present. Relative paths in
+`settings.toml` resolve from the project root.
 
-## Last successful operations
+Telegram credentials are read from the project-local `.env` when enabled. Their
+validity has not been tested. Never expose the file, Telegram identifiers, or
+process/service environments during diagnosis.
 
-| Operation | Classification | Last success in `Asia/Almaty` | Evidence |
-|---|---|---|---|
-| Poll | **Verified** | 2026-06-10 15:32:18 +05 | Scheduler journal and latest Summer 2026 SQLite snapshot |
-| Report | **Verified** | 2026-06-10 15:32:23 +05 | Reporting journal, `reporting_log`, and generated report file |
-| Pages deployment | **Verified** | 2026-06-10 15:33:17 +05 | Scheduler/Wrangler journal and newest Cloudflare Pages deployment source |
+The supported website path is a direct Cloudflare Pages upload from generated
+`assets/website/public` output through `WebsiteService.deploy()`.
 
-- **Verified:** The latest SQLite snapshot has source timestamp
-  `2026-06-10 15:32:16` and was committed at `2026-06-10 15:32:18 +05`.
-- **Verified:** The latest reporting record references that snapshot and records a
-  successful change-bearing report at `2026-06-10 15:32:23 +05`.
-- **Verified:** The newest observed Pages deployment used source revision
-  `668893f`, matching the deployed VPS checkout.
-- **Unknown:** Cloudflare's deployment-list command returned a relative age rather
-  than an exact API timestamp; the exact deployment time above is authoritative
-  from the successful local deployment journal.
+| Item | Verified value |
+|---|---|
+| Pages project | `registrar-monitor` |
+| Pages domain | `registrar-monitor.pages.dev` |
+| Deployment mode | Direct Pages upload |
+| Last observed branch | `main` |
+| Last observed source revision | prefix `668893f` |
 
-## Database backup and retention
+The retired Worker asset-deployment path is not supported.
 
-- **Verified:** `DATABASE.md` documents a manual file-copy backup example, and
-  `scripts/manage_database.py` exposes an operator-invoked database backup command.
-- **Verified:** The CLI exposes explicit snapshot cleanup with a caller-selected
-  keep count; repository documentation shows examples retaining 50 or 100
-  snapshots.
-- **Verified:** No Registrar Monitor backup files were found in the bounded
-  production locations inspected: the project backup directories and
-  `/var/backups/registrarmonitor`.
-- **Verified:** No Registrar Monitor backup cron job, systemd service, systemd
-  timer, Restic job, or Borg job was found in the inspected scheduler locations.
-- **Verified:** `dpkg-db-backup.timer` is active, but it backs up the operating
-  system package database and does not protect Registrar Monitor SQLite data.
-- **Unknown:** Whether enrollment databases are protected by a Google Cloud disk
-  snapshot, image policy, external backup agent, or another off-host mechanism
-  outside the inspected locations.
-- **Unknown:** Backup ownership, retention duration, recovery-point objective,
-  recovery-time objective, encryption policy, and restore-test history.
-- **Unknown:** Whether snapshot cleanup is run manually in production and, if so,
-  which keep count is authoritative.
+## Backup posture
 
-## Unresolved operator questions
+`DATABASE.md` documents manual copying and `scripts/manage_database.py` exposes
+an operator-invoked backup command. No Registrar Monitor backup files, cron job,
+systemd timer/service, Restic job, or Borg job were found in the bounded local
+locations inspected on 2026-07-28.
 
-1. Who owns database backups, where are they stored, and what retention, recovery
-   point, and recovery time targets apply?
-2. Has the credential-like value left in the commented service-user crontab been
+This does not establish whether Google Cloud disk snapshots or another off-host
+backup mechanism exists. Backup ownership, retention, RPO/RTO, encryption, and
+restore-test history remain unknown.
+
+## Open operator decisions
+
+1. When and through what controlled procedure should the stale VPS checkout be
+   updated?
+2. When are the planned data changes complete enough to permit a separate
+   service-activation decision?
+3. What alert should verify the daemon's twice-hourly stateful reporter?
+4. Who owns backups, retention, RPO/RTO, encryption, and restore testing?
+5. Are Google Cloud disk snapshots or another off-host backup mechanism active?
+6. Has the credential-like value from old commented crontab material been
    rotated?
-3. Is direct Pages deployment through `WebsiteService` the sole supported
-   production mechanism?
-4. Should the alternate Worker deployment command be retained or retired?
-5. When and by what controlled procedure should the stale VPS checkout be updated?
-6. Should an intentional systemd stop remain stopped, or should another supervisor
-   or alert require explicit acknowledgement?
-7. What monitoring should alert operators when polling, reporting, deployment, or
-   backups become stale?
-8. Is cron reporting intended to be installed as an independent fallback, or
-    should systemd remain the only production report producer?
+7. What alert should detect stale polling, reporting, deployment, or backups?
 
-## Safe read-only verification checklist
+## Safe verification runbook
 
-Run these checks from an authorized operator session. Review output before sharing
-it. Never print or copy `.env`, API tokens, Telegram identifiers, process
-environments, `systemctl` environment values, or unrestricted crontabs.
+Use the authoritative gcloud skill before running these commands. Validate the
+exact leaf syntax with `gcloud help`, keep the project and zone explicit, and
+preview SSH with `--dry-run`.
 
-Set the project path without reading configuration secrets:
+Connect using the account-derived OS login; the application runtime user is a
+separate account:
 
 ```bash
-APP=/home/dmitry_s_ivanenko/registrar_monitor
-cd "$APP"
+gcloud compute ssh instance-20260501-152532 \
+  --project=registrarmonitor \
+  --zone=us-east1-c \
+  --dry-run
 ```
 
-### Host time
-
-```bash
-timedatectl
-date --iso-8601=seconds
-readlink -f /etc/localtime
-```
-
-Expected healthy evidence is an `Asia/Almaty` timezone, synchronized clock, and
-active NTP.
-
-### Processes and systemd
+On the host, these checks avoid secret-bearing values:
 
 ```bash
 pgrep -a -f 'monitor (schedule|poll|run|report|deploy)' || true
 
-for UNIT in registrarmonitor.service registrar-monitor.service; do
-  systemctl is-enabled "$UNIT" 2>&1 || true
-  systemctl is-active "$UNIT" 2>&1 || true
-  systemctl show "$UNIT" \
-    --property=ActiveState \
-    --property=SubState \
-    --property=UnitFileState \
-    --property=User \
-    --property=WorkingDirectory \
-    --property=ExecStart \
-    --property=EnvironmentFiles \
-    --property=Restart \
-    --property=RestartUSec \
-    --property=NRestarts \
-    --property=Result \
-    --property=ExecMainStartTimestamp \
-    --property=ExecMainExitTimestamp \
-    --property=ExecMainStatus \
-    --property=StartLimitIntervalUSec \
-    --property=StartLimitBurst \
-    --no-pager
+systemctl show registrarmonitor.service \
+  --property=LoadState \
+  --property=ActiveState \
+  --property=SubState \
+  --property=UnitFileState \
+  --property=FragmentPath \
+  --property=Result \
+  --no-pager
+
+systemctl show registrar-monitor.service \
+  --property=LoadState \
+  --property=ActiveState \
+  --property=SubState \
+  --property=UnitFileState \
+  --property=FragmentPath \
+  --no-pager
+
+systemctl is-active cron.service
+```
+
+Count active application cron entries without printing full crontabs:
+
+```bash
+for OWNER in dmitry_s_ivanenko root; do
+  sudo crontab -u "$OWNER" -l 2>/dev/null |
+    awk '!/^[[:space:]]*(#|$)/ && /(monitor|registrar)/ {count++}
+         END {print count+0}'
 done
 
-journalctl \
-  -u registrarmonitor.service \
-  -u registrar-monitor.service \
-  --since '30 days ago' \
-  --no-pager \
-  -o short-iso
+sudo awk \
+  '!/^[[:space:]]*(#|$)/ && /(monitor|registrar)/ {count++}
+   END {print count+0}' \
+  /etc/crontab /etc/cron.d/* 2>/dev/null
 ```
 
-Do not add `--property=Environment` to `systemctl show`.
+Do not print `.env`, `systemctl` environment properties, process environments,
+unrestricted journals, or unrestricted crontabs. Inspect SQLite with read-only
+URI mode (`mode=ro`) and verify cloud backups through bounded inventory queries.
 
-### Cron
+## Evidence boundary
 
-```bash
-systemctl is-active cron.service 2>&1 || \
-  systemctl is-active crond.service 2>&1 || true
-
-crontab -l 2>/dev/null |
-  grep -E '^[[:space:]]*([0-9*/,-]+[[:space:]]+){5}.*(monitor|registrar)' ||
-  true
-
-sudo crontab -u dmitry_s_ivanenko -l 2>/dev/null |
-  grep -E '^[[:space:]]*([0-9*/,-]+[[:space:]]+){5}.*(monitor|registrar)' ||
-  true
-```
-
-The anchored filter shows active scheduled command lines while excluding comments
-and environment assignments. Do not publish full crontab output.
-
-### SQLite poll and report history
-
-The VPS may not have the `sqlite3` CLI. The following uses Python and opens each
-database with SQLite URI `mode=ro`:
-
-```bash
-.venv/bin/python - <<'PY'
-import glob
-import sqlite3
-
-for filename in sorted(glob.glob("data/*.db")):
-    connection = sqlite3.connect(f"file:{filename}?mode=ro", uri=True)
-    poll = connection.execute(
-        "SELECT snapshot_id, timestamp, semester, created_at "
-        "FROM snapshots ORDER BY snapshot_id DESC LIMIT 1"
-    ).fetchone()
-    report = connection.execute(
-        "SELECT report_id, report_timestamp, changes_found, reported_snapshot_id "
-        "FROM reporting_log ORDER BY report_id DESC LIMIT 1"
-    ).fetchone()
-    connection.close()
-    print(filename, "poll=", poll, "report=", report)
-PY
-```
-
-This query must remain read-only: do not omit `mode=ro`, run migrations, vacuum,
-cleanup, or invoke application commands that initialize databases.
-
-### Backup evidence
-
-```bash
-systemctl list-timers --all --no-pager |
-  grep -Ei 'registrar|monitor|backup|restic|borg|sqlite' || true
-
-for DIR in \
-  "$APP/data/backups" \
-  "$APP/backups" \
-  /var/backups/registrarmonitor
-do
-  if [ -d "$DIR" ]; then
-    find "$DIR" -maxdepth 2 -type f \
-      -printf '%p | bytes=%s | modified=%TY-%Tm-%TdT%TH:%TM:%TS%Tz\n' |
-      sort | tail -n 100
-  fi
-done
-```
-
-Cloud snapshots or external agents must be verified separately through their
-read-only inventory APIs; absence of local backup files does not prove that no
-off-host backup exists.
-
-### Cloudflare
-
-Load the runtime environment only into the current shell; never print it:
-
-```bash
-set -a
-. "$APP/.env"
-set +a
-
-cd "$APP/assets/website"
-node_modules/.bin/wrangler whoami
-node_modules/.bin/wrangler pages project list
-node_modules/.bin/wrangler pages deployment list \
-  --project-name registrar-monitor \
-  --environment production
-```
-
-Use the already installed Wrangler binary. Do not use `npx` for verification,
-because it may download or update packages. Review Wrangler output before sharing
-it and omit account emails or identifiers not needed for topology verification.
-
-## Evidence boundaries
-
-- **Verified:** Production inspection was read-only; no service, cron entry,
-  database, environment file, repository checkout, or Cloudflare deployment was
-  changed.
-- **Verified:** Secret values and Telegram identifiers are intentionally absent
-  from this document.
-- **Unknown:** Conditions may have changed after the 2026-07-28 observation; rerun
-  the checklist before operational decisions.
+- The 2026-07-29 cleanup removed only the obsolete unit, reloaded systemd, and
+  cleared that unit's stale failure state.
+- A later 2026-07-29 exact-match cron retirement check found zero active
+  `uv run monitor report --stateful` entries for the runtime user, root, the SSH
+  operator, `/etc/crontab`, or `/etc/cron.d`; no crontab file was rewritten.
+- The post-check confirmed `registrarmonitor.service` remains disabled and
+  failed/inactive, the obsolete unit remains absent, `cron.service` remains
+  active, and no Registrar Monitor workflow process is running.
+- The canonical unit, cron configuration, databases, checkout, environment file,
+  and application processes were not modified.
+- SSH access caused gcloud to update project SSH metadata for the operator
+  account; no application runtime state was changed by that access setup.
+- Re-run the bounded checks before future operational decisions.

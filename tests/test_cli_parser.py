@@ -24,9 +24,11 @@ from registrarmonitor.main import create_parser
         (["deploy"], "deploy"),
         (["deploy", "--semester", "fall2025"], "deploy"),
         (["deploy", "--no-minify"], "deploy"),
+        (["doctor"], "doctor"),
+        (["doctor", "--json"], "doctor"),
+        (["doctor", "--output", "output/doctor.json"], "doctor"),
         (["db", "stats"], "db"),
         (["db", "cleanup", "--keep", "100"], "db"),
-        (["db", "migrate"], "db"),
         (["db", "dedupe-instructor-changes", "--dry-run"], "db"),
     ],
 )
@@ -56,6 +58,15 @@ def test_global_debug_before_command_parses():
 
     assert args.debug is True
     assert args.command == "poll"
+
+
+def test_removed_migrate_command_fails():
+    parser = create_parser()
+
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["db", "migrate"])
+
+    assert exc_info.value.code == 2
 
 
 @pytest.mark.parametrize(

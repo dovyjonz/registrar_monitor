@@ -1,0 +1,847 @@
+{
+  "database": {
+    "allocation": {
+      "index_bytes": 7954432,
+      "objects": [
+        {
+          "bytes": 9162752,
+          "kind": "table",
+          "name": "enrollment_data",
+          "pages": 2237
+        },
+        {
+          "bytes": 2965504,
+          "kind": "index",
+          "name": "sqlite_autoindex_enrollment_data_1",
+          "pages": 724
+        },
+        {
+          "bytes": 2502656,
+          "kind": "index",
+          "name": "idx_enrollment_snapshot",
+          "pages": 611
+        },
+        {
+          "bytes": 2301952,
+          "kind": "index",
+          "name": "idx_enrollment_section",
+          "pages": 562
+        },
+        {
+          "bytes": 139264,
+          "kind": "table",
+          "name": "snapshots",
+          "pages": 34
+        },
+        {
+          "bytes": 65536,
+          "kind": "index",
+          "name": "idx_snapshots_timestamp",
+          "pages": 16
+        },
+        {
+          "bytes": 65536,
+          "kind": "index",
+          "name": "sqlite_autoindex_snapshots_1",
+          "pages": 16
+        },
+        {
+          "bytes": 32768,
+          "kind": "table",
+          "name": "reporting_log",
+          "pages": 8
+        },
+        {
+          "bytes": 20480,
+          "kind": "index",
+          "name": "idx_reporting_log_timestamp",
+          "pages": 5
+        },
+        {
+          "bytes": 16384,
+          "kind": "table",
+          "name": "sections",
+          "pages": 4
+        },
+        {
+          "bytes": 12288,
+          "kind": "table",
+          "name": "courses",
+          "pages": 3
+        },
+        {
+          "bytes": 12288,
+          "kind": "index",
+          "name": "idx_reporting_log_snapshot",
+          "pages": 3
+        },
+        {
+          "bytes": 12288,
+          "kind": "table",
+          "name": "instructor_changes",
+          "pages": 3
+        },
+        {
+          "bytes": 12288,
+          "kind": "table",
+          "name": "sqlite_schema",
+          "pages": 3
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "idx_courses_code",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "idx_instructor_changes_section",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "idx_sections_course_id",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "sqlite_autoindex_courses_1",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "sqlite_autoindex_sections_1",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "table",
+          "name": "sqlite_sequence",
+          "pages": 1
+        }
+      ],
+      "page_size_bytes": 4096,
+      "table_bytes": 9392128
+    },
+    "bytes": 17346560,
+    "counts": {
+      "courses": 75,
+      "enrollment_data": 201847,
+      "sections": 114,
+      "snapshots": 1970
+    },
+    "foreign_key_violations": 0,
+    "integrity": "ok",
+    "schema_version": 0,
+    "sha256": "531ff180c754f43c9d220fba223b2dfd73e4b6c1b36e97b30aa94ff5e7e78412"
+  },
+  "definitions": {
+    "cold": "fresh disposable database/output or empty browser context",
+    "p95": "nearest-rank percentile",
+    "warm": "reused initialized database/output or browser context and cache"
+  },
+  "format": 1,
+  "measurements": {
+    "browser": {
+      "cold": {
+        "course_open": {
+          "median": 182334750,
+          "p95": 225958958,
+          "samples": [
+            225796791,
+            182296792,
+            198993416,
+            177664167,
+            182372708,
+            184638959,
+            225958958,
+            167448333,
+            175227542,
+            174324084
+          ],
+          "unit": "ns"
+        },
+        "course_open_bytes": {
+          "median": 277388,
+          "p95": 277388,
+          "samples": [
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388
+          ],
+          "unit": "bytes"
+        },
+        "dom_content_loaded": {
+          "median": 52850000,
+          "p95": 109800000,
+          "samples": [
+            109800000,
+            54500000,
+            51000000,
+            51800000,
+            54800000,
+            55200000,
+            49100000,
+            49600000,
+            53900000,
+            49400000
+          ],
+          "unit": "ns"
+        },
+        "load_complete": {
+          "median": 52900000,
+          "p95": 109800000,
+          "samples": [
+            109800000,
+            54500000,
+            51000000,
+            51900000,
+            54800000,
+            55200000,
+            49200000,
+            49700000,
+            53900000,
+            49400000
+          ],
+          "unit": "ns"
+        },
+        "navigation_to_ready": {
+          "median": 94510646,
+          "p95": 177217000,
+          "samples": [
+            177217000,
+            95068500,
+            94786542,
+            94234750,
+            95160375,
+            95047833,
+            90961834,
+            89045958,
+            93742500,
+            89381834
+          ],
+          "unit": "ns"
+        },
+        "transferred_resources": {
+          "median": 404071,
+          "p95": 404071,
+          "samples": [
+            404071,
+            404071,
+            404071,
+            404071,
+            404071,
+            404071,
+            404071,
+            404071,
+            404071,
+            404071
+          ],
+          "unit": "bytes"
+        }
+      },
+      "served_files": {
+        "file_count": 15,
+        "largest_files": [
+          {
+            "bytes": 353090,
+            "path": "summer2026.json"
+          },
+          {
+            "bytes": 164656,
+            "path": "assets/chart-3ZcqxwdW.js"
+          },
+          {
+            "bytes": 39571,
+            "path": "assets/helpers.dataset-BX0uafcJ.js"
+          },
+          {
+            "bytes": 36695,
+            "path": "assets/chartjs-plugin-annotation.esm-Brgdk2S2.js"
+          },
+          {
+            "bytes": 35235,
+            "path": "assets/chartjs-plugin-zoom.esm-Bwl_tK7y.js"
+          },
+          {
+            "bytes": 28853,
+            "path": "assets/main-DqbkgXlO.js"
+          },
+          {
+            "bytes": 23946,
+            "path": "assets/main-BRmO2Cgn.js"
+          },
+          {
+            "bytes": 20833,
+            "path": "assets/main-DUR2mTVz.css"
+          },
+          {
+            "bytes": 17956,
+            "path": "assets/prototype-Bmz7pAyx.js"
+          },
+          {
+            "bytes": 13831,
+            "path": "assets/prototype-CUZl1_23.css"
+          }
+        ],
+        "total_bytes": 752944
+      },
+      "warm": {
+        "course_open": {
+          "median": 174805083,
+          "p95": 183653625,
+          "samples": [
+            180624625,
+            179804583,
+            165666958,
+            183489375,
+            179390750,
+            167721917,
+            174616166,
+            182752292,
+            167287584,
+            172319959,
+            172000375,
+            167198000,
+            176712667,
+            172488375,
+            169818417,
+            216043458,
+            175977584,
+            174994000,
+            183653625,
+            173551834
+          ],
+          "unit": "ns"
+        },
+        "course_open_bytes": {
+          "median": 277388,
+          "p95": 277388,
+          "samples": [
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388,
+            277388
+          ],
+          "unit": "bytes"
+        },
+        "dom_content_loaded": {
+          "median": 45350000,
+          "p95": 52300000,
+          "samples": [
+            43000000,
+            69700000,
+            45600000,
+            42600000,
+            44900000,
+            45300000,
+            43000000,
+            45900000,
+            45000000,
+            45400000,
+            44900000,
+            45200000,
+            47600000,
+            47200000,
+            43800000,
+            48400000,
+            45900000,
+            12000000,
+            46900000,
+            52300000
+          ],
+          "unit": "ns"
+        },
+        "load_complete": {
+          "median": 45350000,
+          "p95": 52300000,
+          "samples": [
+            43000000,
+            69700000,
+            45600000,
+            42700000,
+            44900000,
+            45300000,
+            43100000,
+            45900000,
+            45100000,
+            45400000,
+            44900000,
+            45200000,
+            47700000,
+            47200000,
+            43800000,
+            48500000,
+            45900000,
+            42900000,
+            47000000,
+            52300000
+          ],
+          "unit": "ns"
+        },
+        "navigation_to_ready": {
+          "median": 83981063,
+          "p95": 111604666,
+          "samples": [
+            81351084,
+            111604666,
+            84689167,
+            81202625,
+            82011542,
+            83993542,
+            81935042,
+            85228625,
+            83968584,
+            83325917,
+            82050417,
+            83264458,
+            88214208,
+            85477583,
+            82855125,
+            89190958,
+            86908333,
+            82431959,
+            189837959,
+            92427541
+          ],
+          "unit": "ns"
+        },
+        "transferred_resources": {
+          "median": 300,
+          "p95": 300,
+          "samples": [
+            300,
+            300,
+            300,
+            300,
+            0,
+            300,
+            300,
+            0,
+            300,
+            300,
+            0,
+            0,
+            300,
+            900,
+            0,
+            300,
+            300,
+            0,
+            0,
+            300
+          ],
+          "unit": "bytes"
+        }
+      }
+    },
+    "database": {
+      "cold": {
+        "connection_schema_validation": {
+          "median": 5678354.0,
+          "p95": 18250666,
+          "samples": [
+            4694583,
+            4911750,
+            9465125,
+            6746666,
+            4799292,
+            5950166,
+            4749875,
+            9563166,
+            18250666,
+            5406542
+          ],
+          "unit": "ns"
+        },
+        "course_history_read": {
+          "median": 6906854.5,
+          "p95": 34774708,
+          "samples": [
+            7030166,
+            8433375,
+            6717625,
+            6363000,
+            6913459,
+            6900250,
+            6913667,
+            6628000,
+            34774708,
+            6662292
+          ],
+          "unit": "ns"
+        },
+        "integrity_check": {
+          "median": 662060541.0,
+          "p95": 761923750,
+          "samples": [
+            654263042,
+            761923750,
+            681444084,
+            665375291,
+            658745791,
+            656199375,
+            734690250,
+            655866917,
+            671707292,
+            650281333
+          ],
+          "unit": "ns"
+        },
+        "latest_snapshot_read": {
+          "median": 1020000.0,
+          "p95": 4005500,
+          "samples": [
+            1149375,
+            1077542,
+            1013667,
+            964208,
+            1018500,
+            939667,
+            1021500,
+            1145084,
+            4005500,
+            1004958
+          ],
+          "unit": "ns"
+        },
+        "snapshot_write": {
+          "median": 13192583.5,
+          "p95": 19460334,
+          "samples": [
+            13202375,
+            13315833,
+            12634500,
+            13182792,
+            12669208,
+            12318125,
+            11658625,
+            19460334,
+            13266250,
+            13914208
+          ],
+          "unit": "ns"
+        }
+      },
+      "poll_effects": {
+        "changed": {
+          "bytes_added": 65536,
+          "rows_added": {
+            "courses": 0,
+            "enrollment_data": 110,
+            "sections": 0,
+            "snapshots": 1
+          }
+        },
+        "unchanged": {
+          "bytes_added": 57344,
+          "rows_added": {
+            "courses": 0,
+            "enrollment_data": 0,
+            "sections": 0,
+            "snapshots": 0
+          }
+        }
+      },
+      "warm": {
+        "connection_schema_validation": {
+          "median": 994916.5,
+          "p95": 1172500,
+          "samples": [
+            1102833,
+            941917,
+            1204625,
+            934292,
+            1001208,
+            955917,
+            988625,
+            1011459,
+            1172500,
+            1062542,
+            1020417,
+            888000,
+            924125,
+            890083,
+            984250,
+            1024375,
+            895542,
+            1010666,
+            1045625,
+            975958
+          ],
+          "unit": "ns"
+        },
+        "course_history_read": {
+          "median": 6531750.5,
+          "p95": 7068125,
+          "samples": [
+            6189042,
+            6393083,
+            7700833,
+            6555292,
+            6859875,
+            7068125,
+            6482875,
+            6919250,
+            6732375,
+            6678084,
+            6768000,
+            6396042,
+            6399458,
+            6308958,
+            6452708,
+            6439958,
+            6647042,
+            6508209,
+            6308791,
+            6644584
+          ],
+          "unit": "ns"
+        },
+        "integrity_check": {
+          "median": 653771000.5,
+          "p95": 736478291,
+          "samples": [
+            659180916,
+            814641542,
+            659140667,
+            663577459,
+            709945500,
+            650333834,
+            648728334,
+            652882958,
+            651226666,
+            653032292,
+            736478291,
+            647577917,
+            654963333,
+            652463792,
+            651562000,
+            653416292,
+            652559750,
+            655664541,
+            654125709,
+            657562667
+          ],
+          "unit": "ns"
+        },
+        "latest_snapshot_read": {
+          "median": 1097666.0,
+          "p95": 1266958,
+          "samples": [
+            1110167,
+            1096333,
+            1201209,
+            1045417,
+            1046000,
+            1004125,
+            1097041,
+            1040750,
+            1077792,
+            1098291,
+            1641583,
+            1210000,
+            1104708,
+            1141917,
+            1031375,
+            1095167,
+            1266958,
+            1134875,
+            930958,
+            1124875
+          ],
+          "unit": "ns"
+        },
+        "snapshot_write": {
+          "median": 11923833.5,
+          "p95": 13450917,
+          "samples": [
+            12628000,
+            12913000,
+            11192542,
+            12608208,
+            12708709,
+            11482792,
+            15879584,
+            11714458,
+            12768333,
+            12185541,
+            11797875,
+            11354875,
+            10937000,
+            11480375,
+            12801708,
+            11550834,
+            12049792,
+            10984875,
+            11196084,
+            13450917
+          ],
+          "unit": "ns"
+        }
+      }
+    },
+    "deployment": {
+      "duration": null,
+      "status": "not_run",
+      "uploaded_bytes": 752944,
+      "uploaded_files": 15
+    },
+    "website": {
+      "artifacts": {
+        "courses": 71,
+        "file_count": 3,
+        "html_bytes": 9847,
+        "json_bytes": 353090,
+        "query_count": 1978,
+        "slowest_sql": [
+          {
+            "duration_ns": 178486625,
+            "sql": "SELECT ed.section_id, ed.snapshot_id, ed.fill_percentage, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed ORDER BY ed.snapshot_id ASC"
+          },
+          {
+            "duration_ns": 1556958,
+            "sql": "SELECT snapshot_id, timestamp, overall_fill FROM snapshots ORDER BY timestamp ASC"
+          },
+          {
+            "duration_ns": 1193208,
+            "sql": "SELECT snapshot_id, timestamp FROM snapshots ORDER BY timestamp ASC"
+          },
+          {
+            "duration_ns": 608750,
+            "sql": "SELECT c.course_code, s.section_code, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed JOIN sections s ON ed.section_id = s.section_id JOIN courses c ON s.course_id = c.course_id WHERE ed.snapshot_id = ?"
+          },
+          {
+            "duration_ns": 486500,
+            "sql": "SELECT c.course_code, s.section_code, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed JOIN sections s ON ed.section_id = s.section_id JOIN courses c ON s.course_id = c.course_id WHERE ed.snapshot_id = ?"
+          },
+          {
+            "duration_ns": 320458,
+            "sql": "SELECT c.course_code, s.section_code, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed JOIN sections s ON ed.section_id = s.section_id JOIN courses c ON s.course_id = c.course_id WHERE ed.snapshot_id = ?"
+          },
+          {
+            "duration_ns": 318417,
+            "sql": "SELECT c.course_code, s.section_code, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed JOIN sections s ON ed.section_id = s.section_id JOIN courses c ON s.course_id = c.course_id WHERE ed.snapshot_id = ?"
+          },
+          {
+            "duration_ns": 278125,
+            "sql": "SELECT c.course_code, s.section_code, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed JOIN sections s ON ed.section_id = s.section_id JOIN courses c ON s.course_id = c.course_id WHERE ed.snapshot_id = ?"
+          },
+          {
+            "duration_ns": 271542,
+            "sql": "SELECT c.course_code, s.section_code, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed JOIN sections s ON ed.section_id = s.section_id JOIN courses c ON s.course_id = c.course_id WHERE ed.snapshot_id = ?"
+          },
+          {
+            "duration_ns": 262958,
+            "sql": "SELECT c.course_code, s.section_code, ed.enrollment_count, ed.capacity_count FROM enrollment_data ed JOIN sections s ON ed.section_id = s.section_id JOIN courses c ON s.course_id = c.course_id WHERE ed.snapshot_id = ?"
+          }
+        ],
+        "snapshots": 1970,
+        "total_bytes": 362978
+      },
+      "cold": {
+        "semester_generation": {
+          "median": 738347645.5,
+          "p95": 827150542,
+          "samples": [
+            827150542,
+            738128500,
+            738987834,
+            736643958,
+            738566791,
+            734036000,
+            738572917,
+            759987292,
+            727780292,
+            721701042
+          ],
+          "unit": "ns"
+        }
+      },
+      "warm": {
+        "semester_generation": {
+          "median": 758033396.0,
+          "p95": 872304708,
+          "samples": [
+            724944500,
+            733905875,
+            746532708,
+            872304708,
+            768817458,
+            748643833,
+            748973334,
+            770490750,
+            850813375,
+            771716917,
+            757413417,
+            758653375,
+            756612667,
+            759599417,
+            752552041,
+            759752250,
+            751962417,
+            887105042,
+            739488458,
+            763926750
+          ],
+          "unit": "ns"
+        }
+      }
+    }
+  },
+  "parameters": {
+    "cold_iterations": 10,
+    "mode": "all",
+    "seed": null,
+    "warm_iterations": 20
+  },
+  "platform": {
+    "architecture": "arm64",
+    "cpu": "Apple M1 Pro",
+    "memory_bytes": 17179869184,
+    "os": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "tools": {
+      "chromium": "151.0.7922.34",
+      "node": "v26.5.0",
+      "npm": "11.17.0",
+      "playwright": "Version 1.62.0",
+      "python": "3.13.5",
+      "sqlite": "3.47.1",
+      "uv": "uv 0.11.32 (Homebrew 2026-07-23 aarch64-apple-darwin)",
+      "vite": "vite/8.1.5 darwin-arm64 node-v26.5.0"
+    }
+  },
+  "recorded_at": "2026-07-29T08:00:01.644343+00:00",
+  "repository_revision": "4a943f8fd2ddcb8366696181a30ff8cc593ede6b",
+  "source": {
+    "classification": "runtime_copy",
+    "semester": "Summer 2026"
+  }
+}
