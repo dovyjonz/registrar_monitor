@@ -295,11 +295,6 @@ class TestBuildCourseEvents:
         with patch("registrarmonitor.website.data.DatabaseManager"):
             from unittest.mock import MagicMock as MM
 
-            def make_cursor(data_list):
-                c = MM()
-                c.fetchall.side_effect = data_list
-                return c
-
             db = MM(spec=["get_connection"])
             conn = MM()
             db.get_connection.return_value.__enter__.return_value = conn
@@ -309,11 +304,11 @@ class TestBuildCourseEvents:
             conn.cursor.return_value = cursor
             cursor.fetchall.side_effect = [
                 [(1, "2024-01-15 10:00:00"), (2, "2024-01-15 11:00:00")],  # snapshots
-                [("CS 101", "10L", 25, 30)],  # snapshot 1 state
                 [
-                    ("CS 101", "10L", 30, 30),
-                    ("MATH 201", "20L", 20, 20),
-                ],  # snapshot 2 state
+                    (1, "CS 101", "10L", 25, 30),
+                    (2, "CS 101", "10L", 30, 30),
+                    (2, "MATH 201", "20L", 20, 20),
+                ],  # all snapshot state
                 [],  # instructor_changes
             ]
 
@@ -333,10 +328,11 @@ class TestBuildCourseEvents:
             conn.cursor.return_value = cursor
             cursor.fetchall.side_effect = [
                 [(1, "2024-01-15 10:00:00"), (2, "2024-01-15 11:00:00")],  # snapshots
-                [("CS 101", "10L", 25, 30), ("MATH 201", "20L", 20, 20)],  # snapshot 1
                 [
-                    ("CS 101", "10L", 30, 30),
-                ],  # snapshot 2
+                    (1, "CS 101", "10L", 25, 30),
+                    (1, "MATH 201", "20L", 20, 20),
+                    (2, "CS 101", "10L", 30, 30),
+                ],  # all snapshot state
                 [],  # instructor_changes
             ]
 

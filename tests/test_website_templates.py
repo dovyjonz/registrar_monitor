@@ -115,6 +115,8 @@ class TestBuildSemesterPage:
 
         assert html == "<html>test</html>"
         mock_template.return_value.render.assert_called_once()
+        kwargs = mock_template.return_value.render.call_args.kwargs
+        assert kwargs["json_filename"] == "data/spring-2024/manifest.json"
 
     def test_formats_last_updated_from_lrt(self):
         with (

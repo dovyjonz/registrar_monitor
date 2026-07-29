@@ -98,8 +98,8 @@ def build_semester_page(
     else:
         last_updated = "Last updated N/A"
 
-    # Calculate json filename
-    json_filename = semester_to_filename(semester).replace(".html", ".json")
+    # The deployed frontend starts from the stable semester manifest pointer.
+    json_filename = f"data/{semester_to_slug(semester)}/manifest.json"
 
     canonical_url = f"{BASE_URL}/{semester_to_filename(semester)}"
 

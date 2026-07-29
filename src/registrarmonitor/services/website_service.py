@@ -16,6 +16,7 @@ from ..website.config import (
     semester_to_slug,
 )
 from ..website.data import get_prototype_payloads, get_semester_data
+from ..website.static_manifest import build_legacy_frontend_payloads, publish_semester
 from ..website.templates import (
     build_prototype_page,
     build_redirect_index,
@@ -73,6 +74,28 @@ class WebsiteService:
 
         payload = {"data": data, "milestones": milestones, "semester": semester}
         json_path.write_text(json.dumps(payload, separators=(",", ":")))
+
+        # Publish the deployed frontend's additive v2 read model. The original
+        # semester JSON remains available for this compatibility release.
+        summary_payload, departments = build_legacy_frontend_payloads(
+            data=data,
+            milestones=milestones,
+            semester=semester,
+        )
+        snapshots = data.get("sn", [])
+        latest = snapshots[-1] if isinstance(snapshots, list) and snapshots else {}
+        publish_semester(
+            OUTPUT_DIR,
+            semester_slug=semester_to_slug(semester),
+            semester=semester,
+            current_snapshot={
+                "id": latest.get("id") if isinstance(latest, dict) else None,
+                "observedAt": (latest.get("ts") if isinstance(latest, dict) else None),
+                "overallFill": (latest.get("of") if isinstance(latest, dict) else None),
+            },
+            summary=summary_payload,
+            departments=departments,
+        )
 
         # Update checksum
         update_checksum(semester)
@@ -451,6 +474,15 @@ class WebsiteService:
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+/data/*/manifest.json
+  Cache-Control: no-cache
+
+/data/*/manifests/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/data/blobs/*
+  Cache-Control: public, max-age=31536000, immutable
+
 /*.json
   Cache-Control: public, max-age=60, stale-while-revalidate=300
 
@@ -474,7 +506,7 @@ class WebsiteService:
         errors = []
         allowed_extensions = {".html", ".json"}
         allowed_names = {"_headers", "robots.txt", ".checksums.json"}
-        allowed_dirs = {"assets", "courses"}
+        allowed_dirs = {"assets", "courses", "data"}
         private_names = {".DS_Store", ".env"}
         private_suffixes = {".db", ".key", ".log", ".pem", ".sqlite", ".sqlite3"}
 

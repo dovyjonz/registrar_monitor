@@ -30,6 +30,54 @@ from registrarmonitor.main import create_parser
         (["db", "stats"], "db"),
         (["db", "cleanup", "--keep", "100"], "db"),
         (["db", "dedupe-instructor-changes", "--dry-run"], "db"),
+        (
+            [
+                "db",
+                "migrate",
+                "--semester",
+                "Summer 2025",
+                "--target-version",
+                "2",
+                "--metadata-mode",
+                "legacy-preserving",
+                "--report",
+                "output/migration.json",
+                "--dry-run",
+                "--candidate",
+                "output/candidate.db",
+                "--database",
+                "data/source.db",
+            ],
+            "db",
+        ),
+        (
+            [
+                "db",
+                "rollback-manifest",
+                "--semester",
+                "Summer 2025",
+                "--output-dir",
+                "assets/website/public",
+                "--report",
+                "output/rollback.json",
+            ],
+            "db",
+        ),
+        (
+            [
+                "db",
+                "mode",
+                "--semester",
+                "Summer 2025",
+                "--target-mode",
+                "shadow",
+                "--report",
+                "output/mode.json",
+                "--database",
+                "data/source.db",
+            ],
+            "db",
+        ),
     ],
 )
 def test_canonical_commands_parse(argv, command):
@@ -60,11 +108,50 @@ def test_global_debug_before_command_parses():
     assert args.command == "poll"
 
 
-def test_removed_migrate_command_fails():
+def test_migrate_requires_exactly_one_execution_mode():
     parser = create_parser()
 
     with pytest.raises(SystemExit) as exc_info:
-        parser.parse_args(["db", "migrate"])
+        parser.parse_args(
+            [
+                "db",
+                "migrate",
+                "--semester",
+                "Summer 2025",
+                "--target-version",
+                "2",
+                "--metadata-mode",
+                "legacy-preserving",
+                "--report",
+                "migration.json",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+
+def test_migrate_rejects_dry_run_and_apply_together():
+    parser = create_parser()
+
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(
+            [
+                "db",
+                "migrate",
+                "--semester",
+                "Summer 2025",
+                "--target-version",
+                "2",
+                "--metadata-mode",
+                "legacy-preserving",
+                "--report",
+                "migration.json",
+                "--dry-run",
+                "--apply",
+                "--candidate",
+                "candidate.db",
+            ]
+        )
 
     assert exc_info.value.code == 2
 

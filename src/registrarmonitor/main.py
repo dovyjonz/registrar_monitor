@@ -257,6 +257,60 @@ Telegram Control:
         action="store_true",
         help="Report duplicate count without deleting rows",
     )
+
+    migrate_parser = db_subparsers.add_parser(
+        "migrate",
+        help="Build or apply the checkpointed-state schema for one semester",
+        description=(
+            "Run an explicit, resumable migration for exactly one semester. "
+            "Dry runs use a separate candidate database."
+        ),
+    )
+    migrate_parser.add_argument("--semester", required=True)
+    migrate_parser.add_argument(
+        "--target-version",
+        type=int,
+        choices=[2],
+        required=True,
+    )
+    migrate_parser.add_argument(
+        "--metadata-mode",
+        choices=["raw-enriched", "legacy-preserving"],
+        required=True,
+    )
+    migrate_parser.add_argument("--raw-dir", type=Path)
+    migrate_parser.add_argument("--database", type=Path)
+    migrate_parser.add_argument("--candidate", type=Path)
+    migrate_parser.add_argument("--backup-dir", type=Path)
+    migrate_parser.add_argument("--report", type=Path, required=True)
+    execution_mode = migrate_parser.add_mutually_exclusive_group(required=True)
+    execution_mode.add_argument("--dry-run", action="store_true")
+    execution_mode.add_argument("--apply", action="store_true")
+
+    mode_parser = db_subparsers.add_parser(
+        "mode",
+        help="Audit and change one semester's storage compatibility mode",
+        description=(
+            "Transition a completed v2 database through legacy, shadow, and v2 "
+            "modes after validating its migration gates."
+        ),
+    )
+    mode_parser.add_argument("--semester", required=True)
+    mode_parser.add_argument(
+        "--target-mode",
+        choices=["legacy", "shadow", "v2"],
+        required=True,
+    )
+    mode_parser.add_argument("--database", type=Path)
+    mode_parser.add_argument("--report", type=Path, required=True)
+
+    manifest_rollback_parser = db_subparsers.add_parser(
+        "rollback-manifest",
+        help="Restore a semester's previous static manifest pointer",
+    )
+    manifest_rollback_parser.add_argument("--semester", required=True)
+    manifest_rollback_parser.add_argument("--output-dir", type=Path)
+    manifest_rollback_parser.add_argument("--report", type=Path, required=True)
     return parser
 
 
@@ -335,6 +389,31 @@ async def handle_db_command(args) -> int:
     elif args.db_command == "dedupe-instructor-changes":
         success = await command.dedupe_instructor_changes(
             dry_run=getattr(args, "dry_run", False)
+        )
+    elif args.db_command == "migrate":
+        success = await command.migrate(
+            semester=args.semester,
+            target_version=args.target_version,
+            metadata_mode=args.metadata_mode,
+            report_path=args.report,
+            dry_run=args.dry_run,
+            database=getattr(args, "database", None),
+            candidate=getattr(args, "candidate", None),
+            backup_dir=getattr(args, "backup_dir", None),
+            raw_dir=getattr(args, "raw_dir", None),
+        )
+    elif args.db_command == "mode":
+        success = await command.transition_mode(
+            semester=args.semester,
+            target_mode=args.target_mode,
+            report_path=args.report,
+            database=getattr(args, "database", None),
+        )
+    elif args.db_command == "rollback-manifest":
+        success = await command.rollback_manifest(
+            semester=args.semester,
+            report_path=args.report,
+            output_dir=getattr(args, "output_dir", None),
         )
     else:
         print("❌ Invalid database command")

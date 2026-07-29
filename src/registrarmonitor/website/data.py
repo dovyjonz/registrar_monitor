@@ -530,39 +530,38 @@ def _build_course_events(
         snapshots = cursor.fetchall()
 
         if len(snapshots) >= 2:
-            # Pre-fetch all enrollment data grouped by snapshot.
-            def _get_snapshot_state(
-                snapshot_id: int,
-            ) -> dict[str, dict[str, dict[str, Any]]]:
-                """Get state of all courses/sections for a snapshot."""
-                cursor.execute(
-                    """
-                    SELECT c.course_code, s.section_code,
-                           ed.enrollment_count, ed.capacity_count
-                    FROM enrollment_data ed
-                    JOIN sections s ON ed.section_id = s.section_id
-                    JOIN courses c ON s.course_id = c.course_id
-                    WHERE ed.snapshot_id = ?
-                    """,
-                    (snapshot_id,),
-                )
-                state: dict[str, dict[str, dict[str, Any]]] = {}
-                for row in cursor.fetchall():
-                    course_code, section_code, enrollment, capacity = row
-                    if course_code not in state:
-                        state[course_code] = {}
-                    state[course_code][section_code] = {
-                        "enrollment": enrollment,
-                        "capacity": capacity,
-                    }
-                return state
+            # Fetch every state in one chronological query. Keeping the
+            # snapshot ordering separate preserves non-monotonic legacy IDs
+            # without issuing one query per snapshot.
+            state_by_snapshot: dict[int, dict[str, dict[str, dict[str, Any]]]] = {
+                int(snapshot_id): {} for snapshot_id, _ in snapshots
+            }
+            cursor.execute(
+                """
+                SELECT ed.snapshot_id, c.course_code, s.section_code,
+                       ed.enrollment_count, ed.capacity_count
+                FROM enrollment_data ed
+                JOIN sections s ON ed.section_id = s.section_id
+                JOIN courses c ON s.course_id = c.course_id
+                JOIN snapshots snap ON snap.snapshot_id = ed.snapshot_id
+                ORDER BY snap.timestamp, c.course_code, s.section_code
+                """
+            )
+            for row in cursor.fetchall():
+                snapshot_id, course_code, section_code, enrollment, capacity = row
+                state_by_snapshot[int(snapshot_id)].setdefault(course_code, {})[
+                    section_code
+                ] = {
+                    "enrollment": enrollment,
+                    "capacity": capacity,
+                }
 
-            prev_state = _get_snapshot_state(snapshots[0][0])
+            prev_state = state_by_snapshot[int(snapshots[0][0])]
 
             for i in range(1, len(snapshots)):
                 snapshot_id = snapshots[i][0]
                 snapshot_ts = snapshots[i][1]
-                curr_state = _get_snapshot_state(snapshot_id)
+                curr_state = state_by_snapshot[int(snapshot_id)]
 
                 prev_courses = set(prev_state.keys())
                 curr_courses = set(curr_state.keys())

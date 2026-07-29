@@ -15,6 +15,10 @@ import {
     getEnrollmentJsonUrl,
     semesterToSlug,
 } from './urlSlugs.mjs';
+import {
+    loadDepartmentPayload,
+    loadSemesterManifest,
+} from './manifestData.mjs';
 
 // Lazy-loaded Chart.js modules (loaded on first chart use)
 let chartJsLoaded = false;
@@ -38,6 +42,14 @@ let selectedCourse = null;
 let selectedSection = null;
 let currentEnrollmentData = [];
 let chartMode = localStorage.getItem('chartMode') || 'phased'; // 'phased', 'snapshots', or 'timeline'
+let staticManifest = null;
+let staticManifestUrl = null;
+let staticManifestStale = false;
+let courseRequestVersion = 0;
+const departmentPayloads = new Map();
+const hydratedCourses = new Set();
+const dataLoadController = new AbortController();
+window.addEventListener('pagehide', () => dataLoadController.abort(), { once: true });
 
 // Cache for last render args so toggle can re-render
 let lastRenderArgs = null;
@@ -196,7 +208,8 @@ function renderCourseGrid() {
     const lastUpdatedEl = document.getElementById('lastUpdated');
     if (lastUpdatedEl) {
         const semester = IS_COMBINED ? activeSemester : data.sem;
-        lastUpdatedEl.textContent = `${semester} • Last updated ${formatDate(data.lrt)}`;
+        const staleLabel = staticManifestStale ? 'Stale data • ' : '';
+        lastUpdatedEl.textContent = `${staleLabel}${semester} • Last updated ${formatDate(data.lrt)}`;
     }
 
     // Group courses by department (using minified key 'd')
@@ -304,13 +317,44 @@ function renderCourseGrid() {
 /**
  * Open course detail modal.
  */
-function openCourse(courseCode) {
+async function hydrateCourse(courseCode) {
     const data = getData();
+    if (!staticManifest || hydratedCourses.has(courseCode)) {
+        return data.cr[courseCode];
+    }
+    const summaryCourse = data.cr[courseCode];
+    if (!summaryCourse) return null;
+    const department = summaryCourse.d || courseCode.split(' ')[0];
+    const payload = await loadDepartmentPayload(
+        department,
+        staticManifest,
+        staticManifestUrl,
+        departmentPayloads,
+        { signal: dataLoadController.signal },
+    );
+    const fullCourse = payload.courses?.[courseCode];
+    if (!fullCourse) {
+        throw new Error(`Department payload has no course ${courseCode}`);
+    }
+    data.cr[courseCode] = fullCourse;
+    hydratedCourses.add(courseCode);
+    return fullCourse;
+}
+
+async function openCourse(courseCode) {
+    const requestVersion = ++courseRequestVersion;
+    let course;
+    try {
+        course = await hydrateCourse(courseCode);
+    } catch (error) {
+        console.error(`Failed to load ${courseCode}:`, error);
+        showToast(`Could not load ${courseCode}. Please try again.`);
+        return;
+    }
+    if (requestVersion !== courseRequestVersion) return;
+    if (!course) return;
     selectedCourse = courseCode;
     selectedSection = null;
-
-    const course = data.cr[courseCode];
-    if (!course) return;
 
     const title = course.ti ? ` - ${course.ti}` : '';
     document.getElementById('modalTitle').textContent = `${courseCode}${title}`;
@@ -910,6 +954,7 @@ async function renderChart(chartLabel, chartPoints, chartDomain, showCapacityMar
  * Close the course detail modal.
  */
 function closeModal() {
+    courseRequestVersion += 1;
     document.getElementById('modalOverlay').classList.remove('active');
     document.documentElement.classList.remove('modal-open');
     document.body.classList.remove('modal-open');
@@ -1426,9 +1471,23 @@ async function initApp() {
         const timeoutId = setTimeout(showTimeoutWarning, 12000);
 
         try {
-            const res = await fetch(jsonUrl);
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            const payload = await res.json();
+            const absoluteUrl = new URL(jsonUrl, window.location.href);
+            let payload;
+            if (absoluteUrl.pathname.endsWith('/manifest.json')) {
+                const loaded = await loadSemesterManifest(absoluteUrl.href, {
+                    signal: dataLoadController.signal,
+                });
+                payload = loaded.payload;
+                staticManifest = loaded.manifest;
+                staticManifestUrl = loaded.manifestUrl;
+                staticManifestStale = loaded.stale;
+            } else {
+                const res = await fetch(absoluteUrl.href, {
+                    signal: dataLoadController.signal,
+                });
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                payload = await res.json();
+            }
             DATA = payload.data;
             MILESTONES = payload.milestones;
 

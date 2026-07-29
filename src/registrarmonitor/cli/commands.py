@@ -1,14 +1,25 @@
 """Command implementations for the registrarmonitor CLI."""
 
+import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..config import get_config
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
+from ..data.migration import (
+    MetadataMode,
+    MigrationRequest,
+    run_migration,
+    transition_storage_mode,
+)
 from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..utils import get_section_sort_key
+from ..website.config import OUTPUT_DIR, semester_to_slug
+from ..website.static_manifest import rollback_semester_pointer
 from .utils import detect_active_semester
 
 
@@ -452,6 +463,61 @@ class DatabaseCommands:
         self.debug = debug
         self.logger = get_logger(__name__)
 
+    @staticmethod
+    def _storage_config(semester: str) -> dict[str, object]:
+        config = get_config()
+        storage = config.get("storage", {})
+        semesters = storage.get("semesters", {}) if isinstance(storage, dict) else {}
+        semester_config = (
+            semesters.get(semester) if isinstance(semesters, dict) else None
+        )
+        if semester_config is None:
+            raise ValueError(f"no storage rollout configuration for {semester!r}")
+        if not isinstance(semester_config, dict):
+            raise TypeError(f"invalid storage configuration for {semester!r}")
+        return semester_config
+
+    @staticmethod
+    def _validate_migration_order(semester: str, data_dir: Path) -> None:
+        """Require every earlier configured semester to be fully migrated."""
+        config = get_config()
+        storage = config.get("storage", {})
+        order = storage.get("migration_order", []) if isinstance(storage, dict) else []
+        if not isinstance(order, list) or not all(
+            isinstance(item, str) for item in order
+        ):
+            raise TypeError("storage.migration_order must be a list of semester names")
+        if semester not in order:
+            raise ValueError(f"{semester!r} is not in storage.migration_order")
+
+        for prior_semester in order[: order.index(semester)]:
+            slug = DatabaseManager._sanitize_semester_name_static(prior_semester)
+            prior_database = data_dir / f"enrollment_{slug}.db"
+            if not prior_database.is_file():
+                raise ValueError(
+                    f"migration order blocked: {prior_semester!r} has no database"
+                )
+            try:
+                with sqlite3.connect(
+                    f"{prior_database.resolve().as_uri()}?mode=ro",
+                    uri=True,
+                ) as connection:
+                    version = int(
+                        connection.execute("PRAGMA user_version").fetchone()[0]
+                    )
+                    control = connection.execute(
+                        "SELECT migration_phase FROM storage_control "
+                        "WHERE singleton = 1"
+                    ).fetchone()
+            except sqlite3.Error as error:
+                raise ValueError(
+                    f"migration order blocked: {prior_semester!r} is incomplete"
+                ) from error
+            if version != 2 or control != ("complete",):
+                raise ValueError(
+                    f"migration order blocked: {prior_semester!r} is incomplete"
+                )
+
     async def stats(self) -> bool:
         """Show database statistics."""
         try:
@@ -530,6 +596,131 @@ class DatabaseCommands:
         except Exception as e:
             print(f"❌ Error deduping instructor changes: {e}")
             self.logger.error(f"Instructor change dedupe error: {e}")
+            return False
+
+    async def migrate(
+        self,
+        *,
+        semester: str,
+        target_version: int,
+        metadata_mode: str,
+        report_path: Path,
+        dry_run: bool,
+        database: Path | None = None,
+        candidate: Path | None = None,
+        backup_dir: Path | None = None,
+        raw_dir: Path | None = None,
+    ) -> bool:
+        """Run or resume one explicitly scoped schema migration."""
+        try:
+            semester_config = self._storage_config(semester)
+            if semester_config.get("metadata_mode") != metadata_mode:
+                raise ValueError(
+                    "requested metadata mode disagrees with settings.toml: "
+                    f"{metadata_mode!r} != "
+                    f"{semester_config.get('metadata_mode')!r}"
+                )
+            config = get_config()
+            data_dir = Path(config["directories"]["data_storage"])
+            self._validate_migration_order(semester, data_dir)
+            if database is None:
+                slug = DatabaseManager._sanitize_semester_name_static(semester)
+                database = data_dir / f"enrollment_{slug}.db"
+            result = run_migration(
+                MigrationRequest(
+                    database=database,
+                    semester=semester,
+                    target_version=target_version,
+                    metadata_mode=MetadataMode(metadata_mode),
+                    report_path=report_path,
+                    dry_run=dry_run,
+                    candidate_path=candidate,
+                    backup_dir=backup_dir,
+                    raw_dir=raw_dir,
+                )
+            )
+            print(
+                f"✅ Migration {result.status}: {semester}; report={result.report_path}"
+            )
+            if result.backup_path is not None:
+                print(f"   Verified backup: {result.backup_path}")
+            return True
+        except Exception as error:
+            print(f"❌ Migration failed: {error}")
+            self.logger.error(f"Database migration error: {error}")
+            return False
+
+    async def transition_mode(
+        self,
+        *,
+        semester: str,
+        target_mode: str,
+        report_path: Path,
+        database: Path | None = None,
+    ) -> bool:
+        """Audit and change one semester's compatibility mode."""
+        try:
+            semester_config = self._storage_config(semester)
+            if semester_config.get("mode") != target_mode:
+                raise ValueError(
+                    "target mode disagrees with settings.toml; update the "
+                    "approved semester mode before transitioning"
+                )
+            if database is None:
+                config = get_config()
+                data_dir = Path(config["directories"]["data_storage"])
+                slug = DatabaseManager._sanitize_semester_name_static(semester)
+                database = data_dir / f"enrollment_{slug}.db"
+            result = transition_storage_mode(
+                database,
+                semester=semester,
+                target_mode=target_mode,
+                report_path=report_path,
+            )
+            print(
+                f"✅ Storage mode {result.status}: "
+                f"{result.previous_mode} → {result.active_mode}; "
+                f"report={result.report_path}"
+            )
+            return True
+        except Exception as error:
+            print(f"❌ Storage mode transition failed: {error}")
+            self.logger.error(f"Storage mode transition error: {error}")
+            return False
+
+    async def rollback_manifest(
+        self,
+        *,
+        semester: str,
+        report_path: Path,
+        output_dir: Path | None = None,
+    ) -> bool:
+        """Restore a semester's prior pointer without deleting artifacts."""
+        try:
+            result = rollback_semester_pointer(
+                output_dir or OUTPUT_DIR,
+                semester_slug=semester_to_slug(semester),
+            )
+            report = {
+                "status": result.status,
+                "semester": semester,
+                "build_id": result.build_id,
+                "pointer": str(result.pointer_path),
+                "manifest": str(result.manifest_path),
+            }
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            print(
+                f"✅ Static pointer rolled back: {semester}; "
+                f"build={result.build_id}; report={report_path}"
+            )
+            return True
+        except Exception as error:
+            print(f"❌ Static pointer rollback failed: {error}")
+            self.logger.error(f"Static pointer rollback error: {error}")
             return False
 
 

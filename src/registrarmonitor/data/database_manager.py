@@ -16,8 +16,11 @@ from ..config import get_config
 from ..core import get_logger
 from ..models import EnrollmentSnapshot
 from ..validation import validate_directory_exists
+from .checkpointed_state import CheckpointedStateStore
 
 EXPECTED_SCHEMA_VERSION = 1
+CHECKPOINTED_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = {EXPECTED_SCHEMA_VERSION, CHECKPOINTED_SCHEMA_VERSION}
 
 
 class DatabaseManager:
@@ -31,6 +34,7 @@ class DatabaseManager:
             db_path: Optional path to database file. If None, uses config default with semester.
             semester: Optional semester identifier for database naming.
         """
+        self._uses_configured_path = db_path is None
         if db_path is None:
             config = get_config()
             data_dir = config["directories"]["data_storage"]
@@ -57,6 +61,7 @@ class DatabaseManager:
 
         # Initialize database
         self._init_database()
+        self.storage_mode = self._read_storage_mode()
 
     def _sanitize_semester_name(self, semester: str) -> str:
         """
@@ -106,6 +111,25 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                schema_version = int(
+                    cursor.execute("PRAGMA user_version").fetchone()[0]
+                )
+                if schema_version not in {0, *SUPPORTED_SCHEMA_VERSIONS}:
+                    raise sqlite3.DatabaseError(
+                        f"unsupported database schema version {schema_version}"
+                    )
+                if schema_version == CHECKPOINTED_SCHEMA_VERSION:
+                    control = cursor.execute(
+                        """
+                        SELECT migration_phase FROM storage_control
+                        WHERE singleton = 1
+                        """
+                    ).fetchone()
+                    if control is None or control[0] != "complete":
+                        raise sqlite3.DatabaseError(
+                            "checkpointed schema is not in a completed migration phase"
+                        )
+                    return
 
                 # Create courses table
                 cursor.execute("""
@@ -251,7 +275,8 @@ class DatabaseManager:
                     ON instructor_changes (section_id)
                 """)
 
-                cursor.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
+                if schema_version == 0:
+                    cursor.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
                 conn.commit()
                 self.logger.debug("Database schema initialized successfully")
 
@@ -261,6 +286,41 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Unexpected error during database initialization: {e}")
             raise
+
+    def _read_storage_mode(self) -> str:
+        """Return the durable mode, defaulting v1 databases to legacy."""
+        with self.get_connection() as conn:
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            if version == EXPECTED_SCHEMA_VERSION:
+                return "legacy"
+            if version != CHECKPOINTED_SCHEMA_VERSION:
+                raise sqlite3.DatabaseError(
+                    f"unsupported database schema version {version}"
+                )
+            row = conn.execute(
+                "SELECT active_mode FROM storage_control WHERE singleton = 1"
+            ).fetchone()
+            if row is None or row[0] not in {"legacy", "shadow", "v2"}:
+                raise sqlite3.DatabaseError("invalid checkpointed storage mode")
+            mode = str(row[0])
+            if self._uses_configured_path and self.semester:
+                config = get_config()
+                configured = (
+                    config.get("storage", {})
+                    .get("semesters", {})
+                    .get(self.semester, {})
+                    .get("mode")
+                )
+                if configured is None:
+                    raise sqlite3.DatabaseError(
+                        f"no configured storage mode for {self.semester!r}"
+                    )
+                if configured != mode:
+                    raise sqlite3.DatabaseError(
+                        "configured storage mode disagrees with database "
+                        f"metadata: {configured!r} != {mode!r}"
+                    )
+            return mode
 
     def _determine_status(self, fill_percentage: float) -> str:
         """
@@ -637,6 +697,14 @@ class DatabaseManager:
                                 "WHERE snapshot_id = ?",
                                 (snapshot.timestamp, latest_snapshot_id),
                             )
+                            if self.storage_mode in {"shadow", "v2"}:
+                                cursor.execute(
+                                    """
+                                    UPDATE state_snapshot SET last_seen_at = ?
+                                    WHERE snapshot_id = ?
+                                    """,
+                                    (snapshot.timestamp, latest_snapshot_id),
+                                )
                             conn.commit()
                         return
                     except sqlite3.Error as e:
@@ -850,6 +918,14 @@ class DatabaseManager:
                     enrollment_data_list,
                 )
 
+                if self.storage_mode in {"shadow", "v2"}:
+                    CheckpointedStateStore(
+                        self.db_path, initialize=False
+                    ).write_snapshot_in_transaction(
+                        conn,
+                        snapshot,
+                        snapshot_id=snapshot_id,
+                    )
                 conn.commit()
                 self.logger.info(
                     f"Successfully stored enrollment snapshot {snapshot_id} "
@@ -945,6 +1021,25 @@ class DatabaseManager:
             Optional[str]: Latest timestamp or None if no snapshots exist
         """
         try:
+            if self.storage_mode == "v2":
+                with self.get_connection() as conn:
+                    if semester:
+                        row = conn.execute(
+                            """
+                            SELECT observed_at FROM state_snapshot
+                            WHERE semester = ?
+                            ORDER BY sequence_no DESC LIMIT 1
+                            """,
+                            (semester,),
+                        ).fetchone()
+                    else:
+                        row = conn.execute(
+                            """
+                            SELECT observed_at FROM state_snapshot
+                            ORDER BY sequence_no DESC LIMIT 1
+                            """
+                        ).fetchone()
+                    return str(row[0]) if row else None
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -1025,6 +1120,11 @@ class DatabaseManager:
         Returns:
             int: Number of snapshots deleted
         """
+        if self.storage_mode != "legacy":
+            raise RuntimeError(
+                "snapshot cleanup is only supported in legacy mode; "
+                "checkpointed-state pruning is not implemented"
+            )
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1138,6 +1238,15 @@ class DatabaseManager:
     def get_latest_snapshot_id(self) -> int | None:
         """Finds the ID of the most recent snapshot."""
         try:
+            if self.storage_mode == "v2":
+                with self.get_connection() as conn:
+                    row = conn.execute(
+                        """
+                        SELECT snapshot_id FROM state_snapshot
+                        ORDER BY sequence_no DESC LIMIT 1
+                        """
+                    ).fetchone()
+                    return int(row[0]) if row else None
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 result = cursor.execute(
@@ -1154,10 +1263,12 @@ class DatabaseManager:
     def get_last_reported_snapshot_id(self) -> int | None:
         """Finds the ID of the snapshot from the last report log."""
         try:
+            table = "reporting_log_v2" if self.storage_mode == "v2" else "reporting_log"
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 result = cursor.execute(
-                    "SELECT reported_snapshot_id FROM reporting_log ORDER BY report_timestamp DESC LIMIT 1"
+                    f"SELECT reported_snapshot_id FROM {table} "
+                    "ORDER BY report_timestamp DESC LIMIT 1"
                 ).fetchone()
                 return result[0] if result else None
         except sqlite3.Error as e:
@@ -1183,6 +1294,15 @@ class DatabaseManager:
                     "INSERT INTO reporting_log (reported_snapshot_id, report_timestamp, changes_found) VALUES (?, ?, ?)",
                     (snapshot_id, timestamp, changes_found_int),
                 )
+                if self.storage_mode in {"shadow", "v2"}:
+                    cursor.execute(
+                        """
+                        INSERT INTO reporting_log_v2(
+                            reported_snapshot_id, report_timestamp, changes_found
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (snapshot_id, timestamp, changes_found_int),
+                    )
                 conn.commit()
                 self.logger.info(
                     f"Added reporting log entry for snapshot {snapshot_id}"
@@ -1199,6 +1319,10 @@ class DatabaseManager:
         Reconstructs an EnrollmentSnapshot object for a given snapshot ID.
         """
         try:
+            if self.storage_mode == "v2":
+                return CheckpointedStateStore(
+                    self.db_path, initialize=False
+                ).get_snapshot_data(snapshot_id)
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -1319,6 +1443,10 @@ class DatabaseManager:
             list[Dict]: List of dictionaries containing timestamp and section info
         """
         try:
+            if self.storage_mode == "v2":
+                return CheckpointedStateStore(
+                    self.db_path, initialize=False
+                ).get_course_history(course_code, semester)
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 

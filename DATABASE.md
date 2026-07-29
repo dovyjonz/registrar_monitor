@@ -4,9 +4,14 @@ This document describes the SQLite database schema and management workflows for 
 
 Operational diagnostics use SQLite `PRAGMA integrity_check`,
 `PRAGMA foreign_key_check`, and `PRAGMA user_version`. Run `monitor doctor` for
-human-readable results or `monitor doctor --json` for structured output. New or
-opened databases are marked with the application's expected schema version;
-the diagnostic itself remains read-only.
+human-readable results or `monitor doctor --json` for structured output.
+Existing databases are inspected on open and are never silently upgraded or
+downgraded.
+
+Schema version 1 is the legacy normalized snapshot model. Schema version 2 is
+the checkpoint/event model with the version 1 tables retained and dual-written
+for one compatibility release. The per-semester rollout mode and metadata mode
+are controlled in `settings.toml`.
 
 ## Overview
 
@@ -91,7 +96,44 @@ monitor db stats
 # Clean up old snapshots (keep most recent N)
 monitor db cleanup --keep 50
 
+# Read-only rehearsal against an explicit candidate
+monitor db migrate \
+  --semester "Summer 2025" \
+  --target-version 2 \
+  --metadata-mode raw-enriched \
+  --raw-dir assets/downloads \
+  --database data/enrollment_summer_2025.db \
+  --candidate output/summer-2025-candidate.db \
+  --report output/summer-2025-migration.json \
+  --dry-run
+
+# Apply exactly one semester (creates and restore-verifies a timestamped backup)
+monitor db migrate \
+  --semester "Spring 2025" \
+  --target-version 2 \
+  --metadata-mode legacy-preserving \
+  --database data/enrollment_spring_2025.db \
+  --report output/spring-2025-migration.json \
+  --apply
+
+# After changing that semester's approved mode in settings.toml
+monitor db mode \
+  --semester "Spring 2025" \
+  --target-mode shadow \
+  --report output/spring-2025-shadow.json
+
+# Restore the prior static pointer before redeployment
+monitor db rollback-manifest \
+  --semester "Spring 2025" \
+  --report output/spring-2025-static-rollback.json
 ```
+
+Migration is idempotent and resumes at committed phase markers. A completed
+rerun performs semantic and SQLite verification and reports
+`already_complete`. A chronological suffix written while still in legacy mode
+is reconciled before shadow promotion. Marker/data disagreement, changed
+preserved history, non-chronological divergence, raw-evidence conflict, or a
+mode/configuration mismatch blocks the operation.
 
 ## Indexes
 
@@ -105,15 +147,24 @@ The following indexes are created automatically:
 - `idx_reporting_log_timestamp` on `reporting_log.report_timestamp`
 - `idx_reporting_log_snapshot` on `reporting_log.reported_snapshot_id`
 
-## Backup & Maintenance
+## Backup, rollback, and retention
 
-```bash
-# Manual backup
-cp data/enrollment_summer_2026.db data/backups/enrollment_$(date +%Y%m%d).db
+Apply mode uses SQLite's backup API before the first mutation. It restores that
+backup into a separate verification database, runs integrity and foreign-key
+checks, and compares critical row counts plus the newest reconstructed state.
+The backup, restore-check database, reports, legacy tables, and static
+manifests/blobs are never removed automatically.
 
-# Reclaim space
-sqlite3 data/enrollment_summer_2026.db "VACUUM"
-```
+Before compatibility finalization, rollback consists of:
+
+1. Keep monitoring stopped.
+2. Change the semester mode in `settings.toml` to `legacy`.
+3. Run `monitor db mode ... --target-mode legacy`.
+4. Run `monitor db rollback-manifest` when the static pointer must also revert.
+5. Regenerate, validate, and redeploy the static site under separate approval.
+
+Do not run `VACUUM INTO`, remove legacy tables, or delete rollback artifacts as
+part of the v2 compatibility release.
 
 ## Example Queries
 

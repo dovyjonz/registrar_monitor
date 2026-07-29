@@ -1,0 +1,654 @@
+"""Production migration behavior through its public service interface."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from registrarmonitor.cli.commands import DatabaseCommands
+from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.data.migration import (
+    MetadataMode,
+    MigrationInterrupted,
+    MigrationRequest,
+    run_migration,
+    transition_storage_mode,
+)
+from registrarmonitor.models import Course, EnrollmentSnapshot, Section
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _legacy_database(path: Path) -> Path:
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE courses (
+                course_id INTEGER PRIMARY KEY,
+                course_code TEXT NOT NULL UNIQUE,
+                course_title TEXT,
+                department TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE sections (
+                section_id INTEGER PRIMARY KEY,
+                course_id INTEGER NOT NULL REFERENCES courses(course_id),
+                section_code TEXT NOT NULL,
+                section_type TEXT,
+                instructor TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(course_id, section_code)
+            );
+            CREATE TABLE snapshots (
+                snapshot_id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL UNIQUE,
+                last_seen_at TEXT,
+                semester TEXT NOT NULL,
+                overall_fill REAL NOT NULL
+            );
+            CREATE TABLE enrollment_data (
+                enrollment_id INTEGER PRIMARY KEY,
+                snapshot_id INTEGER NOT NULL REFERENCES snapshots(snapshot_id),
+                section_id INTEGER NOT NULL REFERENCES sections(section_id),
+                status TEXT NOT NULL,
+                enrollment_count INTEGER NOT NULL,
+                capacity_count INTEGER NOT NULL,
+                fill_percentage REAL NOT NULL,
+                UNIQUE(snapshot_id, section_id)
+            );
+            CREATE TABLE reporting_log (
+                report_id INTEGER PRIMARY KEY,
+                reported_snapshot_id INTEGER NOT NULL REFERENCES snapshots(snapshot_id),
+                report_timestamp TEXT NOT NULL,
+                changes_found INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE instructor_changes (
+                change_id INTEGER PRIMARY KEY,
+                section_id INTEGER NOT NULL REFERENCES sections(section_id),
+                old_instructor TEXT,
+                new_instructor TEXT,
+                timestamp TEXT NOT NULL
+            );
+            INSERT INTO courses(
+                course_id, course_code, course_title, department
+            ) VALUES (4, 'CSCI 101', 'Computing', 'CSCI');
+            INSERT INTO sections(
+                section_id, course_id, section_code, section_type, instructor
+            ) VALUES (8, 4, '1L', 'L', 'Ada');
+            INSERT INTO snapshots VALUES
+                (9, '2026-05-01 10:00:00', '2026-05-01 10:02:00',
+                 'Summer 2025', 0.5),
+                (3, '2026-05-01 10:05:00', NULL, 'Summer 2025', 0.6);
+            INSERT INTO enrollment_data VALUES
+                (1, 9, 8, 'OPEN', 10, 20, 0.5),
+                (2, 3, 8, 'OPEN', 12, 20, 0.6);
+            INSERT INTO reporting_log VALUES
+                (7, 9, '2026-05-01T10:03:00', 0, '2026-05-01 10:03:00'),
+                (11, 3, '2026-05-01T10:06:00', 1, '2026-05-01 10:06:00');
+            PRAGMA user_version = 1;
+            """
+        )
+    return path
+
+
+def _request(
+    source: Path,
+    tmp_path: Path,
+    *,
+    dry_run: bool,
+) -> MigrationRequest:
+    return MigrationRequest(
+        database=source,
+        semester="Summer 2025",
+        target_version=2,
+        metadata_mode=MetadataMode.LEGACY_PRESERVING,
+        report_path=tmp_path / "migration.json",
+        dry_run=dry_run,
+        candidate_path=tmp_path / "candidate.db" if dry_run else None,
+        backup_dir=tmp_path / "backups",
+    )
+
+
+def test_dry_run_builds_verified_candidate_without_changing_source(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    source_hash = _sha256(source)
+
+    result = run_migration(_request(source, tmp_path, dry_run=True))
+
+    assert result.status == "verified"
+    assert _sha256(source) == source_hash
+    assert result.candidate_path == tmp_path / "candidate.db"
+    with sqlite3.connect(result.candidate_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT snapshot_id, sequence_no FROM state_snapshot "
+                "ORDER BY sequence_no"
+            )
+        ] == [(9, 1), (3, 2)]
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 2
+        assert (
+            connection.execute(
+                "SELECT legacy_tables_retained FROM storage_control"
+            ).fetchone()[0]
+            == 1
+        )
+    report = json.loads((tmp_path / "migration.json").read_text())
+    assert report["source"]["hash_unchanged"] is True
+    assert report["verification"]["semantic_mismatches"] == 0
+    assert (tmp_path / "migration.md").is_file()
+
+
+def test_dry_run_rejects_source_as_candidate_before_mutation(tmp_path: Path) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    source_hash = _sha256(source)
+    request = replace(
+        _request(source, tmp_path, dry_run=True),
+        candidate_path=source,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="candidate path must differ from the source database",
+    ):
+        run_migration(request)
+
+    assert _sha256(source) == source_hash
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_migration_rejects_database_as_report_path_before_mutation(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    source_hash = _sha256(source)
+    request = replace(
+        _request(source, tmp_path, dry_run=False),
+        report_path=source,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="report path must differ from migration database paths",
+    ):
+        run_migration(request)
+
+    assert _sha256(source) == source_hash
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_interrupted_dry_run_resumes_the_same_matching_candidate(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    request = _request(source, tmp_path, dry_run=True)
+
+    def interrupt(phase: str, boundary: str) -> None:
+        if (phase, boundary) == ("catalog", "after_commit"):
+            raise MigrationInterrupted("injected candidate interruption")
+
+    with pytest.raises(MigrationInterrupted):
+        run_migration(request, phase_hook=interrupt)
+
+    result = run_migration(request)
+
+    assert result.status == "verified"
+    assert result.candidate_path is not None
+    with sqlite3.connect(result.candidate_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 2
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 2
+        )
+
+
+def test_apply_creates_verified_backup_and_repeated_run_is_a_noop(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    request = _request(source, tmp_path, dry_run=False)
+
+    first = run_migration(request)
+    source_hash_after_first = _sha256(source)
+    backups_after_first = list((tmp_path / "backups").glob("*.db"))
+    second = run_migration(request)
+
+    assert first.status == "applied"
+    assert first.backup_path in backups_after_first
+    assert first.backup_verified is True
+    assert second.status == "already_complete"
+    assert _sha256(source) == source_hash_after_first
+    assert list((tmp_path / "backups").glob("*.db")) == backups_after_first
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 2
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 2
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM migration_phase WHERE phase = 'complete'"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_repeated_run_reconciles_a_legacy_only_chronological_suffix(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    request = _request(source, tmp_path, dry_run=False)
+    run_migration(request)
+    legacy_manager = DatabaseManager(
+        db_path=str(source),
+        semester="Summer 2025",
+    )
+
+    legacy_manager.store_enrollment_snapshot(_changed_snapshot())
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 3
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 2
+        )
+
+    result = run_migration(request)
+
+    assert result.status == "reconciled"
+    with sqlite3.connect(source) as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 3
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM migration_phase WHERE phase = 'reconciled'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_interrupted_apply_resumes_without_duplicate_state(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    request = _request(source, tmp_path, dry_run=False)
+
+    def interrupt(phase: str, boundary: str) -> None:
+        if (phase, boundary) == ("snapshots:1", "after_commit"):
+            raise MigrationInterrupted("injected interruption")
+
+    with pytest.raises(MigrationInterrupted):
+        run_migration(request, phase_hook=interrupt)
+
+    resumed = run_migration(request)
+
+    assert resumed.status == "applied"
+    with sqlite3.connect(source) as connection:
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT snapshot_id, sequence_no FROM state_snapshot "
+                "ORDER BY sequence_no"
+            )
+        ] == [(9, 1), (3, 2)]
+        assert (
+            connection.execute("SELECT count(*) FROM course_change_event").fetchone()[0]
+            == 1
+        )
+        assert (
+            connection.execute("SELECT count(*) FROM section_change_event").fetchone()[
+                0
+            ]
+            == 2
+        )
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.parametrize(
+    ("phase", "boundary"),
+    [
+        ("schema", "before_commit"),
+        ("schema", "after_commit"),
+        ("catalog", "before_commit"),
+        ("catalog", "after_commit"),
+        ("snapshots:1", "before_commit"),
+        ("snapshots:1", "after_commit"),
+        ("snapshots:2", "before_commit"),
+        ("snapshots:2", "after_commit"),
+        ("reporting", "before_commit"),
+        ("reporting", "after_commit"),
+        ("complete", "before_commit"),
+        ("complete", "after_commit"),
+    ],
+)
+def test_every_migration_boundary_resumes_to_identical_digest(
+    tmp_path: Path,
+    phase: str,
+    boundary: str,
+) -> None:
+    baseline = _legacy_database(tmp_path / "baseline.db")
+    interrupted = _legacy_database(tmp_path / "interrupted.db")
+    baseline_request = _request(baseline, tmp_path / "baseline-run", dry_run=False)
+    interrupted_request = _request(
+        interrupted,
+        tmp_path / "interrupted-run",
+        dry_run=False,
+    )
+    baseline_request.report_path.parent.mkdir()
+    interrupted_request.report_path.parent.mkdir()
+
+    run_migration(baseline_request)
+
+    def inject(current_phase: str, current_boundary: str) -> None:
+        if (current_phase, current_boundary) == (phase, boundary):
+            raise MigrationInterrupted(f"injected at {phase}/{boundary}")
+
+    with pytest.raises(MigrationInterrupted):
+        run_migration(interrupted_request, phase_hook=inject)
+
+    resumed = run_migration(interrupted_request)
+    assert resumed.status in {"applied", "already_complete"}
+
+    with (
+        sqlite3.connect(baseline) as expected,
+        sqlite3.connect(interrupted) as actual,
+    ):
+        expected_digest = expected.execute(
+            "SELECT state_digest FROM migration_phase "
+            "WHERE target_version = 2 AND phase = 'complete'"
+        ).fetchone()[0]
+        actual_digest = actual.execute(
+            "SELECT state_digest FROM migration_phase "
+            "WHERE target_version = 2 AND phase = 'complete'"
+        ).fetchone()[0]
+        assert actual_digest == expected_digest
+        for table in (
+            "state_snapshot",
+            "course_change_event",
+            "section_change_event",
+            "state_checkpoint",
+            "reporting_log_v2",
+        ):
+            assert (
+                actual.execute(f"SELECT count(*) FROM {table}").fetchone()
+                == expected.execute(f"SELECT count(*) FROM {table}").fetchone()
+            )
+        assert actual.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_raw_enriched_requires_unique_observation_and_applies_temporal_metadata(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    first = raw_dir / "first.xls"
+    second = raw_dir / "second.xls"
+    first.touch()
+    second.touch()
+
+    class RawReader:
+        def read_excel_data(self, path: str):
+            observed_at = (
+                "2026-05-01 10:00:00"
+                if Path(path).name == "first.xls"
+                else "2026-05-01 10:05:00"
+            )
+            suffix = "A" if Path(path).name == "first.xls" else "B"
+            return (
+                "Summer 2025",
+                observed_at,
+                [
+                    {
+                        "Level": "UG",
+                        "Cap": 20,
+                        "Enr": 10 if suffix == "A" else 12,
+                        "Fill": 0.5 if suffix == "A" else 0.6,
+                        "Course Abbr": "CSCI 101",
+                        "Course Title": f"Computing {suffix}",
+                        "S/T": "1L",
+                        "Instructor": f"Instructor {suffix}",
+                    }
+                ],
+            )
+
+    request = MigrationRequest(
+        database=source,
+        semester="Summer 2025",
+        target_version=2,
+        metadata_mode=MetadataMode.RAW_ENRICHED,
+        report_path=tmp_path / "raw-migration.json",
+        dry_run=True,
+        candidate_path=tmp_path / "raw-candidate.db",
+        raw_dir=raw_dir,
+    )
+
+    result = run_migration(request, excel_reader=RawReader())
+
+    store = __import__(
+        "registrarmonitor.data.checkpointed_state",
+        fromlist=["CheckpointedStateStore"],
+    ).CheckpointedStateStore(result.candidate_path, initialize=False)
+    assert (
+        store.reconstruct_snapshot(9).courses["CSCI 101"].course_title == "Computing A"
+    )
+    assert (
+        store.reconstruct_snapshot(3).courses["CSCI 101"].sections["1L"].instructor
+        == "Instructor B"
+    )
+    report = json.loads(request.report_path.read_text())
+    assert report["raw_evidence"]["matched"] == 2
+    assert report["raw_evidence"]["missing"] == 0
+    assert report["raw_evidence"]["conflicting"] == 0
+
+
+def _changed_snapshot(*, capacity: int = 20) -> EnrollmentSnapshot:
+    section = Section(
+        section_id="1L",
+        section_type="L",
+        enrollment=14,
+        capacity=capacity,
+        fill=14 / capacity if capacity else 0.0,
+        instructor="Ada",
+    )
+    return EnrollmentSnapshot(
+        timestamp="2026-05-01 10:10:00",
+        semester="Summer 2025",
+        overall_fill=0.7,
+        courses={
+            "CSCI 101": Course(
+                course_code="CSCI 101",
+                department="CSCI",
+                sections={"1L": section},
+                average_fill=section.fill,
+                course_title="Computing",
+            )
+        },
+    )
+
+
+def test_shadow_dual_write_is_atomic_and_v2_mode_reads_checkpointed_state(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+
+    manager.store_enrollment_snapshot(_changed_snapshot())
+
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 3
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 3
+        )
+        legacy_id = connection.execute(
+            "SELECT snapshot_id FROM snapshots ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()[0]
+        v2_id = connection.execute(
+            "SELECT snapshot_id FROM state_snapshot ORDER BY sequence_no DESC LIMIT 1"
+        ).fetchone()[0]
+    assert legacy_id == v2_id
+
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="v2",
+        report_path=tmp_path / "v2.json",
+    )
+    v2_manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    assert v2_manager.storage_mode == "v2"
+    assert v2_manager.get_latest_snapshot_id() == v2_id
+    actual = v2_manager.get_snapshot_data(v2_id)
+    assert actual is not None
+    assert actual.to_dict() == _changed_snapshot().to_dict()
+
+
+def test_v2_mode_can_roll_back_to_legacy_after_dual_write(tmp_path: Path) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="v2",
+        report_path=tmp_path / "v2.json",
+    )
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    manager.store_enrollment_snapshot(_changed_snapshot())
+
+    result = transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="legacy",
+        report_path=tmp_path / "legacy-mode.json",
+    )
+
+    assert result.status == "changed"
+    assert result.active_mode == "legacy"
+    with sqlite3.connect(source) as connection:
+        legacy_ids = connection.execute(
+            "SELECT snapshot_id FROM snapshots ORDER BY timestamp"
+        ).fetchall()
+        checkpointed_ids = connection.execute(
+            "SELECT snapshot_id FROM state_snapshot ORDER BY sequence_no"
+        ).fetchall()
+    assert legacy_ids == checkpointed_ids
+
+
+def test_cleanup_is_rejected_in_v2_mode_without_diverging_storage(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="v2",
+        report_path=tmp_path / "v2.json",
+    )
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+
+    with pytest.raises(
+        RuntimeError,
+        match="snapshot cleanup is only supported in legacy mode",
+    ):
+        manager.cleanup_old_snapshots(keep_count=1)
+
+    with sqlite3.connect(source) as connection:
+        legacy_count = connection.execute("SELECT count(*) FROM snapshots").fetchone()[
+            0
+        ]
+        checkpointed_count = connection.execute(
+            "SELECT count(*) FROM state_snapshot"
+        ).fetchone()[0]
+    assert legacy_count == checkpointed_count == 2
+
+
+def test_shadow_constraint_failure_rolls_back_legacy_and_v2(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        manager.store_enrollment_snapshot(_changed_snapshot(capacity=0))
+
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 2
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 2
+        )
+
+
+def test_operator_migration_order_requires_completed_prior_semesters(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = {
+        "storage": {
+            "migration_order": ["Summer 2025", "Spring 2025"],
+        }
+    }
+    monkeypatch.setattr(
+        "registrarmonitor.cli.commands.get_config",
+        lambda: config,
+    )
+
+    with pytest.raises(ValueError, match="Summer 2025.*no database"):
+        DatabaseCommands._validate_migration_order("Spring 2025", tmp_path)
+
+    prior = tmp_path / "enrollment_summer_2025.db"
+    with sqlite3.connect(prior) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE storage_control (
+                singleton INTEGER PRIMARY KEY,
+                migration_phase TEXT NOT NULL
+            );
+            INSERT INTO storage_control VALUES (1, 'complete');
+            PRAGMA user_version = 2;
+            """
+        )
+
+    DatabaseCommands._validate_migration_order("Spring 2025", tmp_path)

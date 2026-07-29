@@ -31,6 +31,38 @@ base_url = ""
 # Indexing directive: "noindex" prevents search engines while allowing social unfurls
 indexing = "noindex"
 
+# Production checkpointed-state rollout control. Change one semester only
+# after its migration/shadow gate is approved; DatabaseManager rejects a
+# configured database whose persisted mode disagrees with this table.
+[storage]
+migration_order = [
+    "Summer 2025",
+    "Spring 2025",
+    "Fall 2025",
+    "Spring 2026",
+    "Summer 2026",
+]
+
+[storage.semesters."Summer 2025"]
+metadata_mode = "raw-enriched"
+mode = "legacy"
+
+[storage.semesters."Spring 2025"]
+metadata_mode = "legacy-preserving"
+mode = "legacy"
+
+[storage.semesters."Fall 2025"]
+metadata_mode = "legacy-preserving"
+mode = "legacy"
+
+[storage.semesters."Spring 2026"]
+metadata_mode = "legacy-preserving"
+mode = "legacy"
+
+[storage.semesters."Summer 2026"]
+metadata_mode = "raw-enriched"
+mode = "legacy"
+
 [telegram]
 # Bot token and chat ID are loaded from TELEGRAM_BOT_TOKEN and
 # TELEGRAM_CHAT_ID in the environment or a local .env file.
