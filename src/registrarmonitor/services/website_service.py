@@ -15,8 +15,12 @@ from ..website.config import (
     semester_to_filename,
     semester_to_slug,
 )
-from ..website.data import get_semester_data
-from ..website.templates import build_redirect_index, build_semester_page
+from ..website.data import get_prototype_payloads, get_semester_data
+from ..website.templates import (
+    build_prototype_page,
+    build_redirect_index,
+    build_semester_page,
+)
 
 
 class WebsiteService:
@@ -81,6 +85,139 @@ class WebsiteService:
         )
 
         return output_path, file_size_kb
+
+    def generate_prototype(self, semester_key: str | None = None) -> bool:
+        """Generate the local-only dashboard redesign prototype."""
+        try:
+            target_semester = (
+                SEMESTER_MAP[semester_key]
+                if semester_key
+                else SEMESTER_MAP["summer2026"]
+            )
+        except KeyError:
+            print(f"Error: Unknown semester key '{semester_key}'")
+            return False
+
+        try:
+            OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
+
+            if not self.build_frontend_assets():
+                print("❌ Frontend build failed. Aborting prototype generation.")
+                return False
+
+            import json
+
+            prototype_data_dir = OUTPUT_DIR / "prototype-data"
+            if prototype_data_dir.exists():
+                shutil.rmtree(prototype_data_dir)
+            prototype_data_dir.mkdir(parents=True, exist_ok=True)
+
+            candidate_semesters = (
+                [target_semester]
+                if semester_key
+                else [
+                    target_semester,
+                    *[
+                        semester
+                        for semester in SEMESTER_MAP.values()
+                        if semester != target_semester
+                    ],
+                ]
+            )
+            generated_payloads: list[
+                tuple[str, str, dict[str, object], dict[str, dict[str, object]]]
+            ] = []
+
+            print(f"Generating local dashboard prototype for {target_semester}...")
+            for semester in candidate_semesters:
+                sem_slug = semester_to_slug(semester)
+                detail_base_url = f"prototype-data/{sem_slug}"
+                index_payload, detail_payloads = get_prototype_payloads(
+                    semester,
+                    detail_base_url=detail_base_url,
+                )
+                if not index_payload.get("courseRows"):
+                    print(f"  Skipping {semester}: no courses found")
+                    continue
+                generated_payloads.append(
+                    (semester, sem_slug, index_payload, detail_payloads)
+                )
+
+            if not generated_payloads:
+                print(f"Warning: No courses found for {target_semester}")
+                return False
+
+            semester_options = [
+                {
+                    "semester": semester,
+                    "indexUrl": f"prototype-data/{sem_slug}/index.json",
+                }
+                for semester, sem_slug, _, _ in generated_payloads
+            ]
+
+            active_index_payload: dict[str, object] | None = None
+            total_detail_files = 0
+            for (
+                semester,
+                sem_slug,
+                index_payload,
+                detail_payloads,
+            ) in generated_payloads:
+                index_payload["semesters"] = semester_options
+                semester_dir = prototype_data_dir / sem_slug
+                semester_dir.mkdir(parents=True, exist_ok=True)
+
+                index_path = semester_dir / "index.json"
+                index_path.write_text(
+                    json.dumps(index_payload, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+
+                for slug, payload in detail_payloads.items():
+                    detail_path = semester_dir / f"{slug}.json"
+                    detail_path.write_text(
+                        json.dumps(payload, separators=(",", ":")),
+                        encoding="utf-8",
+                    )
+                    total_detail_files += 1
+
+                if semester == target_semester:
+                    active_index_payload = index_payload
+
+            if active_index_payload is None:
+                active_index_payload = generated_payloads[0][2]
+
+            root_index_path = prototype_data_dir / "index.json"
+            root_index_path.write_text(
+                json.dumps(active_index_payload, separators=(",", ":")),
+                encoding="utf-8",
+            )
+
+            html = build_prototype_page(
+                semester=target_semester,
+                index_json="prototype-data/index.json",
+            )
+            output_path = OUTPUT_DIR / "prototype.html"
+            output_path.write_text(html, encoding="utf-8")
+
+            active_course_rows = active_index_payload.get("courseRows", [])
+            active_course_count = (
+                len(active_course_rows) if isinstance(active_course_rows, list) else 0
+            )
+            print(
+                f"Prototype written to {output_path} "
+                f"({active_course_count} active courses, "
+                f"{total_detail_files} detail files)"
+            )
+            print(
+                "Serve assets/website/public locally and open "
+                "http://127.0.0.1:8000/prototype.html"
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Prototype generation failed: {e}")
+            print(f"❌ Prototype generation failed: {e}")
+            return False
 
     def _patch_asset_hashes_in_html(self) -> bool:
         """Update JS/CSS asset references in all deployed HTML files after a Vite build.
@@ -191,6 +328,29 @@ class WebsiteService:
             for source in dependency_sources
         )
 
+    def _validate_asset_references_in_html(self) -> bool:
+        """Return whether generated HTML references existing built assets."""
+        import re
+
+        output_dir = self.website_assets_dir / "public"
+        valid = True
+        for html_file in output_dir.glob("*.html"):
+            text = html_file.read_text(encoding="utf-8")
+            asset_urls = re.findall(
+                r'(?:src|href)="(assets/main-[^"]+\.(?:js|css))"',
+                text,
+            )
+            for asset_url in asset_urls:
+                if not (output_dir / asset_url).is_file():
+                    message = (
+                        f"Missing frontend asset referenced by "
+                        f"{html_file.name}: {asset_url}"
+                    )
+                    self.logger.error(message)
+                    print(f"Error: {message}")
+                    valid = False
+        return valid
+
     def build_frontend_assets(self) -> bool:
         """Build the frontend assets using npm/vite.
 
@@ -221,8 +381,9 @@ class WebsiteService:
             print("Frontend build successful.")
 
             # Patch asset hashes in all deployed HTML files without regenerating them.
-            self._patch_asset_hashes_in_html()
-            return True
+            if not self._patch_asset_hashes_in_html():
+                return False
+            return self._validate_asset_references_in_html()
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error building frontend assets: {e}")
             print(f"Error building frontend assets: {e}")
@@ -354,9 +515,11 @@ class WebsiteService:
         """Check if we are currently within an active registration window."""
         import datetime
 
+        from ..config import get_timezone
         from ..website.config import ALL_SEMESTERS, get_milestones
 
-        now = datetime.datetime.now()
+        registrar_timezone = get_timezone()
+        now = datetime.datetime.now(registrar_timezone)
 
         for semester in ALL_SEMESTERS:
             try:
@@ -364,7 +527,14 @@ class WebsiteService:
                 if not milestones:
                     continue
 
-                times = [datetime.datetime.fromisoformat(m["time"]) for m in milestones]
+                times = []
+                for milestone in milestones:
+                    value = datetime.datetime.fromisoformat(milestone["time"])
+                    if value.tzinfo is None:
+                        value = value.replace(tzinfo=registrar_timezone)
+                    else:
+                        value = value.astimezone(registrar_timezone)
+                    times.append(value)
                 earliest = min(times) - datetime.timedelta(days=buffer_days)
                 latest = max(times) + datetime.timedelta(days=buffer_days)
 

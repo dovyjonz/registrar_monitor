@@ -1,0 +1,18 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block description %}Local dashboard redesign prototype for {{ semester }} enrollment data.{% endblock %}
+{% block og_title %}{{ title }}{% endblock %}
+{% block twitter_title %}{{ title }}{% endblock %}
+
+{% block body_attrs %} data-prototype-index="{{ index_json }}"{% endblock %}
+
+{% block content %}
+    <a href="#prototype-main" class="skip-link">Skip to main content</a>
+    <div id="prototypeApp" class="prototype-app" aria-label="Enrollment Monitor redesign prototype">
+        <div class="prototype-loading">
+            <div class="prototype-loading-mark" aria-hidden="true"></div>
+            <p>Loading enrollment prototype...</p>
+        </div>
+    </div>
+{% endblock %}

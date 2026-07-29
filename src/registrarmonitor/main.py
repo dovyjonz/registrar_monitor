@@ -173,6 +173,11 @@ Telegram Control:
         help="Force regeneration of all pages",
     )
     deploy_parser.add_argument(
+        "--prototype",
+        action="store_true",
+        help="Generate the local-only dashboard redesign prototype",
+    )
+    deploy_parser.add_argument(
         "--no-minify",
         action="store_true",
         help="Disable generated asset minification",
@@ -290,6 +295,7 @@ async def handle_deploy_command(args) -> int:
         minify=not getattr(args, "no_minify", False),
         project_name=getattr(args, "project", "registrar-monitor"),
         branch=getattr(args, "branch", None),
+        prototype=getattr(args, "prototype", False),
     )
     return 0 if success else 1
 

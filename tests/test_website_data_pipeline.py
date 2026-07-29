@@ -17,6 +17,7 @@ from registrarmonitor.website.data import (
     _filter_snapshots_to_milestone_window,
     _history_indices_in_milestone_window,
     _minify_keys,
+    build_prototype_payloads,
     get_semester_data,
 )
 
@@ -84,6 +85,15 @@ class TestFilterSnapshotsToMilestoneWindow:
         assert 1 in index_map
         assert 2 in index_map
         assert 3 not in index_map
+
+    def test_filters_naive_snapshots_with_aware_milestones(self):
+        snapshots = [{"timestamp": "2026-08-05T09:00:00"}]
+        milestones = [{"time": "2026-08-05T09:00:00+05:00"}]
+
+        result, index_map = _filter_snapshots_to_milestone_window(snapshots, milestones)
+
+        assert result == snapshots
+        assert index_map == {0: 0}
 
     def test_fall_back_to_all_when_filter_empties(self):
         snapshots = [
@@ -360,3 +370,130 @@ class TestBuildCourseEvents:
 
             events = _build_course_events("Spring 2024", db)
             assert events == {}
+
+
+class TestBuildPrototypePayloads:
+    def test_builds_lightweight_index_and_lazy_detail_payloads(self):
+        data = {
+            "semester": "Summer 2026",
+            "lastReportTime": "2026-06-05T17:25:00",
+            "snapshots": [
+                {"id": 1, "timestamp": "2026-06-01T10:00:00", "overallFill": 0.2},
+                {"id": 2, "timestamp": "2026-06-02T10:00:00", "overallFill": 0.4},
+                {"id": 3, "timestamp": "2026-06-03T10:00:00", "overallFill": 0.6},
+            ],
+            "courses": {
+                "CSCI 210": {
+                    "department": "CSCI",
+                    "title": "Data Structures",
+                    "averageFill": 0.94,
+                    "isFilled": False,
+                    "averageHistory": [
+                        {"snapshotIdx": 0, "fill": 0.4},
+                        {"snapshotIdx": 2, "fill": 0.94},
+                    ],
+                    "sections": {
+                        "001": {
+                            "type": "L",
+                            "instructor": "Ada Lovelace",
+                            "currentEnrollment": 94,
+                            "currentCapacity": 100,
+                            "currentFill": 0.94,
+                            "sectionId": 10,
+                            "history": [
+                                {
+                                    "snapshotIdx": 0,
+                                    "fill": 0.4,
+                                    "enrollment": 40,
+                                    "capacity": 100,
+                                },
+                                {
+                                    "snapshotIdx": 2,
+                                    "fill": 0.94,
+                                    "enrollment": 94,
+                                    "capacity": 100,
+                                },
+                            ],
+                        }
+                    },
+                    "events": [
+                        {
+                            "eventType": "capacity_changed",
+                            "sectionCode": "001",
+                            "oldValue": "90",
+                            "newValue": "100",
+                            "snapshotTimestamp": "2026-06-03T10:00:00",
+                        }
+                    ],
+                }
+            },
+        }
+
+        index_payload, detail_payloads = build_prototype_payloads(data)
+
+        assert index_payload["summary"]["courses"] == 1
+        assert index_payload["summary"]["sections"] == 1
+        assert index_payload["summary"]["nearFullSections"] == 1
+        assert index_payload["summary"]["enrollmentTotal"] == 94
+        assert index_payload["summary"]["capacityTotal"] == 100
+
+        row = index_payload["courseRows"][0]
+        assert row["code"] == "CSCI 210"
+        assert row["status"] == "near"
+        assert row["detailUrl"] == "prototype-data/csci-210.json"
+        assert "averageHistory" not in row
+        assert "sections" not in row
+
+        detail = detail_payloads["csci-210"]
+        assert detail["course"]["sections"][0]["instructor"] == "Ada Lovelace"
+        assert detail["course"]["events"][0]["label"] == "Capacity Change"
+        assert len(detail["snapshots"]) == 2
+        assert detail["course"]["averageHistory"] == [
+            {"snapshotIdx": 0, "fill": 0.4},
+            {"snapshotIdx": 1, "fill": 0.94},
+        ]
+
+    def test_uses_minimum_section_type_totals_for_multi_component_courses(self):
+        data = {
+            "semester": "Summer 2026",
+            "lastReportTime": "2026-06-05T17:25:00",
+            "snapshots": [],
+            "courses": {
+                "BIO 101": {
+                    "department": "BIO",
+                    "title": "Biology",
+                    "averageFill": 0.5,
+                    "isFilled": False,
+                    "averageHistory": [],
+                    "sections": {
+                        "001L": {
+                            "type": "L",
+                            "currentEnrollment": 80,
+                            "currentCapacity": 100,
+                            "currentFill": 0.8,
+                            "history": [],
+                        },
+                        "001B": {
+                            "type": "B",
+                            "currentEnrollment": 20,
+                            "currentCapacity": 40,
+                            "currentFill": 0.5,
+                            "history": [],
+                        },
+                        "002B": {
+                            "type": "B",
+                            "currentEnrollment": 30,
+                            "currentCapacity": 40,
+                            "currentFill": 0.75,
+                            "history": [],
+                        },
+                    },
+                }
+            },
+        }
+
+        index_payload, _ = build_prototype_payloads(data)
+
+        row = index_payload["courseRows"][0]
+        assert row["enrollmentTotal"] == 50
+        assert row["capacityTotal"] == 80

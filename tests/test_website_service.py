@@ -116,6 +116,23 @@ def test_build_frontend_assets_returns_false_when_install_fails(tmp_path):
         assert service.build_frontend_assets() is False
 
 
+def test_build_frontend_assets_returns_false_when_asset_patch_fails(tmp_path):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+
+    with (
+        patch.object(
+            service, "_frontend_dependencies_need_install", return_value=False
+        ),
+        patch("subprocess.run"),
+        patch.object(service, "_patch_asset_hashes_in_html", return_value=False),
+        patch.object(service, "_validate_asset_references_in_html") as validate,
+    ):
+        assert service.build_frontend_assets() is False
+
+    validate.assert_not_called()
+
+
 def test_generate_fails_when_frontend_build_fails(tmp_path):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
@@ -137,6 +154,33 @@ def test_deploy_command_refuses_deploy_after_skipped_generation():
 
         assert DeployCommand().run(deploy=True) is False
 
+    service.deploy.assert_not_called()
+
+
+def test_deploy_command_generates_local_prototype_without_deploying():
+    from registrarmonitor.cli.commands import DeployCommand
+
+    with patch("registrarmonitor.cli.commands.WebsiteService") as service_cls:
+        service = service_cls.return_value
+        service.generate_prototype.return_value = True
+
+        assert DeployCommand().run(prototype=True, semester="summer2026") is True
+
+    service.generate_prototype.assert_called_once_with(semester_key="summer2026")
+    service.generate.assert_not_called()
+    service.deploy.assert_not_called()
+
+
+def test_deploy_command_refuses_to_deploy_local_prototype():
+    from registrarmonitor.cli.commands import DeployCommand
+
+    with patch("registrarmonitor.cli.commands.WebsiteService") as service_cls:
+        service = service_cls.return_value
+
+        assert DeployCommand().run(prototype=True, deploy=True) is False
+
+    service.generate_prototype.assert_not_called()
+    service.generate.assert_not_called()
     service.deploy.assert_not_called()
 
 

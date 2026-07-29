@@ -147,9 +147,12 @@ The status terms below distinguish repository support from production activity:
 - **Configuration:** generated unit file, project root, runtime user, `.env`,
   restart policy, and systemd enablement.
 - **Status:** **supported and observed in production, but inactive**. Production
-  had two units: `registrarmonitor.service` was disabled/failed and
-  `registrar-monitor.service` was enabled/failed. Which unit is authoritative
-  remains unknown.
+  had two units at the 2026-07-28 inspection. `registrarmonitor.service` is now
+  canonical and remains disabled/failed; the obsolete `registrar-monitor.service`
+  was disabled on 2026-07-29. Monitoring remains intentionally paused.
+- **Activation prerequisite:** complete the planned data changes and have an
+  operator explicitly verify them. Activation is a separate manual action;
+  `scripts/setup_vps.sh` does not enable or start the service.
 - **Secrets and runtime state:** the complete scheduler requirements above plus a
   Linux/systemd host and readable project-local `.env`.
 
@@ -208,16 +211,14 @@ The 2026-07-28 read-only production inspection established:
 
 ## Operator confirmations still required
 
-1. Which systemd unit is authoritative?
-2. Why was the scheduler stopped, and should it be running now?
-3. Should cron reporting exist as an independent fallback?
-4. Should the Worker deployment command be retained or retired?
-5. When and how should the stale VPS checkout be updated?
-6. Who owns database backups, retention, RPO/RTO, encryption, and restore tests?
-7. Are Google Cloud disk snapshots or another off-host backup mechanism active?
-8. Has the credential-like value found in commented production crontab material
+1. Should cron reporting exist as an independent fallback?
+2. Should the Worker deployment command be retained or retired?
+3. When and how should the stale VPS checkout be updated?
+4. Who owns database backups, retention, RPO/RTO, encryption, and restore tests?
+5. Are Google Cloud disk snapshots or another off-host backup mechanism active?
+6. Has the credential-like value found in commented production crontab material
    been rotated?
-9. What alert should fire when polling, reporting, deployment, or backup evidence
+7. What alert should fire when polling, reporting, deployment, or backup evidence
    becomes stale?
 
 ## Reproduction commands

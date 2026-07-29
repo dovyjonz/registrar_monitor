@@ -82,6 +82,7 @@ class DatabaseManager:
         conn = None
         try:
             conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA foreign_keys = ON")
             conn.row_factory = sqlite3.Row  # Enable column access by name
             yield conn
         except sqlite3.Error as e:
@@ -145,11 +146,25 @@ class DatabaseManager:
                     CREATE TABLE IF NOT EXISTS snapshots (
                         snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL UNIQUE,
+                        last_seen_at TEXT NOT NULL,
                         semester TEXT NOT NULL,
                         overall_fill REAL NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+
+                cursor.execute("PRAGMA table_info(snapshots)")
+                snapshot_columns = [row[1] for row in cursor.fetchall()]
+                if "last_seen_at" not in snapshot_columns:
+                    cursor.execute("ALTER TABLE snapshots ADD COLUMN last_seen_at TEXT")
+                    cursor.execute(
+                        "UPDATE snapshots SET last_seen_at = timestamp "
+                        "WHERE last_seen_at IS NULL"
+                    )
+                    self.logger.info(
+                        "Migrated database: Added 'last_seen_at' column to "
+                        "'snapshots' table."
+                    )
 
                 # Create enrollment_data table
                 cursor.execute("""
@@ -447,10 +462,12 @@ class DatabaseManager:
 
                 cursor.execute(
                     """
-                    INSERT INTO snapshots (timestamp, semester, overall_fill)
-                    VALUES (?, ?, ?)
-                """,
-                    (timestamp, semester, overall_fill),
+                    INSERT INTO snapshots (
+                        timestamp, last_seen_at, semester, overall_fill
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (timestamp, timestamp, semester, overall_fill),
                 )
 
                 snapshot_id_raw = cursor.lastrowid
@@ -607,20 +624,21 @@ class DatabaseManager:
                     self.logger.info(
                         f"Snapshot data for {snapshot.timestamp} is identical to "
                         f"latest snapshot {latest_snapshot_id} (timestamp: {latest_snapshot.timestamp}). "
-                        f"Discarding duplicate snapshot and updating latest snapshot timestamp."
+                        "Discarding duplicate snapshot and updating its last-seen time."
                     )
                     try:
                         with self.get_connection() as conn:
                             cursor = conn.cursor()
                             cursor.execute(
-                                "UPDATE snapshots SET timestamp = ? WHERE snapshot_id = ?",
+                                "UPDATE snapshots SET last_seen_at = ? "
+                                "WHERE snapshot_id = ?",
                                 (snapshot.timestamp, latest_snapshot_id),
                             )
                             conn.commit()
                         return
                     except sqlite3.Error as e:
                         self.logger.error(
-                            f"Database error updating snapshot timestamp: {e}"
+                            f"Database error updating snapshot last-seen time: {e}"
                         )
                         raise
 
@@ -640,10 +658,17 @@ class DatabaseManager:
                 # --- Step 1: Insert the snapshot record ---
                 cursor.execute(
                     """
-                    INSERT INTO snapshots (timestamp, semester, overall_fill)
-                    VALUES (?, ?, ?)
+                    INSERT INTO snapshots (
+                        timestamp, last_seen_at, semester, overall_fill
+                    )
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (snapshot.timestamp, snapshot.semester, snapshot.overall_fill),
+                    (
+                        snapshot.timestamp,
+                        snapshot.timestamp,
+                        snapshot.semester,
+                        snapshot.overall_fill,
+                    ),
                 )
                 snapshot_id_raw = cursor.lastrowid
                 if snapshot_id_raw is None:
@@ -1022,6 +1047,16 @@ class DatabaseManager:
                     f"""
                     DELETE FROM enrollment_data
                     WHERE snapshot_id IN ({placeholders})
+                """,
+                    old_snapshot_ids,
+                )
+
+                # Reporting rows retain the snapshot foreign key, so remove
+                # reports for snapshots being pruned before deleting snapshots.
+                cursor.execute(
+                    f"""
+                    DELETE FROM reporting_log
+                    WHERE reported_snapshot_id IN ({placeholders})
                 """,
                     old_snapshot_ids,
                 )

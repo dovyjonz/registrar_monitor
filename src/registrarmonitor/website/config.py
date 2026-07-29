@@ -150,6 +150,9 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
     Colors are auto-assigned based on explicit priority groups in TOML.
     """
     cfg = _load_settings()
+    from registrarmonitor.config import get_timezone
+
+    registrar_timezone = get_timezone(cfg)
     sem_data = cfg.get("semesters", {}).get(semester, {})
 
     colored_milestones = []
@@ -163,7 +166,7 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
 
         for i, m_data in enumerate(priorities[p_level]):
             # m_data is [time, label] (and optional color if we wanted, but we don't need it now)
-            time_str = m_data[0]
+            time_str = _serialize_registrar_time(m_data[0], registrar_timezone)
             label_str = m_data[1]
 
             # Skip hidden milestones (labels starting with '_')
@@ -178,11 +181,25 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
 
     # Parse deadlines and apply neutral colors
     raw_deadlines = [
-        {"time": d[0], "label": d[1]} for d in sem_data.get("deadlines", [])
+        {
+            "time": _serialize_registrar_time(d[0], registrar_timezone),
+            "label": d[1],
+        }
+        for d in sem_data.get("deadlines", [])
     ]
     colored_deadlines = _assign_deadline_colors(raw_deadlines)
 
     return colored_milestones + colored_deadlines
+
+
+def _serialize_registrar_time(time_str: str, timezone) -> str:
+    """Serialize configured registrar times with an explicit UTC offset."""
+    from datetime import datetime
+
+    value = datetime.fromisoformat(time_str)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone)
+    return value.isoformat()
 
 
 # Build the MILESTONES_MAP for backward compatibility

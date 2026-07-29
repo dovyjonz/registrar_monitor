@@ -28,6 +28,7 @@ def _make_db(return_id, ts=None):
             self.ts = ts
 
         def execute(self, query, params):
+            assert "last_seen_at" in query
             return self
 
         def fetchone(self):

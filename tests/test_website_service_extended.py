@@ -90,6 +90,38 @@ class TestPatchAssetHashes:
         assert "main-old.js" not in html_file.read_text()
 
 
+class TestValidateAssetReferences:
+    def test_already_current_references_pass(self, tmp_path):
+        public = tmp_path / "public"
+        assets = public / "assets"
+        assets.mkdir(parents=True)
+        (assets / "main-current.js").write_text("")
+        (assets / "main-current.css").write_text("")
+        (public / "fall2026.html").write_text(
+            '<script src="assets/main-current.js"></script>'
+            '<link href="assets/main-current.css">'
+        )
+
+        service = WebsiteService()
+        with patch.object(service, "website_assets_dir", tmp_path):
+            assert service._validate_asset_references_in_html() is True
+
+    def test_stale_reference_reports_page_and_url(self, tmp_path, capsys):
+        public = tmp_path / "public"
+        public.mkdir(parents=True)
+        (public / "fall2026.html").write_text(
+            '<script src="assets/main-stale.js"></script>'
+        )
+
+        service = WebsiteService()
+        with patch.object(service, "website_assets_dir", tmp_path):
+            assert service._validate_asset_references_in_html() is False
+
+        output = capsys.readouterr().out
+        assert "fall2026.html" in output
+        assert "assets/main-stale.js" in output
+
+
 class TestGenerate:
     def test_skips_when_not_active(self):
         service = WebsiteService()
@@ -179,6 +211,22 @@ class TestIsAnySemesterActive:
                 return_value=[{"time": past}, {"time": future}],
             ),
             patch("registrarmonitor.website.config.ALL_SEMESTERS", ["Spring 2024"]),
+        ):
+            service = WebsiteService()
+            assert service.is_any_semester_active() is True
+
+    def test_accepts_timezone_aware_milestones(self):
+        import datetime
+        from zoneinfo import ZoneInfo
+
+        now = datetime.datetime.now(ZoneInfo("Asia/Almaty"))
+
+        with (
+            patch(
+                "registrarmonitor.website.config.get_milestones",
+                return_value=[{"time": now.isoformat()}],
+            ),
+            patch("registrarmonitor.website.config.ALL_SEMESTERS", ["Fall 2026"]),
         ):
             service = WebsiteService()
             assert service.is_any_semester_active() is True

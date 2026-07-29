@@ -4,9 +4,19 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Any
 
+from registrarmonitor.config import get_timezone
 from registrarmonitor.data.database_manager import DatabaseManager
 
-from .config import ALL_SEMESTERS, KEY_MAP, MILESTONES_MAP
+from .config import ALL_SEMESTERS, KEY_MAP, MILESTONES_MAP, course_to_slug
+
+
+def _parse_registrar_timestamp(value: str) -> datetime:
+    """Parse an ISO timestamp into the configured registrar timezone."""
+    parsed = datetime.fromisoformat(value)
+    timezone = get_timezone()
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone)
+    return parsed.astimezone(timezone)
 
 
 def _minify_keys(obj: Any) -> Any:
@@ -45,7 +55,7 @@ def _filter_snapshots_to_milestone_window(
             # Handle both ISO format and other formats
             time_str = m.get("time", "")
             if time_str:
-                milestone_times.append(datetime.fromisoformat(time_str))
+                milestone_times.append(_parse_registrar_timestamp(time_str))
         except (ValueError, TypeError):
             continue
 
@@ -65,7 +75,7 @@ def _filter_snapshots_to_milestone_window(
             ts_str = snapshot.get("timestamp", "")
             if not ts_str:
                 continue
-            ts = datetime.fromisoformat(ts_str)
+            ts = _parse_registrar_timestamp(ts_str)
 
             if window_start <= ts <= window_end:
                 index_map[old_idx] = len(filtered)
@@ -99,7 +109,7 @@ def _history_indices_in_milestone_window(
         try:
             time_str = m.get("time", "")
             if time_str:
-                milestone_times.append(datetime.fromisoformat(time_str))
+                milestone_times.append(_parse_registrar_timestamp(time_str))
         except (ValueError, TypeError):
             continue
 
@@ -111,7 +121,7 @@ def _history_indices_in_milestone_window(
     keep: set[int] = set()
     for idx, snapshot in enumerate(snapshots):
         try:
-            ts = datetime.fromisoformat(snapshot.get("timestamp", ""))
+            ts = _parse_registrar_timestamp(snapshot.get("timestamp", ""))
         except (ValueError, TypeError):
             continue
         if window_start <= ts <= window_end:
@@ -190,6 +200,306 @@ def _compact_histories_for_website(data: dict[str, Any]) -> None:
         )
         for section_data in course_data["sections"].values():
             section_data["history"] = _compact_section_history(section_data["history"])
+
+
+def _get_course_totals(course_data: dict[str, Any]) -> tuple[int, int]:
+    """Return course-level enrollment/capacity using the domain course semantics."""
+    sections = course_data.get("sections", {})
+    if not sections:
+        return 0, 0
+
+    enrollment_by_type: dict[str, int] = {}
+    capacity_by_type: dict[str, int] = {}
+    for section in sections.values():
+        section_type = section.get("type", "")
+        enrollment_by_type[section_type] = enrollment_by_type.get(
+            section_type, 0
+        ) + int(section.get("currentEnrollment") or 0)
+        capacity_by_type[section_type] = capacity_by_type.get(section_type, 0) + int(
+            section.get("currentCapacity") or 0
+        )
+
+    enrollment = min(enrollment_by_type.values()) if enrollment_by_type else 0
+    capacity = min(capacity_by_type.values()) if capacity_by_type else 0
+    return enrollment, capacity
+
+
+def _get_course_status(course_data: dict[str, Any]) -> str:
+    """Return prototype course status derived from current fill state."""
+    if course_data.get("isFilled") or course_data.get("averageFill", 0) >= 1.0:
+        return "full"
+    if course_data.get("averageFill", 0) >= 0.75:
+        return "near"
+    return "open"
+
+
+def _sort_sections_for_prototype(
+    sections: dict[str, dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Sort sections by instructional type, then natural section code."""
+    type_priority = {"L": 0, "S": 1, "R": 1, "D": 1, "B": 2, "Lb": 2}
+    return sorted(
+        sections.items(),
+        key=lambda item: (
+            type_priority.get(item[1].get("type", ""), 3),
+            item[0],
+        ),
+    )
+
+
+def _format_prototype_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a course event for the prototype UI."""
+    event_type = event.get("eventType", "")
+    section_code = event.get("sectionCode", "")
+    old_value = event.get("oldValue")
+    new_value = event.get("newValue")
+
+    labels = {
+        "course_added": "Course Added",
+        "course_removed": "Course Removed",
+        "section_added": "Section Added",
+        "section_removed": "Section Removed",
+        "capacity_changed": "Capacity Change",
+        "instructor_changed": "Instructor Change",
+    }
+    if event_type == "capacity_changed":
+        description = f"{section_code} {old_value} -> {new_value}".strip()
+    elif event_type == "instructor_changed":
+        description = f"{section_code} {old_value} -> {new_value}".strip()
+    elif section_code:
+        description = section_code
+    else:
+        description = labels.get(event_type, event_type.replace("_", " ").title())
+
+    return {
+        "type": event_type,
+        "label": labels.get(event_type, event_type.replace("_", " ").title()),
+        "description": description,
+        "sectionCode": section_code,
+        "oldValue": old_value,
+        "newValue": new_value,
+        "timestamp": event.get("snapshotTimestamp"),
+    }
+
+
+def _get_last_activity_at(
+    course_data: dict[str, Any], fallback: str | None
+) -> str | None:
+    """Return the latest event timestamp for a course, or the semester fallback."""
+    event_times = [
+        event.get("snapshotTimestamp")
+        for event in course_data.get("events", [])
+        if event.get("snapshotTimestamp")
+    ]
+    return max(event_times) if event_times else fallback
+
+
+def _build_prototype_course_row(
+    code: str,
+    course_data: dict[str, Any],
+    *,
+    last_report_time: str | None,
+    detail_base_url: str,
+) -> dict[str, Any]:
+    """Build the lightweight course row used by the local prototype index."""
+    enrollment, capacity = _get_course_totals(course_data)
+    section_count = len(course_data.get("sections", {}))
+    status = _get_course_status(course_data)
+    events = sorted(
+        [_format_prototype_event(event) for event in course_data.get("events", [])],
+        key=lambda event: event.get("timestamp") or "",
+        reverse=True,
+    )
+
+    return {
+        "code": code,
+        "title": course_data.get("title", ""),
+        "department": course_data.get("department")
+        or (code.split()[0] if code else ""),
+        "enrollmentTotal": enrollment,
+        "capacityTotal": capacity,
+        "fill": course_data.get("averageFill", 0),
+        "status": status,
+        "isFilled": bool(course_data.get("isFilled")),
+        "sectionCount": section_count,
+        "lastUpdated": last_report_time,
+        "lastActivityAt": _get_last_activity_at(course_data, last_report_time),
+        "recentEvents": events[:3],
+        "detailUrl": f"{detail_base_url}/{course_to_slug(code)}.json",
+    }
+
+
+def _build_prototype_summary(
+    data: dict[str, Any],
+    course_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build summary stats for the local prototype index payload."""
+    full_sections = 0
+    near_full_sections = 0
+    enrollment_total = 0
+    capacity_total = 0
+
+    for course_data in data.get("courses", {}).values():
+        enrollment, capacity = _get_course_totals(course_data)
+        enrollment_total += enrollment
+        capacity_total += capacity
+        for section in course_data.get("sections", {}).values():
+            fill = section.get("currentFill", 0)
+            if fill >= 1.0:
+                full_sections += 1
+            elif fill >= 0.75:
+                near_full_sections += 1
+
+    return {
+        "semester": data.get("semester"),
+        "lastReportTime": data.get("lastReportTime"),
+        "courses": len(course_rows),
+        "sections": sum(row["sectionCount"] for row in course_rows),
+        "fullSections": full_sections,
+        "nearFullSections": near_full_sections,
+        "snapshots": len(data.get("snapshots", [])),
+        "enrollmentTotal": enrollment_total,
+        "capacityTotal": capacity_total,
+        "overallFill": (enrollment_total / capacity_total if capacity_total > 0 else 0),
+    }
+
+
+def _compact_course_snapshots_for_detail(
+    course_data: dict[str, Any],
+    snapshots: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    Keep only snapshots referenced by a course detail payload and remap indices.
+
+    The normal website payload keeps global snapshot indices.  Prototype detail
+    files are lazy-loaded per course, so remapping keeps each detail payload
+    small without requiring frontend lookups into the initial index payload.
+    """
+    snapshot_indices: set[int] = set()
+    for point in course_data.get("averageHistory", []):
+        if isinstance(point.get("snapshotIdx"), int):
+            snapshot_indices.add(point["snapshotIdx"])
+    for section in course_data.get("sections", {}).values():
+        for point in section.get("history", []):
+            if isinstance(point.get("snapshotIdx"), int):
+                snapshot_indices.add(point["snapshotIdx"])
+
+    kept_indices = [
+        idx for idx in sorted(snapshot_indices) if 0 <= idx < len(snapshots)
+    ]
+    index_map = {old_idx: new_idx for new_idx, old_idx in enumerate(kept_indices)}
+
+    def remap_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        remapped = []
+        for point in history:
+            old_idx = point.get("snapshotIdx")
+            if old_idx not in index_map:
+                continue
+            next_point = dict(point)
+            next_point["snapshotIdx"] = index_map[old_idx]
+            remapped.append(next_point)
+        return remapped
+
+    detail_course = dict(course_data)
+    detail_course["averageHistory"] = remap_history(
+        course_data.get("averageHistory", [])
+    )
+    detail_course["sections"] = {}
+    for section_code, section in course_data.get("sections", {}).items():
+        detail_section = dict(section)
+        detail_section["history"] = remap_history(section.get("history", []))
+        detail_course["sections"][section_code] = detail_section
+
+    detail_snapshots = [snapshots[idx] for idx in kept_indices]
+    return detail_course, detail_snapshots
+
+
+def build_prototype_payloads(
+    data: dict[str, Any],
+    *,
+    detail_base_url: str = "prototype-data",
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """
+    Split full semester website data into a lightweight index and course details.
+
+    Returns:
+        Tuple of (index_payload, detail_payloads_by_slug).
+    """
+    courses = data.get("courses", {})
+    last_report_time = data.get("lastReportTime")
+    course_rows = [
+        _build_prototype_course_row(
+            code,
+            course_data,
+            last_report_time=last_report_time,
+            detail_base_url=detail_base_url,
+        )
+        for code, course_data in sorted(courses.items())
+    ]
+    recent_events = sorted(
+        [
+            {**event, "courseCode": row["code"], "courseTitle": row["title"]}
+            for row in course_rows
+            for event in row["recentEvents"]
+        ],
+        key=lambda event: event.get("timestamp") or "",
+        reverse=True,
+    )[:8]
+
+    index_payload = {
+        "semester": data.get("semester"),
+        "summary": _build_prototype_summary(data, course_rows),
+        "courseRows": course_rows,
+        "recentEvents": recent_events,
+    }
+
+    detail_payloads: dict[str, dict[str, Any]] = {}
+    snapshots = data.get("snapshots", [])
+    for code, course_data in sorted(courses.items()):
+        detail_course, detail_snapshots = _compact_course_snapshots_for_detail(
+            course_data,
+            snapshots,
+        )
+        row = next(row for row in course_rows if row["code"] == code)
+        sections = [
+            {
+                "code": section_code,
+                "type": section.get("type", ""),
+                "instructor": section.get("instructor", ""),
+                "enrollment": section.get("currentEnrollment", 0),
+                "capacity": section.get("currentCapacity", 0),
+                "fill": section.get("currentFill", 0),
+            }
+            for section_code, section in _sort_sections_for_prototype(
+                course_data.get("sections", {})
+            )
+        ]
+        detail_payloads[course_to_slug(code)] = {
+            "semester": data.get("semester"),
+            "course": {
+                **row,
+                "sections": sections,
+                "averageHistory": detail_course.get("averageHistory", []),
+                "rawSections": detail_course.get("sections", {}),
+                "events": [
+                    _format_prototype_event(event)
+                    for event in course_data.get("events", [])
+                ],
+            },
+            "snapshots": detail_snapshots,
+        }
+
+    return index_payload, detail_payloads
+
+
+def get_prototype_payloads(
+    semester: str,
+    *,
+    detail_base_url: str = "prototype-data",
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Query and split semester data for the local dashboard prototype."""
+    data = get_semester_data(semester, minify=False)
+    return build_prototype_payloads(data, detail_base_url=detail_base_url)
 
 
 def _build_course_events(

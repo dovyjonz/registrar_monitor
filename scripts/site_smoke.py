@@ -17,7 +17,7 @@ class AssetParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         for key, value in attrs:
-            if key in {"href", "src"} and value:
+            if key in {"data-json-url", "href", "src"} and value:
                 self.links.append(value)
 
 

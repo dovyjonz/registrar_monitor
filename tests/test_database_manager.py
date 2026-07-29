@@ -1,5 +1,6 @@
 """Tests for the database manager module (integration tests with temp SQLite)."""
 
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,24 @@ def db_manager(tmp_path: Path) -> DatabaseManager:
 class TestDatabaseManagerInit:
     """Tests for DatabaseManager initialization."""
 
+    def test_connections_enforce_foreign_keys(self, db_manager: DatabaseManager):
+        """Every managed connection should reject orphaned child rows."""
+        with db_manager.get_connection() as conn:
+            foreign_keys_enabled = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+
+            assert foreign_keys_enabled == 1
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    """
+                    INSERT INTO reporting_log (
+                        reported_snapshot_id,
+                        report_timestamp,
+                        changes_found
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (999_999, "2024-01-15 10:30:00", 1),
+                )
+
     def test_creates_database_file(self, tmp_path: Path):
         """Database file should be created on initialization."""
         db_path = str(tmp_path / "new_db.db")
@@ -43,8 +62,6 @@ class TestDatabaseManagerInit:
 
     def test_migration_adds_instructor_column(self, tmp_path: Path):
         """Database manager should migrate existing sections table to include instructor column."""
-        import sqlite3
-
         db_path = str(tmp_path / "old_db.db")
 
         # 1. Create a database with the old schema (without instructor column in sections)
@@ -78,6 +95,37 @@ class TestDatabaseManagerInit:
             columns = {row[1] for row in cursor.fetchall()}
 
         assert "instructor" in columns
+
+    def test_migration_adds_and_backfills_last_seen_at(self, tmp_path: Path):
+        """Existing snapshot event times should initialize freshness on migration."""
+        import sqlite3
+
+        db_path = str(tmp_path / "old_snapshots.db")
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                CREATE TABLE snapshots (
+                    snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL UNIQUE,
+                    semester TEXT NOT NULL,
+                    overall_fill REAL NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute(
+                "INSERT INTO snapshots (timestamp, semester, overall_fill) "
+                "VALUES (?, ?, ?)",
+                ("2024-01-15 10:00:00", "Spring 2024", 0.75),
+            )
+
+        manager = DatabaseManager(db_path=db_path)
+
+        with manager.get_connection() as conn:
+            row = conn.execute(
+                "SELECT timestamp, last_seen_at FROM snapshots"
+            ).fetchone()
+
+        assert row["timestamp"] == "2024-01-15 10:00:00"
+        assert row["last_seen_at"] == row["timestamp"]
 
 
 class TestInsertCourse:
@@ -256,8 +304,10 @@ class TestStoreEnrollmentSnapshot:
             cursor.execute("SELECT COUNT(*) FROM snapshots")
             assert cursor.fetchone()[0] == 2
 
-    def test_store_duplicate_snapshots_deduplicated(self, db_manager: DatabaseManager):
-        """Completely identical snapshots should be deduplicated by updating the timestamp."""
+    def test_identical_poll_preserves_event_time_and_updates_last_seen(
+        self, db_manager: DatabaseManager
+    ):
+        """An identical poll should refresh observation time without moving history."""
         sections = {
             "10L": Section("10L", "L", 25, 30, 0.83, "Dr. Smith"),
         }
@@ -288,6 +338,14 @@ class TestStoreEnrollmentSnapshot:
         )
 
         db_manager.store_enrollment_snapshot(snapshot1)
+        with patch(
+            "registrarmonitor.website.checksums.DatabaseManager",
+            return_value=db_manager,
+        ):
+            from registrarmonitor.website.checksums import compute_semester_hash
+
+            checksum_before = compute_semester_hash("Spring 2024")
+
         db_manager.store_enrollment_snapshot(snapshot2)
 
         with db_manager.get_connection() as conn:
@@ -295,9 +353,16 @@ class TestStoreEnrollmentSnapshot:
             cursor.execute("SELECT COUNT(*) FROM snapshots")
             assert cursor.fetchone()[0] == 1
 
-            cursor.execute("SELECT timestamp FROM snapshots LIMIT 1")
-            # The timestamp should be updated to the second snapshot's timestamp
-            assert cursor.fetchone()[0] == "2024-01-15 10:15:00"
+            cursor.execute("SELECT timestamp, last_seen_at FROM snapshots LIMIT 1")
+            row = cursor.fetchone()
+            assert row["timestamp"] == "2024-01-15 10:00:00"
+            assert row["last_seen_at"] == "2024-01-15 10:15:00"
+
+        with patch(
+            "registrarmonitor.website.checksums.DatabaseManager",
+            return_value=db_manager,
+        ):
+            assert compute_semester_hash("Spring 2024") == checksum_before
 
     def test_store_non_duplicate_snapshots_not_deduplicated(
         self, db_manager: DatabaseManager

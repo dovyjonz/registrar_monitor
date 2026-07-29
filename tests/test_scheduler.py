@@ -1,5 +1,8 @@
 """Tests for the scheduler module (beyond heat decay)."""
 
+import time
+from zoneinfo import ZoneInfo
+
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -21,6 +24,7 @@ from registrarmonitor.automation.scheduler import (
     parse_schedule_file,
 )
 from registrarmonitor.cli.commands import PollResult
+from registrarmonitor.website.config import get_milestones
 
 
 class TestSchedulingLevel:
@@ -176,6 +180,49 @@ class TestGetCurrentZoneType:
         ):
             result = get_current_zone_type()
             assert result == SchedulingLevel.SLEEP
+
+    @pytest.mark.parametrize("process_timezone", ["UTC", "Asia/Almaty"])
+    @patch("registrarmonitor.automation.scheduler.get_config")
+    def test_registrar_times_are_process_timezone_independent(
+        self, mock_get_config, monkeypatch, process_timezone
+    ):
+        """Schedule decisions and browser timestamps use the registrar timezone."""
+        mock_get_config.return_value = {
+            "timezone": "Asia/Almaty",
+            "semesters": {
+                "Fall 2026": {
+                    "priorities": {
+                        "1": [["2026-08-05T09:00:00", "Y4+"]],
+                    }
+                }
+            },
+        }
+        instant = datetime(2026, 8, 5, 4, 0, tzinfo=ZoneInfo("UTC")).timestamp()
+
+        monkeypatch.setenv("TZ", process_timezone)
+        time.tzset()
+
+        class MockDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls.fromtimestamp(instant, tz)
+
+        try:
+            with patch(
+                "registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime
+            ):
+                assert get_current_zone_type() == SchedulingLevel.HOT
+
+            with patch(
+                "registrarmonitor.website.config._load_settings",
+                return_value=mock_get_config.return_value,
+            ):
+                assert get_milestones("Fall 2026")[0]["time"] == (
+                    "2026-08-05T09:00:00+05:00"
+                )
+        finally:
+            monkeypatch.undo()
+            time.tzset()
 
 
 class TestSchedulingDecision:

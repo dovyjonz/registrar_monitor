@@ -26,6 +26,17 @@ class DataDownloader:
         with open(filename, "wb") as f:
             f.write(content)
 
+    def _tls_verification(self) -> bool | str:
+        data_source = self.config["data_source"]
+        if data_source.get("allow_insecure_tls", False):
+            self.logger.warning(
+                "SECURITY WARNING: TLS certificate verification is disabled "
+                "for the registrar download"
+            )
+            return False
+
+        return data_source.get("ca_bundle") or True
+
     async def download(self) -> str | None:
         """
         Download the enrollment data file.
@@ -44,7 +55,7 @@ class DataDownloader:
         )
 
         try:
-            async with httpx.AsyncClient(verify=False) as client:
+            async with httpx.AsyncClient(verify=self._tls_verification()) as client:
                 print(f"Downloading file from {self.url}...")
                 response = await client.get(self.url, timeout=30.0)
                 response.raise_for_status()

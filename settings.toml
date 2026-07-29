@@ -1,4 +1,5 @@
 # Configuration file for Registrar Monitor
+timezone = "Asia/Almaty"
 
 [directories]
 text_reports = "assets/changes"
@@ -10,6 +11,9 @@ logs = "logs"
 [data_source]
 # University registrar data URL
 url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=825"
+# Compatibility exception for the registrar's currently unverifiable TLS chain.
+# Remove this after configuring and proving a working ca_bundle path.
+allow_insecure_tls = true
 
 [notifications]
 # File write delay before sending notifications (seconds)
