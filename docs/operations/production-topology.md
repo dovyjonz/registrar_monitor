@@ -21,12 +21,13 @@ Classification meanings:
   Monitor job in the inspected user, service-user, root, or system crontabs.
 - **Verified:** Neither of the two installed Registrar Monitor systemd units was
   active. `registrarmonitor.service` was disabled and failed;
-  `registrar-monitor.service` was enabled and failed.
+  `registrar-monitor.service` was enabled and failed at the 2026-07-28
+  inspection.
 - **Verified:** Production polling, reporting, and website deployment have been
   stale since 2026-06-10.
-- **Inferred:** The intended production topology is one long-running systemd
-  scheduler, not concurrent systemd and cron execution. Which of the two installed
-  units is intended to be authoritative is unknown.
+- **Verified (2026-07-29):** `registrarmonitor.service` is the canonical unit.
+  The obsolete `registrar-monitor.service` was disabled, and both units remain
+  inactive while monitoring is intentionally paused.
 
 ## Runtime host and paths
 
@@ -53,6 +54,9 @@ Classification meanings:
 
 ### Installed units
 
+The states in this table are historical evidence from the 2026-07-28
+inspection, before the retirement action described below.
+
 | Unit | Classification | Enabled state | Runtime state | Command | Restart policy |
 |---|---|---:|---|---|---|
 | `registrarmonitor.service` | **Verified** | Disabled | Failed since 2026-06-10 16:42:56 +05 | `uv run monitor schedule` | Always; 5-second delay |
@@ -67,6 +71,19 @@ Classification meanings:
   an operator-initiated stop differently from an unexpected process failure.
 - **Verified:** Host-level recovery is currently ineffective because no Registrar
   Monitor service is active.
+
+### Canonical unit and intentional pause
+
+- **Verified (2026-07-29):** `registrarmonitor.service` is the only supported
+  unit definition. It remains disabled and inactive.
+- **Verified (2026-07-29):** The obsolete `registrar-monitor.service` was
+  disabled. It remains installed only as historical runtime residue and is not
+  supported.
+- **Verified (2026-07-29):** Disabling the obsolete unit did not start polling,
+  reporting, deployment, or scheduler processes.
+- Monitoring must remain paused until the planned data changes are complete and
+  an operator has explicitly verified them. Future activation is a separate
+  manual operation; repository setup does not enable or start the service.
 
 ### Scheduler behavior
 
@@ -178,22 +195,19 @@ Classification meanings:
 
 ## Unresolved operator questions
 
-1. Which systemd unit is authoritative: `registrarmonitor.service` or
-   `registrar-monitor.service`?
-2. Why was the scheduler stopped on 2026-06-10, and should it be running now?
-3. Who owns database backups, where are they stored, and what retention, recovery
+1. Who owns database backups, where are they stored, and what retention, recovery
    point, and recovery time targets apply?
-4. Has the credential-like value left in the commented service-user crontab been
+2. Has the credential-like value left in the commented service-user crontab been
    rotated?
-5. Is direct Pages deployment through `WebsiteService` the sole supported
+3. Is direct Pages deployment through `WebsiteService` the sole supported
    production mechanism?
-6. Should the alternate Worker deployment command be retained or retired?
-7. When and by what controlled procedure should the stale VPS checkout be updated?
-8. Should an intentional systemd stop remain stopped, or should another supervisor
+4. Should the alternate Worker deployment command be retained or retired?
+5. When and by what controlled procedure should the stale VPS checkout be updated?
+6. Should an intentional systemd stop remain stopped, or should another supervisor
    or alert require explicit acknowledgement?
-9. What monitoring should alert operators when polling, reporting, deployment, or
+7. What monitoring should alert operators when polling, reporting, deployment, or
    backups become stale?
-10. Is cron reporting intended to be installed as an independent fallback, or
+8. Is cron reporting intended to be installed as an independent fallback, or
     should systemd remain the only production report producer?
 
 ## Safe read-only verification checklist

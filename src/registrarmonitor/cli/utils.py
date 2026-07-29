@@ -20,7 +20,7 @@ async def detect_active_semester(debug: bool = False) -> str | None:
                     with db.get_connection() as conn:
                         cursor = conn.cursor()
                         cursor.execute(
-                            "SELECT timestamp FROM snapshots WHERE snapshot_id = ?",
+                            "SELECT last_seen_at FROM snapshots WHERE snapshot_id = ?",
                             (latest_id,),
                         )
                         result = cursor.fetchone()

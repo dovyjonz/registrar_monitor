@@ -290,6 +290,34 @@ class TestCleanupOldSnapshots:
         # With only 1 snapshot kept, enrollment data should be just for that snapshot
         assert remaining_data > 0
 
+    def test_removes_reporting_rows_before_referenced_snapshots(
+        self, seeded_db: DatabaseManager
+    ):
+        with seeded_db.get_connection() as conn:
+            snapshot_ids = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT snapshot_id FROM snapshots ORDER BY timestamp"
+                )
+            ]
+
+        old_snapshot_id = snapshot_ids[0]
+        kept_snapshot_id = snapshot_ids[-1]
+        seeded_db.add_reporting_log(old_snapshot_id, changes_were_found=True)
+        seeded_db.add_reporting_log(kept_snapshot_id, changes_were_found=True)
+
+        assert seeded_db.cleanup_old_snapshots(keep_count=1) == len(snapshot_ids) - 1
+
+        with seeded_db.get_connection() as conn:
+            reported_ids = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT reported_snapshot_id FROM reporting_log"
+                )
+            ]
+
+        assert reported_ids == [kept_snapshot_id]
+
 
 class TestDedupeInstructorChanges:
     """Tests for dedupe_instructor_changes."""

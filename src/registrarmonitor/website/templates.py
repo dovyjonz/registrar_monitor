@@ -166,6 +166,26 @@ def build_course_share_page(
     )
 
 
+def build_prototype_page(
+    *,
+    semester: str,
+    index_json: str = "prototype-data/index.json",
+) -> str:
+    """Build the local-only dashboard prototype shell."""
+    js_file, css_file = _get_asset_info("src/prototype.js")
+    template = env.get_template("prototype.html.jinja")
+    return template.render(
+        title=f"Enrollment Monitor Prototype - {semester}",
+        semester=semester,
+        index_json=index_json,
+        js_file=js_file,
+        css_file=css_file,
+        asset_base_url="assets/",
+        canonical_url=None,
+        indexing="noindex",
+    )
+
+
 def build_redirect_index() -> str:
     """
     Build index.html that redirects to the latest semester.

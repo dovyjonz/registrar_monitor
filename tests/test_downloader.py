@@ -29,6 +29,7 @@ def mock_httpx_client():
         mock_client = AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
         mock_client_cls.return_value.__aexit__.return_value = None
+        mock_client.client_class = mock_client_cls
         yield mock_client
 
 
@@ -145,3 +146,54 @@ async def test_download_request_error(mock_config, mock_httpx_client):
 
     with pytest.raises(FileProcessingError, match="Request error"):
         await downloader.download()
+
+
+@pytest.mark.asyncio
+async def test_verified_tls_rejects_invalid_chain_without_writing_file(
+    mock_config, mock_httpx_client
+):
+    """TLS verification is the default and failed verification writes no file."""
+    import httpx
+
+    mock_httpx_client.get.side_effect = httpx.ConnectError("certificate verify failed")
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError, match="Connection error"):
+        await downloader.download()
+
+    mock_httpx_client.client_class.assert_called_once_with(verify=True)
+    assert list(Path(downloader.raw_xls_directory).iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_configured_ca_bundle_is_passed_to_httpx(
+    mock_config, mock_httpx_client, tmp_path
+):
+    ca_bundle = tmp_path / "registrar-ca.pem"
+    mock_config.return_value["data_source"]["ca_bundle"] = str(ca_bundle)
+    mock_httpx_client.get.side_effect = __import__("httpx").ConnectError(
+        "certificate verify failed"
+    )
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError):
+        await downloader.download()
+
+    mock_httpx_client.client_class.assert_called_once_with(verify=str(ca_bundle))
+
+
+@pytest.mark.asyncio
+async def test_insecure_tls_requires_explicit_config_and_logs_warning(
+    mock_config, mock_httpx_client, caplog
+):
+    mock_config.return_value["data_source"]["allow_insecure_tls"] = True
+    mock_httpx_client.get.side_effect = __import__("httpx").ConnectError(
+        "Connection refused"
+    )
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError):
+        await downloader.download()
+
+    mock_httpx_client.client_class.assert_called_once_with(verify=False)
+    assert "TLS certificate verification is disabled" in caplog.text

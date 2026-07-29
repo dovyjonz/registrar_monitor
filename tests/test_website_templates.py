@@ -10,6 +10,7 @@ from unittest.mock import patch
 from registrarmonitor.website.templates import (
     _build_nav_html,
     _get_asset_info,
+    build_prototype_page,
     build_redirect_index,
     build_semester_page,
 )
@@ -155,6 +156,31 @@ class TestBuildRedirectIndex:
         html = build_redirect_index()
         latest_file = semester_to_filename(LATEST_SEMESTER)
         assert latest_file in html
+
+
+class TestBuildPrototypePage:
+    def test_uses_prototype_asset_entry_and_index_payload(self):
+        with (
+            patch(
+                "registrarmonitor.website.templates._get_asset_info",
+                return_value=("assets/prototype-abc.js", "assets/prototype-def.css"),
+            ) as asset_info,
+            patch(
+                "registrarmonitor.website.templates.env.get_template"
+            ) as mock_template,
+        ):
+            mock_template.return_value.render.return_value = "<html>prototype</html>"
+
+            html = build_prototype_page(
+                semester="Summer 2026",
+                index_json="prototype-data/index.json",
+            )
+
+        assert html == "<html>prototype</html>"
+        asset_info.assert_called_once_with("src/prototype.js")
+        kwargs = mock_template.return_value.render.call_args[1]
+        assert kwargs["index_json"] == "prototype-data/index.json"
+        assert kwargs["indexing"] == "noindex"
 
 
 class TestBuildSemesterPageNewParams:

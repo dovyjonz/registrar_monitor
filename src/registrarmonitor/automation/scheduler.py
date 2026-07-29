@@ -9,7 +9,7 @@ from collections import deque
 from enum import Enum
 from pathlib import Path
 
-from ..config import get_config
+from ..config import get_config, get_timezone
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from .downloader import DataDownloader
@@ -22,6 +22,33 @@ ReportingService = None  # type: ignore[misc, assignment]
 def get_current_time_str() -> str:
     """Get current time as formatted string."""
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _registrar_datetime(value: str, cfg: dict) -> datetime.datetime:
+    """Parse a configured time as registrar-local wall time."""
+    parsed = datetime.datetime.fromisoformat(value)
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(get_timezone(cfg)).replace(tzinfo=None)
+    return parsed
+
+
+def _registrar_now(cfg: dict | None = None) -> datetime.datetime:
+    """Return current registrar-local wall time independent of the host timezone."""
+    config = cfg if cfg is not None else get_config()
+    return _registrar_wall_time(
+        datetime.datetime.now(get_timezone(config)),
+        config,
+    )
+
+
+def _registrar_wall_time(
+    value: datetime.datetime, cfg: dict | None = None
+) -> datetime.datetime:
+    """Convert aware values while preserving legacy naive scheduler inputs."""
+    if value.tzinfo is None:
+        return value
+    config = cfg if cfg is not None else get_config()
+    return value.astimezone(get_timezone(config)).replace(tzinfo=None)
 
 
 class SchedulingLevel(Enum):
@@ -147,15 +174,13 @@ def parse_schedule_file(
             for p_list in priorities.values():
                 for m_data in p_list:
                     try:
-                        milestone_times.append(
-                            datetime.datetime.fromisoformat(m_data[0])
-                        )
+                        milestone_times.append(_registrar_datetime(m_data[0], cfg))
                     except (IndexError, ValueError) as e:
                         print(f"Warning: skipping milestone {m_data}: {e}")
 
             for d_data in sem_data.get("deadlines", []):
                 try:
-                    milestone_times.append(datetime.datetime.fromisoformat(d_data[0]))
+                    milestone_times.append(_registrar_datetime(d_data[0], cfg))
                 except (IndexError, ValueError) as e:
                     print(f"Warning: skipping deadline {d_data}: {e}")
 
@@ -191,7 +216,9 @@ def get_next_zone_start(
     Find the start time of the next scheduled HOT zone window after now.
     """
     if now is None:
-        now = datetime.datetime.now()
+        now = _registrar_now()
+    else:
+        now = _registrar_wall_time(now)
     zones = parse_schedule_file()
     next_start = None
 
@@ -208,7 +235,9 @@ def get_current_zone_type(now: datetime.datetime | None = None) -> SchedulingLev
     Determine the current scheduling level based on milestones in settings.toml.
     """
     if now is None:
-        now = datetime.datetime.now()
+        now = _registrar_now()
+    else:
+        now = _registrar_wall_time(now)
     zones = parse_schedule_file()
 
     # Check if inside any HOT window
@@ -739,17 +768,13 @@ class TwoPhaseScheduler:
                 for p_list in priorities.values():
                     for m_data in p_list:
                         try:
-                            milestone_times.append(
-                                datetime.datetime.fromisoformat(m_data[0])
-                            )
+                            milestone_times.append(_registrar_datetime(m_data[0], cfg))
                         except (IndexError, ValueError):
                             pass
 
                 for d_data in sem_data.get("deadlines", []):
                     try:
-                        milestone_times.append(
-                            datetime.datetime.fromisoformat(d_data[0])
-                        )
+                        milestone_times.append(_registrar_datetime(d_data[0], cfg))
                     except (IndexError, ValueError):
                         pass
         except Exception as e:

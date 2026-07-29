@@ -1,5 +1,6 @@
 import os
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import toml
 from dotenv import load_dotenv
@@ -67,3 +68,9 @@ class Config:
 
 def get_config() -> dict[str, Any]:
     return Config().get_config()
+
+
+def get_timezone(config: dict[str, Any] | None = None) -> ZoneInfo:
+    """Return the registrar timezone configured in settings.toml."""
+    cfg = config if config is not None else get_config()
+    return ZoneInfo(cfg.get("timezone", "Asia/Almaty"))

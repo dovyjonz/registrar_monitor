@@ -46,3 +46,50 @@ def test_main_checks_nested_course_pages(tmp_path):
         pytest.raises(SystemExit, match=r"courses/fall-2026/csci-101\.html"),
     ):
         site_smoke.main()
+
+
+def test_main_fails_when_json_payload_is_missing(tmp_path):
+    output_dir = tmp_path / "public"
+    output_dir.mkdir()
+    (output_dir / "fall2026.html").write_text(
+        '<body data-json-url="missing.json"></body>',
+        encoding="utf-8",
+    )
+
+    with (
+        patch.object(site_smoke, "OUTPUT_DIR", output_dir),
+        patch.object(
+            site_smoke.WebsiteService,
+            "validate_public_output",
+            return_value=[],
+        ),
+        pytest.raises(
+            SystemExit,
+            match=r"fall2026\.html: missing missing\.json",
+        ),
+    ):
+        site_smoke.main()
+
+
+def test_main_accepts_present_and_external_json_payloads(tmp_path):
+    output_dir = tmp_path / "public"
+    output_dir.mkdir()
+    (output_dir / "fall2026.html").write_text(
+        '<body data-json-url="fall2026.json"></body>',
+        encoding="utf-8",
+    )
+    (output_dir / "fall2026.json").write_text("{}", encoding="utf-8")
+    (output_dir / "external.html").write_text(
+        '<body data-json-url="https://example.com/fall2026.json"></body>',
+        encoding="utf-8",
+    )
+
+    with (
+        patch.object(site_smoke, "OUTPUT_DIR", output_dir),
+        patch.object(
+            site_smoke.WebsiteService,
+            "validate_public_output",
+            return_value=[],
+        ),
+    ):
+        site_smoke.main()

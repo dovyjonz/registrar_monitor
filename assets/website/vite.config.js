@@ -13,6 +13,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'src/main.js'),
+        prototype: resolve(__dirname, 'src/prototype.js'),
       }
     }
   },

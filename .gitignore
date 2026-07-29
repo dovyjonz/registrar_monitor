@@ -45,6 +45,7 @@ assets/website/public/*.json
 assets/website/public/.checksums.json
 assets/website/public/_headers
 assets/website/public/assets/
+assets/website/public/prototype-data/
 assets/website/public/manifest.json
 assets/website/public/.vite/
 
