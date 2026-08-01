@@ -1,5 +1,18 @@
 .DEFAULT_GOAL := help
 
+# Make is often launched by a non-login shell (for example, an editor task or
+# a service wrapper). Prefer the project-pinned Node installation and include
+# the standard user-local locations used by uv and Jujutsu before inheriting
+# the caller's PATH.
+NODE_VERSION := $(shell tr -d '[:space:]' < .node-version)
+RUNTIME_PATHS := $(HOME)/.local/share/registrar-monitor/node-v$(NODE_VERSION)/bin:$(HOME)/.nvm/versions/node/v$(NODE_VERSION)/bin:$(HOME)/.local/bin:$(HOME)/.cargo/bin:/opt/homebrew/opt/node@24/bin:/usr/local/opt/node@24/bin:/opt/homebrew/bin:/usr/local/bin
+INHERITED_PATH := $(or $(PATH),/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin)
+PATH := $(RUNTIME_PATHS):$(INHERITED_PATH)
+export PATH
+RUNTIME_ENV = PATH="$(PATH)"
+UV = $(RUNTIME_ENV) uv
+NPM = $(RUNTIME_ENV) npm
+
 .PHONY: help bootstrap doctor sync format format-check lint type test website-install website-lint website-test-unit website-build check-fast check site-generate test-browser site-smoke baseline benchmark benchmark-database benchmark-website benchmark-browser benchmark-synthetic benchmark-record benchmark-record-deploy prototype-checkpointed-state prototype-checkpointed-state-targeted clean-generated
 
 PERF_COLD ?= 10
@@ -36,37 +49,37 @@ help:
 bootstrap: sync website-install
 
 doctor:
-	uv run monitor doctor
+	$(UV) run monitor doctor
 
 sync:
-	uv sync --locked --group dev
+	$(UV) sync --locked --group dev
 
 format:
-	uv run ruff format
+	$(UV) run ruff format
 
 format-check:
-	uv run ruff format --check
+	$(UV) run ruff format --check
 
 lint:
-	uv run ruff check
+	$(UV) run ruff check
 
 type:
-	uv run ty check
+	$(UV) run ty check
 
 test:
-	uv run pytest
+	$(UV) run pytest
 
 website-install:
-	npm ci --prefix assets/website
+	$(NPM) ci --prefix assets/website
 
 website-lint:
-	npm --prefix assets/website run lint
+	$(NPM) --prefix assets/website run lint
 
 website-test-unit:
-	npm --prefix assets/website run test:unit
+	$(NPM) --prefix assets/website run test:unit
 
 website-build:
-	npm --prefix assets/website run build
+	$(NPM) --prefix assets/website run build
 
 check-fast: format-check lint type test
 
@@ -74,58 +87,58 @@ check-fast: format-check lint type test
 check: format-check lint type test website-lint website-test-unit website-build
 
 site-generate: website-build
-	uv run monitor deploy --force
+	$(UV) run monitor deploy --force
 
 test-browser: site-generate
-	npm --prefix assets/website exec playwright install chromium
-	npm --prefix assets/website run test:e2e
+	$(NPM) --prefix assets/website exec playwright install chromium
+	$(NPM) --prefix assets/website run test:e2e
 
 site-smoke: site-generate
 	@mkdir -p output
-	uv run python scripts/site_smoke.py --json output/generated-site-crawl.json
+	$(UV) run python scripts/site_smoke.py --json output/generated-site-crawl.json
 
 baseline:
 	@mkdir -p output
-	uv run python scripts/write_baseline.py output/tooling-baseline.json
+	$(UV) run python scripts/write_baseline.py output/tooling-baseline.json
 
 benchmark: website-build
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy> or use make benchmark-synthetic' >&2; exit 2; }
 	@mkdir -p output
-	uv run python scripts/benchmark_performance.py --database "$(DATABASE)" --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
+	$(UV) run python scripts/benchmark_performance.py --database "$(DATABASE)" --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
 
 benchmark-database:
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@mkdir -p output
-	uv run python scripts/benchmark_performance.py --database "$(DATABASE)" --mode database --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
+	$(UV) run python scripts/benchmark_performance.py --database "$(DATABASE)" --mode database --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
 
 benchmark-website: website-build
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@mkdir -p output
-	uv run python scripts/benchmark_performance.py --database "$(DATABASE)" --mode website --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
+	$(UV) run python scripts/benchmark_performance.py --database "$(DATABASE)" --mode website --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
 
 benchmark-browser: website-build
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@mkdir -p output
-	uv run python scripts/benchmark_performance.py --database "$(DATABASE)" --mode browser --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
+	$(UV) run python scripts/benchmark_performance.py --database "$(DATABASE)" --mode browser --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
 
 benchmark-synthetic: website-build
 	@mkdir -p output
-	uv run python scripts/benchmark_performance.py --synthetic --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
+	$(UV) run python scripts/benchmark_performance.py --synthetic --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output "$(PERF_OUTPUT)"
 
 benchmark-record: website-build
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@mkdir -p docs/baselines
-	uv run python scripts/benchmark_performance.py --database "$(DATABASE)" --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output docs/baselines/performance-2026-07-29.json --markdown docs/baselines/performance-2026-07-29.md
+	$(UV) run python scripts/benchmark_performance.py --database "$(DATABASE)" --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --output docs/baselines/performance-2026-07-29.json --markdown docs/baselines/performance-2026-07-29.md
 
 benchmark-record-deploy: website-build
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@mkdir -p docs/baselines
-	uv run python scripts/benchmark_performance.py --database "$(DATABASE)" --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --deploy-preview --output docs/baselines/performance-2026-07-29.json --markdown docs/baselines/performance-2026-07-29.md
+	$(UV) run python scripts/benchmark_performance.py --database "$(DATABASE)" --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --deploy-preview --output docs/baselines/performance-2026-07-29.json --markdown docs/baselines/performance-2026-07-29.md
 
 prototype-checkpointed-state:
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@mkdir -p output
-	uv run python scripts/evaluate_checkpointed_state.py --database "$(DATABASE)" \
+	$(UV) run python scripts/evaluate_checkpointed_state.py --database "$(DATABASE)" \
 		--output "$(PROTOTYPE_OUTPUT)" --markdown "$(PROTOTYPE_MARKDOWN)" \
 		$(if $(PROTOTYPE_SEMESTER),--semester "$(PROTOTYPE_SEMESTER)")
 
@@ -133,7 +146,7 @@ prototype-checkpointed-state-targeted:
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@test -n "$(RAW_DIR)" || { echo 'Set RAW_DIR=<retained registrar XLS directory>' >&2; exit 2; }
 	@mkdir -p output
-	uv run python scripts/evaluate_checkpointed_state.py --database "$(DATABASE)" \
+	$(UV) run python scripts/evaluate_checkpointed_state.py --database "$(DATABASE)" \
 		--output "$(PROTOTYPE_OUTPUT)" --markdown "$(PROTOTYPE_MARKDOWN)" \
 		--targeted-samples "$(PROTOTYPE_TARGETED_SAMPLES)" --raw-dir "$(RAW_DIR)" \
 		--failure-injection \

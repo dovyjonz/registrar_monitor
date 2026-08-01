@@ -25,6 +25,17 @@ Production state is maintained separately in
 `make bootstrap` installs lockfile-pinned Python and website dependencies.
 `make doctor` validates the local toolchain and important paths without requiring
 optional secrets.
+
+Makefile commands also construct a non-login runtime `PATH`: an exact Node
+installation under `$HOME/.local/share/registrar-monitor/node-v<version>/bin`
+or the matching nvm directory takes precedence, followed by user-local `uv`,
+Cargo-installed Jujutsu, and standard Homebrew locations. This keeps the
+`.node-version` selection and user-installed CLI tools stable when a caller
+does not load interactive shell startup files. The tools still need to be
+installed on the host; `make doctor` reports a missing installation.
+
+The frontend has `engine-strict=true`, so an unsupported Node or npm version
+fails installation instead of leaving a misleading engine warning.
 `make baseline` writes a structured JSON report containing input hashes and the
 doctor results. See [tooling.md](tooling.md) for field and command details.
 
