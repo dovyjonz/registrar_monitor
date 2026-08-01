@@ -148,7 +148,8 @@ measurement alone is insufficient.
 ## Exact promotion actions
 
 1. Keep `registrarmonitor.service` stopped. Sync the approved revision, run
-   `make doctor` and `make check`, verify the five databases/raw corpora, and run
+   `make doctor` (or `scripts/runtime_doctor.sh` when `make` is unavailable) and
+   `make check`, verify the five databases/raw corpora, and run
    target-host dry runs and bounded rehearsals in `storage.migration_order`.
 2. Create and restore-check timestamped SQLite backups. Record ownership,
    off-host location, retention, RPO/RTO, free-space margin, hashes, integrity,

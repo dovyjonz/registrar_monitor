@@ -15,3 +15,4 @@ def test_vps_setup_keeps_canonical_service_paused():
     assert "Monitoring remains paused" in script
     assert "planned data changes" in script
     assert "verified" in script
+    assert "scripts/runtime_doctor.sh" in script

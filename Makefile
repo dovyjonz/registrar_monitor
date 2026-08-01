@@ -49,7 +49,7 @@ help:
 bootstrap: sync website-install
 
 doctor:
-	$(UV) run monitor doctor
+	./scripts/runtime_doctor.sh
 
 sync:
 	$(UV) sync --locked --group dev

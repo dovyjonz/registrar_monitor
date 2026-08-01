@@ -162,6 +162,14 @@ gcloud compute ssh instance-20260501-152532 \
   --dry-run
 ```
 
+Run the application diagnostic as the runtime user; this path does not require
+`make` and does not synchronize or install packages:
+
+```bash
+sudo -u dmitry_s_ivanenko -H \
+  /home/dmitry_s_ivanenko/registrar_monitor/scripts/runtime_doctor.sh
+```
+
 On the host, these checks avoid secret-bearing values:
 
 ```bash

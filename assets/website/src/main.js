@@ -198,6 +198,20 @@ window.closeModal = closeModal;
 /**
  * Render the main course grid.
  */
+function getCourseSectionStats(course) {
+    if (Number.isInteger(course.sectionCount) && Number.isInteger(course.fullSectionCount)) {
+        return {
+            sectionCount: course.sectionCount,
+            fullSectionCount: course.fullSectionCount,
+        };
+    }
+    const sections = Object.values(course.s);
+    return {
+        sectionCount: sections.length,
+        fullSectionCount: sections.filter(section => section.cf >= 1.0).length,
+    };
+}
+
 function renderCourseGrid() {
     const data = getData();
     const grid = document.getElementById('courseGrid');
@@ -256,12 +270,9 @@ function renderCourseGrid() {
 
         for (const course of courses) {
             totalCourses++;
-            const sectionCount = Object.keys(course.s).length;
+            const { sectionCount, fullSectionCount } = getCourseSectionStats(course);
             totalSections += sectionCount;
-
-            for (const section of Object.values(course.s)) {
-                if (section.cf >= 1.0) fullSections++;
-            }
+            fullSections += fullSectionCount;
 
             const status = course.if || course.af >= 1 ? 'full' :
                 course.af >= 0.8 ? 'near' : 'open';
@@ -294,7 +305,10 @@ function renderCourseGrid() {
     animateCounter(document.getElementById('totalCourses'), totalCourses);
     animateCounter(document.getElementById('totalSections'), totalSections);
     animateCounter(document.getElementById('fullSections'), fullSections);
-    animateCounter(document.getElementById('snapshotCount'), data.sn.length);
+    animateCounter(
+        document.getElementById('snapshotCount'),
+        data.snapshotCount ?? data.sn.length,
+    );
 
     // Render jump-to navigation
     const jumpNav = document.getElementById('jumpToNav');
@@ -742,9 +756,10 @@ async function showAverageFillChart(courseCode) {
     const data = getData();
     const course = data.cr[courseCode];
     if (!course) return;
+    const snapshots = course.sn || data.sn;
 
-    const chartPoints = buildAverageChartPoints(course, data.sn);
-    const chartDomain = buildCourseChartDomain(course, data.sn);
+    const chartPoints = buildAverageChartPoints(course, snapshots);
+    const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
 
     document.getElementById('chartLegend').classList.remove('visible');
@@ -776,8 +791,9 @@ async function selectSection(sectionCode) {
     const section = data.cr[selectedCourse].s[sectionCode];
 
     const course = data.cr[selectedCourse];
-    const chartPoints = buildSectionChartPoints(section, data.sn);
-    const chartDomain = buildCourseChartDomain(course, data.sn);
+    const snapshots = course.sn || data.sn;
+    const chartPoints = buildSectionChartPoints(section, snapshots);
+    const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
 
     // Show legend if there are capacity changes

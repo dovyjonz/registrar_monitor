@@ -1,5 +1,6 @@
 """Service for generating and deploying the website."""
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,21 +17,35 @@ from ..website.config import (
     semester_to_slug,
 )
 from ..website.data import get_prototype_payloads, get_semester_data
-from ..website.static_manifest import build_legacy_frontend_payloads, publish_semester
+from ..website.static_manifest import build_frontend_payloads_v3, publish_semester
 from ..website.templates import (
     build_prototype_page,
     build_redirect_index,
     build_semester_page,
 )
 
+# Release A compatibility switch. Remove this branch after one production
+# release has served the v3 manifest-based frontend to all supported clients.
+EMIT_LEGACY_SEMESTER_JSON = True
+
 
 class WebsiteService:
     """Service for handling website generation and deployment."""
 
-    def __init__(self, output_dir: Path | None = None):
+    def __init__(
+        self,
+        output_dir: Path | None = None,
+        *,
+        emit_legacy_semester_json: bool | None = None,
+    ):
         self.logger = get_logger(__name__)
         self.last_generation_skipped = False
         self._output_dir = output_dir.resolve() if output_dir is not None else None
+        self.emit_legacy_semester_json = (
+            EMIT_LEGACY_SEMESTER_JSON
+            if emit_legacy_semester_json is None
+            else emit_legacy_semester_json
+        )
         # Correct path to assets/website
         # src/registrarmonitor/services/website_service.py -> .../repo/assets/website
         self._default_website_assets_dir = (
@@ -86,36 +101,35 @@ class WebsiteService:
         output_path = self.output_dir / filename
         output_path.write_text(html)
 
-        # Write JSON data payload for async fetching
-        import json
-
-        json_filename = filename.replace(".html", ".json")
-        json_path = self.output_dir / json_filename
-
-        payload = {"data": data, "milestones": milestones, "semester": semester}
-        json_path.write_text(json.dumps(payload, separators=(",", ":")))
-
-        # Publish the deployed frontend's additive v2 read model. The original
-        # semester JSON remains available for this compatibility release.
-        summary_payload, departments = build_legacy_frontend_payloads(
+        # Publish the v3 read model consumed by the generated frontend. The
+        # stable pointer is the only JSON URL embedded in the HTML above.
+        summary_payload, departments = build_frontend_payloads_v3(
             data=data,
             milestones=milestones,
             semester=semester,
         )
-        snapshots = data.get("sn", [])
-        latest = snapshots[-1] if isinstance(snapshots, list) and snapshots else {}
         publish_semester(
             self.output_dir,
             semester_slug=semester_to_slug(semester),
             semester=semester,
-            current_snapshot={
-                "id": latest.get("id") if isinstance(latest, dict) else None,
-                "observedAt": (latest.get("ts") if isinstance(latest, dict) else None),
-                "overallFill": (latest.get("of") if isinstance(latest, dict) else None),
-            },
+            current_snapshot=summary_payload["currentSnapshot"],
             summary=summary_payload,
             departments=departments,
         )
+
+        # Release A only: preserve the old root-level payload for previously
+        # deployed clients. New clients never reference this file. Removing a
+        # stale file when the switch is disabled makes Release B effective for
+        # an already-generated public directory as well.
+        json_path = self.output_dir / filename.replace(".html", ".json")
+        if self.emit_legacy_semester_json:
+            payload = {"data": data, "milestones": milestones, "semester": semester}
+            json_path.write_text(
+                json.dumps(payload, separators=(",", ":")),
+                encoding="utf-8",
+            )
+        else:
+            json_path.unlink(missing_ok=True)
 
         # Update checksum
         update_checksum(semester, self.checksums_file)

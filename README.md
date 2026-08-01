@@ -31,6 +31,11 @@ make bootstrap
 make doctor
 ```
 
+`make` is a development wrapper, not a runtime requirement. On a host where
+the SSH operator does not have `make`, run `scripts/runtime_doctor.sh` as the
+application runtime user. It uses the existing `uv` environment with
+`--no-sync`, so the diagnostic does not install or change dependencies.
+
 For an existing Git checkout, initialize colocated Jujutsu with
 `jj git init --colocate .`.
 
@@ -189,7 +194,8 @@ the installed unit file as the only copy.
 
 ## Troubleshooting
 
-- Run `make doctor` for toolchain, path, and optional-secret checks.
+- Run `make doctor` locally, or `scripts/runtime_doctor.sh` on a runtime host,
+  for toolchain, path, and optional-secret checks.
 - Use `monitor db stats` for database visibility.
 - Check `logs/` for application diagnostics.
 - For generated dashboard failures, follow the local serving and asset-hash notes

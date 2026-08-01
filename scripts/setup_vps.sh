@@ -23,6 +23,9 @@ echo "Project root: $PROJECT_ROOT"
 echo "Installing dependencies..."
 uv sync --locked
 
+echo "For a make-free, no-sync runtime diagnostic, run:"
+echo "  ./scripts/runtime_doctor.sh"
+
 # Generate systemd service file dynamically
 cat > scripts/registrarmonitor.service <<EOF
 [Unit]

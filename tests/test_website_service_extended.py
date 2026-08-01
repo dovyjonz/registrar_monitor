@@ -63,6 +63,85 @@ class TestGenerateSemesterPage:
         assert (tmp_path / "spring2024.html").exists()
         assert (tmp_path / "spring2024.json").exists()
 
+    def test_dual_publication_keeps_legacy_file_and_manifest_only_html(self, tmp_path):
+        data = {
+            "cr": {"CS 101": {}},
+            "sn": [{"id": 1, "timestamp": "2024-01-15"}],
+        }
+        with (
+            patch(
+                "registrarmonitor.services.website_service.get_semester_data",
+                return_value=data,
+            ),
+            patch("registrarmonitor.services.website_service.MILESTONES_MAP", {}),
+            patch(
+                "registrarmonitor.website.templates._get_asset_info",
+                return_value=(None, None),
+            ),
+            patch("registrarmonitor.services.website_service.update_checksum"),
+        ):
+            service = WebsiteService(output_dir=tmp_path)
+            out_path, _ = service.generate_semester_page("Spring 2024")
+
+        assert out_path is not None
+        html = out_path.read_text()
+        assert 'data-json-url="data/spring-2024/manifest.json"' in html
+        assert "spring2024.json" not in html
+
+        legacy_payload = json.loads((tmp_path / "spring2024.json").read_text())
+        assert legacy_payload == {
+            "data": data,
+            "milestones": [],
+            "semester": "Spring 2024",
+        }
+
+        pointer = json.loads(
+            (tmp_path / "data" / "spring-2024" / "manifest.json").read_text()
+        )
+        manifest = json.loads(
+            (tmp_path / "data" / "spring-2024" / pointer["current"]).read_text()
+        )
+        summary = json.loads(
+            (tmp_path / "data" / "blobs" / manifest["summary"]["sha256"])
+            .with_suffix(".json")
+            .read_text()
+        )
+        assert manifest["dataModelVersion"] == 3
+        assert manifest["summary"]["schemaVersion"] == 1
+        assert summary["kind"] == "semester-summary"
+        assert manifest["departments"]["CS"]["schemaVersion"] == 1
+        department = json.loads(
+            (tmp_path / "data" / "blobs" / manifest["departments"]["CS"]["sha256"])
+            .with_suffix(".json")
+            .read_text()
+        )
+        assert department["kind"] == "department-detail"
+
+    def test_legacy_semester_json_can_be_disabled(self, tmp_path):
+        data = {"cr": {}, "sn": []}
+        legacy_path = tmp_path / "spring2024.json"
+        legacy_path.write_text("stale compatibility payload")
+        with (
+            patch(
+                "registrarmonitor.services.website_service.get_semester_data",
+                return_value=data,
+            ),
+            patch("registrarmonitor.services.website_service.MILESTONES_MAP", {}),
+            patch(
+                "registrarmonitor.services.website_service.build_semester_page",
+                return_value="<html>manifest-only</html>",
+            ),
+            patch("registrarmonitor.services.website_service.update_checksum"),
+        ):
+            service = WebsiteService(
+                output_dir=tmp_path,
+                emit_legacy_semester_json=False,
+            )
+            service.generate_semester_page("Spring 2024")
+
+        assert not legacy_path.exists()
+        assert (tmp_path / "data" / "spring-2024" / "manifest.json").exists()
+
 
 class TestPatchAssetHashes:
     def test_returns_false_when_manifest_missing(self, tmp_path):

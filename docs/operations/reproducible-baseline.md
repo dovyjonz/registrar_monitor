@@ -16,7 +16,7 @@ Production state is maintained separately in
 | Python dependencies | `uv.lock` |
 | Node.js version | `.node-version` |
 | Website dependencies | `assets/website/package-lock.json` |
-| Setup and checks | `Makefile` |
+| Setup and checks | `Makefile` and `scripts/runtime_doctor.sh` |
 | Non-secret runtime configuration | `settings.toml` |
 | Secret names and examples | `.env.example` |
 | Database schema and migrations | application source and `DATABASE.md` |
@@ -24,7 +24,10 @@ Production state is maintained separately in
 
 `make bootstrap` installs lockfile-pinned Python and website dependencies.
 `make doctor` validates the local toolchain and important paths without requiring
-optional secrets.
+optional secrets. `make` is not a production runtime requirement:
+`scripts/runtime_doctor.sh` runs the same doctor through the installed `uv`
+environment with `--locked --no-sync`, so an SSH operator can verify the
+runtime without installing `make` or changing dependencies.
 
 Makefile commands also construct a non-login runtime `PATH`: an exact Node
 installation under `$HOME/.local/share/registrar-monitor/node-v<version>/bin`
