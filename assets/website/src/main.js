@@ -16,9 +16,33 @@ import {
     semesterToSlug,
 } from './urlSlugs.mjs';
 import {
+    IntegrityError,
     loadDepartmentPayload,
     loadSemesterManifest,
+    UnsupportedSchemaError,
 } from './manifestData.mjs';
+
+function markPerformance(name) {
+    if (typeof performance?.mark === 'function') performance.mark(name);
+}
+
+function markAfterAnimationFrames(name, frameCount = 2) {
+    if (typeof requestAnimationFrame !== 'function') {
+        markPerformance(name);
+        return;
+    }
+
+    let remaining = frameCount;
+    const nextFrame = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+            markPerformance(name);
+            return;
+        }
+        requestAnimationFrame(nextFrame);
+    };
+    requestAnimationFrame(nextFrame);
+}
 
 // Lazy-loaded Chart.js modules (loaded on first chart use)
 let chartJsLoaded = false;
@@ -47,7 +71,9 @@ let staticManifestUrl = null;
 let staticManifestStale = false;
 let courseRequestVersion = 0;
 const departmentPayloads = new Map();
-const hydratedCourses = new Set();
+const summaryCourses = new Map();
+const hydratedCourses = new Map();
+let mappedData = null;
 const dataLoadController = new AbortController();
 window.addEventListener('pagehide', () => dataLoadController.abort(), { once: true });
 
@@ -83,6 +109,67 @@ function getData() {
         return COMBINED_DATA.sd[activeSemester];
     }
     return DATA;
+}
+
+/**
+ * Keep the startup summary and lazily loaded course details in separate maps.
+ * The static manifest's summary objects intentionally contain no section or
+ * history data, so they must never be replaced with department details.
+ */
+function refreshCourseMaps() {
+    const data = getData();
+    if (mappedData === data) return;
+
+    summaryCourses.clear();
+    hydratedCourses.clear();
+    mappedData = data;
+
+    if (!data?.cr) return;
+
+    for (const [code, course] of Object.entries(data.cr)) {
+        summaryCourses.set(code, course);
+        // Legacy and v2 payloads already contain the complete course detail.
+        // Keep it in the detail map without changing the summary map's value.
+        if (!staticManifest || staticManifest.dataModelVersion === 2) {
+            hydratedCourses.set(code, course);
+        }
+    }
+}
+
+function getSummaryCourse(courseCode) {
+    refreshCourseMaps();
+    return summaryCourses.get(courseCode) || null;
+}
+
+function getHydratedCourse(courseCode) {
+    refreshCourseMaps();
+    return hydratedCourses.get(courseCode) || null;
+}
+
+function getCourseDepartment(course, courseCode) {
+    return course?.department || course?.d || courseCode.split(' ')[0] || 'Other';
+}
+
+function getCourseTitle(course) {
+    return course?.title ?? course?.ti ?? '';
+}
+
+function getCourseAverageFill(course) {
+    const fill = course?.averageFill ?? course?.af;
+    return Number.isFinite(fill) ? fill : 0;
+}
+
+function getCourseIsFilled(course) {
+    return course?.isFilled ?? course?.if ?? false;
+}
+
+function getCourseSections(course) {
+    return course?.sections || course?.s || {};
+}
+
+function getCourseSnapshots(course) {
+    const data = getData();
+    return course?.sn || data?.sn || [];
 }
 
 /**
@@ -205,33 +292,48 @@ function getCourseSectionStats(course) {
             fullSectionCount: course.fullSectionCount,
         };
     }
-    const sections = Object.values(course.s);
+    const sections = Object.values(getCourseSections(course));
     return {
         sectionCount: sections.length,
         fullSectionCount: sections.filter(section => section.cf >= 1.0).length,
     };
 }
 
+function renderJumpToNavigation(sortedDepts) {
+    const jumpNav = document.getElementById('jumpToNav');
+    if (!jumpNav) return;
+
+    jumpNav.textContent = '';
+    for (const dept of sortedDepts) {
+        const a = document.createElement('a');
+        a.href = `#dept-${dept}`;
+        a.textContent = dept;
+        jumpNav.appendChild(a);
+    }
+}
+
 function renderCourseGrid() {
     const data = getData();
     const grid = document.getElementById('courseGrid');
-    if (!grid) return;
+    if (!grid || !data) return;
+    refreshCourseMaps();
     grid.textContent = '';
 
     // Update header text
     const lastUpdatedEl = document.getElementById('lastUpdated');
     if (lastUpdatedEl) {
-        const semester = IS_COMBINED ? activeSemester : data.sem;
+        const semester = IS_COMBINED ? activeSemester : (data.semester || data.sem);
         const staleLabel = staticManifestStale ? 'Stale data • ' : '';
-        lastUpdatedEl.textContent = `${staleLabel}${semester} • Last updated ${formatDate(data.lrt)}`;
+        lastUpdatedEl.textContent = `${staleLabel}${semester} • Last updated ${formatDate(
+            data.lastReportTime ?? data.lrt,
+        )}`;
     }
 
-    // Group courses by department (using minified key 'd')
+    // Group the small summary courses by department. The summary already has
+    // section counts, so rendering never needs to inspect lazy detail data.
     const deptCourses = {};
-    for (const [code, course] of Object.entries(data.cr)) {
-        // Handle department parsing safely
-        const parts = code.split(' ');
-        const dept = parts.length > 0 ? parts[0] : 'Other';
+    for (const [code, course] of summaryCourses.entries()) {
+        const dept = getCourseDepartment(course, code);
 
         if (!deptCourses[dept]) deptCourses[dept] = [];
         deptCourses[dept].push({ code, ...course });
@@ -274,18 +376,20 @@ function renderCourseGrid() {
             totalSections += sectionCount;
             fullSections += fullSectionCount;
 
-            const status = course.if || course.af >= 1 ? 'full' :
-                course.af >= 0.8 ? 'near' : 'open';
+            const averageFill = getCourseAverageFill(course);
+            const isFilled = getCourseIsFilled(course);
+            const status = isFilled || averageFill >= 1 ? 'full' :
+                averageFill >= 0.8 ? 'near' : 'open';
             const isStarred = bookmarks.has(course.code);
 
             const cell = document.createElement('div');
-            cell.className = `course-cell ${getStatusClass(course.af, course.if)}${isStarred ? ' starred' : ''}`;
+            cell.className = `course-cell ${getStatusClass(averageFill, isFilled)}${isStarred ? ' starred' : ''}`;
             cell.setAttribute('data-course', course.code);
             cell.setAttribute('data-status', status);
-            cell.setAttribute('data-fill', course.af);
+            cell.setAttribute('data-fill', averageFill);
             cell.setAttribute('tabindex', '0');
             cell.setAttribute('role', 'listitem');
-            cell.setAttribute('aria-label', `${formatCourseCode(course.code)} — ${Math.round(course.af * 100)}% full`);
+            cell.setAttribute('aria-label', `${formatCourseCode(course.code)} — ${Math.round(averageFill * 100)}% full`);
             cell.style.setProperty('--cell-index', totalCourses);
             const codeSpan = document.createElement('span');
             codeSpan.className = 'course-code';
@@ -293,7 +397,7 @@ function renderCourseGrid() {
             cell.appendChild(codeSpan);
             const fillSpan = document.createElement('span');
             fillSpan.className = 'course-fill';
-            fillSpan.textContent = `${Math.round(course.af * 100)}%`;
+            fillSpan.textContent = `${Math.round(averageFill * 100)}%`;
             cell.appendChild(fillSpan);
             cell.onclick = () => openCourse(course.code);
             cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
@@ -307,38 +411,39 @@ function renderCourseGrid() {
     animateCounter(document.getElementById('fullSections'), fullSections);
     animateCounter(
         document.getElementById('snapshotCount'),
-        data.snapshotCount ?? data.sn.length,
+        data.snapshotCount ?? (Array.isArray(data.sn) ? data.sn.length : 0),
     );
 
     // Render jump-to navigation
-    const jumpNav = document.getElementById('jumpToNav');
-    if (jumpNav) {
-        jumpNav.textContent = '';
-        for (const dept of sortedDepts) {
-            const a = document.createElement('a');
-            a.href = `#dept-${dept}`;
-            a.textContent = dept;
-            jumpNav.appendChild(a);
-        }
-    }
+    renderJumpToNavigation(sortedDepts);
 
     // Re-apply filters if any are active
     if (typeof currentFilter !== 'undefined' && currentFilter !== 'all') {
         applyFilters();
     }
+    markPerformance('registrar:grid-dom-complete');
 }
 
 /**
  * Open course detail modal.
  */
 async function hydrateCourse(courseCode) {
-    const data = getData();
-    if (!staticManifest || hydratedCourses.has(courseCode)) {
-        return data.cr[courseCode];
+    refreshCourseMaps();
+    if (hydratedCourses.has(courseCode)) {
+        return hydratedCourses.get(courseCode);
     }
-    const summaryCourse = data.cr[courseCode];
+
+    const summaryCourse = summaryCourses.get(courseCode);
     if (!summaryCourse) return null;
-    const department = summaryCourse.d || courseCode.split(' ')[0];
+
+    // A legacy or v2 payload already contains complete course details. Keep a
+    // separate map entry, but do not replace the summary object in DATA.
+    if (!staticManifest || staticManifest.dataModelVersion === 2) {
+        hydratedCourses.set(courseCode, summaryCourse);
+        return summaryCourse;
+    }
+
+    const department = getCourseDepartment(summaryCourse, courseCode);
     const payload = await loadDepartmentPayload(
         department,
         staticManifest,
@@ -348,39 +453,186 @@ async function hydrateCourse(courseCode) {
     );
     const fullCourse = payload.courses?.[courseCode];
     if (!fullCourse) {
-        throw new Error(`Department payload has no course ${courseCode}`);
+        throw new Error(`Missing department data for course ${courseCode}`);
     }
-    data.cr[courseCode] = fullCourse;
-    hydratedCourses.add(courseCode);
+    hydratedCourses.set(courseCode, fullCourse);
     return fullCourse;
 }
 
-async function openCourse(courseCode) {
-    const requestVersion = ++courseRequestVersion;
-    let course;
-    try {
-        course = await hydrateCourse(courseCode);
-    } catch (error) {
-        console.error(`Failed to load ${courseCode}:`, error);
-        showToast(`Could not load ${courseCode}. Please try again.`);
-        return;
+const MODAL_DETAIL_IDS = [
+    'sectionTypeSelector',
+    'sectionList',
+    'chartContainer',
+    'eventHistory',
+];
+
+function setModalDetailVisibility(visible) {
+    for (const id of MODAL_DETAIL_IDS) {
+        const element = document.getElementById(id);
+        if (element) element.hidden = !visible;
     }
-    if (requestVersion !== courseRequestVersion) return;
-    if (!course) return;
+}
+
+function resetCourseDetailView() {
+    document.getElementById('modalDetailState')?.remove();
+    setModalDetailVisibility(false);
+
+    const sectionTypeSelector = document.getElementById('sectionTypeSelector');
+    const sectionList = document.getElementById('sectionList');
+    const eventHistory = document.getElementById('eventHistory');
+    const eventFilters = document.getElementById('eventFilters');
+    const eventHistoryList = document.getElementById('eventHistoryList');
+    if (sectionTypeSelector) sectionTypeSelector.textContent = '';
+    if (sectionList) sectionList.textContent = '';
+    if (eventHistory) {
+        eventHistory.style.display = 'none';
+        eventHistory.removeAttribute('open');
+    }
+    if (eventFilters) eventFilters.textContent = '';
+    if (eventHistoryList) eventHistoryList.textContent = '';
+
+    currentEnrollmentData = [];
+    lastRenderArgs = null;
+    document.getElementById('chartLegend')?.classList.remove('visible');
+    const placeholder = document.getElementById('chartPlaceholder');
+    if (placeholder) placeholder.style.display = '';
+    document.getElementById('enrollment-chart')?.classList.add('chart-hidden');
+    if (chart) {
+        chart.destroy();
+        chart = null;
+    }
+    setZoomControlsState(false);
+}
+
+function createModalDetailState({ className, role, message }) {
+    const body = document.querySelector('.modal-body');
+    if (!body) return null;
+
+    const state = document.createElement('div');
+    state.id = 'modalDetailState';
+    state.className = className;
+    state.setAttribute('role', role);
+    state.setAttribute('aria-live', role === 'alert' ? 'assertive' : 'polite');
+    state.textContent = message;
+    body.prepend(state);
+    return state;
+}
+
+function showModalDetailLoading() {
+    resetCourseDetailView();
+    const state = createModalDetailState({
+        className: 'empty-state modal-detail-state',
+        role: 'status',
+        message: 'Loading course details…',
+    });
+    if (state) state.setAttribute('aria-busy', 'true');
+}
+
+function classifyDepartmentLoadError(error) {
+    if (error instanceof UnsupportedSchemaError || error?.name === 'UnsupportedSchemaError') {
+        return 'unsupported';
+    }
+    if (error instanceof IntegrityError || error?.name === 'IntegrityError') {
+        return 'corrupt';
+    }
+
+    const message = String(error?.message || error || '');
+    if (/missing department data|no static payload|HTTP 404/i.test(message)) {
+        return 'missing';
+    }
+    if (/failed to load .*HTTP|network|fetch|NetworkError|TypeError|AbortError/i.test(message)) {
+        return 'network';
+    }
+    return 'corrupt';
+}
+
+function departmentErrorMessage(error) {
+    switch (classifyDepartmentLoadError(error)) {
+        case 'missing':
+            return 'Missing department data. Please retry.';
+        case 'corrupt':
+            return 'Corrupt or hash-mismatched data. Please retry.';
+        case 'unsupported':
+            return 'Unsupported schema version for department data. Please retry.';
+        case 'network':
+        default:
+            return 'Network failure while loading department data. Please retry.';
+    }
+}
+
+function showModalDetailError(courseCode, error, requestVersion) {
+    if (requestVersion !== courseRequestVersion || selectedCourse !== courseCode) return;
+
+    resetCourseDetailView();
+    const state = createModalDetailState({
+        className: 'error-state modal-detail-state',
+        role: 'alert',
+        message: departmentErrorMessage(error),
+    });
+    if (!state) return;
+
+    const retryButton = document.createElement('button');
+    retryButton.type = 'button';
+    retryButton.id = 'retryDepartment';
+    retryButton.textContent = 'Retry';
+    retryButton.addEventListener('click', () => {
+        if (selectedCourse === courseCode) retryCourse(courseCode);
+    });
+    state.appendChild(retryButton);
+    console.error(`Failed to load ${courseCode}:`, error);
+}
+
+function focusModal() {
+    setTimeout(() => {
+        const focusable = getModalFocusableElements();
+        if (focusable.length > 0) focusable[0].focus();
+    }, 50);
+}
+
+function openCourseModal(courseCode, summaryCourse) {
+    const overlay = document.getElementById('modalOverlay');
+    if (!overlay?.classList.contains('active')) {
+        modalOpener = document.activeElement;
+    }
+
     selectedCourse = courseCode;
     selectedSection = null;
+    const title = getCourseTitle(summaryCourse);
+    document.getElementById('modalTitle').textContent = `${courseCode}${title ? ` - ${title}` : ''}`;
+    updateModalBookmark(courseCode);
+    overlay.classList.add('active');
+    document.documentElement.classList.add('modal-open');
+    document.body.classList.add('modal-open');
 
-    const title = course.ti ? ` - ${course.ti}` : '';
-    document.getElementById('modalTitle').textContent = `${courseCode}${title}`;
+    // Make background inert while the existing modal is open.
+    document.getElementById('main-content').setAttribute('inert', '');
+    document.querySelector('header').setAttribute('inert', '');
+    document.querySelector('.controls-panel').setAttribute('inert', '');
 
-    // Update bookmark button state
+    document.querySelectorAll('.chart-mode-btn').forEach(b => {
+        const isActive = b.dataset.mode === chartMode;
+        b.classList.toggle('active', isActive);
+        b.setAttribute('aria-pressed', isActive);
+    });
+
+    const shareBtn = document.getElementById('modalShareLink');
+    if (shareBtn) shareBtn.style.display = '';
+    history.replaceState(null, '', `#${courseCode.replace(/\s+/g, '-')}`);
+    showModalDetailLoading();
+    focusModal();
+}
+
+function renderCourseDetails(courseCode, course, requestVersion) {
+    if (requestVersion !== courseRequestVersion || selectedCourse !== courseCode) return;
+
+    document.getElementById('modalDetailState')?.remove();
+    setModalDetailVisibility(true);
+    const title = getCourseTitle(course);
+    document.getElementById('modalTitle').textContent = `${courseCode}${title ? ` - ${title}` : ''}`;
     updateModalBookmark(courseCode);
 
     const sectionList = document.getElementById('sectionList');
-    sectionList.textContent = '';
-
-    // Sort sections by type then by ID (using minified keys)
-    const sections = Object.entries(course.s).sort((a, b) => {
+    const sections = Object.entries(getCourseSections(course)).sort((a, b) => {
         const typePriority = { L: 0, S: 1, R: 1, D: 1, B: 2, Lb: 2 };
         const pa = typePriority[a[1].t] ?? 3;
         const pb = typePriority[b[1].t] ?? 3;
@@ -388,7 +640,6 @@ async function openCourse(courseCode) {
         return a[0].localeCompare(b[0], undefined, { numeric: true });
     });
 
-    // Group sections by type
     const sectionsByType = {};
     for (const [sectionCode, section] of sections) {
         const type = section.t || 'Other';
@@ -396,9 +647,9 @@ async function openCourse(courseCode) {
         sectionsByType[type].push({ code: sectionCode, ...section });
     }
 
-    // Render section type selector
     const sectionTypeSelector = document.getElementById('sectionTypeSelector');
     sectionTypeSelector.textContent = '';
+    sectionList.textContent = '';
 
     for (const [type, typeSections] of Object.entries(sectionsByType)) {
         const typeGroup = document.createElement('div');
@@ -447,47 +698,55 @@ async function openCourse(courseCode) {
         sectionTypeSelector.appendChild(typeGroup);
     }
 
-    // Show modal and render default chart
-    document.getElementById('modalOverlay').classList.add('active');
-
-    // Update chart mode toggle state
-    document.querySelectorAll('.chart-mode-btn').forEach(b => {
-        const isActive = b.dataset.mode === chartMode;
-        b.classList.toggle('active', isActive);
-        b.setAttribute('aria-pressed', isActive);
-    });
-
-    renderEventHistory(courseCode);
-
-    // Update URL hash for deep linking
-    history.replaceState(null, '', `#${courseCode.replace(/\s+/g, '-')}`);
-
+    renderEventHistory(courseCode, course);
     setTimeout(() => {
-        showAverageFillChart(courseCode);
+        if (requestVersion !== courseRequestVersion || selectedCourse !== courseCode) return;
+        showAverageFillChart(courseCode, course, requestVersion)
+            .then(() => {
+                if (requestVersion === courseRequestVersion && selectedCourse === courseCode) {
+                    markPerformance('registrar:course-rendered');
+                }
+            })
+            .catch(error => {
+                console.error(`Failed to render ${courseCode} chart:`, error);
+            });
     }, 50);
+}
 
-    document.documentElement.classList.add('modal-open');
-    document.body.classList.add('modal-open');
+async function loadAndRenderCourse(courseCode, requestVersion) {
+    let course;
+    try {
+        course = await hydrateCourse(courseCode);
+    } catch (error) {
+        showModalDetailError(courseCode, error, requestVersion);
+        return;
+    }
+    if (requestVersion !== courseRequestVersion || selectedCourse !== courseCode) return;
+    if (!course) {
+        showModalDetailError(courseCode, new Error('Missing department data'), requestVersion);
+        return;
+    }
+    markPerformance('registrar:course-detail-ready');
+    renderCourseDetails(courseCode, course, requestVersion);
+}
 
-    // Store opener for focus restoration
-    modalOpener = document.activeElement;
+async function openCourse(courseCode) {
+    refreshCourseMaps();
+    const summaryCourse = getSummaryCourse(courseCode);
+    if (!summaryCourse) return;
 
-    // Make background inert
-    document.getElementById('main-content').setAttribute('inert', '');
-    document.querySelector('header').setAttribute('inert', '');
-    document.querySelector('.controls-panel').setAttribute('inert', '');
+    const requestVersion = ++courseRequestVersion;
+    openCourseModal(courseCode, summaryCourse);
+    await loadAndRenderCourse(courseCode, requestVersion);
+}
 
-    // Show share button
-    const shareBtn = document.getElementById('modalShareLink');
-    if (shareBtn) shareBtn.style.display = '';
-
-    // Focus the first focusable element in the modal
-    setTimeout(() => {
-        const focusable = getModalFocusableElements();
-        if (focusable.length > 0) {
-            focusable[0].focus();
-        }
-    }, 50);
+async function retryCourse(courseCode) {
+    if (selectedCourse !== courseCode || !document.getElementById('modalOverlay')?.classList.contains('active')) {
+        return;
+    }
+    const requestVersion = ++courseRequestVersion;
+    showModalDetailLoading();
+    await loadAndRenderCourse(courseCode, requestVersion);
 }
 
 function setZoomControlsState(isZoomed) {
@@ -607,9 +866,7 @@ function eventDesc(e) {
 /**
  * Render event history for a course, with filtering and sorting.
  */
-function renderEventHistory(courseCode) {
-    const data = getData();
-    const course = data.cr[courseCode];
+function renderEventHistory(courseCode, course = getHydratedCourse(courseCode)) {
     const container = document.getElementById('eventHistoryList');
     const countEl = document.getElementById('eventCount');
     const details = document.getElementById('eventHistory');
@@ -752,32 +1009,37 @@ function _renderFilteredEvents() {
 /**
  * Show average fill chart for a course.
  */
-async function showAverageFillChart(courseCode) {
-    const data = getData();
-    const course = data.cr[courseCode];
+async function showAverageFillChart(
+    courseCode,
+    course = getHydratedCourse(courseCode),
+    requestVersion = null,
+) {
+    if (requestVersion !== null && requestVersion !== courseRequestVersion) return;
     if (!course) return;
-    const snapshots = course.sn || data.sn;
+    const snapshots = getCourseSnapshots(course);
 
     const chartPoints = buildAverageChartPoints(course, snapshots);
     const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
 
     document.getElementById('chartLegend').classList.remove('visible');
-    await renderChart(courseCode, chartPoints, chartDomain, false);
+    await renderChart(courseCode, chartPoints, chartDomain, false, requestVersion);
 }
 
 /**
  * Select a section and show its enrollment chart.
  */
 async function selectSection(sectionCode) {
-    const data = getData();
+    const course = getHydratedCourse(selectedCourse);
+    if (!course) return;
+    const requestVersion = courseRequestVersion;
 
     // Toggle selection if clicking same section
     if (selectedSection === sectionCode) {
         document.getElementById(`section-${sectionCode}`)?.classList.remove('selected');
         selectedSection = null;
         currentEnrollmentData = [];
-        await showAverageFillChart(selectedCourse);
+        await showAverageFillChart(selectedCourse, course, requestVersion);
         return;
     }
 
@@ -788,10 +1050,10 @@ async function selectSection(sectionCode) {
     selectedSection = sectionCode;
     document.getElementById(`section-${sectionCode}`)?.classList.add('selected');
 
-    const section = data.cr[selectedCourse].s[sectionCode];
+    const section = getCourseSections(course)[sectionCode];
+    if (!section) return;
 
-    const course = data.cr[selectedCourse];
-    const snapshots = course.sn || data.sn;
+    const snapshots = getCourseSnapshots(course);
     const chartPoints = buildSectionChartPoints(section, snapshots);
     const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
@@ -800,16 +1062,35 @@ async function selectSection(sectionCode) {
     const hasCapacityChanges = currentEnrollmentData.some(d => d.capacityChanged);
     document.getElementById('chartLegend').classList.toggle('visible', hasCapacityChanges);
 
-    await renderChart(`${sectionCode} Enrollment %`, chartPoints, chartDomain, true);
+    await renderChart(
+        `${sectionCode} Enrollment %`,
+        chartPoints,
+        chartDomain,
+        true,
+        requestVersion,
+    );
 }
 
 /**
  * Render enrollment chart with milestones and phased/timeline/snapshots mode.
  */
-async function renderChart(chartLabel, chartPoints, chartDomain, showCapacityMarkers) {
+async function renderChart(
+    chartLabel,
+    chartPoints,
+    chartDomain,
+    showCapacityMarkers,
+    requestVersion = null,
+) {
     await loadChartJs();
+    if (requestVersion !== null && requestVersion !== courseRequestVersion) return;
     // Cache args for mode toggle re-render
-    lastRenderArgs = { chartLabel, chartPoints, chartDomain, showCapacityMarkers };
+    lastRenderArgs = {
+        chartLabel,
+        chartPoints,
+        chartDomain,
+        showCapacityMarkers,
+        requestVersion,
+    };
 
     const milestones = getMilestones();
     const labels = chartPoints.map(point => point.label);
@@ -994,14 +1275,9 @@ function closeModal() {
     selectedSection = null;
     currentEnrollmentData = [];
     lastRenderArgs = null;
-    document.getElementById('chartLegend').classList.remove('visible');
+    resetCourseDetailView();
     // Clear URL hash
     history.replaceState(null, '', window.location.pathname);
-    if (chart) {
-        chart.destroy();
-        chart = null;
-    }
-    setZoomControlsState(false);
 }
 
 /**
@@ -1452,7 +1728,13 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
         });
         if (lastRenderArgs) {
             const a = lastRenderArgs;
-            await renderChart(a.chartLabel, a.chartPoints, a.chartDomain, a.showCapacityMarkers);
+            await renderChart(
+                a.chartLabel,
+                a.chartPoints,
+                a.chartDomain,
+                a.showCapacityMarkers,
+                a.requestVersion,
+            );
         }
     });
 });
@@ -1467,8 +1749,8 @@ function handleHashNavigation() {
     const hash = window.location.hash.slice(1); // Remove '#'
     if (!hash) return;
     const courseCode = hash.replace(/-/g, ' '); // 'CSCI-101' -> 'CSCI 101'
-    const data = getData();
-    if (data && data.cr && data.cr[courseCode]) {
+    refreshCourseMaps();
+    if (summaryCourses.has(courseCode)) {
         openCourse(courseCode);
     }
 }
@@ -1479,9 +1761,20 @@ window.addEventListener('hashchange', handleHashNavigation);
 // Initialization
 // ============================================
 
+function installPayload(payload) {
+    DATA = payload.data;
+    MILESTONES = payload.milestones || [];
+    mappedData = null;
+    summaryCourses.clear();
+    hydratedCourses.clear();
+    departmentPayloads.clear();
+    refreshCourseMaps();
+}
+
 async function initApp() {
     // If JSON_URL is provided, fetch it asynchronously
     const jsonUrl = getEnrollmentJsonUrl(document, window);
+    let summaryReadyMarked = false;
     if (jsonUrl && !DATA) {
         // Show loading timeout warning after 12 seconds
         const timeoutId = setTimeout(showTimeoutWarning, 12000);
@@ -1498,14 +1791,18 @@ async function initApp() {
                 staticManifestUrl = loaded.manifestUrl;
                 staticManifestStale = loaded.stale;
             } else {
+                staticManifest = null;
+                staticManifestUrl = null;
+                staticManifestStale = false;
                 const res = await fetch(absoluteUrl.href, {
                     signal: dataLoadController.signal,
                 });
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                 payload = await res.json();
             }
-            DATA = payload.data;
-            MILESTONES = payload.milestones;
+            installPayload(payload);
+            markPerformance('registrar:summary-ready');
+            summaryReadyMarked = true;
 
             clearTimeout(timeoutId);
             hideTimeoutWarning();
@@ -1522,6 +1819,8 @@ async function initApp() {
         }
     }
 
+    if (!summaryReadyMarked) markPerformance('registrar:summary-ready');
+
     if (IS_COMBINED) {
         renderSemesterToggle();
     }
@@ -1531,6 +1830,7 @@ async function initApp() {
 
     // Initial Render
     renderCourseGrid();
+    markAfterAnimationFrames('registrar:grid-rendered');
 
     // Handle deep link on initial load
     handleHashNavigation();

@@ -525,6 +525,54 @@ test('department identity mismatch rejects and failed requests are removed for r
     assert.equal(attempts, 2);
 });
 
+test('department hash success is accepted and a hash mismatch is rejected', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const departmentArtifact = await artifact(
+        emptyV3Department('CSCI'),
+        'https://example.test/data/blobs/csci.json',
+    );
+    const manifest = v3Manifest(summaryArtifact, { CSCI: departmentArtifact });
+    const manifestUrl = 'https://example.test/data/summer-2026/manifests/current.json';
+
+    const loaded = await loadDepartmentPayload(
+        'CSCI',
+        manifest,
+        manifestUrl,
+        new Map(),
+        {
+            fetchImpl: async () => bytesResponse(departmentArtifact),
+            cryptoImpl: webcrypto,
+        },
+    );
+    assert.equal(loaded.department, 'CSCI');
+
+    const mismatchManifest = v3Manifest(summaryArtifact, {
+        CSCI: {
+            ...departmentArtifact,
+            reference: {
+                ...departmentArtifact.reference,
+                sha256: '0'.repeat(64),
+            },
+        },
+    });
+    await assert.rejects(
+        loadDepartmentPayload(
+            'CSCI',
+            mismatchManifest,
+            manifestUrl,
+            new Map(),
+            {
+                fetchImpl: async () => bytesResponse(departmentArtifact),
+                cryptoImpl: webcrypto,
+            },
+        ),
+        error => error instanceof IntegrityError && /SHA-256 mismatch/.test(error.message),
+    );
+});
+
 test('unknown versions are never silently accepted', async () => {
     const summaryArtifact = await artifact(
         emptyV3Summary(),

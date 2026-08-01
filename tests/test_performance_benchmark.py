@@ -103,10 +103,72 @@ def test_website_adapter_generates_expected_artifacts(tmp_path):
     assert artifacts["snapshots"] == 3
     assert artifacts["query_count"] > 0
     assert artifacts["slowest_sql"]
-    assert artifacts["file_count"] == 3
     assert (output / "summer2026.html").is_file()
     payload = json.loads((output / "summer2026.json").read_text())
     assert payload["semester"] == "Summer 2026"
+    pointer_path = output / "data" / "summer-2026" / "manifest.json"
+    pointer = json.loads(pointer_path.read_text())
+    assert pointer["manifestVersion"] == 1
+    manifest_path = pointer_path.parent / pointer["current"]
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["dataModelVersion"] == 3
+    summary_path = (
+        manifest_path.parent.parent.parent
+        / "blobs"
+        / Path(manifest["summary"]["url"]).name
+    )
+    assert summary_path.is_file()
+    assert artifacts["old_payload_bytes"] == (output / "summer2026.json").stat().st_size
+    assert artifacts["new_summary_bytes"] == summary_path.stat().st_size
+    assert artifacts["new_summary_to_old_payload_ratio"] == pytest.approx(
+        artifacts["new_summary_bytes"] / artifacts["old_payload_bytes"]
+    )
+
+
+def test_browser_metric_schema_and_payload_comparison_are_reported(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "source.db"
+    output = tmp_path / "result.json"
+    benchmark.create_synthetic_database(
+        database, seed=13, courses=3, sections=4, snapshots=3
+    )
+    browser_metrics = {
+        "browser_version": "test",
+        "cold": {},
+        "warm": {
+            "initial_transfer_bytes": {"unit": "bytes", "median": 100},
+            "initial_request_count": {"unit": "requests", "median": 4},
+            "initial_json_request_count": {"unit": "requests", "median": 3},
+            "summary_bytes": {"unit": "bytes", "median": 80},
+            "grid_render_time": {"unit": "ns", "median": 10},
+            "navigation_to_grid_ready": {"unit": "ns", "median": 20},
+            "course_open_bytes": {"unit": "bytes", "median": 60},
+            "course_open_data_bytes": {"unit": "bytes", "median": 50},
+            "course_open_request_count": {"unit": "requests", "median": 2},
+        },
+        "served_files": {"file_count": 0, "total_bytes": 0},
+    }
+    monkeypatch.setattr(benchmark, "benchmark_browser", lambda *args: browser_metrics)
+    monkeypatch.setattr(benchmark, "repository_revision", lambda: "revision")
+    args = argparse.Namespace(
+        database=database,
+        synthetic=False,
+        mode="browser",
+        cold_iterations=1,
+        warm_iterations=1,
+        seed=13,
+        output=output,
+        markdown=None,
+        deploy_preview=False,
+        pages_project="registrar-monitor",
+    )
+
+    result = benchmark.run(args)
+
+    assert result["measurements"]["browser"]["warm"]["summary_bytes"]["median"] == 80
+    assert result["measurements"]["website"]["artifacts"]["old_payload_bytes"] > 0
+    assert result["measurements"]["website"]["artifacts"]["new_summary_bytes"] > 0
 
 
 def test_result_schema_and_markdown_share_values(tmp_path, monkeypatch):

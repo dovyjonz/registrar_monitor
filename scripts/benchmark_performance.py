@@ -28,8 +28,9 @@ from dotenv import load_dotenv
 
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.models import EnrollmentSnapshot
-from registrarmonitor.website.data import get_semester_data
-from registrarmonitor.website.templates import build_semester_page
+from registrarmonitor.services.website_service import WebsiteService
+from registrarmonitor.website.config import semester_to_filename, semester_to_slug
+from registrarmonitor.website.templates import build_redirect_index
 
 ROOT = Path(__file__).resolve().parent.parent
 WEBSITE = ROOT / "assets" / "website"
@@ -490,26 +491,45 @@ class _BenchmarkDatabaseManager(DatabaseManager):
 def generate_website_once(
     database: Path, output: Path, semester: str = SEMESTER
 ) -> dict[str, Any]:
-    """Generate the production semester HTML and JSON in an isolated directory."""
+    """Generate the production semester output through ``WebsiteService``."""
     import registrarmonitor.website.data as website_data
+
+    output.mkdir(parents=True, exist_ok=True)
+    # A benchmark output is also the browser server root. Copy the built
+    # production assets before generation so WebsiteService resolves the same
+    # hashed JS/CSS manifest used by a real publication. Python-only tests can
+    # still exercise this function without a frontend build; in that case the
+    # service emits the same data artifacts and simply omits asset references.
+    assets_manifest = output / "assets" / ".vite" / "manifest.json"
+    if not assets_manifest.exists() and (WEBSITE / "public" / "assets").is_dir():
+        _copy_frontend_assets(output)
 
     _BenchmarkDatabaseManager.benchmark_path = database
     tracker: list[dict[str, Any]] = []
     _BenchmarkDatabaseManager.query_tracker = tracker
-    with patch.object(website_data, "DatabaseManager", _BenchmarkDatabaseManager):
-        data = get_semester_data(semester, minify=True)
-    _BenchmarkDatabaseManager.query_tracker = None
-    html = build_semester_page(data, [], semester)
-    output.mkdir(parents=True, exist_ok=True)
-    html_path = output / "summer2026.html"
-    json_path = output / "summer2026.json"
+    try:
+        with patch.object(website_data, "DatabaseManager", _BenchmarkDatabaseManager):
+            WebsiteService(
+                output_dir=output,
+                emit_legacy_semester_json=True,
+            ).generate_semester_page(semester)
+    finally:
+        _BenchmarkDatabaseManager.query_tracker = None
+
     index_path = output / "index.html"
-    html_path.write_text(html, encoding="utf-8")
-    json_path.write_text(
-        json.dumps({"data": data, "milestones": [], "semester": semester}),
-        encoding="utf-8",
-    )
-    index_path.write_text('<a href="summer2026.html">Summer 2026</a>', encoding="utf-8")
+    index_path.write_text(build_redirect_index(), encoding="utf-8")
+    html_path = output / semester_to_filename(semester)
+    json_path = output / semester_to_filename(semester).replace(".html", ".json")
+    legacy_payload = json.loads(json_path.read_text(encoding="utf-8"))
+    data = legacy_payload["data"]
+
+    pointer_path = output / "data" / semester_to_slug(semester) / "manifest.json"
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    manifest_path = pointer_path.parent / pointer["current"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    summary_path = (manifest_path.parent / manifest["summary"]["url"]).resolve()
+    summary_bytes = summary_path.stat().st_size
+    old_payload_bytes = json_path.stat().st_size
     files = [path for path in output.rglob("*") if path.is_file()]
     slowest = sorted(tracker, key=lambda item: item["duration_ns"], reverse=True)[:10]
     return {
@@ -521,6 +541,11 @@ def generate_website_once(
         "total_bytes": sum(path.stat().st_size for path in files),
         "query_count": len(tracker),
         "slowest_sql": slowest,
+        "old_payload_bytes": old_payload_bytes,
+        "new_summary_bytes": summary_bytes,
+        "new_summary_to_old_payload_ratio": (
+            summary_bytes / old_payload_bytes if old_payload_bytes else None
+        ),
     }
 
 
@@ -533,7 +558,7 @@ def benchmark_website(
 ) -> dict[str, Any]:
     cold: list[int] = []
     warm: list[int] = []
-    artifacts: dict[str, int] = {}
+    artifacts: dict[str, Any] = {}
     with tempfile.TemporaryDirectory(
         prefix="registrar-website-benchmark-"
     ) as directory:
@@ -781,11 +806,32 @@ def render_markdown(result: dict[str, Any]) -> str:
             f"{milliseconds(deployment['duration']['p95'])} |"
         )
     browser = result["measurements"].get("browser", {})
-    cold_transfer = browser.get("cold", {}).get("transferred_resources")
-    warm_transfer = browser.get("warm", {}).get("transferred_resources")
-    course_bytes = browser.get("warm", {}).get("course_open_bytes")
+    cold_browser = browser.get("cold", {})
+    warm_browser = browser.get("warm", {})
+    cold_transfer = cold_browser.get("initial_transfer_bytes") or cold_browser.get(
+        "transferred_resources"
+    )
+    warm_transfer = warm_browser.get("initial_transfer_bytes") or warm_browser.get(
+        "transferred_resources"
+    )
+    initial_requests = warm_browser.get("initial_request_count")
+    initial_json_requests = warm_browser.get("initial_json_request_count")
+    summary_bytes = warm_browser.get("summary_bytes")
+    grid_render = warm_browser.get("grid_render_time")
+    navigation_to_grid = warm_browser.get("navigation_to_grid_ready")
+    course_bytes = warm_browser.get("course_open_bytes")
+    course_data_bytes = warm_browser.get("course_open_data_bytes")
+    course_requests = warm_browser.get("course_open_request_count")
     website = result["measurements"].get("website", {})
     artifacts = website.get("artifacts", {})
+    old_payload_bytes = artifacts.get("old_payload_bytes")
+    new_summary_bytes = artifacts.get("new_summary_bytes")
+    payload_ratio = artifacts.get("new_summary_to_old_payload_ratio")
+    payload_ratio_text = (
+        f"{payload_ratio:.4f}"
+        if isinstance(payload_ratio, (int, float))
+        else "not measured"
+    )
     database_measurements = result["measurements"].get("database", {})
     poll_effects = database_measurements.get("poll_effects", {})
     tools = result["platform"]["tools"]
@@ -793,9 +839,8 @@ def render_markdown(result: dict[str, Any]) -> str:
         [
             "",
             (
-                "Browser transferred-resource values are recorded in the JSON result; "
-                "timings above run until the enrollment payload is loaded and the course "
-                "grid is visible."
+                "Browser request, byte, and mark-derived render values are recorded in "
+                "the JSON result."
             ),
             (
                 f"- Initial browser transfer median: "
@@ -804,9 +849,37 @@ def render_markdown(result: dict[str, Any]) -> str:
                 "bytes warm"
             ),
             (
+                f"- Initial request count: "
+                f"{initial_requests['median'] if initial_requests else 'not measured'} "
+                f"({initial_json_requests['median'] if initial_json_requests else 'not measured'} JSON) warm median"
+            ),
+            (
+                f"- Summary bytes: "
+                f"{summary_bytes['median'] if summary_bytes else 'not measured'} warm median"
+            ),
+            (
+                f"- Grid render time: "
+                f"{milliseconds(grid_render['median']) if grid_render else 'not measured'} ms "
+                "from summary-ready to the second animation frame"
+            ),
+            (
+                f"- Navigation to grid ready: "
+                f"{milliseconds(navigation_to_grid['median']) if navigation_to_grid else 'not measured'} ms warm median"
+            ),
+            (
                 f"- Additional bytes to open one course: "
                 f"{course_bytes['median'] if course_bytes else 'not measured'} "
                 "bytes warm median"
+            ),
+            (
+                f"- Course detail JSON bytes: "
+                f"{course_data_bytes['median'] if course_data_bytes else 'not measured'} "
+                "bytes warm median"
+            ),
+            (
+                f"- Course-open request count: "
+                f"{course_requests['median'] if course_requests else 'not measured'} "
+                "requests warm median"
             ),
             "",
             "### Database allocation",
@@ -841,6 +914,9 @@ def render_markdown(result: dict[str, Any]) -> str:
             f"- SQL operations: {artifacts.get('query_count', 'not measured')}",
             f"- Generated files: {artifacts.get('file_count', 'not measured')}",
             f"- Generated bytes: {artifacts.get('total_bytes', 'not measured')}",
+            f"- Old root payload bytes: {old_payload_bytes if old_payload_bytes is not None else 'not measured'}",
+            f"- New summary bytes: {new_summary_bytes if new_summary_bytes is not None else 'not measured'}",
+            f"- New summary / old payload ratio: {payload_ratio_text}",
             "- Slowest SQL operations:",
             *[
                 f"  - {item['duration_ns'] / 1_000_000:.2f} ms — `{item['sql']}`"

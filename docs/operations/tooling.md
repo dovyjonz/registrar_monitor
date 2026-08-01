@@ -72,8 +72,10 @@ non-secret fallback for contributors without runtime access.
 The suite separates cold and warm samples and records raw values, median, and
 nearest-rank p95. It covers SQLite allocation and poll deltas, latest-state and
 course-history reads, SQL activity and website generation, generated file
-inventory, initial browser transfer, course-card readiness, and opening one
-course. Focused `benchmark-database`, `benchmark-website`, and
+inventory, initial browser transfer/request counts, validated-summary bytes,
+mark-derived grid rendering, course-card readiness, and opening one course.
+Website generation runs through `WebsiteService` and reports the legacy root
+payload versus the new summary bytes. Focused `benchmark-database`, `benchmark-website`, and
 `benchmark-browser` targets accept the same `DATABASE`, `PERF_COLD`, and
 `PERF_WARM` inputs.
 
