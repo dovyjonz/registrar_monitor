@@ -39,6 +39,7 @@ def test_runtime_doctor_runs_uv_without_make_or_dependency_sync(tmp_path: Path):
         "run",
         "--locked",
         "--no-sync",
+        "--no-cache",
         "monitor",
         "doctor",
         "--json",

@@ -35,8 +35,8 @@ used by production.
 
 Run `make doctor` or `monitor doctor` during local development. On a runtime
 host, run `scripts/runtime_doctor.sh` as the application runtime user; it calls
-`uv run --locked --no-sync monitor doctor`, so it does not require `make` and
-does not install dependencies. The doctor checks:
+`uv run --locked --no-sync --no-cache monitor doctor`, so it does not require
+`make`, install dependencies, or require a writable uv cache. The doctor checks:
 
 - Python, uv, Jujutsu, Node.js, npm, and the pinned Node version;
 - required TOML and lockfiles, plus optional `.env` presence without reading or

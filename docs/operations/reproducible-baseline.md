@@ -27,7 +27,8 @@ Production state is maintained separately in
 optional secrets. `make` is not a production runtime requirement:
 `scripts/runtime_doctor.sh` runs the same doctor through the installed `uv`
 environment with `--locked --no-sync`, so an SSH operator can verify the
-runtime without installing `make` or changing dependencies.
+runtime without installing `make`, changing dependencies, or requiring a
+writable uv cache. The wrapper also passes `--no-cache`.
 
 Makefile commands also construct a non-login runtime `PATH`: an exact Node
 installation under `$HOME/.local/share/registrar-monitor/node-v<version>/bin`

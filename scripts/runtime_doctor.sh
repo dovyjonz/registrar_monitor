@@ -21,4 +21,4 @@ else
 fi
 
 cd "$PROJECT_ROOT"
-exec "$UV_COMMAND" run --locked --no-sync monitor doctor "$@"
+exec "$UV_COMMAND" run --locked --no-sync --no-cache monitor doctor "$@"

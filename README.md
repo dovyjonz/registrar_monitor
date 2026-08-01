@@ -34,7 +34,8 @@ make doctor
 `make` is a development wrapper, not a runtime requirement. On a host where
 the SSH operator does not have `make`, run `scripts/runtime_doctor.sh` as the
 application runtime user. It uses the existing `uv` environment with
-`--no-sync`, so the diagnostic does not install or change dependencies.
+`--no-sync --no-cache`, so the diagnostic does not install dependencies or
+require a writable user cache.
 
 For an existing Git checkout, initialize colocated Jujutsu with
 `jj git init --colocate .`.
