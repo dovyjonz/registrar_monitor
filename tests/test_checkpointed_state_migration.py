@@ -124,6 +124,7 @@ def _request(
         metadata_mode=MetadataMode.LEGACY_PRESERVING,
         report_path=tmp_path / "migration.json",
         dry_run=dry_run,
+        authorized=not dry_run,
         candidate_path=tmp_path / "candidate.db" if dry_run else None,
         backup_dir=tmp_path / "backups",
     )
@@ -180,6 +181,14 @@ def test_dry_run_rejects_source_as_candidate_before_mutation(tmp_path: Path) -> 
     assert _sha256(source) == source_hash
     with sqlite3.connect(source) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_apply_requires_explicit_operator_authorization(tmp_path: Path) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    request = replace(_request(source, tmp_path, dry_run=False), authorized=False)
+
+    with pytest.raises(MigrationError, match="explicit operator authorization"):
+        run_migration(request)
 
 
 def test_migration_rejects_database_as_report_path_before_mutation(
@@ -533,6 +542,214 @@ def test_shadow_dual_write_is_atomic_and_v2_mode_reads_checkpointed_state(
     actual = v2_manager.get_snapshot_data(v2_id)
     assert actual is not None
     assert actual.to_dict() == _changed_snapshot().to_dict()
+
+
+def test_dual_write_skips_unchanged_legacy_catalog_updates(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    with sqlite3.connect(source) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE catalog_update_audit(table_name TEXT NOT NULL);
+            CREATE TRIGGER courses_update_audit AFTER UPDATE ON courses
+            BEGIN
+                INSERT INTO catalog_update_audit(table_name) VALUES ('courses');
+            END;
+            CREATE TRIGGER sections_update_audit AFTER UPDATE ON sections
+            BEGIN
+                INSERT INTO catalog_update_audit(table_name) VALUES ('sections');
+            END;
+            """
+        )
+        connection.commit()
+
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    first = _changed_snapshot()
+    manager.store_enrollment_snapshot(first)
+    second = _changed_snapshot()
+    second.timestamp = "2026-05-01 10:15:00"
+    second.courses["CSCI 101"].sections["1L"].enrollment = 15
+    second.courses["CSCI 101"].sections["1L"].fill = 0.75
+    second.overall_fill = 0.75
+    manager.store_enrollment_snapshot(second)
+
+    with sqlite3.connect(source) as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM catalog_update_audit").fetchone()[
+                0
+            ]
+            == 0
+        )
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 4
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 4
+        )
+        assert (
+            connection.execute("SELECT count(*) FROM enrollment_data").fetchone()[0]
+            == 4
+        )
+
+
+def test_dual_write_rolls_back_v2_when_legacy_compatibility_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+
+    def fail_legacy_write(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("injected legacy compatibility failure")
+
+    monkeypatch.setattr(manager, "_write_legacy_compatibility", fail_legacy_write)
+    with pytest.raises(RuntimeError, match="injected legacy"):
+        manager.store_enrollment_snapshot(_changed_snapshot())
+
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 2
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 2
+        )
+        assert (
+            connection.execute("SELECT count(*) FROM course_change_event").fetchone()[0]
+            == 1
+        )
+        assert (
+            connection.execute("SELECT count(*) FROM section_change_event").fetchone()[
+                0
+            ]
+            == 2
+        )
+
+
+def test_transaction_rollback_does_not_publish_identity_cache(tmp_path: Path) -> None:
+    database = tmp_path / "checkpointed.db"
+    store = CheckpointedStateStore(database)
+    snapshot = _changed_snapshot()
+
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        store.write_snapshot_in_transaction(connection, snapshot)
+        connection.rollback()
+
+    snapshot.timestamp = "2026-05-01 10:15:00"
+    result = store.write_snapshot(snapshot)
+
+    assert result.created is True
+    assert (
+        store.reconstruct_snapshot(result.snapshot_id).to_dict() == snapshot.to_dict()
+    )
+
+
+def test_dual_write_preserves_identity_through_removal_and_reappearance(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+
+    first = _changed_snapshot()
+    manager.store_enrollment_snapshot(first)
+    removed = EnrollmentSnapshot(
+        timestamp="2026-05-01 10:15:00",
+        semester="Summer 2025",
+        overall_fill=0.0,
+    )
+    manager.store_enrollment_snapshot(removed)
+    reappeared = _changed_snapshot()
+    reappeared.timestamp = "2026-05-01 10:20:00"
+    manager.store_enrollment_snapshot(reappeared)
+
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 5
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 5
+        )
+        legacy_section_id = connection.execute(
+            "SELECT section_id FROM sections WHERE section_code = '1L'"
+        ).fetchone()[0]
+        v2_section_id = connection.execute(
+            "SELECT section_id FROM section_catalog WHERE section_code = '1L'"
+        ).fetchone()[0]
+        assert legacy_section_id == v2_section_id
+        removed_id = connection.execute(
+            "SELECT snapshot_id FROM snapshots WHERE timestamp = ?",
+            (removed.timestamp,),
+        ).fetchone()[0]
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM enrollment_data WHERE snapshot_id = ?",
+                (removed_id,),
+            ).fetchone()[0]
+            == 0
+        )
+
+    latest_id = manager.get_latest_snapshot_id()
+    assert latest_id is not None
+    latest = manager.get_snapshot_data(latest_id)
+    assert latest is not None
+    assert latest.to_dict() == reappeared.to_dict()
+
+
+def test_dual_write_deduplicates_identical_poll_in_both_representations(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    first = _changed_snapshot()
+    manager.store_enrollment_snapshot(first)
+    duplicate = _changed_snapshot()
+    duplicate.timestamp = "2026-05-01 10:15:00"
+    manager.store_enrollment_snapshot(duplicate)
+
+    with sqlite3.connect(source) as connection:
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 3
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 3
+        )
+        assert connection.execute(
+            "SELECT timestamp, last_seen_at FROM snapshots "
+            "ORDER BY snapshot_id DESC LIMIT 1"
+        ).fetchone() == (
+            first.timestamp,
+            duplicate.timestamp,
+        )
+        assert connection.execute(
+            "SELECT observed_at, last_seen_at FROM state_snapshot "
+            "ORDER BY sequence_no DESC LIMIT 1"
+        ).fetchone() == (
+            first.timestamp,
+            duplicate.timestamp,
+        )
 
 
 def test_v2_mode_can_roll_back_to_legacy_after_dual_write(tmp_path: Path) -> None:

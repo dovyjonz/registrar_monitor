@@ -78,6 +78,17 @@ class CheckpointedStateStore:
     ):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._course_ids: dict[str, int] = {}
+        self._section_ids: dict[tuple[str, str], int] = {}
+        self._latest_state_cache: (
+            tuple[
+                int | None,
+                bytes | None,
+                dict[str, tuple[str, str]],
+                dict[tuple[str, str], tuple[str, int, int, str]],
+            ]
+            | None
+        ) = None
         if initialize:
             self._initialize(set_user_version=set_user_version)
 
@@ -86,6 +97,7 @@ class CheckpointedStateStore:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 5000")
         try:
             yield connection
         finally:
@@ -281,19 +293,26 @@ class CheckpointedStateStore:
         }
         return courses, sections
 
-    @staticmethod
     def _ensure_course(
+        self,
         connection: sqlite3.Connection,
         course_code: str,
         *,
         identity: int | None = None,
+        identity_cache: dict[str, int] | None = None,
     ) -> int:
+        cache = self._course_ids if identity_cache is None else identity_cache
+        cached = cache.get(course_code)
+        if cached is not None:
+            return cached
         row = connection.execute(
             "SELECT course_id FROM course_catalog WHERE course_code = ?",
             (course_code,),
         ).fetchone()
         if row:
-            return int(row[0])
+            course_id = int(row[0])
+            cache[course_code] = course_id
+            return course_id
         if identity is None:
             cursor = connection.execute(
                 "INSERT INTO course_catalog(course_code) VALUES (?)",
@@ -306,18 +325,39 @@ class CheckpointedStateStore:
             )
         if cursor.lastrowid is None:
             raise sqlite3.Error("course identity insert returned no ID")
-        return int(cursor.lastrowid)
+        course_id = int(cursor.lastrowid)
+        cache[course_code] = course_id
+        return course_id
 
-    @classmethod
     def _ensure_section(
-        cls,
+        self,
         connection: sqlite3.Connection,
         course_code: str,
         section_code: str,
         *,
+        course_id: int | None = None,
         identity: int | None = None,
+        course_identity_cache: dict[str, int] | None = None,
+        section_identity_cache: dict[tuple[str, str], int] | None = None,
     ) -> int:
-        course_id = cls._ensure_course(connection, course_code)
+        course_cache = (
+            self._course_ids if course_identity_cache is None else course_identity_cache
+        )
+        section_cache = (
+            self._section_ids
+            if section_identity_cache is None
+            else section_identity_cache
+        )
+        cache_key = (course_code, section_code)
+        cached = section_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if course_id is None:
+            course_id = self._ensure_course(
+                connection,
+                course_code,
+                identity_cache=course_cache,
+            )
         row = connection.execute(
             """
             SELECT section_id FROM section_catalog
@@ -326,7 +366,9 @@ class CheckpointedStateStore:
             (course_id, section_code),
         ).fetchone()
         if row:
-            return int(row[0])
+            section_id = int(row[0])
+            section_cache[cache_key] = section_id
+            return section_id
         if identity is None:
             cursor = connection.execute(
                 """
@@ -345,7 +387,102 @@ class CheckpointedStateStore:
             )
         if cursor.lastrowid is None:
             raise sqlite3.Error("section identity insert returned no ID")
-        return int(cursor.lastrowid)
+        section_id = int(cursor.lastrowid)
+        section_cache[cache_key] = section_id
+        return section_id
+
+    def resolve_course_id(
+        self, connection: sqlite3.Connection, course_code: str
+    ) -> int:
+        """Resolve one catalog identity without scanning the full catalog."""
+        return self._ensure_course(connection, course_code)
+
+    def resolve_section_id(
+        self,
+        connection: sqlite3.Connection,
+        course_code: str,
+        section_code: str,
+    ) -> int:
+        """Resolve one section identity, creating only a missing catalog row."""
+        course_id = self._ensure_course(connection, course_code)
+        return self._ensure_section(
+            connection,
+            course_code,
+            section_code,
+            course_id=course_id,
+        )
+
+    def invalidate_runtime_caches(self) -> None:
+        """Forget transaction-local identity and latest-state observations."""
+        self._course_ids.clear()
+        self._section_ids.clear()
+        self._latest_state_cache = None
+
+    def accept_committed_snapshot(
+        self, snapshot: EnrollmentSnapshot, result: WriteResult
+    ) -> None:
+        """Publish a successful external transaction to the warm write cache."""
+        if not result.created:
+            return
+        self._latest_state_cache = (
+            result.snapshot_id,
+            canonical_state_hash(snapshot),
+            self._course_state(snapshot),
+            self._section_state(snapshot),
+        )
+
+    def latest_states_in_transaction(
+        self, connection: sqlite3.Connection
+    ) -> tuple[
+        dict[str, tuple[str, str]],
+        dict[tuple[str, str], tuple[str, int, int, str]],
+    ]:
+        """Return the cached latest state, loading it once when necessary."""
+        latest = connection.execute(
+            """
+            SELECT snapshot_id, state_hash
+            FROM state_snapshot
+            ORDER BY sequence_no DESC LIMIT 1
+            """
+        ).fetchone()
+        courses, sections = self._cached_latest_states(connection, latest)
+        return dict(courses), dict(sections)
+
+    @staticmethod
+    def latest_snapshot_id_in_transaction(
+        connection: sqlite3.Connection,
+    ) -> int | None:
+        """Return the authoritative predecessor ID without reconstructing it."""
+        row = connection.execute(
+            """
+            SELECT snapshot_id
+            FROM state_snapshot
+            ORDER BY sequence_no DESC LIMIT 1
+            """
+        ).fetchone()
+        return int(row[0]) if row else None
+
+    def _cached_latest_states(
+        self,
+        connection: sqlite3.Connection,
+        latest: sqlite3.Row | None,
+    ) -> tuple[
+        dict[str, tuple[str, str]],
+        dict[tuple[str, str], tuple[str, int, int, str]],
+    ]:
+        if latest is None:
+            self._latest_state_cache = (None, None, {}, {})
+            return {}, {}
+
+        snapshot_id = int(latest["snapshot_id"])
+        state_hash = bytes(latest["state_hash"])
+        cached = self._latest_state_cache
+        if cached is not None and cached[0] == snapshot_id and cached[1] == state_hash:
+            return cached[2], cached[3]
+
+        courses, sections = self._latest_states(connection)
+        self._latest_state_cache = (snapshot_id, state_hash, courses, sections)
+        return courses, sections
 
     def seed_identity(
         self,
@@ -367,6 +504,7 @@ class CheckpointedStateStore:
                         connection,
                         course_code,
                         section_code,
+                        course_id=course_id,
                         identity=section_id,
                     )
                     if actual_section_id != section_id:
@@ -470,6 +608,8 @@ class CheckpointedStateStore:
         if profile is not None:
             profile["phases_ns"]["canonicalize"] = perf_counter_ns() - phase_started
         owns_connection = connection is None
+        course_identity_cache = self._course_ids if owns_connection else {}
+        section_identity_cache = self._section_ids if owns_connection else {}
         connection_context = (
             self.connection() if owns_connection else nullcontext(connection)
         )
@@ -484,9 +624,12 @@ class CheckpointedStateStore:
                     """
                     SELECT snapshot_id, state_hash
                     FROM state_snapshot
-                    ORDER BY observed_at DESC LIMIT 1
+                    ORDER BY sequence_no DESC LIMIT 1
                     """
                 ).fetchone()
+                old_courses, old_sections = self._cached_latest_states(
+                    connection, latest
+                )
                 if (
                     latest is not None
                     and bytes(latest["state_hash"]) == state_hash
@@ -509,7 +652,6 @@ class CheckpointedStateStore:
                         checkpoint_created=False,
                     )
 
-                old_courses, old_sections = self._latest_states(connection)
                 sequence_no = int(
                     connection.execute(
                         "SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM state_snapshot"
@@ -560,15 +702,47 @@ class CheckpointedStateStore:
                     )
                     new_snapshot_id = snapshot_id
 
+                course_changes = [
+                    (code, old_courses.get(code), current_courses.get(code))
+                    for code in sorted(set(old_courses) | set(current_courses))
+                    if old_courses.get(code) != current_courses.get(code)
+                ]
+                section_changes = [
+                    (key, old_sections.get(key), current_sections.get(key))
+                    for key in sorted(set(old_sections) | set(current_sections))
+                    if old_sections.get(key) != current_sections.get(key)
+                ]
+                course_ids: dict[str, int] = {}
+                for code, _, _ in course_changes:
+                    course_ids[code] = self._ensure_course(
+                        connection,
+                        code,
+                        identity_cache=course_identity_cache,
+                    )
+                section_ids: dict[tuple[str, str], int] = {}
+                for (code, section_code), _, _ in section_changes:
+                    course_id = course_ids.setdefault(
+                        code,
+                        self._ensure_course(
+                            connection,
+                            code,
+                            identity_cache=course_identity_cache,
+                        ),
+                    )
+                    section_ids[(code, section_code)] = self._ensure_section(
+                        connection,
+                        code,
+                        section_code,
+                        course_id=course_id,
+                        course_identity_cache=course_identity_cache,
+                        section_identity_cache=section_identity_cache,
+                    )
+
                 course_event_count = 0
-                for code in sorted(set(old_courses) | set(current_courses)):
-                    old = old_courses.get(code)
-                    new = current_courses.get(code)
-                    if old == new:
-                        continue
+                for code, old, new in course_changes:
                     kind = self._kind(old, new)
                     self._validate_event(kind, old, new)
-                    course_id = self._ensure_course(connection, code)
+                    course_id = course_ids[code]
                     connection.execute(
                         """
                         INSERT INTO course_change_event(
@@ -589,14 +763,10 @@ class CheckpointedStateStore:
                     course_event_count += 1
 
                 section_event_count = 0
-                for key in sorted(set(old_sections) | set(current_sections)):
-                    old = old_sections.get(key)
-                    new = current_sections.get(key)
-                    if old == new:
-                        continue
+                for key, old, new in section_changes:
                     kind = self._kind(old, new)
                     self._validate_event(kind, old, new)
-                    section_id = self._ensure_section(connection, *key)
+                    section_id = section_ids[key]
                     connection.execute(
                         """
                         INSERT INTO section_change_event(
@@ -629,12 +799,8 @@ class CheckpointedStateStore:
                     )
                 phase_started = perf_counter_ns()
                 course_latest_mutations = 0
-                for code in sorted(set(old_courses) | set(current_courses)):
-                    old = old_courses.get(code)
-                    new = current_courses.get(code)
-                    if old == new:
-                        continue
-                    course_id = self._ensure_course(connection, code)
+                for code, old, new in course_changes:
+                    course_id = course_ids[code]
                     if new is None:
                         connection.execute(
                             "DELETE FROM course_latest_state WHERE course_id = ?",
@@ -656,13 +822,8 @@ class CheckpointedStateStore:
                     course_latest_mutations += 1
 
                 section_latest_mutations = 0
-                for key in sorted(set(old_sections) | set(current_sections)):
-                    old = old_sections.get(key)
-                    new = current_sections.get(key)
-                    if old == new:
-                        continue
-                    code, section_code = key
-                    section_id = self._ensure_section(connection, code, section_code)
+                for key, old, new in section_changes:
+                    section_id = section_ids[key]
                     if new is None:
                         connection.execute(
                             "DELETE FROM section_latest_state WHERE section_id = ?",
@@ -714,15 +875,19 @@ class CheckpointedStateStore:
             except Exception:
                 if owns_connection:
                     connection.rollback()
+                self.invalidate_runtime_caches()
                 raise
 
-        return WriteResult(
+        result = WriteResult(
             snapshot_id=new_snapshot_id,
             created=True,
             course_events=course_event_count,
             section_events=section_event_count,
             checkpoint_created=should_checkpoint,
         )
+        if owns_connection:
+            self.accept_committed_snapshot(snapshot, result)
+        return result
 
     @staticmethod
     def _checkpoint_due(connection: sqlite3.Connection, snapshot_id: int) -> bool:

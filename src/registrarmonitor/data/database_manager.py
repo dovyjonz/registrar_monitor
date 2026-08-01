@@ -14,7 +14,7 @@ from typing import Any
 
 from ..config import get_config
 from ..core import get_logger
-from ..models import EnrollmentSnapshot
+from ..models import Course, EnrollmentSnapshot, Section
 from ..validation import validate_directory_exists
 from .checkpointed_state import CheckpointedStateStore
 
@@ -53,6 +53,12 @@ class DatabaseManager:
         # Store semester for reference
         self.semester = semester
 
+        self._checkpointed_store: CheckpointedStateStore | None = None
+        self._legacy_course_cache: dict[str, tuple[int, str | None, str | None]] = {}
+        self._legacy_section_cache: dict[
+            tuple[int, str], tuple[int, str | None, str | None]
+        ] = {}
+
         # Ensure parent directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -62,6 +68,10 @@ class DatabaseManager:
         # Initialize database
         self._init_database()
         self.storage_mode = self._read_storage_mode()
+        if self.storage_mode in {"shadow", "v2", "finalized"}:
+            self._checkpointed_store = CheckpointedStateStore(
+                self.db_path, initialize=False
+            )
 
     def _sanitize_semester_name(self, semester: str) -> str:
         """
@@ -88,8 +98,9 @@ class DatabaseManager:
         """
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=5.0)
             conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 5000")
             conn.row_factory = sqlite3.Row  # Enable column access by name
             yield conn
         except sqlite3.Error as e:
@@ -327,6 +338,415 @@ class DatabaseManager:
                         f"metadata: {configured!r} != {mode!r}"
                     )
             return mode
+
+    def _get_checkpointed_store(self) -> CheckpointedStateStore:
+        if self._checkpointed_store is None:
+            self._checkpointed_store = CheckpointedStateStore(
+                self.db_path, initialize=False
+            )
+        return self._checkpointed_store
+
+    def _invalidate_dual_write_caches(self) -> None:
+        self._legacy_course_cache.clear()
+        self._legacy_section_cache.clear()
+        if self._checkpointed_store is not None:
+            self._checkpointed_store.invalidate_runtime_caches()
+
+    def _store_dual_snapshot(self, snapshot: EnrollmentSnapshot) -> None:
+        """Write v2 first and its legacy compatibility projection atomically."""
+        store = self._get_checkpointed_store()
+        if self.semester and snapshot.semester != self.semester:
+            self.logger.warning(
+                f"Snapshot semester '{snapshot.semester}' differs from "
+                f"database semester '{self.semester}'"
+            )
+
+        try:
+            with self.get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                previous_snapshot_id = store.latest_snapshot_id_in_transaction(conn)
+                _, previous_sections = store.latest_states_in_transaction(conn)
+                result = store.write_snapshot_in_transaction(conn, snapshot)
+
+                if result.created:
+                    self._write_legacy_compatibility(
+                        conn,
+                        snapshot,
+                        result.snapshot_id,
+                        store,
+                        previous_snapshot_id,
+                        previous_sections,
+                    )
+                else:
+                    legacy_row = conn.execute(
+                        "SELECT snapshot_id FROM snapshots WHERE snapshot_id = ?",
+                        (result.snapshot_id,),
+                    ).fetchone()
+                    if legacy_row is None:
+                        raise sqlite3.DatabaseError(
+                            "legacy compatibility snapshot is missing for "
+                            f"v2 snapshot {result.snapshot_id}"
+                        )
+                    conn.execute(
+                        "UPDATE snapshots SET last_seen_at = ? WHERE snapshot_id = ?",
+                        (snapshot.timestamp, result.snapshot_id),
+                    )
+                conn.commit()
+        except Exception:
+            self._invalidate_dual_write_caches()
+            raise
+
+        store.accept_committed_snapshot(snapshot, result)
+        self.logger.info(
+            f"Successfully stored enrollment snapshot {result.snapshot_id} "
+            f"({len(snapshot.courses)} courses, "
+            f"{sum(len(course.sections) for course in snapshot.courses.values())} "
+            "sections)"
+        )
+
+    def _write_legacy_compatibility(
+        self,
+        connection: sqlite3.Connection,
+        snapshot: EnrollmentSnapshot,
+        snapshot_id: int,
+        store: CheckpointedStateStore,
+        previous_snapshot_id: int | None,
+        previous_sections: dict[tuple[str, str], tuple[str, int, int, str]],
+    ) -> None:
+        """Append only the compatibility rows needed for one v2 observation."""
+        connection.execute(
+            """
+            INSERT INTO snapshots(
+                snapshot_id, timestamp, last_seen_at, semester, overall_fill
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot_id,
+                snapshot.timestamp,
+                snapshot.timestamp,
+                snapshot.semester,
+                snapshot.overall_fill,
+            ),
+        )
+
+        course_ids: dict[str, int] = {}
+        for course_code, course in snapshot.courses.items():
+            course_id = store.resolve_course_id(connection, course_code)
+            course_ids[course_code] = course_id
+            self._sync_legacy_course(connection, course_code, course_id, course)
+
+        all_enrollment_rows: list[tuple[int, int, str, int, int, float]] = []
+        changed_enrollment_rows: list[tuple[int, int, str, int, int, float]] = []
+        instructor_changes: list[tuple[int, str, str, str]] = []
+        current_section_keys: set[tuple[str, str]] = set()
+        for course_code, course in snapshot.courses.items():
+            course_id = course_ids[course_code]
+            for section_code, section in course.sections.items():
+                section_id = store.resolve_section_id(
+                    connection, course_code, section_code
+                )
+                current_section_keys.add((course_code, section_code))
+                current_state = (
+                    section.section_type or "",
+                    section.enrollment,
+                    section.capacity,
+                    section.instructor or "",
+                )
+                old_instructor, created = self._sync_legacy_section(
+                    connection,
+                    course_id,
+                    section_code,
+                    section_id,
+                    section,
+                )
+                desired_instructor = section.instructor or ""
+                if not created and old_instructor != desired_instructor:
+                    instructor_changes.append(
+                        (
+                            section_id,
+                            old_instructor,
+                            desired_instructor,
+                            snapshot.timestamp,
+                        )
+                    )
+
+                fill_percentage = (
+                    section.enrollment / section.capacity
+                    if section.capacity > 0
+                    else 0.0
+                )
+                enrollment_row = (
+                    snapshot_id,
+                    section_id,
+                    self._determine_status(fill_percentage),
+                    section.enrollment,
+                    section.capacity,
+                    fill_percentage,
+                )
+                all_enrollment_rows.append(enrollment_row)
+                if previous_sections.get((course_code, section_code)) != current_state:
+                    changed_enrollment_rows.append(enrollment_row)
+
+        removed_section_ids: set[int] = set()
+        for course_code, section_code in previous_sections:
+            if (course_code, section_code) in current_section_keys:
+                continue
+            course_id = store.resolve_course_id(connection, course_code)
+            section_id = store.resolve_section_id(connection, course_code, section_code)
+            removed_section_ids.add(section_id)
+            cached = self._legacy_section_cache.get((course_id, section_code))
+            if cached is None:
+                row = connection.execute(
+                    """
+                    SELECT section_id, section_type, instructor
+                    FROM sections
+                    WHERE course_id = ? AND section_code = ?
+                    """,
+                    (course_id, section_code),
+                ).fetchone()
+                if row is None:
+                    raise sqlite3.DatabaseError(
+                        "legacy compatibility section is missing for "
+                        f"{course_code}/{section_code}"
+                    )
+                if int(row[0]) != section_id:
+                    raise sqlite3.DatabaseError(
+                        "legacy/v2 section identity mismatch for "
+                        f"{course_code}/{section_code}"
+                    )
+                cached = (section_id, row[1], row[2])
+                self._legacy_section_cache[(course_id, section_code)] = cached
+            old_instructor = cached[2] or ""
+            if old_instructor:
+                connection.execute(
+                    """
+                    UPDATE sections
+                    SET instructor = '', updated_at = CURRENT_TIMESTAMP
+                    WHERE section_id = ?
+                    """,
+                    (section_id,),
+                )
+                self._legacy_section_cache[(course_id, section_code)] = (
+                    cached[0],
+                    cached[1],
+                    "",
+                )
+                instructor_changes.append(
+                    (section_id, old_instructor, "", snapshot.timestamp)
+                )
+
+        if instructor_changes:
+            connection.executemany(
+                """
+                INSERT INTO instructor_changes
+                (section_id, old_instructor, new_instructor, timestamp)
+                VALUES (?, ?, ?, ?)
+                """,
+                instructor_changes,
+            )
+        if previous_snapshot_id is None:
+            enrollment_rows = all_enrollment_rows
+        elif not all_enrollment_rows:
+            enrollment_rows = []
+        else:
+            legacy_predecessor = connection.execute(
+                "SELECT 1 FROM snapshots WHERE snapshot_id = ?",
+                (previous_snapshot_id,),
+            ).fetchone()
+            if legacy_predecessor is None:
+                raise sqlite3.DatabaseError(
+                    "legacy compatibility predecessor is missing for v2 snapshot "
+                    f"{previous_snapshot_id}"
+                )
+            changed_section_ids = {row[1] for row in changed_enrollment_rows}
+            excluded_section_ids = changed_section_ids | removed_section_ids
+            if len(excluded_section_ids) >= 900:
+                enrollment_rows = all_enrollment_rows
+            else:
+                parameters: list[int] = [snapshot_id, previous_snapshot_id]
+                excluded_sql = ""
+                if excluded_section_ids:
+                    placeholders = ", ".join("?" for _ in sorted(excluded_section_ids))
+                    excluded_sql = f" AND section_id NOT IN ({placeholders})"
+                    parameters.extend(sorted(excluded_section_ids))
+                connection.execute(
+                    """
+                    INSERT INTO enrollment_data(
+                        snapshot_id, section_id, status, enrollment_count,
+                        capacity_count, fill_percentage
+                    )
+                    SELECT ?, section_id, status, enrollment_count,
+                           capacity_count, fill_percentage
+                    FROM enrollment_data
+                    WHERE snapshot_id = ?
+                    """
+                    + excluded_sql,
+                    parameters,
+                )
+                copied_count = int(connection.execute("SELECT changes()").fetchone()[0])
+                expected_copied = len(all_enrollment_rows) - len(
+                    changed_enrollment_rows
+                )
+                if copied_count != expected_copied:
+                    raise sqlite3.DatabaseError(
+                        "legacy compatibility predecessor does not contain the "
+                        "expected unchanged enrollment rows"
+                    )
+                enrollment_rows = changed_enrollment_rows
+
+        if enrollment_rows:
+            connection.executemany(
+                """
+                INSERT INTO enrollment_data
+                (snapshot_id, section_id, status, enrollment_count,
+                 capacity_count, fill_percentage)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                enrollment_rows,
+            )
+
+    def _sync_legacy_course(
+        self,
+        connection: sqlite3.Connection,
+        course_code: str,
+        course_id: int,
+        course: Course,
+    ) -> None:
+        cached = self._legacy_course_cache.get(course_code)
+        if cached is not None and cached[0] != course_id:
+            raise sqlite3.DatabaseError(
+                f"legacy/v2 course identity mismatch for {course_code}"
+            )
+        if cached is None:
+            row = connection.execute(
+                """
+                SELECT course_id, course_title, department
+                FROM courses WHERE course_code = ?
+                """,
+                (course_code,),
+            ).fetchone()
+            if row is None:
+                title = course.course_title.strip() if course.course_title else None
+                department = course.department if course.department is not None else ""
+                connection.execute(
+                    """
+                    INSERT INTO courses(
+                        course_id, course_code, course_title, department
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (course_id, course_code, title, department),
+                )
+                self._legacy_course_cache[course_code] = (
+                    course_id,
+                    title,
+                    department,
+                )
+                return
+            if int(row[0]) != course_id:
+                raise sqlite3.DatabaseError(
+                    f"legacy/v2 course identity mismatch for {course_code}"
+                )
+            cached = (course_id, row[1], row[2])
+
+        stored_title = cached[1]
+        stored_department = cached[2]
+        desired_title = (
+            course.course_title.strip() if course.course_title else stored_title
+        )
+        desired_department = (
+            course.department if course.department is not None else stored_department
+        )
+        if (desired_title, desired_department) != (
+            stored_title,
+            stored_department,
+        ):
+            connection.execute(
+                """
+                UPDATE courses
+                SET course_title = ?, department = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE course_id = ?
+                """,
+                (desired_title, desired_department, course_id),
+            )
+        self._legacy_course_cache[course_code] = (
+            course_id,
+            desired_title,
+            desired_department,
+        )
+
+    def _sync_legacy_section(
+        self,
+        connection: sqlite3.Connection,
+        course_id: int,
+        section_code: str,
+        section_id: int,
+        section: Section,
+    ) -> tuple[str, bool]:
+        cache_key = (course_id, section_code)
+        cached = self._legacy_section_cache.get(cache_key)
+        if cached is not None and cached[0] != section_id:
+            raise sqlite3.DatabaseError(
+                f"legacy/v2 section identity mismatch for {course_id}/{section_code}"
+            )
+        created = False
+        if cached is None:
+            row = connection.execute(
+                """
+                SELECT section_id, section_type, instructor
+                FROM sections
+                WHERE course_id = ? AND section_code = ?
+                """,
+                (course_id, section_code),
+            ).fetchone()
+            desired_type = section.section_type or ""
+            desired_instructor = section.instructor or ""
+            if row is None:
+                connection.execute(
+                    """
+                    INSERT INTO sections(
+                        section_id, course_id, section_code, section_type, instructor
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        section_id,
+                        course_id,
+                        section_code,
+                        desired_type,
+                        desired_instructor,
+                    ),
+                )
+                cached = (section_id, desired_type, desired_instructor)
+                created = True
+            else:
+                if int(row[0]) != section_id:
+                    raise sqlite3.DatabaseError(
+                        "legacy/v2 section identity mismatch for "
+                        f"{course_id}/{section_code}"
+                    )
+                cached = (section_id, row[1], row[2])
+
+        stored_type = cached[1]
+        stored_instructor = cached[2]
+        desired_type = section.section_type or stored_type or ""
+        desired_instructor = section.instructor or ""
+        if (desired_type, desired_instructor) != (
+            stored_type,
+            stored_instructor,
+        ):
+            connection.execute(
+                """
+                UPDATE sections
+                SET section_type = ?, instructor = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE section_id = ?
+                """,
+                (desired_type, desired_instructor, section_id),
+            )
+        self._legacy_section_cache[cache_key] = (
+            section_id,
+            desired_type,
+            desired_instructor,
+        )
+        return stored_instructor or "", created
 
     def _determine_status(self, fill_percentage: float) -> str:
         """
@@ -684,9 +1104,11 @@ class DatabaseManager:
             sqlite3.Error: If database operation fails
         """
         if self.storage_mode == "finalized":
-            CheckpointedStateStore(self.db_path, initialize=False).write_snapshot(
-                snapshot
-            )
+            self._get_checkpointed_store().write_snapshot(snapshot)
+            return
+
+        if self.storage_mode in {"shadow", "v2"}:
+            self._store_dual_snapshot(snapshot)
             return
 
         # Check if we should discard this snapshot as a duplicate
@@ -709,14 +1131,6 @@ class DatabaseManager:
                                 "WHERE snapshot_id = ?",
                                 (snapshot.timestamp, latest_snapshot_id),
                             )
-                            if self.storage_mode in {"shadow", "v2"}:
-                                cursor.execute(
-                                    """
-                                    UPDATE state_snapshot SET last_seen_at = ?
-                                    WHERE snapshot_id = ?
-                                    """,
-                                    (snapshot.timestamp, latest_snapshot_id),
-                                )
                             conn.commit()
                         return
                     except sqlite3.Error as e:
@@ -930,14 +1344,6 @@ class DatabaseManager:
                     enrollment_data_list,
                 )
 
-                if self.storage_mode in {"shadow", "v2"}:
-                    CheckpointedStateStore(
-                        self.db_path, initialize=False
-                    ).write_snapshot_in_transaction(
-                        conn,
-                        snapshot,
-                        snapshot_id=snapshot_id,
-                    )
                 conn.commit()
                 self.logger.info(
                     f"Successfully stored enrollment snapshot {snapshot_id} "

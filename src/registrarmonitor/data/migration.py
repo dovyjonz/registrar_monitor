@@ -57,6 +57,7 @@ class MigrationRequest:
     candidate_path: Path | None = None
     backup_dir: Path | None = None
     raw_dir: Path | None = None
+    authorized: bool = False
 
     def validate(self) -> None:
         def paths_alias(first: Path, second: Path) -> bool:
@@ -73,6 +74,10 @@ class MigrationRequest:
             )
         if not self.database.is_file():
             raise MigrationError(f"database does not exist: {self.database}")
+        if not self.dry_run and not self.authorized:
+            raise MigrationError(
+                "migration apply requires explicit operator authorization"
+            )
         if self.dry_run and self.candidate_path is None:
             raise MigrationError("dry run requires an explicit candidate path")
         if not self.dry_run and self.candidate_path is not None:
@@ -1521,6 +1526,10 @@ def run_migration(
             "semester": request.semester,
             "metadata_mode": request.metadata_mode.value,
             "target_version": request.target_version,
+            "authorization": {
+                "required": not request.dry_run,
+                "provided": request.authorized,
+            },
             "source": {
                 "path": str(source),
                 "sha256_before": source_hash_before,
@@ -1633,6 +1642,10 @@ def run_migration(
         "semester": request.semester,
         "metadata_mode": request.metadata_mode.value,
         "target_version": request.target_version,
+        "authorization": {
+            "required": not request.dry_run,
+            "provided": request.authorized,
+        },
         "application_revision": _revision(),
         "source": {
             "path": str(source),

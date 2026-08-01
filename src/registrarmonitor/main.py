@@ -293,6 +293,11 @@ Telegram Control:
     migrate_parser.add_argument("--candidate", type=Path)
     migrate_parser.add_argument("--backup-dir", type=Path)
     migrate_parser.add_argument("--report", type=Path, required=True)
+    migrate_parser.add_argument(
+        "--authorize",
+        action="store_true",
+        help="Confirm explicit operator authorization for an apply",
+    )
     execution_mode = migrate_parser.add_mutually_exclusive_group(required=True)
     execution_mode.add_argument("--dry-run", action="store_true")
     execution_mode.add_argument("--apply", action="store_true")
@@ -465,6 +470,7 @@ async def handle_db_command(args) -> int:
             metadata_mode=args.metadata_mode,
             report_path=args.report,
             dry_run=args.dry_run,
+            authorized=getattr(args, "authorize", False),
             database=getattr(args, "database", None),
             candidate=getattr(args, "candidate", None),
             backup_dir=getattr(args, "backup_dir", None),

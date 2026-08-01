@@ -176,6 +176,53 @@ def test_migrate_rejects_dry_run_and_apply_together():
     assert exc_info.value.code == 2
 
 
+def test_migrate_apply_accepts_explicit_authorization():
+    parser = create_parser()
+
+    args = parser.parse_args(
+        [
+            "db",
+            "migrate",
+            "--semester",
+            "Summer 2025",
+            "--target-version",
+            "2",
+            "--metadata-mode",
+            "legacy-preserving",
+            "--report",
+            "migration.json",
+            "--apply",
+            "--authorize",
+        ]
+    )
+
+    assert args.apply is True
+    assert args.authorize is True
+
+
+def test_migrate_apply_is_not_authorized_by_default():
+    parser = create_parser()
+
+    args = parser.parse_args(
+        [
+            "db",
+            "migrate",
+            "--semester",
+            "Summer 2025",
+            "--target-version",
+            "2",
+            "--metadata-mode",
+            "legacy-preserving",
+            "--report",
+            "migration.json",
+            "--apply",
+        ]
+    )
+
+    assert args.apply is True
+    assert args.authorize is False
+
+
 @pytest.mark.parametrize(
     "argv",
     [

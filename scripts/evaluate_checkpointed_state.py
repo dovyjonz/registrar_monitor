@@ -1378,6 +1378,11 @@ class _ReadOnlyWebsiteDatabase:
 
     def __init__(self, db_path: str | None = None, semester: str | None = None):
         self.db_path = self.path
+        # Keep the harness on the legacy reader path.  Website data now
+        # selects the reader from the manager's storage mode, and this
+        # deliberately read-only adapter never constructs the manager's
+        # normal mode state.
+        self.storage_mode = "legacy"
 
     @contextmanager
     def get_connection(self) -> Iterator[sqlite3.Connection]:

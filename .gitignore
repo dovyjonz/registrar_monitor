@@ -20,6 +20,7 @@ venv/
 # Tool caches
 .mypy_cache/
 .pytest_cache/
+.playwright-cli/
 .ruff_cache/
 .uv_cache/
 

@@ -650,6 +650,7 @@ class DatabaseCommands:
         metadata_mode: str,
         report_path: Path,
         dry_run: bool,
+        authorized: bool = False,
         database: Path | None = None,
         candidate: Path | None = None,
         backup_dir: Path | None = None,
@@ -658,6 +659,10 @@ class DatabaseCommands:
     ) -> bool:
         """Run or resume one explicitly scoped schema migration."""
         try:
+            if not dry_run and not authorized:
+                raise ValueError(
+                    "migration apply requires explicit operator authorization"
+                )
             semester_config = self._storage_config(semester)
             if semester_config.get("metadata_mode") != metadata_mode:
                 raise ValueError(
@@ -687,6 +692,7 @@ class DatabaseCommands:
                     metadata_mode=MetadataMode(metadata_mode),
                     report_path=report_path,
                     dry_run=dry_run,
+                    authorized=authorized,
                     candidate_path=candidate,
                     backup_dir=backup_dir,
                     raw_dir=raw_dir,

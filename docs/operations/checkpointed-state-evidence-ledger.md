@@ -6,11 +6,11 @@ Monitoring must remain stopped.
 
 | Semester | Mode | Dry run | Backup | Apply | Shadow | v2 reads | Static pointer | Rollback readiness |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Summer 2025 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target-host rerun pending | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Isolated pointer/browser passed; not deployed | Legacy tables retained; workspace rollback artifacts verified; production backup and pointer proof pending |
-| Spring 2025 | legacy-preserving | Local candidate and 16/16 sampled recovery scenarios passed | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; workspace rollback artifacts verified; performance and live gates pending |
-| Fall 2025 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; workspace rollback artifacts verified; performance and live gates pending |
-| Spring 2026 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; workspace rollback artifacts verified; performance and live gates pending |
-| Summer 2026 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; workspace rollback artifacts verified; target-host and live gates pending |
+| Summer 2025 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Isolated pointer/browser passed; not deployed | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Spring 2025 | legacy-preserving | Local candidate and 16/16 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Fall 2025 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Spring 2026 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Summer 2026 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
 
 ## Repository evidence
 
@@ -58,26 +58,42 @@ and restore evidence remain pending.
 
 ## Current authorization boundary
 
-Read-only production preflight on 2026-08-01 confirmed the expected VM is
-running, its 30 GB boot disk is `instance-20260501-152532`, and
-`registrarmonitor.service` remains failed/inactive and disabled. No snapshot for
-that disk was returned by the bounded snapshot listing. No service, snapshot,
-database, storage-mode, website, or scheduling mutation was performed on
-production. The explicitly requested local workspace database copies were
-schema-migrated in the configured order and remain in `legacy` mode.
+Read-only target-host verification on 2026-08-01 confirmed the expected VM is
+`RUNNING`, its 30 GB boot disk is `instance-20260501-152532`, and the regional
+standard snapshot `registrar-monitor-pre-migration-20260801` is already
+`READY`/`UP_TO_DATE` in `us-east1`. Do not create a second snapshot. The
+canonical `registrarmonitor.service` remains failed/inactive and disabled, the
+obsolete unit is `not-found`, cron is active, and no monitor process was found.
 
-The first live apply remains blocked by the failed local performance gate, a
-target-host dry run and v2-read benchmark, confirmation of the target-host raw
-corpus, backup ownership/retention decisions, and an explicitly authorized
-regional standard snapshot. Once the preceding technical gates pass, the exact
-next authorization-gated command is:
+The target checkout is clean at revision `c96b9f100a7e97ebf5eca275fde1700fcd696e8d`
+(`c96b9f10`). It does not contain the current local write changes or the
+explicit-authorization guard, which remain uncommitted in the workspace. The
+target runtime user cannot read `.env` (`0600 spook:spook`); no secret contents
+were read or changed. Aggregate target raw-corpus inventory is 3,260 files,
+3,260 XLS/XLSX files, and 1,057,168,900 bytes. The five target source
+databases are integrity-clean with zero foreign keys, but all report
+`user_version=0` (the migration runner requires source schema v1), with target
+snapshot counts `0/254/497/495/1970` in migration order. The Summer 2025 target
+dry run therefore stopped at `unsupported source schema version 0` before a
+candidate or live write; the same source-version preflight blocks the other
+four targets.
 
-```bash
-gcloud compute snapshots create registrar-monitor-pre-migration-20260801 --project=registrarmonitor --quiet --source-disk=instance-20260501-152532 --source-disk-zone=us-east1-c --snapshot-type=STANDARD --storage-location=us-east1 --description='Registrar Monitor pre-migration snapshot 2026-08-01'
-```
+The disposable target prototype evaluator was staged only under `/tmp`. Its
+first run exposed and the workspace now fixes a read-only harness
+`storage_mode` defect; a corrected full Spring 2026 run exceeded the bounded
+work interval and was terminated. No evaluator remains, and the Spring 2026
+source hash stayed `7429fbf56aaa55caecfddaea8d1464fc923f52d2e38b1c357d013eb643ca2496`.
+This is not accepted v2-read evidence for the current writes.
 
-The exact production apply command must not be run until that snapshot reaches
-`READY` and all remaining gates pass.
+The first live apply is not yet approval-only. Technical blockers remain:
+sync the approved revision to the target without starting monitoring, resolve
+the runtime `.env` access boundary, reconcile the target source databases to
+the expected migration precondition without an unapproved live write, rerun
+all five target dry runs/rehearsals and v2-read checks, and resolve the failed
+end-to-end performance gate. Backup ownership, retention, RPO/RTO, and restore
+evidence also remain pending. After those gates pass, use one prepared
+`--apply --authorize` command per semester in the configured order; do not run
+any of them now.
 
 ## Five-semester local results
 
@@ -153,8 +169,9 @@ measurement alone is insufficient.
    target-host dry runs and bounded rehearsals in `storage.migration_order`.
 2. Create and restore-check timestamped SQLite backups. Record ownership,
    off-host location, retention, RPO/RTO, free-space margin, hashes, integrity,
-   and foreign-key results. After all technical gates pass, obtain separate
-   authorization for the regional disk snapshot and wait for `READY`.
+   and foreign-key results. The existing regional standard snapshot is already
+   `READY`; verify that it remains available and do not recreate it as part of
+   the migration.
 3. Apply any still-unapplied schema migrations one semester at a time. Require
    schema v2, phase `complete`, mode `legacy`, exact preserved IDs, zero parity
    mismatches, and a verified predecessor marker after each apply.
@@ -199,16 +216,17 @@ in the configured order.
   ID-preservation, integrity/foreign-key, and website/static-pointer/browser
   checks.
 - [ ] **Set the backup and authorization boundary.** Decide backup ownership,
-  retention, RPO/RTO, and restore evidence. After the technical gates pass,
-  obtain explicit operator authorization for the regional standard disk
-  snapshot described above, run it, and wait for `READY` before any live apply.
+  retention, RPO/RTO, and restore evidence. The existing regional standard
+  disk snapshot is `READY`; retain it and verify its identity before any live
+  apply. A replacement snapshot would require separate explicit authorization.
   Monitoring must remain stopped.
 - [ ] **Apply the historical migrations one at a time.** Run the approved
-  `--apply` command in the exact `storage.migration_order`. After each semester,
-  verify the migration report, backup/restore evidence, `user_version`,
-  `storage_control` phase, SQLite integrity and foreign keys, source/target
-  hashes where applicable, preserved IDs, and the predecessor-completion marker
-  before proceeding.
+  `--apply --authorize` command in the exact `storage.migration_order`; the
+  authorization flag is required separately for every semester. After each
+  semester, verify the migration report, backup/restore evidence,
+  `user_version`, `storage_control` phase, SQLite integrity and foreign keys,
+  source/target hashes where applicable, preserved IDs, and the
+  predecessor-completion marker before proceeding.
 - [ ] **Complete the storage rollout.** Run the approved `legacy -> shadow`
   transition, perform a shadow dual-write/parity burn-in and v2-read/stateful-
   reporting checks, and transition `shadow -> v2` only after the performance,
