@@ -37,6 +37,41 @@ class TestSnapshotComparator:
         assert len(comparison.removed_courses) == 0
         assert len(comparison.changed_courses) == 0
 
+    def test_comparison_order_is_independent_of_mapping_insertion_order(
+        self, comparator: SnapshotComparator
+    ):
+        class CollidingSectionCode(str):
+            __slots__ = ()
+
+            def __hash__(self) -> int:
+                return 1
+
+        codes = [CollidingSectionCode(f"{number}S") for number in range(8)]
+
+        def snapshot(timestamp: str, enrollment: int, reverse: bool):
+            ordered_codes = reversed(codes) if reverse else codes
+            sections: dict[str, Section] = {
+                code: Section(code, "S", enrollment, 50, enrollment / 50)
+                for code in ordered_codes
+            }
+            return EnrollmentSnapshot(
+                timestamp,
+                "Spring 2026",
+                enrollment / 50,
+                {"PHIL 210": Course("PHIL 210", "SSH", sections, enrollment / 50)},
+            )
+
+        expected = comparator.compare_snapshots(
+            snapshot("2026-01-31 22:36:19", 49, False),
+            snapshot("2026-01-16 14:06:05", 50, False),
+        )
+        reconstructed = comparator.compare_snapshots(
+            snapshot("2026-01-31 22:36:19", 49, True),
+            snapshot("2026-01-16 14:06:05", 50, True),
+        )
+
+        assert reconstructed == expected
+
     def test_new_course_detected(self, comparator: SnapshotComparator):
         """New courses should be detected."""
         previous = EnrollmentSnapshot("2024-01-15 09:00:00", "Spring 2024", 0.70, {})

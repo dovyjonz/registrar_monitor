@@ -1,7 +1,7 @@
 """Tests for the monitoring service module."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -175,20 +175,18 @@ class TestGetLatestSnapshot:
 class TestGetSnapshotComparison:
     def test_returns_pair_when_two_snapshots(self, mock_deps, sample_snapshot):
         mock_deps["db_manager"].get_latest_snapshot_id.return_value = 2
+        mock_deps["db_manager"].get_previous_snapshot_id.return_value = 1
         mock_deps["db_manager"].get_snapshot_data.side_effect = [
             sample_snapshot,
             None,
         ]
-        mock_deps[
-            "db_manager"
-        ].get_connection.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = (
-            1,
-        )
 
         service = MonitoringService()
         current, previous = service.get_snapshot_comparison()
 
         assert current is sample_snapshot
+        assert previous is None
+        mock_deps["db_manager"].get_previous_snapshot_id.assert_called_once_with(2)
 
     def test_returns_none_pair_when_no_snapshots(self, mock_deps):
         mock_deps["db_manager"].get_latest_snapshot_id.return_value = None
@@ -223,16 +221,13 @@ class TestCleanupOldData:
 
 class TestGetDatabaseStats:
     def test_returns_stats_dict(self, mock_deps):
-        fake_cursor = MagicMock()
-        fake_cursor.execute.return_value.fetchone.side_effect = [
-            (10,),
-            (50,),
-            (200,),
-            ("2024-01-01", "2024-12-31"),
-        ]
-        fake_conn = MagicMock()
-        fake_conn.__enter__.return_value.cursor.return_value = fake_cursor
-        mock_deps["db_manager"].get_connection.return_value = fake_conn
+        mock_deps["db_manager"].get_database_stats.return_value = {
+            "snapshots": 10,
+            "courses": 50,
+            "sections": 200,
+            "earliest_snapshot": "2024-01-01",
+            "latest_snapshot": "2024-12-31",
+        }
 
         service = MonitoringService()
         stats = service.get_database_stats()
@@ -244,7 +239,7 @@ class TestGetDatabaseStats:
         assert stats["latest_snapshot"] == "2024-12-31"
 
     def test_returns_empty_on_exception(self, mock_deps):
-        mock_deps["db_manager"].get_connection.side_effect = Exception("DB error")
+        mock_deps["db_manager"].get_database_stats.side_effect = Exception("DB error")
 
         service = MonitoringService()
         stats = service.get_database_stats()

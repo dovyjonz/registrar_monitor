@@ -33,19 +33,22 @@ env = Environment(
 )
 
 
-def _get_asset_info(entry: str = "src/main.js") -> tuple[str | None, str | None]:
+def _get_asset_info(
+    entry: str = "src/main.js", manifest_path: Path | None = None
+) -> tuple[str | None, str | None]:
     """
     Get JS and CSS filenames from Vite manifest.
 
     Returns:
         Tuple of (js_filename, css_filename)
     """
-    if not MANIFEST_PATH.exists():
-        print(f"Warning: Manifest not found at {MANIFEST_PATH}")
+    manifest_path = manifest_path or MANIFEST_PATH
+    if not manifest_path.exists():
+        print(f"Warning: Manifest not found at {manifest_path}")
         return None, None
 
     try:
-        manifest = json.loads(MANIFEST_PATH.read_text())
+        manifest = json.loads(manifest_path.read_text())
         info = manifest.get(entry)
         if not info:
             return None, None
@@ -80,12 +83,13 @@ def build_semester_page(
     semester: str,
     *,
     minify_assets: bool = False,
+    manifest_path: Path | None = None,
 ) -> str:
     """
     Build HTML for a single semester page using Jinja2 templates.
     """
     # Get asset filenames
-    js_file, css_file = _get_asset_info()
+    js_file, css_file = _get_asset_info(manifest_path=manifest_path)
 
     # Build navigation
     nav_html = _build_nav_html(semester)

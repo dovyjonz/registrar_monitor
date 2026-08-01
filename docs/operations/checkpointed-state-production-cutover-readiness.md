@@ -289,11 +289,24 @@ all of the following evidence:
 - zero unexplained state, diff, reporting, or website parity failures;
 - zero partial or divergent dual writes;
 - successful database integrity and foreign-key checks after the run;
-- acceptable write, reporting, and generation latency;
+- 1,000 unchanged writes with p95 no greater than 5 ms, zero new state rows,
+  and zero steady-state database growth after warm-up;
+- 100 one-section changed writes through `DatabaseManager` with p95 no greater
+  than 10 ms in shadow mode;
+- 100 latest-snapshot v2 reads after warm-up with p95 no greater than 10 ms and
+  exact result parity;
+- website generation with no more than 25 SQL statements and p95 no greater
+  than 250 ms;
 - an operator-reviewed parity report.
 
 Controlled replay may establish these gates while monitoring is paused. Any live
 shadow observation requires separate service-activation authorization.
+
+Use at least 10 untimed warm-up operations for each latency workload. Evidence
+must retain every raw timing sample, median, nearest-rank p95, row-count and
+database-size deltas, application revision, storage mode, and target-host
+identity. A direct `CheckpointedStateStore` result does not substitute for the
+end-to-end `DatabaseManager` shadow measurement.
 
 An unexplained mismatch, failed dual write, corrupted phase marker, failed
 integrity check, or loss of reporting continuity resets promotion readiness and

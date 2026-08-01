@@ -152,18 +152,12 @@ class MonitoringService:
 
             current_snapshot = self.db_manager.get_snapshot_data(latest_id)
 
-            # Get previous snapshot (second most recent)
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                result = cursor.execute(
-                    "SELECT snapshot_id FROM snapshots WHERE snapshot_id != ? ORDER BY timestamp DESC LIMIT 1",
-                    (latest_id,),
-                ).fetchone()
-
-                if result:
-                    previous_snapshot = self.db_manager.get_snapshot_data(result[0])
-                else:
-                    previous_snapshot = None
+            previous_id = self.db_manager.get_previous_snapshot_id(latest_id)
+            previous_snapshot = (
+                self.db_manager.get_snapshot_data(previous_id)
+                if previous_id is not None
+                else None
+            )
 
             self.logger.info(
                 f"Retrieved comparison snapshots - Current: {bool(current_snapshot)}, Previous: {bool(previous_snapshot)}"
@@ -205,39 +199,9 @@ class MonitoringService:
             Dictionary with database statistics
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-
-                # Count snapshots
-                snapshot_count = cursor.execute(
-                    "SELECT COUNT(*) FROM snapshots"
-                ).fetchone()[0]
-
-                # Count courses
-                course_count = cursor.execute(
-                    "SELECT COUNT(*) FROM courses"
-                ).fetchone()[0]
-
-                # Count sections
-                section_count = cursor.execute(
-                    "SELECT COUNT(*) FROM sections"
-                ).fetchone()[0]
-
-                # Get date range
-                date_range = cursor.execute(
-                    "SELECT MIN(timestamp), MAX(timestamp) FROM snapshots"
-                ).fetchone()
-
-                stats = {
-                    "snapshots": snapshot_count,
-                    "courses": course_count,
-                    "sections": section_count,
-                    "earliest_snapshot": date_range[0],
-                    "latest_snapshot": date_range[1],
-                }
-
-                self.logger.debug(f"Database stats: {stats}")
-                return stats
+            stats = self.db_manager.get_database_stats()
+            self.logger.debug(f"Database stats: {stats}")
+            return stats
 
         except Exception as e:
             self.logger.error(f"Failed to get database stats: {e}")

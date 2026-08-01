@@ -12,9 +12,12 @@ from ..data.database_manager import DatabaseManager
 from ..data.migration import (
     MetadataMode,
     MigrationRequest,
+    _legacy_fingerprint,
+    finalize_storage,
     run_migration,
     transition_storage_mode,
 )
+from ..data.migration_rehearsal import RehearsalRequest, run_rehearsal
 from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..utils import get_section_sort_key
@@ -478,7 +481,11 @@ class DatabaseCommands:
         return semester_config
 
     @staticmethod
-    def _validate_migration_order(semester: str, data_dir: Path) -> None:
+    def _validate_migration_order(
+        semester: str,
+        data_dir: Path,
+        completed_predecessor_dir: Path | None = None,
+    ) -> None:
         """Require every earlier configured semester to be fully migrated."""
         config = get_config()
         storage = config.get("storage", {})
@@ -497,6 +504,7 @@ class DatabaseCommands:
                 raise ValueError(
                     f"migration order blocked: {prior_semester!r} has no database"
                 )
+            completed = False
             try:
                 with sqlite3.connect(
                     f"{prior_database.resolve().as_uri()}?mode=ro",
@@ -509,13 +517,49 @@ class DatabaseCommands:
                         "SELECT migration_phase FROM storage_control "
                         "WHERE singleton = 1"
                     ).fetchone()
+                completed = version == 2 and control in {
+                    ("complete",),
+                    ("finalized",),
+                }
+            except sqlite3.Error:
+                completed = False
+
+            if completed:
+                continue
+
+            if completed_predecessor_dir is None:
+                raise ValueError(
+                    f"migration order blocked: {prior_semester!r} is incomplete"
+                )
+
+            candidate_name = f"{slug.replace('_', '-')}-candidate.db"
+            candidate = completed_predecessor_dir / candidate_name
+            try:
+                with sqlite3.connect(
+                    f"{candidate.resolve().as_uri()}?mode=ro",
+                    uri=True,
+                ) as connection:
+                    candidate_version = int(
+                        connection.execute("PRAGMA user_version").fetchone()[0]
+                    )
+                    candidate_control = connection.execute(
+                        "SELECT semester, migration_phase, legacy_fingerprint "
+                        "FROM storage_control WHERE singleton = 1"
+                    ).fetchone()
             except sqlite3.Error as error:
                 raise ValueError(
-                    f"migration order blocked: {prior_semester!r} is incomplete"
+                    "migration order blocked: verified candidate missing or invalid "
+                    f"for {prior_semester!r}: {candidate}"
                 ) from error
-            if version != 2 or control != ("complete",):
+            expected_control = (
+                prior_semester,
+                "complete",
+                _legacy_fingerprint(prior_database),
+            )
+            if candidate_version != 2 or candidate_control != expected_control:
                 raise ValueError(
-                    f"migration order blocked: {prior_semester!r} is incomplete"
+                    "migration order blocked: predecessor candidate does not match "
+                    f"the current {prior_semester!r} source"
                 )
 
     async def stats(self) -> bool:
@@ -610,6 +654,7 @@ class DatabaseCommands:
         candidate: Path | None = None,
         backup_dir: Path | None = None,
         raw_dir: Path | None = None,
+        completed_predecessor_dir: Path | None = None,
     ) -> bool:
         """Run or resume one explicitly scoped schema migration."""
         try:
@@ -622,7 +667,15 @@ class DatabaseCommands:
                 )
             config = get_config()
             data_dir = Path(config["directories"]["data_storage"])
-            self._validate_migration_order(semester, data_dir)
+            if completed_predecessor_dir is not None and not dry_run:
+                raise ValueError(
+                    "predecessor candidates are accepted only for dry runs"
+                )
+            self._validate_migration_order(
+                semester,
+                data_dir,
+                completed_predecessor_dir=completed_predecessor_dir,
+            )
             if database is None:
                 slug = DatabaseManager._sanitize_semester_name_static(semester)
                 database = data_dir / f"enrollment_{slug}.db"
@@ -686,6 +739,100 @@ class DatabaseCommands:
         except Exception as error:
             print(f"❌ Storage mode transition failed: {error}")
             self.logger.error(f"Storage mode transition error: {error}")
+            return False
+
+    async def finalize_storage(
+        self,
+        *,
+        semester: str,
+        report_path: Path,
+        authorized: bool,
+        database: Path | None = None,
+        rollback_dir: Path | None = None,
+    ) -> bool:
+        """Compact one v2 database after explicit operator authorization."""
+        try:
+            if self._storage_config(semester).get("mode") != "v2":
+                raise ValueError(
+                    "finalization requires the semester's approved mode to be v2"
+                )
+            if database is None:
+                config = get_config()
+                data_dir = Path(config["directories"]["data_storage"])
+                slug = DatabaseManager._sanitize_semester_name_static(semester)
+                database = data_dir / f"enrollment_{slug}.db"
+            result = finalize_storage(
+                database,
+                semester=semester,
+                report_path=report_path,
+                rollback_dir=rollback_dir,
+                authorized=authorized,
+            )
+            print(
+                f"✅ Storage finalization {result.status}: {semester}; "
+                f"archive={result.archive_path}; report={result.report_path}"
+            )
+            return True
+        except Exception as error:
+            print(f"❌ Storage finalization failed: {error}")
+            self.logger.error(f"Storage finalization error: {error}")
+            return False
+
+    async def rehearse_migration(
+        self,
+        *,
+        semester: str,
+        target_version: int,
+        metadata_mode: str,
+        report_path: Path,
+        evidence_dir: Path,
+        database: Path | None = None,
+        raw_dir: Path | None = None,
+        completed_predecessor_dir: Path | None = None,
+        workers: int = 1,
+        snapshot_stride: int = 1,
+    ) -> bool:
+        """Exercise every restart boundary on disposable database copies."""
+        try:
+            semester_config = self._storage_config(semester)
+            if semester_config.get("metadata_mode") != metadata_mode:
+                raise ValueError(
+                    "requested metadata mode disagrees with settings.toml: "
+                    f"{metadata_mode!r} != "
+                    f"{semester_config.get('metadata_mode')!r}"
+                )
+            config = get_config()
+            data_dir = Path(config["directories"]["data_storage"])
+            self._validate_migration_order(
+                semester,
+                data_dir,
+                completed_predecessor_dir=completed_predecessor_dir,
+            )
+            if database is None:
+                slug = DatabaseManager._sanitize_semester_name_static(semester)
+                database = data_dir / f"enrollment_{slug}.db"
+            report = run_rehearsal(
+                RehearsalRequest(
+                    database=database,
+                    semester=semester,
+                    target_version=target_version,
+                    metadata_mode=MetadataMode(metadata_mode),
+                    report_path=report_path,
+                    evidence_dir=evidence_dir,
+                    raw_dir=raw_dir,
+                    workers=workers,
+                    snapshot_stride=snapshot_stride,
+                )
+            )
+            print(
+                f"✅ Migration rehearsal {report['status']}: {semester}; "
+                f"{report['passed']}/{report['scenario_count']} scenarios passed; "
+                f"report={report_path}"
+            )
+            return report["status"] == "passed"
+        except Exception as error:
+            print(f"❌ Migration rehearsal failed: {error}")
+            self.logger.error(f"Migration rehearsal error: {error}")
             return False
 
     async def rollback_manifest(
@@ -810,12 +957,21 @@ class DeployCommand:
         project_name: str = "registrar-monitor",
         branch: str | None = None,
         prototype: bool = False,
+        output_dir: Path | None = None,
     ) -> bool:
         """Run the deploy command."""
         if self.debug:
             print("🔍 DEBUG MODE: Website generation/deployment")
 
-        service = WebsiteService()
+        if deploy and output_dir is not None:
+            print("❌ Isolated website output is generation-only; refusing deploy.")
+            return False
+
+        service = (
+            WebsiteService(output_dir=output_dir)
+            if output_dir is not None
+            else WebsiteService()
+        )
 
         if prototype:
             if deploy:

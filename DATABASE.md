@@ -107,6 +107,30 @@ monitor db migrate \
   --report output/summer-2025-migration.json \
   --dry-run
 
+# Prove deterministic recovery at checkpoint-focused transaction boundaries
+monitor db rehearse \
+  --semester "Summer 2025" \
+  --target-version 2 \
+  --metadata-mode raw-enriched \
+  --raw-dir assets/downloads \
+  --database data/enrollment_summer_2025.db \
+  --report output/migration/summer-2025-rehearsal.json \
+  --evidence-dir output/migration/summer-2025-recovery \
+  --workers 4 \
+  --snapshot-stride 96
+
+# Later dry runs/rehearsals may use verified candidates for order evidence.
+# Apply mode never accepts this candidate-only predecessor path.
+monitor db migrate \
+  --semester "Spring 2025" \
+  --target-version 2 \
+  --metadata-mode legacy-preserving \
+  --database data/enrollment_spring_2025.db \
+  --candidate output/migration/spring-2025-candidate.db \
+  --report output/migration/spring-2025-dry-run.json \
+  --completed-predecessor-dir output/migration \
+  --dry-run
+
 # Apply exactly one semester (creates and restore-verifies a timestamped backup)
 monitor db migrate \
   --semester "Spring 2025" \
@@ -126,6 +150,13 @@ monitor db mode \
 monitor db rollback-manifest \
   --semester "Spring 2025" \
   --report output/spring-2025-static-rollback.json
+
+# After the approved v2 burn-in and with monitoring stopped, compact explicitly
+monitor db finalize \
+  --semester "Spring 2025" \
+  --rollback-dir output/migration/rollback \
+  --report output/spring-2025-finalization.json \
+  --authorize
 ```
 
 Migration is idempotent and resumes at committed phase markers. A completed
@@ -134,6 +165,16 @@ rerun performs semantic and SQLite verification and reports
 is reconciled before shadow promotion. Marker/data disagreement, changed
 preserved history, non-chronological divergence, raw-evidence conflict, or a
 mode/configuration mismatch blocks the operation.
+
+`monitor db rehearse` invokes that same production runner on disposable copies,
+injects an interruption before and after schema, catalog, every snapshot,
+reporting, and completion commits, then records each resumed digest and table
+count in JSON and Markdown. It never applies to the source database.
+
+Legacy-site verification can be generated without touching the normal public
+tree by passing `monitor deploy --force --output-dir <isolated-directory>`.
+An explicit output directory is generation-only: both the CLI and service
+refuse Cloudflare deployment from it.
 
 ## Indexes
 
@@ -163,8 +204,14 @@ Before compatibility finalization, rollback consists of:
 4. Run `monitor db rollback-manifest` when the static pointer must also revert.
 5. Regenerate, validate, and redeploy the static site under separate approval.
 
-Do not run `VACUUM INTO`, remove legacy tables, or delete rollback artifacts as
-part of the v2 compatibility release.
+The separate `monitor db finalize --authorize` operation is the only supported
+path to `VACUUM INTO` compaction and legacy-table retirement. It first writes a
+verified pre-finalization archive, records durable preparation/completion
+markers, verifies the compact candidate and its reconstructed-state digest, and
+atomically replaces the active database. It never deletes the archive. A
+finalized database uses v2 reads and reporting only; update the semester's
+approved storage mode to `finalized` when that explicit rollout state is being
+recorded (the application also accepts `v2` during the handoff).
 
 ## Example Queries
 

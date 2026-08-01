@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -11,6 +12,42 @@ import pytest
 pytestmark = pytest.mark.unit
 
 from registrarmonitor.services.website_service import WebsiteService
+
+
+def test_isolated_generation_leaves_default_private_artifacts_untouched(
+    tmp_path: Path,
+) -> None:
+    default_output = tmp_path / "default-public"
+    isolated_output = tmp_path / "isolated-public"
+    protected = default_output / "data" / "enrollment_summer_2025.db"
+    protected.parent.mkdir(parents=True)
+    protected.write_bytes(b"private-database-sentinel")
+    before = protected.read_bytes()
+    service = WebsiteService(output_dir=isolated_output)
+
+    def generate_semester(*_args, **_kwargs):
+        page = isolated_output / "summer2025.html"
+        page.write_text("<html></html>")
+        return page, 1.0
+
+    with (
+        patch("registrarmonitor.services.website_service.OUTPUT_DIR", default_output),
+        patch.object(service, "is_any_semester_active", return_value=True),
+        patch.object(service, "build_frontend_assets", return_value=True),
+        patch.object(service, "generate_semester_page", side_effect=generate_semester),
+        patch.object(service, "_generate_course_share_pages"),
+        patch(
+            "registrarmonitor.services.website_service.get_semesters_needing_update",
+            return_value=["Summer 2025"],
+        ),
+    ):
+        assert service.generate(force=True) is True
+        assert service.deploy() is False
+
+    assert (isolated_output / "index.html").is_file()
+    assert (isolated_output / "_headers").is_file()
+    assert (isolated_output / "robots.txt").is_file()
+    assert protected.read_bytes() == before
 
 
 def test_build_frontend_assets_installs_when_lockfile_is_newer(tmp_path):

@@ -196,6 +196,11 @@ Telegram Control:
         type=str,
         help="Branch name for deployment",
     )
+    deploy_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Generate into an isolated directory (deployment is refused)",
+    )
 
     # Database commands
     doctor_parser = subparsers.add_parser(
@@ -279,6 +284,11 @@ Telegram Control:
         required=True,
     )
     migrate_parser.add_argument("--raw-dir", type=Path)
+    migrate_parser.add_argument(
+        "--completed-predecessor-dir",
+        type=Path,
+        help="Dry-run-only directory containing verified predecessor candidates",
+    )
     migrate_parser.add_argument("--database", type=Path)
     migrate_parser.add_argument("--candidate", type=Path)
     migrate_parser.add_argument("--backup-dir", type=Path)
@@ -286,6 +296,45 @@ Telegram Control:
     execution_mode = migrate_parser.add_mutually_exclusive_group(required=True)
     execution_mode.add_argument("--dry-run", action="store_true")
     execution_mode.add_argument("--apply", action="store_true")
+
+    rehearse_parser = db_subparsers.add_parser(
+        "rehearse",
+        help="Exercise every migration restart boundary on disposable copies",
+        description=(
+            "Run the production migration runner to every before/after commit "
+            "boundary, resume it, and persist an evidence ledger."
+        ),
+    )
+    rehearse_parser.add_argument("--semester", required=True)
+    rehearse_parser.add_argument(
+        "--target-version", type=int, choices=[2], required=True
+    )
+    rehearse_parser.add_argument(
+        "--metadata-mode",
+        choices=["raw-enriched", "legacy-preserving"],
+        required=True,
+    )
+    rehearse_parser.add_argument("--raw-dir", type=Path)
+    rehearse_parser.add_argument("--database", type=Path)
+    rehearse_parser.add_argument("--report", type=Path, required=True)
+    rehearse_parser.add_argument("--evidence-dir", type=Path, required=True)
+    rehearse_parser.add_argument(
+        "--completed-predecessor-dir",
+        type=Path,
+        help="Directory containing verified predecessor candidates",
+    )
+    rehearse_parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Bounded concurrent recovery scenarios within this semester",
+    )
+    rehearse_parser.add_argument(
+        "--snapshot-stride",
+        type=int,
+        default=1,
+        help="Test every Nth snapshot plus the first and final snapshot",
+    )
 
     mode_parser = db_subparsers.add_parser(
         "mode",
@@ -303,6 +352,24 @@ Telegram Control:
     )
     mode_parser.add_argument("--database", type=Path)
     mode_parser.add_argument("--report", type=Path, required=True)
+
+    finalize_parser = db_subparsers.add_parser(
+        "finalize",
+        help="Compact a v2 database and retire legacy compatibility tables",
+        description=(
+            "Finalize one semester after burn-in. This is a separate, "
+            "authorization-gated operation and retains a rollback archive."
+        ),
+    )
+    finalize_parser.add_argument("--semester", required=True)
+    finalize_parser.add_argument("--database", type=Path)
+    finalize_parser.add_argument("--rollback-dir", type=Path)
+    finalize_parser.add_argument("--report", type=Path, required=True)
+    finalize_parser.add_argument(
+        "--authorize",
+        action="store_true",
+        help="Confirm explicit operator authorization for finalization",
+    )
 
     manifest_rollback_parser = db_subparsers.add_parser(
         "rollback-manifest",
@@ -363,6 +430,7 @@ async def handle_deploy_command(args) -> int:
         project_name=getattr(args, "project", "registrar-monitor"),
         branch=getattr(args, "branch", None),
         prototype=getattr(args, "prototype", False),
+        output_dir=getattr(args, "output_dir", None),
     )
     return 0 if success else 1
 
@@ -401,6 +469,20 @@ async def handle_db_command(args) -> int:
             candidate=getattr(args, "candidate", None),
             backup_dir=getattr(args, "backup_dir", None),
             raw_dir=getattr(args, "raw_dir", None),
+            completed_predecessor_dir=getattr(args, "completed_predecessor_dir", None),
+        )
+    elif args.db_command == "rehearse":
+        success = await command.rehearse_migration(
+            semester=args.semester,
+            target_version=args.target_version,
+            metadata_mode=args.metadata_mode,
+            report_path=args.report,
+            evidence_dir=args.evidence_dir,
+            database=getattr(args, "database", None),
+            raw_dir=getattr(args, "raw_dir", None),
+            completed_predecessor_dir=getattr(args, "completed_predecessor_dir", None),
+            workers=getattr(args, "workers", 1),
+            snapshot_stride=getattr(args, "snapshot_stride", 1),
         )
     elif args.db_command == "mode":
         success = await command.transition_mode(
@@ -408,6 +490,14 @@ async def handle_db_command(args) -> int:
             target_mode=args.target_mode,
             report_path=args.report,
             database=getattr(args, "database", None),
+        )
+    elif args.db_command == "finalize":
+        success = await command.finalize_storage(
+            semester=args.semester,
+            report_path=args.report,
+            authorized=getattr(args, "authorize", False),
+            database=getattr(args, "database", None),
+            rollback_dir=getattr(args, "rollback_dir", None),
         )
     elif args.db_command == "rollback-manifest":
         success = await command.rollback_manifest(

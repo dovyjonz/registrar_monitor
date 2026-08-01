@@ -20,6 +20,9 @@ def _make_db(return_id, ts=None):
         def get_latest_snapshot_id(self):
             return self.return_id
 
+        def get_latest_snapshot_last_seen_at(self):
+            return self.ts if self.return_id is not None else None
+
         def get_connection(self):
             return _FakeConn(self.ts)
 

@@ -27,6 +27,7 @@ from unittest.mock import patch
 from dotenv import load_dotenv
 
 from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.models import EnrollmentSnapshot
 from registrarmonitor.website.data import get_semester_data
 from registrarmonitor.website.templates import build_semester_page
 
@@ -67,6 +68,22 @@ def timed(operation: Callable[[], Any]) -> int:
     return time.perf_counter_ns() - start
 
 
+@contextmanager
+def _database_connection(database: str | Path, **kwargs: Any):
+    """Yield a SQLite connection and always close it after use."""
+    connection = sqlite3.connect(database, **kwargs)
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+def _integrity_check(path: Path) -> tuple[Any, ...]:
+    """Run an integrity check without leaking its SQLite connection."""
+    with _database_connection(path) as connection:
+        return connection.execute("PRAGMA integrity_check").fetchone()
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -77,7 +94,7 @@ def sha256_file(path: Path) -> str:
 
 def database_metadata(path: Path) -> dict[str, Any]:
     """Return safe aggregate metadata and validate a SQLite input."""
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as connection:
+    with _database_connection(f"file:{path}?mode=ro", uri=True) as connection:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
         schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
@@ -132,14 +149,15 @@ def create_synthetic_database(
     courses: int = 75,
     sections: int = 114,
     snapshots: int = 200,
+    semester: str = SEMESTER,
 ) -> None:
     """Create deterministic, non-secret enrollment data at a representative scale."""
     if min(courses, sections, snapshots) <= 0 or sections < courses:
         raise ValueError(
             "synthetic dimensions must be positive and sections >= courses"
         )
-    DatabaseManager(db_path=str(path), semester=SEMESTER)
-    with sqlite3.connect(path) as connection:
+    DatabaseManager(db_path=str(path), semester=semester)
+    with _database_connection(path) as connection:
         course_rows = [
             (f"PERF {index + 100:03d}", f"Synthetic course {index + 1}", "PERF")
             for index in range(courses)
@@ -177,7 +195,7 @@ def create_synthetic_database(
             cursor = connection.execute(
                 "INSERT INTO snapshots "
                 "(timestamp, last_seen_at, semester, overall_fill) VALUES (?, ?, ?, ?)",
-                (timestamp, timestamp, SEMESTER, overall),
+                (timestamp, timestamp, semester, overall),
             )
             if cursor.lastrowid is None:
                 raise sqlite3.Error("synthetic snapshot insert returned no row ID")
@@ -223,7 +241,7 @@ def create_synthetic_database(
 
 
 def _latest_course_code(path: Path) -> str:
-    with sqlite3.connect(path) as connection:
+    with _database_connection(path) as connection:
         return str(
             connection.execute(
                 "SELECT course_code FROM courses ORDER BY course_code LIMIT 1"
@@ -231,8 +249,25 @@ def _latest_course_code(path: Path) -> str:
         )
 
 
-def _write_changed_snapshot(path: Path, sequence: int) -> None:
-    manager = DatabaseManager(db_path=str(path), semester=SEMESTER)
+def _change_first_section(snapshot: EnrollmentSnapshot) -> None:
+    """Make one guaranteed-valid enrollment change in a benchmark snapshot."""
+    first_course = next(iter(snapshot.courses.values()))
+    first_section = next(iter(first_course.sections.values()))
+    original = first_section.enrollment
+    first_section.enrollment = original - 1 if original > 0 else 1
+    if first_section.enrollment > first_section.capacity:
+        raise ValueError(
+            "benchmark section cannot accept a synthetic enrollment change"
+        )
+    first_section.fill = first_section.enrollment / first_section.capacity
+    if first_section.enrollment == original:
+        raise ValueError("benchmark failed to construct a changed snapshot")
+
+
+def _write_changed_snapshot(
+    path: Path, sequence: int, semester: str = SEMESTER
+) -> None:
+    manager = DatabaseManager(db_path=str(path), semester=semester)
     latest_id = manager.get_latest_snapshot_id()
     if latest_id is None:
         raise ValueError("benchmark database has no snapshots")
@@ -240,32 +275,27 @@ def _write_changed_snapshot(path: Path, sequence: int) -> None:
     if snapshot is None or not snapshot.courses:
         raise ValueError("benchmark database latest snapshot has no course data")
     snapshot.timestamp = f"2099-12-31T23:{sequence // 60:02d}:{sequence % 60:02d}+00:00"
-    first_course = next(iter(snapshot.courses.values()))
-    first_section = next(iter(first_course.sections.values()))
-    first_section.enrollment = max(0, first_section.enrollment - 1)
-    first_section.fill = (
-        first_section.enrollment / first_section.capacity
-        if first_section.capacity
-        else 0.0
-    )
+    _change_first_section(snapshot)
     manager.store_enrollment_snapshot(snapshot)
 
 
 def _row_counts(path: Path) -> dict[str, int]:
-    with sqlite3.connect(path) as connection:
+    with _database_connection(path) as connection:
         return {
             table: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
             for table in ("snapshots", "courses", "sections", "enrollment_data")
         }
 
 
-def _poll_delta(source: Path, *, changed: bool) -> dict[str, Any]:
+def _poll_delta(
+    source: Path, *, changed: bool, semester: str = SEMESTER
+) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="registrar-poll-delta-") as directory:
         database = Path(directory) / "poll.db"
         shutil.copy2(source, database)
         before_rows = _row_counts(database)
         before_bytes = database.stat().st_size
-        manager = DatabaseManager(db_path=str(database), semester=SEMESTER)
+        manager = DatabaseManager(db_path=str(database), semester=semester)
         latest_id = manager.get_latest_snapshot_id()
         if latest_id is None:
             raise ValueError("benchmark database has no snapshots")
@@ -276,14 +306,7 @@ def _poll_delta(source: Path, *, changed: bool) -> dict[str, Any]:
             "2099-12-30T23:59:59+00:00" if changed else "2099-12-29T23:59:59+00:00"
         )
         if changed:
-            first_course = next(iter(snapshot.courses.values()))
-            first_section = next(iter(first_course.sections.values()))
-            first_section.enrollment = max(0, first_section.enrollment - 1)
-            first_section.fill = (
-                first_section.enrollment / first_section.capacity
-                if first_section.capacity
-                else 0.0
-            )
+            _change_first_section(snapshot)
         manager.store_enrollment_snapshot(snapshot)
         after_rows = _row_counts(database)
         return {
@@ -295,7 +318,10 @@ def _poll_delta(source: Path, *, changed: bool) -> dict[str, Any]:
 
 
 def benchmark_database(
-    source: Path, cold_iterations: int, warm_iterations: int
+    source: Path,
+    cold_iterations: int,
+    warm_iterations: int,
+    semester: str = SEMESTER,
 ) -> dict[str, Any]:
     """Measure representative SQLite reads, validation, and disposable writes."""
     if min(cold_iterations, warm_iterations) <= 0:
@@ -312,7 +338,7 @@ def benchmark_database(
         root = Path(directory)
         warm_path = root / "warm.db"
         shutil.copy2(source, warm_path)
-        warm_manager = DatabaseManager(db_path=str(warm_path), semester=SEMESTER)
+        warm_manager = DatabaseManager(db_path=str(warm_path), semester=semester)
         course_code = _latest_course_code(warm_path)
         latest_id = warm_manager.get_latest_snapshot_id()
         if latest_id is None:
@@ -324,7 +350,7 @@ def benchmark_database(
             cold["connection_schema_validation"].append(
                 timed(lambda sample=sample: DatabaseManager(db_path=str(sample)))
             )
-            manager = DatabaseManager(db_path=str(sample), semester=SEMESTER)
+            manager = DatabaseManager(db_path=str(sample), semester=semester)
             sample_latest = manager.get_latest_snapshot_id()
             if sample_latest is None:
                 raise ValueError("benchmark database has no snapshots")
@@ -338,55 +364,41 @@ def benchmark_database(
             cold["course_history_read"].append(
                 timed(
                     lambda manager=manager: manager.get_course_history(
-                        course_code, SEMESTER
+                        course_code, semester
                     )
                 )
             )
             cold["integrity_check"].append(
-                timed(
-                    lambda sample=sample: (
-                        sqlite3.connect(sample)
-                        .execute("PRAGMA integrity_check")
-                        .fetchone()
-                    )
-                )
+                timed(lambda sample=sample: _integrity_check(sample))
             )
             cold["snapshot_write"].append(
                 timed(
                     lambda index=index, sample=sample: _write_changed_snapshot(
-                        sample, index
+                        sample, index, semester
                     )
                 )
             )
 
         # Warm-up establishes connections and Python/SQLite code paths.
         warm_manager.get_snapshot_data(latest_id)
-        warm_manager.get_course_history(course_code, SEMESTER)
+        warm_manager.get_course_history(course_code, semester)
         for index in range(warm_iterations):
             warm["connection_schema_validation"].append(
                 timed(
-                    lambda: DatabaseManager(db_path=str(warm_path), semester=SEMESTER)
+                    lambda: DatabaseManager(db_path=str(warm_path), semester=semester)
                 )
             )
             warm["latest_snapshot_read"].append(
                 timed(lambda: warm_manager.get_snapshot_data(latest_id))
             )
             warm["course_history_read"].append(
-                timed(lambda: warm_manager.get_course_history(course_code, SEMESTER))
+                timed(lambda: warm_manager.get_course_history(course_code, semester))
             )
-            warm["integrity_check"].append(
-                timed(
-                    lambda: (
-                        sqlite3.connect(warm_path)
-                        .execute("PRAGMA integrity_check")
-                        .fetchone()
-                    )
-                )
-            )
+            warm["integrity_check"].append(timed(lambda: _integrity_check(warm_path)))
             warm["snapshot_write"].append(
                 timed(
                     lambda index=index: _write_changed_snapshot(
-                        warm_path, cold_iterations + index
+                        warm_path, cold_iterations + index, semester
                     )
                 )
             )
@@ -394,8 +406,8 @@ def benchmark_database(
         "cold": {name: summarize(values) for name, values in cold.items()},
         "warm": {name: summarize(values) for name, values in warm.items()},
         "poll_effects": {
-            "unchanged": _poll_delta(source, changed=False),
-            "changed": _poll_delta(source, changed=True),
+            "unchanged": _poll_delta(source, changed=False, semester=semester),
+            "changed": _poll_delta(source, changed=True, semester=semester),
         },
     }
 
@@ -475,7 +487,9 @@ class _BenchmarkDatabaseManager(DatabaseManager):
                 yield _TrackingConnection(connection, self.query_tracker)
 
 
-def generate_website_once(database: Path, output: Path) -> dict[str, Any]:
+def generate_website_once(
+    database: Path, output: Path, semester: str = SEMESTER
+) -> dict[str, Any]:
     """Generate the production semester HTML and JSON in an isolated directory."""
     import registrarmonitor.website.data as website_data
 
@@ -483,16 +497,16 @@ def generate_website_once(database: Path, output: Path) -> dict[str, Any]:
     tracker: list[dict[str, Any]] = []
     _BenchmarkDatabaseManager.query_tracker = tracker
     with patch.object(website_data, "DatabaseManager", _BenchmarkDatabaseManager):
-        data = get_semester_data(SEMESTER, minify=True)
+        data = get_semester_data(semester, minify=True)
     _BenchmarkDatabaseManager.query_tracker = None
-    html = build_semester_page(data, [], SEMESTER)
+    html = build_semester_page(data, [], semester)
     output.mkdir(parents=True, exist_ok=True)
     html_path = output / "summer2026.html"
     json_path = output / "summer2026.json"
     index_path = output / "index.html"
     html_path.write_text(html, encoding="utf-8")
     json_path.write_text(
-        json.dumps({"data": data, "milestones": [], "semester": SEMESTER}),
+        json.dumps({"data": data, "milestones": [], "semester": semester}),
         encoding="utf-8",
     )
     index_path.write_text('<a href="summer2026.html">Summer 2026</a>', encoding="utf-8")
@@ -511,7 +525,11 @@ def generate_website_once(database: Path, output: Path) -> dict[str, Any]:
 
 
 def benchmark_website(
-    source: Path, cold_iterations: int, warm_iterations: int, final_output: Path
+    source: Path,
+    cold_iterations: int,
+    warm_iterations: int,
+    final_output: Path,
+    semester: str = SEMESTER,
 ) -> dict[str, Any]:
     cold: list[int] = []
     warm: list[int] = []
@@ -527,19 +545,21 @@ def benchmark_website(
             cold.append(
                 timed(
                     lambda database=database, output=output: generate_website_once(
-                        database, output
+                        database, output, semester
                     )
                 )
             )
         warm_database = root / "warm.db"
         shutil.copy2(source, warm_database)
         warm_output = root / "warm-output"
-        generate_website_once(warm_database, warm_output)
+        generate_website_once(warm_database, warm_output, semester)
         for _ in range(warm_iterations):
             warm.append(
-                timed(lambda: generate_website_once(warm_database, warm_output))
+                timed(
+                    lambda: generate_website_once(warm_database, warm_output, semester)
+                )
             )
-        artifacts = generate_website_once(warm_database, final_output)
+        artifacts = generate_website_once(warm_database, final_output, semester)
     return {
         "cold": {"semester_generation": summarize(cold)},
         "warm": {"semester_generation": summarize(warm)},
@@ -907,12 +927,13 @@ def repository_revision() -> str | None:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     if min(args.cold_iterations, args.warm_iterations) <= 0:
         raise ValueError("iteration counts must be positive")
+    semester = getattr(args, "semester", SEMESTER)
     with tempfile.TemporaryDirectory(
         prefix="registrar-performance-input-"
     ) as directory:
         if args.synthetic:
             source = Path(directory) / "synthetic.db"
-            create_synthetic_database(source, seed=args.seed)
+            create_synthetic_database(source, seed=args.seed, semester=semester)
             classification = "synthetic"
         else:
             if args.database is None:
@@ -925,7 +946,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         generated_output = Path(directory) / "site"
         if args.mode in {"all", "database"}:
             measurements["database"] = benchmark_database(
-                source, args.cold_iterations, args.warm_iterations
+                source, args.cold_iterations, args.warm_iterations, semester
             )
         if args.mode in {"all", "website", "browser"}:
             measurements["website"] = benchmark_website(
@@ -933,6 +954,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 args.cold_iterations,
                 args.warm_iterations,
                 generated_output,
+                semester,
             )
         browser_version = None
         if args.mode in {"all", "browser"}:
@@ -962,7 +984,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "format": FORMAT_VERSION,
         "recorded_at": datetime.now(UTC).isoformat(),
         "repository_revision": repository_revision(),
-        "source": {"classification": classification, "semester": SEMESTER},
+        "source": {"classification": classification, "semester": semester},
         "parameters": {
             "cold_iterations": args.cold_iterations,
             "warm_iterations": args.warm_iterations,
@@ -999,6 +1021,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--cold-iterations", type=int, default=10)
     parser.add_argument("--warm-iterations", type=int, default=20)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--semester", default=SEMESTER)
     parser.add_argument(
         "--output", type=Path, default=Path("output/performance-baseline.json")
     )

@@ -75,6 +75,23 @@ def test_database_benchmark_does_not_mutate_source(tmp_path):
     assert result["cold"]["latest_snapshot_read"]["samples"]
 
 
+def test_changed_snapshot_mutation_handles_zero_enrollment():
+    from registrarmonitor.models import Course, EnrollmentSnapshot, Section
+
+    section = Section("1L", "L", 0, 10, 0.0)
+    snapshot = EnrollmentSnapshot(
+        "2026-01-01T00:00:00+00:00",
+        "Summer 2026",
+        0.0,
+        {"TEST 100": Course("TEST 100", "TEST", {"1L": section})},
+    )
+
+    benchmark._change_first_section(snapshot)
+
+    assert section.enrollment == 1
+    assert section.fill == 0.1
+
+
 def test_website_adapter_generates_expected_artifacts(tmp_path):
     database = tmp_path / "source.db"
     output = tmp_path / "site"

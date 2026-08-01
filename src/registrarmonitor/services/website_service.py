@@ -27,14 +27,29 @@ from ..website.templates import (
 class WebsiteService:
     """Service for handling website generation and deployment."""
 
-    def __init__(self):
+    def __init__(self, output_dir: Path | None = None):
         self.logger = get_logger(__name__)
         self.last_generation_skipped = False
+        self._output_dir = output_dir.resolve() if output_dir is not None else None
         # Correct path to assets/website
         # src/registrarmonitor/services/website_service.py -> .../repo/assets/website
-        self.website_assets_dir = (
+        self._default_website_assets_dir = (
             Path(__file__).parent.parent.parent.parent / "assets" / "website"
         )
+        self.website_assets_dir = self._default_website_assets_dir
+
+    @property
+    def output_dir(self) -> Path:
+        """Return an explicit isolated root or the current configured root."""
+        if self._output_dir is not None:
+            return self._output_dir
+        if self.website_assets_dir != self._default_website_assets_dir:
+            return self.website_assets_dir / "public"
+        return OUTPUT_DIR
+
+    @property
+    def checksums_file(self) -> Path:
+        return self.output_dir / ".checksums.json"
 
     def generate_semester_page(
         self, semester: str, *, minify_assets: bool = False
@@ -53,24 +68,29 @@ class WebsiteService:
 
         # Check if we have data
         if not data.get("cr"):
-            print(f"    Warning: No courses found for {semester}")
-            return None, 0.0
+            print(
+                f"    Warning: No courses found for {semester}; generating empty page"
+            )
 
         # Build HTML
         html = build_semester_page(
-            data, milestones, semester, minify_assets=minify_assets
+            data,
+            milestones,
+            semester,
+            minify_assets=minify_assets,
+            manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
         )
 
         # Write output HTML
         filename = semester_to_filename(semester)
-        output_path = OUTPUT_DIR / filename
+        output_path = self.output_dir / filename
         output_path.write_text(html)
 
         # Write JSON data payload for async fetching
         import json
 
         json_filename = filename.replace(".html", ".json")
-        json_path = OUTPUT_DIR / json_filename
+        json_path = self.output_dir / json_filename
 
         payload = {"data": data, "milestones": milestones, "semester": semester}
         json_path.write_text(json.dumps(payload, separators=(",", ":")))
@@ -85,7 +105,7 @@ class WebsiteService:
         snapshots = data.get("sn", [])
         latest = snapshots[-1] if isinstance(snapshots, list) and snapshots else {}
         publish_semester(
-            OUTPUT_DIR,
+            self.output_dir,
             semester_slug=semester_to_slug(semester),
             semester=semester,
             current_snapshot={
@@ -98,7 +118,7 @@ class WebsiteService:
         )
 
         # Update checksum
-        update_checksum(semester)
+        update_checksum(semester, self.checksums_file)
 
         file_size_kb = output_path.stat().st_size / 1024
         course_count = len(data.get("cr", {}))
@@ -111,6 +131,11 @@ class WebsiteService:
 
     def generate_prototype(self, semester_key: str | None = None) -> bool:
         """Generate the local-only dashboard redesign prototype."""
+        if self._output_dir is not None:
+            print(
+                "❌ Prototype generation does not support an isolated output directory."
+            )
+            return False
         try:
             target_semester = (
                 SEMESTER_MAP[semester_key]
@@ -259,9 +284,7 @@ class WebsiteService:
         import json
         import re
 
-        manifest_path = (
-            self.website_assets_dir / "public" / "assets" / ".vite" / "manifest.json"
-        )
+        manifest_path = self.output_dir / "assets" / ".vite" / "manifest.json"
         if not manifest_path.exists():
             print(
                 "Warning: manifest.json not found — cannot patch asset hashes in HTML."
@@ -283,7 +306,7 @@ class WebsiteService:
             print("Warning: No JS entry in manifest — skipping asset hash patch.")
             return False
 
-        output_dir = self.website_assets_dir / "public"
+        output_dir = self.output_dir
         patched = 0
         for html_file in output_dir.glob("*.html"):
             text = html_file.read_text(encoding="utf-8")
@@ -355,7 +378,7 @@ class WebsiteService:
         """Return whether generated HTML references existing built assets."""
         import re
 
-        output_dir = self.website_assets_dir / "public"
+        output_dir = self.output_dir
         valid = True
         for html_file in output_dir.glob("*.html"):
             text = html_file.read_text(encoding="utf-8")
@@ -392,6 +415,9 @@ class WebsiteService:
         env["NODE_OPTIONS"] = "--max_old_space_size=512"
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"
+        env["REGISTRAR_VITE_OUTPUT_DIR"] = str(self.output_dir / "assets")
+        if self._output_dir is not None:
+            env["REGISTRAR_MAIN_ONLY"] = "1"
 
         try:
             if self._frontend_dependencies_need_install():
@@ -423,7 +449,7 @@ class WebsiteService:
         """Generate per-course share pages with OG/Twitter metadata."""
         from ..website.templates import build_course_share_page
 
-        share_dir = OUTPUT_DIR / "courses"
+        share_dir = self.output_dir / "courses"
         if share_dir.exists():
             shutil.rmtree(share_dir)
         share_dir.mkdir(parents=True, exist_ok=True)
@@ -510,10 +536,10 @@ class WebsiteService:
         private_names = {".DS_Store", ".env"}
         private_suffixes = {".db", ".key", ".log", ".pem", ".sqlite", ".sqlite3"}
 
-        if not OUTPUT_DIR.is_dir():
-            return [f"Output directory does not exist: {OUTPUT_DIR}"]
+        if not self.output_dir.is_dir():
+            return [f"Output directory does not exist: {self.output_dir}"]
 
-        for item in OUTPUT_DIR.rglob("*"):
+        for item in self.output_dir.rglob("*"):
             if not item.is_file():
                 continue
             name = item.name
@@ -522,9 +548,9 @@ class WebsiteService:
                 or name.startswith(".env.")
                 or item.suffix.lower() in private_suffixes
             ):
-                errors.append(f"Private artifact: {item.relative_to(OUTPUT_DIR)}")
+                errors.append(f"Private artifact: {item.relative_to(self.output_dir)}")
 
-        for item in OUTPUT_DIR.iterdir():
+        for item in self.output_dir.iterdir():
             name = item.name
             if item.is_dir():
                 if name not in allowed_dirs:
@@ -603,7 +629,7 @@ class WebsiteService:
                 return True
 
             # Ensure output directory exists
-            OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
+            self.output_dir.mkdir(exist_ok=True, parents=True)
 
             # Build frontend assets first
             if not self.build_frontend_assets():
@@ -620,13 +646,15 @@ class WebsiteService:
                 self.generate_semester_page(semester, minify_assets=minify)
             else:
                 # Generate all semesters (incremental by default)
-                semesters_to_update = get_semesters_needing_update(force=force)
+                semesters_to_update = get_semesters_needing_update(
+                    force=force, checksums_file=self.checksums_file
+                )
 
                 if not semesters_to_update:
                     print("All pages up to date.")
                 else:
                     print(f"Generating {len(semesters_to_update)} page(s)...")
-                    total_size = 0
+                    total_size = 0.0
                     for semester in semesters_to_update:
                         _, size_kb = self.generate_semester_page(
                             semester, minify_assets=minify
@@ -642,17 +670,17 @@ class WebsiteService:
 
                 # Always regenerate index.html (redirect page)
                 index_html = build_redirect_index()
-                index_path = OUTPUT_DIR / "index.html"
+                index_path = self.output_dir / "index.html"
                 index_path.write_text(index_html)
                 print("Updated index.html (redirect)")
 
                 # Generate Cloudflare _headers file with security headers
-                headers_path = OUTPUT_DIR / "_headers"
+                headers_path = self.output_dir / "_headers"
                 headers_path.write_text(self._build_headers_content())
                 print("Generated Cloudflare _headers")
 
                 # Generate robots.txt
-                robots_path = OUTPUT_DIR / "robots.txt"
+                robots_path = self.output_dir / "robots.txt"
                 robots_path.write_text(self._build_robots_content())
                 print("Generated robots.txt")
 
@@ -664,7 +692,7 @@ class WebsiteService:
                     print(f"   - {issue}")
                 return False
 
-            print(f"\nOutput directory: {OUTPUT_DIR}")
+            print(f"\nOutput directory: {self.output_dir}")
             return True
 
         except Exception as e:
@@ -686,6 +714,10 @@ class WebsiteService:
             True if successful
         """
         import os
+
+        if self._output_dir is not None:
+            print("❌ Deployment is disabled for isolated generation output.")
+            return False
 
         print("\n🚀 Deploying to Cloudflare Pages...")
         print(f"   Project: {project_name}")

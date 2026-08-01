@@ -21,13 +21,15 @@ class SnapshotComparator:
         current_course_codes = set(current.courses.keys())
         previous_course_codes = set(previous.courses.keys())
 
-        for course_code in current_course_codes - previous_course_codes:
+        for course_code in sorted(current_course_codes - previous_course_codes):
             comparison.new_courses.append(current.courses[course_code])
 
-        for course_code in previous_course_codes - current_course_codes:
+        for course_code in sorted(previous_course_codes - current_course_codes):
             comparison.removed_courses.append(previous.courses[course_code])
 
-        for course_code in current_course_codes.intersection(previous_course_codes):
+        for course_code in sorted(
+            current_course_codes.intersection(previous_course_codes)
+        ):
             current_course = current.courses[course_code]
             prev_course = previous.courses[course_code]
 
@@ -50,15 +52,17 @@ class SnapshotComparator:
             current_section_ids = set(current_course.sections.keys())
             prev_section_ids = set(prev_course.sections.keys())
 
-            for section_id in current_section_ids - prev_section_ids:
+            for section_id in sorted(current_section_ids - prev_section_ids):
                 course_detail.added_sections.append(current_course.sections[section_id])
                 made_changes_to_course = True
 
-            for section_id in prev_section_ids - current_section_ids:
+            for section_id in sorted(prev_section_ids - current_section_ids):
                 course_detail.removed_sections.append(prev_course.sections[section_id])
                 made_changes_to_course = True
 
-            for section_id in current_section_ids.intersection(prev_section_ids):
+            for section_id in sorted(
+                current_section_ids.intersection(prev_section_ids)
+            ):
                 current_section = current_course.sections[section_id]
                 prev_section = prev_course.sections[section_id]
 

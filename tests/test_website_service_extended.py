@@ -12,7 +12,7 @@ from registrarmonitor.services.website_service import WebsiteService
 
 
 class TestGenerateSemesterPage:
-    def test_returns_none_when_no_courses(self):
+    def test_generates_empty_page_when_no_courses(self, tmp_path):
         with (
             patch(
                 "registrarmonitor.services.website_service.get_semester_data",
@@ -20,12 +20,19 @@ class TestGenerateSemesterPage:
             ),
             patch(
                 "registrarmonitor.services.website_service.MILESTONES_MAP",
-                return_value={},
+                {},
+            ),
+            patch(
+                "registrarmonitor.services.website_service.build_semester_page",
+                return_value="<html>empty semester</html>",
             ),
         ):
-            service = WebsiteService()
+            service = WebsiteService(output_dir=tmp_path)
             result = service.generate_semester_page("Spring 2024")
-            assert result == (None, 0.0)
+            output_path = result[0]
+            assert output_path == tmp_path / "spring2024.html"
+            assert output_path is not None
+            assert output_path.read_text() == "<html>empty semester</html>"
 
     def test_generates_html_and_json(self, tmp_path):
         data = {

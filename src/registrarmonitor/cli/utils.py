@@ -14,21 +14,12 @@ async def detect_active_semester(debug: bool = False) -> str | None:
         for semester, db_path in available_semesters.items():
             try:
                 db = DatabaseManager.create_for_semester(semester)
-                latest_id = db.get_latest_snapshot_id()
-                if latest_id:
-                    # Get the timestamp of the latest snapshot
-                    with db.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "SELECT last_seen_at FROM snapshots WHERE snapshot_id = ?",
-                            (latest_id,),
-                        )
-                        result = cursor.fetchone()
-                        if result and (
-                            latest_timestamp is None or result[0] > latest_timestamp
-                        ):
-                            latest_timestamp = result[0]
-                            latest_semester = semester
+                timestamp = db.get_latest_snapshot_last_seen_at()
+                if timestamp and (
+                    latest_timestamp is None or timestamp > latest_timestamp
+                ):
+                    latest_timestamp = timestamp
+                    latest_semester = semester
             except Exception:
                 continue
 

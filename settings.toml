@@ -63,6 +63,12 @@ mode = "legacy"
 metadata_mode = "raw-enriched"
 mode = "legacy"
 
+[storage.semesters."Fall 2026"]
+# Fresh-semester baseline; it is not a historical migration candidate until
+# it contains snapshots and receives an explicitly approved rollout mode.
+metadata_mode = "legacy-preserving"
+mode = "legacy"
+
 [telegram]
 # Bot token and chat ID are loaded from TELEGRAM_BOT_TOKEN and
 # TELEGRAM_CHAT_ID in the environment or a local .env file.

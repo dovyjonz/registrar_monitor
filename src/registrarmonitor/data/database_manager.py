@@ -125,7 +125,7 @@ class DatabaseManager:
                         WHERE singleton = 1
                         """
                     ).fetchone()
-                    if control is None or control[0] != "complete":
+                    if control is None or control[0] not in {"complete", "finalized"}:
                         raise sqlite3.DatabaseError(
                             "checkpointed schema is not in a completed migration phase"
                         )
@@ -300,7 +300,7 @@ class DatabaseManager:
             row = conn.execute(
                 "SELECT active_mode FROM storage_control WHERE singleton = 1"
             ).fetchone()
-            if row is None or row[0] not in {"legacy", "shadow", "v2"}:
+            if row is None or row[0] not in {"legacy", "shadow", "v2", "finalized"}:
                 raise sqlite3.DatabaseError("invalid checkpointed storage mode")
             mode = str(row[0])
             if self._uses_configured_path and self.semester:
@@ -315,7 +315,13 @@ class DatabaseManager:
                     raise sqlite3.DatabaseError(
                         f"no configured storage mode for {self.semester!r}"
                     )
-                if configured != mode:
+                # Finalization retires the legacy tables while preserving the
+                # v2 read contract. Allow a deployed v2 configuration to
+                # reopen that compacted database before settings is explicitly
+                # updated to ``finalized``.
+                if configured != mode and not (
+                    mode == "finalized" and configured == "v2"
+                ):
                     raise sqlite3.DatabaseError(
                         "configured storage mode disagrees with database "
                         f"metadata: {configured!r} != {mode!r}"
@@ -677,6 +683,12 @@ class DatabaseManager:
         Raises:
             sqlite3.Error: If database operation fails
         """
+        if self.storage_mode == "finalized":
+            CheckpointedStateStore(self.db_path, initialize=False).write_snapshot(
+                snapshot
+            )
+            return
+
         # Check if we should discard this snapshot as a duplicate
         latest_snapshot_id = self.get_latest_snapshot_id()
         if latest_snapshot_id is not None:
@@ -1021,7 +1033,7 @@ class DatabaseManager:
             Optional[str]: Latest timestamp or None if no snapshots exist
         """
         try:
-            if self.storage_mode == "v2":
+            if self.storage_mode in {"v2", "finalized"}:
                 with self.get_connection() as conn:
                     if semester:
                         row = conn.execute(
@@ -1080,6 +1092,15 @@ class DatabaseManager:
         Returns:
             Dict[str, int]: Summary with counts by status
         """
+        if self.storage_mode in {"v2", "finalized"}:
+            snapshot = self.get_snapshot_data(snapshot_id)
+            summary = {"OPEN": 0, "NEAR": 0, "FULL": 0}
+            if snapshot is None:
+                return summary
+            for course in snapshot.courses.values():
+                for section in course.sections.values():
+                    summary[self._determine_status(section.fill)] += 1
+            return summary
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1238,7 +1259,7 @@ class DatabaseManager:
     def get_latest_snapshot_id(self) -> int | None:
         """Finds the ID of the most recent snapshot."""
         try:
-            if self.storage_mode == "v2":
+            if self.storage_mode in {"v2", "finalized"}:
                 with self.get_connection() as conn:
                     row = conn.execute(
                         """
@@ -1256,6 +1277,97 @@ class DatabaseManager:
         except sqlite3.Error as e:
             self.logger.error(f"Database error getting latest snapshot ID: {e}")
             raise
+
+    def get_previous_snapshot_id(self, snapshot_id: int) -> int | None:
+        """Return the snapshot immediately preceding ``snapshot_id``."""
+        try:
+            with self.get_connection() as conn:
+                if self.storage_mode in {"v2", "finalized"}:
+                    row = conn.execute(
+                        """
+                        SELECT previous.snapshot_id
+                        FROM state_snapshot current
+                        JOIN state_snapshot previous
+                          ON previous.sequence_no = current.sequence_no - 1
+                        WHERE current.snapshot_id = ?
+                        """,
+                        (snapshot_id,),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        """
+                        SELECT snapshot_id FROM snapshots
+                        WHERE timestamp < (
+                            SELECT timestamp FROM snapshots WHERE snapshot_id = ?
+                        )
+                        ORDER BY timestamp DESC LIMIT 1
+                        """,
+                        (snapshot_id,),
+                    ).fetchone()
+                return int(row[0]) if row else None
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error getting previous snapshot ID: {e}")
+            raise
+
+    def get_latest_snapshot_last_seen_at(self) -> str | None:
+        """Return freshness time for the latest stored state."""
+        try:
+            table = (
+                "state_snapshot"
+                if self.storage_mode in {"v2", "finalized"}
+                else "snapshots"
+            )
+            order = (
+                "sequence_no"
+                if self.storage_mode in {"v2", "finalized"}
+                else "timestamp"
+            )
+            with self.get_connection() as conn:
+                row = conn.execute(
+                    f"SELECT last_seen_at FROM {table} ORDER BY {order} DESC LIMIT 1"
+                ).fetchone()
+                return str(row[0]) if row else None
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error getting latest freshness time: {e}")
+            raise
+
+    def get_database_stats(self) -> dict[str, Any]:
+        """Return storage-mode-independent database statistics."""
+        try:
+            with self.get_connection() as conn:
+                if self.storage_mode in {"v2", "finalized"}:
+                    snapshot_table = "state_snapshot"
+                    course_table = "course_catalog"
+                    section_table = "section_catalog"
+                    timestamp_column = "observed_at"
+                else:
+                    snapshot_table = "snapshots"
+                    course_table = "courses"
+                    section_table = "sections"
+                    timestamp_column = "timestamp"
+                snapshot_count = int(
+                    conn.execute(f"SELECT count(*) FROM {snapshot_table}").fetchone()[0]
+                )
+                course_count = int(
+                    conn.execute(f"SELECT count(*) FROM {course_table}").fetchone()[0]
+                )
+                section_count = int(
+                    conn.execute(f"SELECT count(*) FROM {section_table}").fetchone()[0]
+                )
+                date_range = conn.execute(
+                    f"SELECT min({timestamp_column}), max({timestamp_column}) "
+                    f"FROM {snapshot_table}"
+                ).fetchone()
+            return {
+                "snapshots": snapshot_count,
+                "courses": course_count,
+                "sections": section_count,
+                "earliest_snapshot": date_range[0],
+                "latest_snapshot": date_range[1],
+            }
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error getting database statistics: {e}")
+            raise
         except Exception as e:
             self.logger.error(f"Unexpected error getting latest snapshot ID: {e}")
             raise
@@ -1263,7 +1375,11 @@ class DatabaseManager:
     def get_last_reported_snapshot_id(self) -> int | None:
         """Finds the ID of the snapshot from the last report log."""
         try:
-            table = "reporting_log_v2" if self.storage_mode == "v2" else "reporting_log"
+            table = (
+                "reporting_log_v2"
+                if self.storage_mode in {"v2", "finalized"}
+                else "reporting_log"
+            )
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 result = cursor.execute(
@@ -1290,11 +1406,12 @@ class DatabaseManager:
 
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO reporting_log (reported_snapshot_id, report_timestamp, changes_found) VALUES (?, ?, ?)",
-                    (snapshot_id, timestamp, changes_found_int),
-                )
-                if self.storage_mode in {"shadow", "v2"}:
+                if self.storage_mode != "finalized":
+                    cursor.execute(
+                        "INSERT INTO reporting_log (reported_snapshot_id, report_timestamp, changes_found) VALUES (?, ?, ?)",
+                        (snapshot_id, timestamp, changes_found_int),
+                    )
+                if self.storage_mode in {"shadow", "v2", "finalized"}:
                     cursor.execute(
                         """
                         INSERT INTO reporting_log_v2(
@@ -1319,7 +1436,7 @@ class DatabaseManager:
         Reconstructs an EnrollmentSnapshot object for a given snapshot ID.
         """
         try:
-            if self.storage_mode == "v2":
+            if self.storage_mode in {"v2", "finalized"}:
                 return CheckpointedStateStore(
                     self.db_path, initialize=False
                 ).get_snapshot_data(snapshot_id)
@@ -1443,7 +1560,7 @@ class DatabaseManager:
             list[Dict]: List of dictionaries containing timestamp and section info
         """
         try:
-            if self.storage_mode == "v2":
+            if self.storage_mode in {"v2", "finalized"}:
                 return CheckpointedStateStore(
                     self.db_path, initialize=False
                 ).get_course_history(course_code, semester)

@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const siteDirectory = process.env.REGISTRAR_SITE_DIR || 'public';
+
 export default defineConfig({
     testDir: './test',
     testMatch: 'browser-smoke.spec.mjs',
@@ -21,7 +23,7 @@ export default defineConfig({
         trace: 'retain-on-failure',
     },
     webServer: {
-        command: 'python3 -m http.server 4173 --bind 127.0.0.1 --directory public',
+        command: `python3 -m http.server 4173 --bind 127.0.0.1 --directory ${JSON.stringify(siteDirectory)}`,
         port: 4173,
         reuseExistingServer: !process.env.CI,
     },

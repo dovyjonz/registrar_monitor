@@ -16,8 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from ..models import Course, EnrollmentSnapshot, Section
+from ..reporting.report_formatter import ReportFormatter
 from .checkpointed_state import CheckpointedStateStore
 from .excel_reader import ExcelReader
+from .snapshot_comparator import SnapshotComparator
 from .snapshot_processor import SnapshotProcessor
 
 TARGET_SCHEMA_VERSION = 2
@@ -113,6 +115,18 @@ class ModeTransitionResult:
     previous_mode: str
     active_mode: str
     report_path: Path
+
+
+@dataclass(frozen=True)
+class FinalizationResult:
+    """Result of compacting a v2 database and retiring compatibility tables."""
+
+    status: str
+    database: Path
+    archive_path: Path
+    report_path: Path
+    source_hash_before: str
+    source_hash_after: str
 
 
 @dataclass(frozen=True)
@@ -342,7 +356,7 @@ CREATE TABLE IF NOT EXISTS storage_control (
     metadata_mode TEXT NOT NULL
         CHECK(metadata_mode IN ('raw-enriched', 'legacy-preserving')),
     active_mode TEXT NOT NULL
-        CHECK(active_mode IN ('legacy', 'shadow', 'v2')),
+        CHECK(active_mode IN ('legacy', 'shadow', 'v2', 'finalized')),
     migration_phase TEXT NOT NULL,
     application_revision TEXT NOT NULL,
     legacy_fingerprint TEXT NOT NULL,
@@ -526,6 +540,7 @@ def _backup_database(
             "path": str(backup),
             "sha256": sha256_file(backup),
             "restore_check_path": str(restored),
+            "restore_check_sha256": sha256_file(restored),
             "integrity_check": integrity,
             "foreign_key_violations": foreign_keys,
             "critical_state": restored_state,
@@ -654,20 +669,31 @@ def _backfill_snapshots(
     hook: PhaseHook | None,
 ) -> None:
     store = CheckpointedStateStore(target, initialize=False)
+    with sqlite3.connect(target) as connection:
+        completed_snapshot_phases = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT phase FROM migration_phase WHERE phase LIKE 'snapshots:%'"
+            )
+        }
+        sequence_by_snapshot = {
+            int(row[0]): int(row[1])
+            for row in connection.execute(
+                "SELECT snapshot_id, sequence_no FROM state_snapshot"
+            )
+        }
+    reconstructed_by_snapshot = (
+        dict(store.iter_reconstructed_snapshots()) if completed_snapshot_phases else {}
+    )
     for ordinal, item in enumerate(snapshots, start=1):
         phase = f"snapshots:{ordinal}"
-        if _phase_exists(target, phase):
-            actual = store.get_snapshot_data(item.snapshot_id)
+        if phase in completed_snapshot_phases:
+            actual = reconstructed_by_snapshot.get(item.snapshot_id)
             if actual is None or actual.to_dict() != item.snapshot.to_dict():
                 raise MigrationError(
                     f"{phase} marker disagrees with reconstructed state"
                 )
-            with sqlite3.connect(target) as connection:
-                sequence = connection.execute(
-                    "SELECT sequence_no FROM state_snapshot WHERE snapshot_id = ?",
-                    (item.snapshot_id,),
-                ).fetchone()
-            if sequence is None or int(sequence[0]) != ordinal:
+            if sequence_by_snapshot.get(item.snapshot_id) != ordinal:
                 raise MigrationError(f"{phase} marker disagrees with sequence")
             continue
 
@@ -734,34 +760,278 @@ def _backfill_reporting(
 def _verify(
     target: Path,
     snapshots: list[LegacySnapshot],
+    reporting_rows: list[tuple[int, int, str, int, str]],
 ) -> dict[str, Any]:
     store = CheckpointedStateStore(target, initialize=False)
     mismatches: list[int] = []
+    reconstructed: list[EnrollmentSnapshot] = []
     for item in snapshots:
-        reconstructed = store.reconstruct_snapshot(item.snapshot_id)
-        if reconstructed.to_dict() != item.snapshot.to_dict():
+        replayed = store.reconstruct_snapshot(item.snapshot_id)
+        reconstructed.append(replayed)
+        if replayed.to_dict() != item.snapshot.to_dict():
             mismatches.append(item.snapshot_id)
+
+    comparator = SnapshotComparator()
+    formatter = ReportFormatter()
+    adjacent_diff_mismatches: list[int] = []
+    adjacent_diff_details: list[dict[str, Any]] = []
+    formatted_report_mismatches: list[int] = []
+
+    def comparison_shape(comparison: Any) -> dict[str, Any]:
+        return {
+            "new_courses": [course.course_code for course in comparison.new_courses],
+            "removed_courses": [
+                course.course_code for course in comparison.removed_courses
+            ],
+            "changed_courses": [
+                {
+                    "course_code": detail.course_code,
+                    "previous_average_fill": detail.previous_average_fill,
+                    "current_average_fill": detail.current_average_fill,
+                    "added_sections": [
+                        section.section_id for section in detail.added_sections
+                    ],
+                    "removed_sections": [
+                        section.section_id for section in detail.removed_sections
+                    ],
+                    "modified_sections": [
+                        {
+                            "section_id": section.section_id,
+                            "previous_fill": section.previous_fill,
+                            "current_fill": section.current_fill,
+                            "previous_enrollment": section.previous_enrollment,
+                            "current_enrollment": section.current_enrollment,
+                            "previous_capacity": section.previous_capacity,
+                            "current_capacity": section.current_capacity,
+                            "previous_instructor": section.previous_instructor,
+                            "current_instructor": section.current_instructor,
+                        }
+                        for section in detail.modified_sections
+                    ],
+                }
+                for detail in comparison.changed_courses
+            ],
+        }
+
+    for index in range(1, len(snapshots)):
+        expected_previous = snapshots[index - 1].snapshot
+        expected_current = snapshots[index].snapshot
+        actual_previous = reconstructed[index - 1]
+        actual_current = reconstructed[index]
+        expected_diff = comparator.compare_snapshots(
+            expected_current, expected_previous
+        )
+        actual_diff = comparator.compare_snapshots(actual_current, actual_previous)
+        if expected_diff != actual_diff:
+            adjacent_diff_mismatches.append(snapshots[index].snapshot_id)
+            if len(adjacent_diff_details) < 3:
+                adjacent_diff_details.append(
+                    {
+                        "snapshot_id": snapshots[index].snapshot_id,
+                        "expected": comparison_shape(expected_diff),
+                        "actual": comparison_shape(actual_diff),
+                    }
+                )
+        expected_report = formatter.format_changes_report(
+            expected_diff, expected_current, expected_previous
+        )
+        actual_report = formatter.format_changes_report(
+            actual_diff, actual_current, actual_previous
+        )
+        if expected_report != actual_report:
+            formatted_report_mismatches.append(snapshots[index].snapshot_id)
+
+    course_codes = sorted(
+        {code for item in snapshots for code in item.snapshot.courses}
+    )
+    history_mismatches: list[str] = []
+    for course_code in course_codes:
+        expected_history: list[dict[str, Any]] = []
+        for item in snapshots:
+            course = item.snapshot.courses.get(course_code)
+            if course is None:
+                continue
+            for section_code in sorted(course.sections):
+                section = course.sections[section_code]
+                expected_history.append(
+                    {
+                        "timestamp": item.snapshot.timestamp,
+                        "section_code": section_code,
+                        "fill_percentage": section.enrollment / section.capacity,
+                        "enrollment_count": section.enrollment,
+                        "capacity_count": section.capacity,
+                    }
+                )
+        if store.get_course_history(course_code) != expected_history:
+            history_mismatches.append(course_code)
+
     integrity = store.integrity()
     statistics = store.statistics()
     with sqlite3.connect(target) as connection:
-        reporting_rows = int(
-            connection.execute("SELECT count(*) FROM reporting_log_v2").fetchone()[0]
-        )
+        actual_reporting_rows = [
+            tuple(row)
+            for row in connection.execute(
+                """
+                SELECT report_id, reported_snapshot_id, report_timestamp,
+                       changes_found, created_at
+                FROM reporting_log_v2 ORDER BY report_id
+                """
+            )
+        ]
+    semantic_payload = {
+        "snapshots": [snapshot.to_dict() for snapshot in reconstructed],
+        "reporting_rows": actual_reporting_rows,
+    }
+    semantic_digest = hashlib.sha256(
+        json.dumps(
+            semantic_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    expected_last_reported = (
+        max(reporting_rows, key=lambda row: row[2])[1] if reporting_rows else None
+    )
+    latest_snapshot_id = store.get_latest_snapshot_id()
     result = {
         "semantic_mismatches": len(mismatches),
         "mismatch_snapshot_ids": mismatches[:20],
+        "adjacent_diff_mismatches": len(adjacent_diff_mismatches),
+        "adjacent_diff_mismatch_snapshot_ids": adjacent_diff_mismatches[:20],
+        "adjacent_diff_details": adjacent_diff_details,
+        "formatted_report_mismatches": len(formatted_report_mismatches),
+        "formatted_report_mismatch_snapshot_ids": formatted_report_mismatches[:20],
+        "course_history_mismatches": len(history_mismatches),
+        "course_history_mismatch_codes": history_mismatches[:20],
+        "reporting_rows_exact": actual_reporting_rows == sorted(reporting_rows),
+        "last_reported_snapshot_exact": (
+            store.get_last_reported_snapshot_id() == expected_last_reported
+        ),
         "integrity_check": integrity["integrity_check"],
         "foreign_key_violations": integrity["foreign_key_violations"],
-        "latest_equals_replay": not mismatches,
-        "statistics": {**statistics, "reporting_rows": reporting_rows},
+        "latest_equals_replay": (
+            not snapshots
+            or (
+                latest_snapshot_id is not None
+                and store.reconstruct_snapshot(latest_snapshot_id).to_dict()
+                == reconstructed[-1].to_dict()
+            )
+        ),
+        "max_replay_distance": store.max_replay_distance(),
+        "semantic_sha256": semantic_digest,
+        "statistics": {
+            **statistics,
+            "reporting_rows": len(actual_reporting_rows),
+        },
     }
     if (
         result["semantic_mismatches"]
+        or result["adjacent_diff_mismatches"]
+        or result["formatted_report_mismatches"]
+        or result["course_history_mismatches"]
+        or not result["reporting_rows_exact"]
+        or not result["last_reported_snapshot_exact"]
+        or not result["latest_equals_replay"]
         or result["integrity_check"] != "ok"
         or result["foreign_key_violations"]
     ):
-        raise MigrationError("semantic or SQLite verification failed")
+        diagnostics = {
+            key: result[key]
+            for key in (
+                "semantic_mismatches",
+                "mismatch_snapshot_ids",
+                "adjacent_diff_mismatches",
+                "adjacent_diff_mismatch_snapshot_ids",
+                "adjacent_diff_details",
+                "formatted_report_mismatches",
+                "formatted_report_mismatch_snapshot_ids",
+                "course_history_mismatches",
+                "course_history_mismatch_codes",
+                "reporting_rows_exact",
+                "last_reported_snapshot_exact",
+                "latest_equals_replay",
+                "integrity_check",
+                "foreign_key_violations",
+            )
+        }
+        raise MigrationError(
+            "semantic or SQLite verification failed: "
+            + json.dumps(diagnostics, sort_keys=True, separators=(",", ":"))
+        )
     return result
+
+
+def _operational_evidence(target: Path) -> dict[str, Any]:
+    """Capture post-completion schema, marker, and preserved-ID evidence."""
+    with sqlite3.connect(target) as connection:
+        connection.row_factory = sqlite3.Row
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        legacy_tables = {
+            "courses",
+            "sections",
+            "snapshots",
+            "enrollment_data",
+            "reporting_log",
+        }
+        control = connection.execute(
+            "SELECT * FROM storage_control WHERE singleton = 1"
+        ).fetchone()
+        phases = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT phase, state_digest, completed_at "
+                "FROM migration_phase ORDER BY rowid"
+            )
+        ]
+
+        def ids(table: str, column: str) -> list[int]:
+            return [
+                int(row[0])
+                for row in connection.execute(
+                    f"SELECT {column} FROM {table} ORDER BY {column}"
+                )
+            ]
+
+        id_pairs = {
+            "course_ids": (
+                ids("courses", "course_id"),
+                ids("course_catalog", "course_id"),
+            ),
+            "section_ids": (
+                ids("sections", "section_id"),
+                ids("section_catalog", "section_id"),
+            ),
+            "snapshot_ids": (
+                ids("snapshots", "snapshot_id"),
+                ids("state_snapshot", "snapshot_id"),
+            ),
+            "report_ids": (
+                ids("reporting_log", "report_id"),
+                ids("reporting_log_v2", "report_id"),
+            ),
+        }
+        return {
+            "user_version": int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            ),
+            "storage_control": dict(control) if control is not None else None,
+            "legacy_tables_retained": legacy_tables.issubset(tables),
+            "legacy_tables": sorted(legacy_tables & tables),
+            "phase_markers": phases,
+            "id_preservation": {
+                name: {
+                    "legacy_count": len(pair[0]),
+                    "v2_count": len(pair[1]),
+                    "exact": pair[0] == pair[1],
+                }
+                for name, pair in id_pairs.items()
+            },
+        }
 
 
 def _snapshots_match(
@@ -791,6 +1061,86 @@ def _snapshots_match(
         and actual.overall_fill == expected.overall_fill
         and actual_state == expected_state
     )
+
+
+def _assert_legacy_v2_parity(database: Path, metadata_mode: str) -> None:
+    """Verify compatibility identities and state before a mode transition."""
+    reader = LegacyReader(database, immutable=False)
+    legacy_snapshots, _ = reader.snapshots()
+    legacy_snapshot_ids = {item.snapshot_id for item in legacy_snapshots}
+    legacy_courses, legacy_sections = reader.catalogs()
+    legacy_reporting = reader.reporting_rows()
+    store = CheckpointedStateStore(database, initialize=False)
+
+    with sqlite3.connect(database) as connection:
+        v2_snapshot_ids = {
+            int(row[0])
+            for row in connection.execute("SELECT snapshot_id FROM state_snapshot")
+        }
+        v2_courses = [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT course_id, course_code FROM course_catalog ORDER BY course_id"
+            )
+        ]
+        v2_sections = [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT section_id, course_id, section_code "
+                "FROM section_catalog ORDER BY section_id"
+            )
+        ]
+        v2_reporting = [
+            tuple(row)
+            for row in connection.execute(
+                """
+                SELECT report_id, reported_snapshot_id, report_timestamp,
+                       changes_found
+                FROM reporting_log_v2 ORDER BY report_id
+                """
+            )
+        ]
+
+    if v2_snapshot_ids != legacy_snapshot_ids:
+        missing = sorted(legacy_snapshot_ids - v2_snapshot_ids)
+        extra = sorted(v2_snapshot_ids - legacy_snapshot_ids)
+        raise MigrationError(
+            "legacy/v2 snapshot identity parity failed; "
+            f"missing_in_v2={missing[:20]}, extra_in_v2={extra[:20]}"
+        )
+
+    mismatches = [
+        item.snapshot_id
+        for item in legacy_snapshots
+        if not _snapshots_match(
+            store.reconstruct_snapshot(item.snapshot_id),
+            item.snapshot,
+            metadata_mode,
+        )
+    ]
+    if mismatches:
+        raise MigrationError(
+            "legacy/v2 snapshot parity failed for snapshot IDs "
+            + ", ".join(str(value) for value in mismatches[:20])
+        )
+
+    expected_courses = sorted(
+        (int(row["course_id"]), str(row["course_code"])) for row in legacy_courses
+    )
+    expected_sections = sorted(
+        (
+            int(row["section_id"]),
+            int(row["course_id"]),
+            str(row["section_code"]),
+        )
+        for row in legacy_sections
+    )
+    if v2_courses != expected_courses or v2_sections != expected_sections:
+        raise MigrationError("legacy/v2 catalog identity parity failed")
+
+    expected_reporting = [row[:4] for row in sorted(legacy_reporting)]
+    if v2_reporting != expected_reporting:
+        raise MigrationError("legacy/v2 reporting continuity parity failed")
 
 
 def _reconcile_completed_migration(
@@ -1049,6 +1399,8 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
     _atomic_write(path, json.dumps(report, indent=2, sort_keys=True) + "\n")
     markdown = path.with_suffix(".md")
     verification = report["verification"]
+    operations = verification.get("operational_evidence", {})
+    preserved_ids = operations.get("id_preservation", {})
     body = "\n".join(
         [
             "# Checkpointed-state migration report",
@@ -1059,8 +1411,36 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
             f"- Source: `{report['source']['path']}`",
             f"- Target: `{report['target']['path']}`",
             f"- Semantic mismatches: `{verification['semantic_mismatches']}`",
+            (
+                "- Adjacent-diff mismatches: "
+                f"`{verification['adjacent_diff_mismatches']}`"
+            ),
+            (
+                "- Formatted-report mismatches: "
+                f"`{verification['formatted_report_mismatches']}`"
+            ),
+            (
+                "- Course-history mismatches: "
+                f"`{verification['course_history_mismatches']}`"
+            ),
+            f"- Reporting rows exact: `{verification['reporting_rows_exact']}`",
+            (
+                "- Last-reported snapshot exact: "
+                f"`{verification['last_reported_snapshot_exact']}`"
+            ),
+            f"- Latest equals replay: `{verification['latest_equals_replay']}`",
+            f"- Maximum replay distance: `{verification['max_replay_distance']}`",
+            f"- Semantic SHA-256: `{verification['semantic_sha256']}`",
             f"- Integrity check: `{verification['integrity_check']}`",
             (f"- Foreign-key violations: `{verification['foreign_key_violations']}`"),
+            f"- Legacy tables retained: `{operations.get('legacy_tables_retained')}`",
+            f"- Schema user version: `{operations.get('user_version')}`",
+            f"- Migration phase markers: `{len(operations.get('phase_markers', []))}`",
+            "- Preserved IDs: "
+            + ", ".join(
+                f"{name}=`{details.get('exact')}`"
+                for name, details in sorted(preserved_ids.items())
+            ),
             "",
         ]
     )
@@ -1133,8 +1513,9 @@ def run_migration(
                 metadata_mode=request.metadata_mode.value,
             )
             status = "reconciled"
-        verification = _verify(source, snapshots)
-        report = {
+        verification = _verify(source, snapshots, reporting_rows)
+        verification["operational_evidence"] = _operational_evidence(source)
+        report: dict[str, Any] = {
             "format": REPORT_FORMAT_VERSION,
             "status": status,
             "semester": request.semester,
@@ -1240,8 +1621,9 @@ def run_migration(
     _backfill_catalogs(target, courses, sections, phase_hook)
     _backfill_snapshots(target, snapshots, phase_hook)
     _backfill_reporting(target, reporting_rows, phase_hook)
-    verification = _verify(target, snapshots)
+    verification = _verify(target, snapshots, reporting_rows)
     _mark_complete(target, verification, phase_hook)
+    verification["operational_evidence"] = _operational_evidence(target)
 
     source_hash_after = sha256_file(source)
     status = "verified" if request.dry_run else "applied"
@@ -1326,21 +1708,9 @@ def transition_storage_mode(
             raise MigrationError(
                 "legacy tables changed; reconcile migration before changing mode"
             )
-        legacy_snapshots, _ = LegacyReader(database, immutable=False).snapshots()
-        store = CheckpointedStateStore(database, initialize=False)
-        mismatches: list[int] = []
-        for item in legacy_snapshots:
-            actual = store.get_snapshot_data(item.snapshot_id)
-            if actual is None:
-                mismatches.append(item.snapshot_id)
-                continue
-            if not _snapshots_match(actual, item.snapshot, metadata_mode):
-                mismatches.append(item.snapshot_id)
-        if mismatches:
-            raise MigrationError(
-                "shadow parity failed for snapshot IDs "
-                + ", ".join(str(value) for value in mismatches[:20])
-            )
+
+    if previous_mode in {"shadow", "v2"} or target_mode in {"shadow", "v2"}:
+        _assert_legacy_v2_parity(database, metadata_mode)
 
     if previous_mode == target_mode:
         status = "already_active"
@@ -1415,4 +1785,414 @@ def transition_storage_mode(
         previous_mode=previous_mode,
         active_mode=target_mode,
         report_path=report_path,
+    )
+
+
+def _v2_semantic_digest(database: Path) -> str:
+    """Hash all reconstructed v2 snapshots and reporting rows in stable order."""
+    store = CheckpointedStateStore(database, initialize=False)
+    snapshots = [
+        snapshot.to_dict() for _, snapshot in store.iter_reconstructed_snapshots()
+    ]
+    with sqlite3.connect(database) as connection:
+        reporting = [
+            tuple(row)
+            for row in connection.execute(
+                """
+                SELECT report_id, reported_snapshot_id, report_timestamp,
+                       changes_found, created_at
+                FROM reporting_log_v2 ORDER BY report_id
+                """
+            )
+        ]
+    return hashlib.sha256(
+        json.dumps(
+            {"snapshots": snapshots, "reporting": reporting},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+def _verified_database_copy(source: Path, target: Path) -> dict[str, Any]:
+    """Create a SQLite-consistent copy and return bounded restore evidence."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        raise MigrationError(f"refusing to overwrite existing archive: {target}")
+    with sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True) as source_db:
+        with sqlite3.connect(target) as target_db:
+            source_db.backup(target_db)
+    with sqlite3.connect(target) as connection:
+        integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+        foreign_keys = len(connection.execute("PRAGMA foreign_key_check").fetchall())
+    if integrity != "ok" or foreign_keys:
+        raise MigrationError("database archive failed SQLite verification")
+    return {
+        "path": str(target),
+        "sha256": sha256_file(target),
+        "integrity_check": integrity,
+        "foreign_key_violations": foreign_keys,
+    }
+
+
+def _finalized_operational_evidence(database: Path, semester: str) -> dict[str, Any]:
+    """Exercise production readers against a v2-only candidate."""
+    from ..website.checksums import compute_semester_hash
+    from ..website.data import get_semester_data
+    from .database_manager import DatabaseManager
+
+    manager = DatabaseManager(db_path=str(database), semester=semester)
+    latest_id = manager.get_latest_snapshot_id()
+    if latest_id is None:
+        raise MigrationError("finalized candidate has no latest snapshot")
+    latest = manager.get_snapshot_data(latest_id)
+    if latest is None:
+        raise MigrationError("finalized candidate cannot reconstruct latest snapshot")
+    previous_id = manager.get_previous_snapshot_id(latest_id)
+    if previous_id is not None and manager.get_snapshot_data(previous_id) is None:
+        raise MigrationError("finalized candidate cannot reconstruct previous snapshot")
+    website = get_semester_data(semester, minify=False, database=manager)
+    snapshots = website.get("snapshots", [])
+    if len(snapshots) != manager.get_database_stats()["snapshots"]:
+        raise MigrationError("finalized website snapshot count disagrees with storage")
+    if website.get("lastReportTime") != latest.timestamp:
+        raise MigrationError("finalized website freshness disagrees with latest state")
+    return {
+        "latest_snapshot_id": latest_id,
+        "previous_snapshot_id": previous_id,
+        "latest_last_seen_at": manager.get_latest_snapshot_last_seen_at(),
+        "database_stats": manager.get_database_stats(),
+        "latest_enrollment_summary": manager.get_enrollment_summary(latest_id),
+        "website_snapshot_count": len(snapshots),
+        "website_course_count": len(website.get("courses", {})),
+        "website_checksum": compute_semester_hash(semester, database=manager),
+    }
+
+
+def _write_finalization_report(path: Path, report: dict[str, Any]) -> None:
+    """Write the finalization report and its operator-readable companion."""
+    _atomic_write(path, json.dumps(report, indent=2, sort_keys=True) + "\n")
+    _atomic_write(
+        path.with_suffix(".md"),
+        "\n".join(
+            [
+                "# Checkpointed-state finalization report",
+                "",
+                f"- Status: `{report['status']}`",
+                f"- Semester: `{report['semester']}`",
+                f"- Database: `{report['database']}`",
+                f"- Rollback archive: `{report['archive']['path']}`",
+                f"- Source SHA-256 before: `{report['source_sha256_before']}`",
+                f"- Active SHA-256 after: `{report['source_sha256_after']}`",
+                f"- Semantic digest preserved: `{report['semantic_digest_preserved']}`",
+                "",
+            ]
+        ),
+    )
+
+
+def finalize_storage(
+    database: Path,
+    *,
+    semester: str,
+    report_path: Path,
+    rollback_dir: Path | None = None,
+    authorized: bool = False,
+    phase_hook: PhaseHook | None = None,
+) -> FinalizationResult:
+    """Finalize a v2 database behind an explicit operator authorization.
+
+    The old database is archived first. A compact candidate is then built from
+    a disposable copy, verified, and atomically moved into place. If execution
+    stops after candidate creation, the next invocation reuses that candidate;
+    if it stops after replacement, the finalized database is reported as an
+    idempotent completion.
+    """
+    if not authorized:
+        raise MigrationError("finalization requires explicit authorization")
+    database = database.resolve()
+    if not database.is_file():
+        raise MigrationError(f"database does not exist: {database}")
+
+    source_hash_before = sha256_file(database)
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        control = connection.execute(
+            "SELECT * FROM storage_control WHERE singleton = 1"
+        ).fetchone()
+    if version != TARGET_SCHEMA_VERSION or control is None:
+        raise MigrationError("finalization requires a completed v2 database")
+    if str(control["semester"]) != semester:
+        raise MigrationError(
+            f"database semester {control['semester']!r} does not match {semester!r}"
+        )
+    active_mode = str(control["active_mode"])
+    phase = str(control["migration_phase"])
+    if active_mode == "finalized" and phase == "finalized":
+        archive_path = Path(str(control["backup_path"] or ""))
+        archive_sha256 = str(control["backup_sha256"] or "")
+        if (
+            not archive_path.is_file()
+            or not archive_sha256
+            or sha256_file(archive_path) != archive_sha256
+        ):
+            raise MigrationError(
+                "finalized database is missing its verified rollback archive"
+            )
+        semantic_digest = _v2_semantic_digest(database)
+        report = {
+            "format": REPORT_FORMAT_VERSION,
+            "status": "already_finalized",
+            "semester": semester,
+            "database": str(database),
+            "archive": {
+                "path": str(archive_path),
+                "sha256": archive_sha256,
+            },
+            "source_sha256_before": source_hash_before,
+            "source_sha256_after": source_hash_before,
+            "semantic_digest_preserved": True,
+            "semantic_digest": semantic_digest,
+        }
+        _write_finalization_report(report_path, report)
+        return FinalizationResult(
+            status="already_finalized",
+            database=database,
+            archive_path=archive_path,
+            report_path=report_path,
+            source_hash_before=source_hash_before,
+            source_hash_after=source_hash_before,
+        )
+    if active_mode != "v2" or phase not in {
+        "complete",
+        "finalizing",
+        "finalization:prepared",
+    }:
+        raise MigrationError(
+            "finalization requires active v2 mode and a completed migration"
+        )
+
+    if _legacy_fingerprint(database) != str(control["legacy_fingerprint"]):
+        raise MigrationError(
+            "legacy tables changed during finalization; refusing to discard them"
+        )
+
+    store = CheckpointedStateStore(database, initialize=False)
+    integrity = store.integrity()
+    if integrity["integrity_check"] != "ok" or integrity["foreign_key_violations"]:
+        raise MigrationError("finalization blocked by SQLite health checks")
+    latest_id = store.get_latest_snapshot_id()
+    if latest_id is None:
+        raise MigrationError("finalization requires at least one migrated snapshot")
+    semantic_digest = _v2_semantic_digest(database)
+    if phase == "complete":
+        if phase_hook:
+            phase_hook("finalization", "before_checkpoint")
+        store.force_checkpoint(latest_id)
+        if phase_hook:
+            phase_hook("finalization", "after_checkpoint")
+
+    rollback_dir = rollback_dir or database.parent / "backups"
+    rollback_dir.mkdir(parents=True, exist_ok=True)
+    archive = rollback_dir / f"{database.stem}-pre-finalization.db"
+    if archive.exists():
+        with sqlite3.connect(archive) as connection:
+            archive_integrity = str(
+                connection.execute("PRAGMA integrity_check").fetchone()[0]
+            )
+        if archive_integrity != "ok":
+            raise MigrationError(f"existing rollback archive is invalid: {archive}")
+        with sqlite3.connect(archive) as connection:
+            archive_foreign_keys = len(
+                connection.execute("PRAGMA foreign_key_check").fetchall()
+            )
+        archive_details = {
+            "path": str(archive),
+            "sha256": sha256_file(archive),
+            "integrity_check": archive_integrity,
+            "foreign_key_violations": archive_foreign_keys,
+            "reused": True,
+        }
+        if archive_foreign_keys:
+            raise MigrationError(
+                f"existing rollback archive has {archive_foreign_keys} foreign-key violations"
+            )
+        try:
+            archive_semantic_digest = _v2_semantic_digest(archive)
+        except (sqlite3.Error, KeyError) as error:
+            raise MigrationError(
+                f"existing rollback archive is not a v2 database: {archive}"
+            ) from error
+        if archive_semantic_digest != semantic_digest:
+            raise MigrationError(
+                "existing rollback archive does not match the active v2 state"
+            )
+    else:
+        if phase_hook:
+            phase_hook("finalization", "before_archive")
+        archive_details = _verified_database_copy(database, archive)
+        if phase_hook:
+            phase_hook("finalization", "after_archive")
+
+    candidate = database.with_name(f".{database.name}.finalized")
+    staging = database.with_name(f".{database.name}.finalizing-source")
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        marker_digest = hashlib.sha256(
+            json.dumps(
+                {
+                    "archive": archive_details["sha256"],
+                    "candidate": str(candidate),
+                    "semantic_digest": semantic_digest,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        _phase(connection, "finalization:prepared", marker_digest)
+        connection.commit()
+
+    if candidate.exists():
+        try:
+            existing_candidate_store = CheckpointedStateStore(
+                candidate, initialize=False
+            )
+            existing_integrity = existing_candidate_store.integrity()
+            with sqlite3.connect(candidate) as connection:
+                existing_control = connection.execute(
+                    "SELECT active_mode, migration_phase, legacy_tables_retained "
+                    "FROM storage_control WHERE singleton = 1"
+                ).fetchone()
+            if (
+                existing_integrity["integrity_check"] != "ok"
+                or existing_integrity["foreign_key_violations"]
+                or tuple(existing_control or ()) != ("finalized", "finalized", 0)
+                or _v2_semantic_digest(candidate) != semantic_digest
+            ):
+                candidate.unlink()
+        except (sqlite3.Error, MigrationError, OSError):
+            candidate.unlink()
+        if candidate.exists() and staging.exists():
+            staging.unlink()
+
+    if not candidate.exists():
+        # A VACUUM interruption leaves only a disposable staging copy. It is
+        # safe to discard that generated path because the source and verified
+        # archive remain untouched.
+        if staging.exists():
+            staging.unlink()
+        with sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True) as source_db:
+            with sqlite3.connect(staging) as staging_db:
+                source_db.backup(staging_db)
+        with sqlite3.connect(staging) as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("BEGIN IMMEDIATE")
+            for table in (
+                "reporting_log",
+                "enrollment_data",
+                "instructor_changes",
+                "sections",
+                "courses",
+                "snapshots",
+            ):
+                connection.execute(f"DROP TABLE IF EXISTS {table}")
+            connection.execute(
+                """
+                UPDATE storage_control
+                SET active_mode = 'finalized', legacy_tables_retained = 0,
+                    migration_phase = 'finalized', backup_path = ?,
+                    backup_sha256 = ?, updated_at = ?
+                WHERE singleton = 1
+                """,
+                (archive_details["path"], archive_details["sha256"], _now()),
+            )
+            _phase(connection, "finalization:complete", semantic_digest)
+            connection.execute(
+                "UPDATE storage_control SET migration_phase = 'finalized' "
+                "WHERE singleton = 1"
+            )
+            connection.execute("PRAGMA user_version = 2")
+            connection.commit()
+        with sqlite3.connect(staging) as connection:
+            escaped = str(candidate).replace("'", "''")
+            if phase_hook:
+                phase_hook("finalization", "before_vacuum")
+            connection.execute(f"VACUUM INTO '{escaped}'")
+            if phase_hook:
+                phase_hook("finalization", "after_vacuum")
+        staging.unlink()
+
+    candidate_store = CheckpointedStateStore(candidate, initialize=False)
+    candidate_integrity = candidate_store.integrity()
+    if (
+        candidate_integrity["integrity_check"] != "ok"
+        or candidate_integrity["foreign_key_violations"]
+        or _v2_semantic_digest(candidate) != semantic_digest
+    ):
+        raise MigrationError("finalization candidate failed verification")
+    with sqlite3.connect(candidate) as connection:
+        candidate_control = connection.execute(
+            "SELECT active_mode, migration_phase, legacy_tables_retained "
+            "FROM storage_control WHERE singleton = 1"
+        ).fetchone()
+        legacy_tables = [
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name IN ('courses','sections','snapshots','enrollment_data',"
+                "'reporting_log','instructor_changes')"
+            )
+        ]
+    if (
+        candidate_control is None
+        or tuple(candidate_control) != ("finalized", "finalized", 0)
+        or legacy_tables
+    ):
+        raise MigrationError(
+            "finalization candidate retained legacy compatibility tables"
+        )
+    operational_evidence = _finalized_operational_evidence(candidate, semester)
+    if phase_hook:
+        phase_hook("finalization", "before_replace")
+    os.replace(candidate, database)
+    if phase_hook:
+        phase_hook("finalization", "after_replace")
+
+    source_hash_after = sha256_file(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        final_integrity = str(
+            connection.execute("PRAGMA integrity_check").fetchone()[0]
+        )
+        final_foreign_keys = len(
+            connection.execute("PRAGMA foreign_key_check").fetchall()
+        )
+    if final_integrity != "ok" or final_foreign_keys:
+        raise MigrationError("finalized database failed post-replacement verification")
+    report = {
+        "format": REPORT_FORMAT_VERSION,
+        "status": "finalized",
+        "semester": semester,
+        "database": str(database),
+        "archive": archive_details,
+        "candidate": str(candidate),
+        "source_sha256_before": source_hash_before,
+        "source_sha256_after": source_hash_after,
+        "semantic_digest": semantic_digest,
+        "semantic_digest_preserved": True,
+        "integrity_check": final_integrity,
+        "foreign_key_violations": final_foreign_keys,
+        "operational_evidence": operational_evidence,
+    }
+    _write_finalization_report(report_path, report)
+    return FinalizationResult(
+        status="finalized",
+        database=database,
+        archive_path=archive,
+        report_path=report_path,
+        source_hash_before=source_hash_before,
+        source_hash_after=source_hash_after,
     )

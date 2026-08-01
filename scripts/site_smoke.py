@@ -23,18 +23,25 @@ class AssetParser(HTMLParser):
                 self.links.append(value)
 
 
-def local_path(value: str, page: Path) -> Path | None:
+def local_path(value: str, page: Path, output_dir: Path | None = None) -> Path | None:
+    output_dir = output_dir or OUTPUT_DIR
     parsed = urlparse(value)
     if parsed.scheme or parsed.netloc or value.startswith("#"):
         return None
     if parsed.path.startswith("/"):
-        return OUTPUT_DIR / parsed.path.lstrip("/")
+        return output_dir / parsed.path.lstrip("/")
     return page.parent / parsed.path
 
 
-def main(report_path: Path | None = None) -> None:
-    issues = WebsiteService().validate_public_output()
-    pages = sorted(OUTPUT_DIR.rglob("*.html"))
+def main(report_path: Path | None = None, output_dir: Path | None = None) -> None:
+    output_dir = output_dir or OUTPUT_DIR
+    service = (
+        WebsiteService()
+        if output_dir == OUTPUT_DIR
+        else WebsiteService(output_dir=output_dir)
+    )
+    issues = service.validate_public_output()
+    pages = sorted(output_dir.rglob("*.html"))
     if not pages:
         issues.append("no generated HTML pages found")
 
@@ -42,25 +49,25 @@ def main(report_path: Path | None = None) -> None:
         parser = AssetParser()
         parser.feed(page.read_text(encoding="utf-8"))
         for value in parser.links:
-            target = local_path(value, page)
+            target = local_path(value, page, output_dir)
             if not target:
                 continue
             try:
-                target.resolve().relative_to(OUTPUT_DIR.resolve())
+                target.resolve().relative_to(output_dir.resolve())
             except ValueError:
                 issues.append(
-                    f"{page.relative_to(OUTPUT_DIR)}: path escapes output: {value}"
+                    f"{page.relative_to(output_dir)}: path escapes output: {value}"
                 )
                 continue
             if not target.exists():
-                issues.append(f"{page.relative_to(OUTPUT_DIR)}: missing {value}")
+                issues.append(f"{page.relative_to(output_dir)}: missing {value}")
                 continue
             if target.suffix == ".json":
                 try:
                     json.loads(target.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError) as error:
                     issues.append(
-                        f"{page.relative_to(OUTPUT_DIR)}: invalid JSON {value}: {error}"
+                        f"{page.relative_to(output_dir)}: invalid JSON {value}: {error}"
                     )
 
     if issues:
@@ -93,5 +100,6 @@ def main(report_path: Path | None = None) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", type=Path, dest="report_path")
+    parser.add_argument("--output-dir", type=Path)
     arguments = parser.parse_args()
-    main(arguments.report_path)
+    main(arguments.report_path, arguments.output_dir)

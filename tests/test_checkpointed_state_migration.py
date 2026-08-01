@@ -11,15 +11,24 @@ from pathlib import Path
 import pytest
 
 from registrarmonitor.cli.commands import DatabaseCommands
+from registrarmonitor.data.checkpointed_state import CheckpointedStateStore
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.data.migration import (
     MetadataMode,
+    MigrationError,
     MigrationInterrupted,
     MigrationRequest,
+    finalize_storage,
     run_migration,
     transition_storage_mode,
 )
+from registrarmonitor.data.migration_rehearsal import (
+    RehearsalRequest,
+    run_rehearsal,
+)
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
+from registrarmonitor.website.checksums import compute_semester_hash
+from registrarmonitor.website.data import get_semester_data
 
 
 def _sha256(path: Path) -> str:
@@ -563,6 +572,228 @@ def test_v2_mode_can_roll_back_to_legacy_after_dual_write(tmp_path: Path) -> Non
     assert legacy_ids == checkpointed_ids
 
 
+def test_mode_transition_rejects_v2_only_snapshot_divergence(tmp_path: Path) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    CheckpointedStateStore(source, initialize=False).write_snapshot(
+        _changed_snapshot(), snapshot_id=99
+    )
+
+    with pytest.raises(MigrationError, match="snapshot identity parity"):
+        transition_storage_mode(
+            source,
+            semester="Summer 2025",
+            target_mode="v2",
+            report_path=tmp_path / "v2.json",
+        )
+
+
+def _migrated_v2_database(tmp_path: Path) -> Path:
+    source = _legacy_database(tmp_path / "legacy.db")
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="v2",
+        report_path=tmp_path / "v2.json",
+    )
+    return source
+
+
+def test_finalization_requires_authorization_and_retires_legacy_tables(
+    tmp_path: Path,
+) -> None:
+    source = _migrated_v2_database(tmp_path)
+
+    with pytest.raises(MigrationError, match="explicit authorization"):
+        finalize_storage(
+            source,
+            semester="Summer 2025",
+            report_path=tmp_path / "finalize.json",
+        )
+
+    result = finalize_storage(
+        source,
+        semester="Summer 2025",
+        report_path=tmp_path / "finalize.json",
+        rollback_dir=tmp_path / "rollback",
+        authorized=True,
+    )
+
+    assert result.status == "finalized"
+    assert result.archive_path.is_file()
+    assert result.source_hash_before != result.source_hash_after
+    report = json.loads((tmp_path / "finalize.json").read_text())
+    assert report["semantic_digest_preserved"] is True
+    assert report["operational_evidence"]["website_snapshot_count"] == 2
+    assert report["operational_evidence"]["website_course_count"] == 1
+    with sqlite3.connect(source) as connection:
+        assert connection.execute(
+            "SELECT active_mode, migration_phase, legacy_tables_retained "
+            "FROM storage_control WHERE singleton = 1"
+        ).fetchone() == ("finalized", "finalized", 0)
+        assert (
+            connection.execute("SELECT count(*) FROM state_checkpoint").fetchone()[0]
+            >= 1
+        )
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert not tables.intersection(
+        {"courses", "sections", "snapshots", "enrollment_data", "reporting_log"}
+    )
+
+    manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    assert manager.storage_mode == "finalized"
+    assert manager.get_snapshot_data(9) is not None
+    assert manager.get_previous_snapshot_id(3) == 9
+    assert manager.get_latest_snapshot_last_seen_at() == "2026-05-01 10:05:00"
+    assert manager.get_database_stats() == {
+        "snapshots": 2,
+        "courses": 1,
+        "sections": 1,
+        "earliest_snapshot": "2026-05-01 10:00:00",
+        "latest_snapshot": "2026-05-01 10:05:00",
+    }
+    assert manager.get_enrollment_summary(3) == {"OPEN": 1, "NEAR": 0, "FULL": 0}
+
+    website_data = get_semester_data("Summer 2025", minify=False, database=manager)
+    assert [item["id"] for item in website_data["snapshots"]] == [9, 3]
+    assert (
+        website_data["courses"]["CSCI 101"]["sections"]["1L"]["currentEnrollment"] == 12
+    )
+    assert len(compute_semester_hash("Summer 2025", database=manager)) == 12
+
+    manager.store_enrollment_snapshot(_changed_snapshot())
+    manager.add_reporting_log(3, True)
+    with sqlite3.connect(source) as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 3
+        )
+        assert (
+            connection.execute("SELECT count(*) FROM reporting_log_v2").fetchone()[0]
+            == 3
+        )
+
+
+def test_website_payload_is_equal_across_legacy_v2_and_finalized_reads(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    legacy_manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    legacy_payload = get_semester_data(
+        "Summer 2025", minify=False, database=legacy_manager
+    )
+
+    run_migration(_request(source, tmp_path, dry_run=False))
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="shadow",
+        report_path=tmp_path / "shadow.json",
+    )
+    transition_storage_mode(
+        source,
+        semester="Summer 2025",
+        target_mode="v2",
+        report_path=tmp_path / "v2.json",
+    )
+    v2_manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    assert (
+        get_semester_data("Summer 2025", minify=False, database=v2_manager)
+        == legacy_payload
+    )
+
+    finalize_storage(
+        source,
+        semester="Summer 2025",
+        report_path=tmp_path / "finalize.json",
+        rollback_dir=tmp_path / "rollback",
+        authorized=True,
+    )
+    finalized_manager = DatabaseManager(db_path=str(source), semester="Summer 2025")
+    assert (
+        get_semester_data("Summer 2025", minify=False, database=finalized_manager)
+        == legacy_payload
+    )
+
+
+def test_finalization_reuses_verified_candidate_after_interruption(
+    tmp_path: Path,
+) -> None:
+    source = _migrated_v2_database(tmp_path)
+
+    def interrupt(phase: str, boundary: str) -> None:
+        if (phase, boundary) == ("finalization", "before_replace"):
+            raise MigrationInterrupted("injected before finalization replacement")
+
+    with pytest.raises(MigrationInterrupted):
+        finalize_storage(
+            source,
+            semester="Summer 2025",
+            report_path=tmp_path / "interrupted.json",
+            rollback_dir=tmp_path / "rollback",
+            authorized=True,
+            phase_hook=interrupt,
+        )
+
+    candidate = source.with_name(f".{source.name}.finalized")
+    assert candidate.is_file()
+    with sqlite3.connect(source) as connection:
+        assert (
+            connection.execute(
+                "SELECT migration_phase FROM storage_control WHERE singleton = 1"
+            ).fetchone()[0]
+            == "finalization:prepared"
+        )
+
+    resumed = finalize_storage(
+        source,
+        semester="Summer 2025",
+        report_path=tmp_path / "resumed.json",
+        rollback_dir=tmp_path / "rollback",
+        authorized=True,
+    )
+    assert resumed.status == "finalized"
+    assert not candidate.exists()
+
+
+def test_repeated_finalization_requires_the_rollback_archive(tmp_path: Path) -> None:
+    source = _migrated_v2_database(tmp_path)
+    result = finalize_storage(
+        source,
+        semester="Summer 2025",
+        report_path=tmp_path / "finalize.json",
+        rollback_dir=tmp_path / "rollback",
+        authorized=True,
+    )
+    result.archive_path.unlink()
+
+    with pytest.raises(MigrationError, match="rollback archive"):
+        finalize_storage(
+            source,
+            semester="Summer 2025",
+            report_path=tmp_path / "repeat-finalize.json",
+            rollback_dir=tmp_path / "rollback",
+            authorized=True,
+        )
+
+
 def test_cleanup_is_rejected_in_v2_mode_without_diverging_storage(
     tmp_path: Path,
 ) -> None:
@@ -652,3 +883,100 @@ def test_operator_migration_order_requires_completed_prior_semesters(
         )
 
     DatabaseCommands._validate_migration_order("Spring 2025", tmp_path)
+
+
+def test_dry_run_order_accepts_matching_completed_predecessor_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    evidence_dir = tmp_path / "evidence"
+    data_dir.mkdir()
+    evidence_dir.mkdir()
+    config = {
+        "storage": {
+            "migration_order": ["Summer 2025", "Spring 2025"],
+        }
+    }
+    monkeypatch.setattr(
+        "registrarmonitor.cli.commands.get_config",
+        lambda: config,
+    )
+    prior = _legacy_database(data_dir / "enrollment_summer_2025.db")
+    candidate = evidence_dir / "summer-2025-candidate.db"
+    run_migration(
+        MigrationRequest(
+            database=prior,
+            semester="Summer 2025",
+            target_version=2,
+            metadata_mode=MetadataMode.LEGACY_PRESERVING,
+            report_path=evidence_dir / "summer-2025.json",
+            dry_run=True,
+            candidate_path=candidate,
+        )
+    )
+
+    DatabaseCommands._validate_migration_order(
+        "Spring 2025",
+        data_dir,
+        completed_predecessor_dir=evidence_dir,
+    )
+
+
+def test_migration_order_accepts_finalized_predecessor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    config = {
+        "storage": {
+            "migration_order": ["Summer 2025", "Spring 2025"],
+        }
+    }
+    monkeypatch.setattr(
+        "registrarmonitor.cli.commands.get_config",
+        lambda: config,
+    )
+    prior = _migrated_v2_database(data_dir)
+    prior.rename(data_dir / "enrollment_summer_2025.db")
+    finalize_storage(
+        data_dir / "enrollment_summer_2025.db",
+        semester="Summer 2025",
+        report_path=tmp_path / "finalize.json",
+        rollback_dir=tmp_path / "rollback",
+        authorized=True,
+    )
+
+    DatabaseCommands._validate_migration_order("Spring 2025", data_dir)
+
+
+def test_rehearsal_recovers_every_real_runner_boundary(tmp_path: Path) -> None:
+    source = _legacy_database(tmp_path / "legacy.db")
+    source_hash = _sha256(source)
+    report_path = tmp_path / "evidence" / "rehearsal.json"
+    report = run_rehearsal(
+        RehearsalRequest(
+            database=source,
+            semester="Summer 2025",
+            target_version=2,
+            metadata_mode=MetadataMode.LEGACY_PRESERVING,
+            report_path=report_path,
+            evidence_dir=tmp_path / "evidence" / "scenarios",
+            workers=2,
+            snapshot_stride=96,
+        )
+    )
+
+    assert report["status"] == "passed"
+    assert report["scenario_count"] == 12
+    assert report["passed"] == 12
+    assert report["failed"] == 0
+    assert report["snapshot_stride"] == 96
+    assert report["source_hash_unchanged"] is True
+    assert _sha256(source) == source_hash
+    assert report_path.is_file()
+    assert report_path.with_suffix(".md").is_file()
+    assert (
+        len(list((tmp_path / "evidence" / "scenarios").glob("*-recovery.json"))) == 12
+    )
