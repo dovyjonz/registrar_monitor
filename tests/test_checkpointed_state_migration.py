@@ -164,6 +164,44 @@ def test_dry_run_builds_verified_candidate_without_changing_source(
     assert (tmp_path / "migration.md").is_file()
 
 
+def test_unmarked_legacy_schema_version_zero_is_a_supported_migration_source(
+    tmp_path: Path,
+) -> None:
+    source = _legacy_database(tmp_path / "legacy-v0.db")
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA user_version = 0")
+    source_hash = _sha256(source)
+
+    result = run_migration(
+        replace(
+            _request(source, tmp_path, dry_run=True),
+            candidate_path=tmp_path / "legacy-v0-candidate.db",
+        )
+    )
+
+    assert result.status == "verified"
+    assert _sha256(source) == source_hash
+    report = json.loads((tmp_path / "migration.json").read_text())
+    assert report["source"]["schema_version"] == 0
+    assert report["verification"]["step3_gates"]
+    assert all(report["verification"]["step3_gates"].values())
+    assert result.candidate_path is not None
+    with sqlite3.connect(result.candidate_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
+def test_unmarked_non_legacy_database_is_rejected_before_candidate_creation(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "not-a-legacy-database.db"
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA user_version = 0")
+
+    with pytest.raises(MigrationError, match="legacy table shape"):
+        run_migration(_request(source, tmp_path, dry_run=True))
+    assert not (tmp_path / "candidate.db").exists()
+
+
 def test_dry_run_rejects_source_as_candidate_before_mutation(tmp_path: Path) -> None:
     source = _legacy_database(tmp_path / "legacy.db")
     source_hash = _sha256(source)
@@ -254,6 +292,9 @@ def test_apply_creates_verified_backup_and_repeated_run_is_a_noop(
     assert second.status == "already_complete"
     assert _sha256(source) == source_hash_after_first
     assert list((tmp_path / "backups").glob("*.db")) == backups_after_first
+    report = json.loads((tmp_path / "migration.json").read_text())
+    assert report["verification"]["legacy_observations_unchanged"] is True
+    assert all(report["verification"]["step3_gates"].values())
     with sqlite3.connect(source) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
         assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 2

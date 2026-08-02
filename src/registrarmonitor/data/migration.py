@@ -24,6 +24,38 @@ from .snapshot_processor import SnapshotProcessor
 
 TARGET_SCHEMA_VERSION = 2
 REPORT_FORMAT_VERSION = 1
+LEGACY_SCHEMA_VERSIONS = frozenset({0, 1})
+
+# Some production databases were created before the legacy schema started
+# recording PRAGMA user_version.  They are still safe migration sources when
+# their normalized legacy tables have the shape the reader expects.  Keep this
+# allow-list explicit so an arbitrary SQLite file with user_version=0 cannot be
+# mistaken for a Registrar Monitor database.
+LEGACY_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
+    "courses": ("course_id", "course_code", "course_title", "department"),
+    "sections": (
+        "section_id",
+        "course_id",
+        "section_code",
+        "section_type",
+        "instructor",
+    ),
+    "snapshots": ("snapshot_id", "timestamp", "semester", "overall_fill"),
+    "enrollment_data": (
+        "snapshot_id",
+        "section_id",
+        "enrollment_count",
+        "capacity_count",
+        "fill_percentage",
+    ),
+    "reporting_log": (
+        "report_id",
+        "reported_snapshot_id",
+        "report_timestamp",
+        "changes_found",
+        "created_at",
+    ),
+}
 
 
 class MetadataMode(StrEnum):
@@ -164,6 +196,29 @@ class LegacyReader:
     def user_version(self) -> int:
         with self.connection() as connection:
             return int(connection.execute("PRAGMA user_version").fetchone()[0])
+
+    def validate_schema(self) -> int:
+        """Validate a legacy-shaped source, including unmarked version-zero DBs."""
+        version = self.user_version()
+        if version not in {*LEGACY_SCHEMA_VERSIONS, TARGET_SCHEMA_VERSION}:
+            raise MigrationError(f"unsupported source schema version {version}")
+
+        missing: dict[str, list[str]] = {}
+        with self.connection() as connection:
+            for table, required_columns in LEGACY_TABLE_COLUMNS.items():
+                columns = {
+                    str(row["name"])
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                }
+                absent = sorted(set(required_columns) - columns)
+                if absent:
+                    missing[table] = absent
+        if missing:
+            raise MigrationError(
+                "source has an unsupported legacy table shape: "
+                + json.dumps(missing, sort_keys=True, separators=(",", ":"))
+            )
+        return version
 
     def semesters(self) -> list[str]:
         with self.connection() as connection:
@@ -1039,6 +1094,48 @@ def _operational_evidence(target: Path) -> dict[str, Any]:
         }
 
 
+def _step3_gates(
+    verification: dict[str, Any],
+    operational: dict[str, Any],
+    raw_evidence: dict[str, Any],
+    *,
+    legacy_data_unchanged: bool,
+) -> dict[str, bool]:
+    """Evaluate the bounded post-apply gates required by rollout step 3."""
+    control = operational.get("storage_control") or {}
+    preserved_ids = operational.get("id_preservation") or {}
+    historical_ids_preserved = (
+        all(bool(details.get("exact")) for details in preserved_ids.values())
+        and len(preserved_ids) == 4
+    )
+    raw_coverage = raw_evidence.get("mode") != MetadataMode.RAW_ENRICHED.value or (
+        raw_evidence.get("missing", 0) == 0 and raw_evidence.get("conflicting", 0) == 0
+    )
+    gates = {
+        "schema_version_v2": operational.get("user_version") == TARGET_SCHEMA_VERSION,
+        "migration_phase_complete": control.get("migration_phase") == "complete",
+        "active_mode_legacy": control.get("active_mode") == "legacy",
+        "integrity_ok": verification.get("integrity_check") == "ok",
+        "foreign_keys_clear": verification.get("foreign_key_violations") == 0,
+        "latest_state_matches": (
+            verification.get("semantic_mismatches") == 0
+            and verification.get("latest_equals_replay") is True
+        ),
+        "reporting_position_matches": (
+            verification.get("reporting_rows_exact") is True
+            and verification.get("last_reported_snapshot_exact") is True
+        ),
+        "historical_ids_preserved": historical_ids_preserved,
+        "raw_coverage": raw_coverage,
+        "legacy_observations_unchanged": legacy_data_unchanged,
+        "legacy_tables_retained": operational.get("legacy_tables_retained") is True,
+    }
+    if not all(gates.values()):
+        failed = [name for name, passed in gates.items() if not passed]
+        raise MigrationError("step 3 migration gates failed: " + ", ".join(failed))
+    return gates
+
+
 def _snapshots_match(
     actual: EnrollmentSnapshot,
     expected: EnrollmentSnapshot,
@@ -1438,9 +1535,15 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
             f"- Semantic SHA-256: `{verification['semantic_sha256']}`",
             f"- Integrity check: `{verification['integrity_check']}`",
             (f"- Foreign-key violations: `{verification['foreign_key_violations']}`"),
+            f"- Legacy observations unchanged: `{verification.get('legacy_observations_unchanged')}`",
             f"- Legacy tables retained: `{operations.get('legacy_tables_retained')}`",
             f"- Schema user version: `{operations.get('user_version')}`",
             f"- Migration phase markers: `{len(operations.get('phase_markers', []))}`",
+            "- Step 3 gates: "
+            + ", ".join(
+                f"{name}=`{passed}`"
+                for name, passed in sorted(verification.get("step3_gates", {}).items())
+            ),
             "- Preserved IDs: "
             + ", ".join(
                 f"{name}=`{details.get('exact')}`"
@@ -1475,10 +1578,7 @@ def run_migration(
         )
 
     reader = LegacyReader(source, immutable=request.dry_run)
-    if reader.user_version() not in (1, TARGET_SCHEMA_VERSION):
-        raise MigrationError(
-            f"unsupported source schema version {reader.user_version()}"
-        )
+    source_schema_version = reader.validate_schema()
     semesters = reader.semesters()
     if semesters != [request.semester]:
         raise MigrationError(
@@ -1519,7 +1619,19 @@ def run_migration(
             )
             status = "reconciled"
         verification = _verify(source, snapshots, reporting_rows)
-        verification["operational_evidence"] = _operational_evidence(source)
+        operational = _operational_evidence(source)
+        legacy_fingerprint_after = _legacy_fingerprint(source)
+        legacy_data_unchanged = legacy_fingerprint_after == legacy_fingerprint
+        verification["legacy_fingerprint_before"] = legacy_fingerprint
+        verification["legacy_fingerprint_after"] = legacy_fingerprint_after
+        verification["legacy_observations_unchanged"] = legacy_data_unchanged
+        verification["operational_evidence"] = operational
+        verification["step3_gates"] = _step3_gates(
+            verification,
+            operational,
+            raw_evidence,
+            legacy_data_unchanged=legacy_data_unchanged,
+        )
         report: dict[str, Any] = {
             "format": REPORT_FORMAT_VERSION,
             "status": status,
@@ -1532,10 +1644,12 @@ def run_migration(
             },
             "source": {
                 "path": str(source),
+                "schema_version": source_schema_version,
                 "sha256_before": source_hash_before,
                 "sha256_after": sha256_file(source),
                 "hash_unchanged": status == "already_complete",
                 "legacy_fingerprint": legacy_fingerprint,
+                "legacy_fingerprint_after": legacy_fingerprint_after,
                 "bytes": source.stat().st_size,
                 "snapshot_count": len(snapshots),
                 "freshness": freshness,
@@ -1631,6 +1745,12 @@ def run_migration(
     _backfill_snapshots(target, snapshots, phase_hook)
     _backfill_reporting(target, reporting_rows, phase_hook)
     verification = _verify(target, snapshots, reporting_rows)
+    legacy_fingerprint_before_completion = _legacy_fingerprint(source)
+    if legacy_fingerprint_before_completion != legacy_fingerprint:
+        raise MigrationError(
+            "legacy observations changed before migration completion; refusing "
+            "to publish the complete phase"
+        )
     _mark_complete(target, verification, phase_hook)
     verification["operational_evidence"] = _operational_evidence(target)
 
@@ -1649,10 +1769,12 @@ def run_migration(
         "application_revision": _revision(),
         "source": {
             "path": str(source),
+            "schema_version": source_schema_version,
             "sha256_before": source_hash_before,
             "sha256_after": source_hash_after,
             "hash_unchanged": source_hash_before == source_hash_after,
             "legacy_fingerprint": legacy_fingerprint,
+            "legacy_fingerprint_after": _legacy_fingerprint(source),
             "bytes": source.stat().st_size,
             "snapshot_count": len(snapshots),
             "freshness": freshness,
@@ -1667,6 +1789,19 @@ def run_migration(
         "verification": verification,
         "raw_evidence": raw_evidence,
     }
+    legacy_fingerprint_after = str(report["source"]["legacy_fingerprint_after"])
+    legacy_data_unchanged = legacy_fingerprint_after == legacy_fingerprint
+    verification["legacy_fingerprint_before"] = legacy_fingerprint
+    verification["legacy_fingerprint_after"] = legacy_fingerprint_after
+    verification["legacy_observations_unchanged"] = legacy_data_unchanged
+    operational = _operational_evidence(target)
+    verification["operational_evidence"] = operational
+    verification["step3_gates"] = _step3_gates(
+        verification,
+        operational,
+        raw_evidence,
+        legacy_data_unchanged=legacy_data_unchanged,
+    )
     if request.dry_run and not report["source"]["hash_unchanged"]:
         raise MigrationError("dry run changed the source database")
     _write_report(request.report_path, report)

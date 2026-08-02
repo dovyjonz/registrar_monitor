@@ -13,6 +13,11 @@ the checkpoint/event model with the version 1 tables retained and dual-written
 for one compatibility release. The per-semester rollout mode and metadata mode
 are controlled in `settings.toml`.
 
+Migration also accepts an unmarked legacy database with `PRAGMA user_version = 0`
+when its normalized legacy tables have the expected columns. It validates that
+shape before creating a v2 candidate or applying any change; unrelated or
+malformed version-zero SQLite files are rejected.
+
 ## Overview
 
 All enrollment data is stored in SQLite databases (one per semester, e.g., `data/enrollment_summer_2026.db`). The database provides normalized storage with better data integrity, querying, and performance compared to flat files.

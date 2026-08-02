@@ -670,6 +670,11 @@ class DatabaseCommands:
                     f"{metadata_mode!r} != "
                     f"{semester_config.get('metadata_mode')!r}"
                 )
+            if semester_config.get("mode") != "legacy":
+                raise ValueError(
+                    "schema migration requires the semester's approved mode "
+                    "to remain legacy"
+                )
             config = get_config()
             data_dir = Path(config["directories"]["data_storage"])
             if completed_predecessor_dir is not None and not dry_run:
@@ -806,6 +811,11 @@ class DatabaseCommands:
                     "requested metadata mode disagrees with settings.toml: "
                     f"{metadata_mode!r} != "
                     f"{semester_config.get('metadata_mode')!r}"
+                )
+            if semester_config.get("mode") != "legacy":
+                raise ValueError(
+                    "migration rehearsal requires the semester's approved "
+                    "mode to remain legacy"
                 )
             config = get_config()
             data_dir = Path(config["directories"]["data_storage"])

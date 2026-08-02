@@ -1,16 +1,16 @@
 # Checkpointed-state production evidence ledger
 
-Updated 2026-08-01. This ledger records evidence state; it does not authorize a
+Updated 2026-08-02. This ledger records evidence state; it does not authorize a
 migration, storage-mode change, deployment, finalization, or service activation.
 Monitoring must remain stopped.
 
 | Semester | Mode | Dry run | Backup | Apply | Shadow | v2 reads | Static pointer | Rollback readiness |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Summer 2025 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Isolated pointer/browser passed; not deployed | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Spring 2025 | legacy-preserving | Local candidate and 16/16 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Fall 2025 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Spring 2026 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Summer 2026 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target source preflight blocked at user_version=0 | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Summer 2025 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Isolated pointer/browser passed; not deployed | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Spring 2025 | legacy-preserving | Local candidate and 16/16 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Fall 2025 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Spring 2026 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Summer 2026 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
 
 ## Repository evidence
 
@@ -71,12 +71,13 @@ explicit-authorization guard, which remain uncommitted in the workspace. The
 target runtime user cannot read `.env` (`0600 spook:spook`); no secret contents
 were read or changed. Aggregate target raw-corpus inventory is 3,260 files,
 3,260 XLS/XLSX files, and 1,057,168,900 bytes. The five target source
-databases are integrity-clean with zero foreign keys, but all report
-`user_version=0` (the migration runner requires source schema v1), with target
-snapshot counts `0/254/497/495/1970` in migration order. The Summer 2025 target
-dry run therefore stopped at `unsupported source schema version 0` before a
-candidate or live write; the same source-version preflight blocks the other
-four targets.
+databases are integrity-clean with zero foreign keys, and all report
+`user_version=0`; the current workspace runner accepts that value when the
+normalized legacy table shape is present. Target snapshot counts remain
+`0/254/497/495/1970` in migration order. The earlier Summer 2025 target dry run
+used the older deployed runner and stopped at `unsupported source schema version
+0` before a candidate or live write; rerun all five target-host dry runs after
+the approved revision is synchronized.
 
 The disposable target prototype evaluator was staged only under `/tmp`. Its
 first run exposed and the workspace now fixes a read-only harness
