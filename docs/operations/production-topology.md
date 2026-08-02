@@ -51,7 +51,7 @@ installation do not authorize activation.
 | Environment file | `/home/dmitry_s_ivanenko/registrar_monitor/.env` |
 | Migration evidence directory | `/home/dmitry_s_ivanenko/registrar_monitor/output/migration/` |
 | Last inspected target revision | prefix `aa9334e8` |
-| Current reconciled checkout | clean `main`/`origin/main` at `73983f89`; colocated Jujutsu active working copy |
+| Current reconciled checkout | clean `main`/`origin/main` at `6a25c7c4`; colocated Jujutsu active working copy |
 
 The target checkout used for the Step 3 apply, Step 4 mode transitions, and
 Step 5 finalizations is based on the approved revision
@@ -97,7 +97,7 @@ minimal group traversal/read ACL needed for the operator to run the shared
 toolchain.
 
 The checkout is now a colocated Jujutsu repository. The active working copy is
-clean at `73983f89` (`main` and `origin/main`), with an empty sibling change
+clean on `main`/`origin/main` at `6a25c7c4`, with an empty working-copy child
 for ongoing work. The stale VM patch is recoverable as local, untracked
 bookmark `vm-pre-reconciliation-2026-08-02` (Jujutsu change `d65d29af`), and
 the secret-free binary record is retained at
