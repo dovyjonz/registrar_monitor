@@ -57,6 +57,46 @@ New databases set SQLite `user_version` to the application's
 `EXPECTED_SCHEMA_VERSION`. The diagnostic is read-only and does not migrate a
 database.
 
+### VM shared toolbox and permissions
+
+On `instance-20260501-152532`, the supported shared operator/runtime model uses
+the `registrarmonitor` group for `spook` and `dmitry_s_ivanenko`. The checkout,
+colocated `.git`/`.jj`, and `.venv` are operator-owned and group-writable; the
+runtime data, logs, downloads, reports, generated public output, and maintenance
+output are runtime-owned and group-writable. Setgid directories and default
+ACLs preserve that access for newly created files. The project root is
+traverse-only to the group, and `.env` remains `dmitry_s_ivanenko:dmitry_s_ivanenko`
+mode `0600` with no shared ACL.
+
+The VM toolbox contains only the requested Debian packages: `make`, `ripgrep`,
+`jq`, `sqlite3`, `gh`, `acl`, `git`, `curl`, and `ca-certificates`. The existing
+root-owned `/usr/local/bin/jj` is the verified official `v0.43.0` binary and was
+retained (binary SHA-256
+`7dfff2e4416e75e5ab20eaf741d60100f43be5a9b4d18c1347364e28a765edbe`). The
+checkout's stale 19-path patch is archived under
+`output/maintenance/vm-working-tree.patch` (SHA-256
+`9c7040b7e2dacd17afd46cd898781b30f1edd8eb667654bf6c2e7d84135d23e6`) as
+Jujutsu change `d65d29af` / local bookmark
+`vm-pre-reconciliation-2026-08-02`; the active working copy is clean at
+`main`/`73983f89`.
+
+For the repaired host, run the runtime diagnostic as `dmitry_s_ivanenko` and
+run the operator gate with a raised file-descriptor limit while keeping dotenv
+disabled so the operator never needs `.env` access:
+
+```bash
+sudo -u dmitry_s_ivanenko -H \
+  /home/dmitry_s_ivanenko/registrar_monitor/scripts/runtime_doctor.sh
+
+sudo -u spook -H prlimit --nofile=65536:65536 -- \
+  env PYTHON_DOTENV_DISABLED=1 \
+  make -C /home/dmitry_s_ivanenko/registrar_monitor check-fast
+```
+
+The 2026-08-02 verification returned 22 doctor passes, 7 informational
+warnings, 0 failures, and `748 passed` in `make check-fast`; monitoring stayed
+paused throughout.
+
 ## Baselines and benchmarks
 
 `make baseline` writes `output/tooling-baseline.json`. It records platform and

@@ -1045,6 +1045,73 @@ header p {
     font-size: 0.68rem;
 }
 
+.historical-comparison-controls {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    flex: 1 1 100%;
+}
+
+.historical-comparison-toggle {
+    min-height: 38px;
+    padding: 5px 12px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    border-radius: calc(var(--radius) - 2px);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.72rem;
+    text-align: left;
+    transition: border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.historical-comparison-toggle:hover:not(:disabled) {
+    border-color: hsl(var(--ring));
+    color: hsl(var(--ring));
+}
+
+.historical-comparison-toggle:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
+}
+
+.historical-comparison-toggle[aria-pressed="true"] {
+    border-color: hsl(var(--ring));
+    background: hsl(var(--ring) / 0.12);
+    color: hsl(var(--ring));
+}
+
+.historical-comparison-toggle:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.historical-comparison-status {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.68rem;
+}
+
+.historical-comparison-controls[data-state="loading"] .historical-comparison-status {
+    color: hsl(var(--ring));
+}
+
+.historical-comparison-controls[data-state="failed"] .historical-comparison-status,
+.historical-comparison-controls[data-state="unavailable"] .historical-comparison-status {
+    color: hsl(var(--muted-foreground));
+}
+
+.historical-legend-line {
+    width: 18px;
+    height: 0;
+    border-top: 2px dashed hsl(var(--muted-foreground) / 0.65);
+}
+
+.historical-legend-item {
+    color: hsl(var(--muted-foreground));
+}
+
 /* ============================================
    Collapsible Event History
    ============================================ */

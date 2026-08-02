@@ -114,6 +114,13 @@
                             <button type="button" class="chart-zoom-btn" id="chartZoomReset" disabled title="Reset chart zoom">Reset zoom</button>
                             <span class="chart-zoom-status" id="chartZoomStatus" aria-live="polite"></span>
                         </div>
+                        <div class="historical-comparison-controls" id="historicalComparisonControls" hidden data-state="hidden">
+                            <button type="button" class="historical-comparison-toggle" id="historicalComparisonToggle"
+                                aria-pressed="false" aria-label="Show an earlier semester comparison" disabled>
+                                Compare earlier semester
+                            </button>
+                            <span class="historical-comparison-status" id="historicalComparisonStatus" role="status" aria-live="polite"></span>
+                        </div>
                     </div>
                     <div class="chart-wrapper">
                         <div class="chart-placeholder" id="chartPlaceholder">
@@ -125,6 +132,10 @@
                         <div class="chart-legend-item">
                             <div class="chart-legend-dot capacity-changed"></div>
                             <span>Capacity changed</span>
+                        </div>
+                        <div class="chart-legend-item historical-legend-item" id="historicalLegendItem" hidden>
+                            <span class="historical-legend-line" aria-hidden="true"></span>
+                            <span id="historicalLegendLabel">Earlier semester</span>
                         </div>
                     </div>
                 </div>

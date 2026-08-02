@@ -2,6 +2,19 @@
  * Pure helpers for course modal chart point construction and x-axis mapping.
  */
 
+export {
+    buildInstructorAssignmentTimeline,
+    buildProfessorAverageChartPoints,
+    buildProfessorChartPoints,
+    buildSectionActivityTimeline,
+    courseHasProfessor,
+    getInstructorAtSnapshot,
+    normalizeHistoricalChartDomain,
+    normalizeHistoricalDomain,
+    normalizeInstructorName,
+    normalizeProfessorIdentity,
+} from './historicalComparison.mjs';
+
 export function getSortedUniqueNumbers(values) {
     return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);
 }

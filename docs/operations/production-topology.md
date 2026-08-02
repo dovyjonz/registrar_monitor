@@ -51,6 +51,7 @@ installation do not authorize activation.
 | Environment file | `/home/dmitry_s_ivanenko/registrar_monitor/.env` |
 | Migration evidence directory | `/home/dmitry_s_ivanenko/registrar_monitor/output/migration/` |
 | Last inspected target revision | prefix `aa9334e8` |
+| Current reconciled checkout | clean `main`/`origin/main` at `73983f89`; colocated Jujutsu active working copy |
 
 The target checkout used for the Step 3 apply, Step 4 mode transitions, and
 Step 5 finalizations is based on the approved revision
@@ -69,6 +70,53 @@ existing evaluator was attempted once against the full raw corpus and once
 against the single controlled file, but both runs exceeded the requested
 bounded test window and were stopped; no evaluator report is treated as
 production evidence.
+
+## Shared runtime permissions and checkout state
+
+The 2026-08-02 VM maintenance repaired the two-account operator/runtime model
+without changing application configuration, runtime data, or service state.
+The `registrarmonitor` group contains both `spook` and
+`dmitry_s_ivanenko`, and new SSH sessions receive that membership.
+
+| Path or scope | Verified ownership and access model |
+|---|---|
+| Runtime home and shell state | `dmitry_s_ivanenko` owns the home, `.cache`, `.config`, `.local`, `.npm`, and `.ssh`; private SSH state remains runtime-only. |
+| Checkout, `.git`, `.jj`, `.venv` | `spook:registrarmonitor`, setgid and group-writable; shared source trees carry default ACLs for future files. |
+| Runtime/generated paths | `data`, `logs`, downloads, change reports, generated public output, and `output` are `dmitry_s_ivanenko:registrarmonitor`, setgid and group-writable with default ACLs. |
+| Checkout root | `spook:registrarmonitor` with group traverse-only access, preserving the `.env` boundary while allowing shared paths below it. |
+| `.env` | `dmitry_s_ivanenko:dmitry_s_ivanenko`, mode `0600`, with no shared ACL. The operator cannot read it. |
+
+The targeted Debian toolbox is present (`make`, `ripgrep`, `jq`, `sqlite3`,
+`gh`, `acl`, `git`, `curl`, and `ca-certificates`); no general OS upgrade was
+performed. The existing root-owned `/usr/local/bin/jj` was verified as
+Jujutsu `v0.43.0` and retained; its SHA-256 is
+`7dfff2e4416e75e5ab20eaf741d60100f43be5a9b4d18c1347364e28a765edbe`, matching
+the official [v0.43.0 release](https://github.com/jj-vcs/jj/releases/tag/v0.43.0)
+Linux artifact. The pinned `uv` launcher remains runtime-owned with only the
+minimal group traversal/read ACL needed for the operator to run the shared
+toolchain.
+
+The checkout is now a colocated Jujutsu repository. The active working copy is
+clean at `73983f89` (`main` and `origin/main`), with an empty sibling change
+for ongoing work. The stale VM patch is recoverable as local, untracked
+bookmark `vm-pre-reconciliation-2026-08-02` (Jujutsu change `d65d29af`), and
+the secret-free binary record is retained at
+`/home/dmitry_s_ivanenko/registrar_monitor/output/maintenance/`:
+
+- `vm-working-tree.patch` — SHA-256
+  `9c7040b7e2dacd17afd46cd898781b30f1edd8eb667654bf6c2e7d84135d23e6`;
+- `prechange-record.txt` — identities, revision, status, and diff summary;
+  pre-change service/ownership metadata supplement; SHA-256
+  `1c6f67de1b537ccabe5f3cb2c1057aef277f9e8d831c2cc53660815aab54c189`;
+- `postchange-record.txt` — final identities, ownership/ACL metadata, and
+  service/checkout verification (no secrets or runtime contents); SHA-256
+  `5fbd4c7acc1347f22431cf18f565e6317bf3c94f8442e049a3305e1279f3db32`.
+- the Jujutsu-rendered archive diff is byte-identical to the saved patch and
+  contains all 19 original modified paths.
+
+No fetch, push, rebase, deployment, service activation, or database operation
+was performed. `registrarmonitor.service` remains disabled and inactive/failed,
+and no monitor workflow process is running; monitoring is still paused.
 
 ## Process supervision
 
@@ -249,8 +297,10 @@ URI mode (`mode=ro`) and verify cloud backups through bounded inventory queries.
 - The post-check confirmed `registrarmonitor.service` remains disabled and
   failed/inactive, the obsolete unit remains absent, `cron.service` remains
   active, and no Registrar Monitor workflow process is running.
-- The canonical unit, cron configuration, databases, checkout, environment file,
-  and application processes were not modified.
+- The 2026-08-02 permissions/tooling repair did not modify the canonical unit,
+  cron configuration, databases, runtime data, environment file, or application
+  processes; it intentionally reconciled only the checkout permissions and
+  stale tracked patch described above.
 - SSH access caused gcloud to update project SSH metadata for the operator
   account; no application runtime state was changed by that access setup.
 - Re-run the bounded checks before future operational decisions.

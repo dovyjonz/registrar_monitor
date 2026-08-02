@@ -6,9 +6,13 @@ import './style.css';
 import {
     buildAverageChartPoints,
     buildCourseChartDomain,
+    buildProfessorAverageChartPoints,
     buildSectionChartPoints,
+    courseHasProfessor,
     getChartMapper,
     getXScaleBounds,
+    normalizeHistoricalDomain,
+    normalizeInstructorName,
 } from './chartMapping.mjs';
 import {
     courseToSlug,
@@ -79,6 +83,21 @@ window.addEventListener('pagehide', () => dataLoadController.abort(), { once: tr
 
 // Cache for last render args so toggle can re-render
 let lastRenderArgs = null;
+
+// Historical comparison state is page-session scoped. Promises are cached so
+// toggling, changing chart modes, and reopening a course never repeat a
+// verified manifest or department request.
+let historicalComparisonEnabled = false;
+let historicalComparisonStatus = 'hidden';
+let historicalComparisonMode = 'course';
+let historicalComparisonDescriptor = null;
+let historicalComparisonData = null;
+let comparisonRequestVersion = 0;
+const historicalSemesterManifests = new Map();
+const historicalSemesterSummaries = new Map();
+const historicalDepartmentPayloads = new Map();
+const resolvedCourseComparisons = new Map();
+const resolvedProfessorComparisons = new Map();
 
 // The generated semester page receives its v3 summary through the manifest
 // pointer in the body data attribute. Combined prototype pages may still
@@ -182,6 +201,488 @@ function getMilestones() {
         return COMBINED_DATA.md[activeSemester] || [];
     }
     return MILESTONES;
+}
+
+function getCurrentSemesterLabel() {
+    return staticManifest?.semester
+        || getData()?.semester
+        || getData()?.sem
+        || (IS_COMBINED ? activeSemester : '');
+}
+
+function getHistoricalSemesterCandidates() {
+    if (IS_COMBINED || !staticManifest) return [];
+    const currentSemester = getCurrentSemesterLabel();
+    const links = [...document.querySelectorAll('.semester-nav-link')];
+    const currentIndex = links.findIndex(link => (
+        link.classList.contains('active')
+        || link.textContent.trim() === currentSemester
+    ));
+    const earlierLinks = currentIndex >= 0 ? links.slice(currentIndex + 1) : links;
+    return earlierLinks
+        .map(link => link.textContent.trim())
+        .filter(semester => semester && semester !== currentSemester)
+        .map(semester => ({ semester, slug: semesterToSlug(semester) }));
+}
+
+function getHistoricalSnapshots(course, payload) {
+    if (Array.isArray(course?.sn) && course.sn.length > 0) return course.sn;
+    return (payload?.timestamps || []).map(ts => ({ ts }));
+}
+
+function loadHistoricalSemester(candidate) {
+    if (historicalSemesterManifests.has(candidate.semester)) {
+        return historicalSemesterManifests.get(candidate.semester);
+    }
+
+    const request = Promise.resolve().then(async () => {
+        const pointerUrl = new URL(
+            `data/${candidate.slug}/manifest.json`,
+            window.location.href,
+        ).href;
+        const loaded = await loadSemesterManifest(pointerUrl, {
+            signal: dataLoadController.signal,
+        });
+        historicalSemesterSummaries.set(candidate.semester, loaded.payload);
+        return {
+            ...candidate,
+            ...loaded,
+        };
+    });
+    historicalSemesterManifests.set(candidate.semester, request);
+    request.catch(() => {
+        historicalSemesterManifests.delete(candidate.semester);
+        historicalSemesterSummaries.delete(candidate.semester);
+    });
+    return request;
+}
+
+function loadHistoricalDepartmentPayload(candidate, department) {
+    const semesterCache = historicalDepartmentPayloads.get(candidate.semester) || new Map();
+    historicalDepartmentPayloads.set(candidate.semester, semesterCache);
+    if (!semesterCache.has(department)) {
+        const request = loadDepartmentPayload(
+            department,
+            candidate.manifest,
+            candidate.manifestUrl,
+            semesterCache,
+            { signal: dataLoadController.signal },
+        );
+        semesterCache.set(department, request);
+        request.catch(() => semesterCache.delete(department));
+    }
+    return semesterCache.get(department);
+}
+
+async function findEarlierCourseCandidate(courseCode) {
+    let lastError = null;
+    let sawCandidate = false;
+    for (const candidate of getHistoricalSemesterCandidates()) {
+        try {
+            const loaded = await loadHistoricalSemester(candidate);
+            const summaryCourse = loaded.payload?.data?.cr?.[courseCode];
+            if (summaryCourse) {
+                sawCandidate = true;
+                return { ...loaded, summaryCourse };
+            }
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    return { candidate: null, error: lastError, sawCandidate };
+}
+
+async function findEarlierProfessorCandidate(courseCode, professorIdentity) {
+    let lastError = null;
+    let courseFound = false;
+    for (const candidate of getHistoricalSemesterCandidates()) {
+        let loaded;
+        try {
+            loaded = await loadHistoricalSemester(candidate);
+        } catch (error) {
+            lastError = error;
+            continue;
+        }
+
+        const summaryCourse = loaded.payload?.data?.cr?.[courseCode];
+        if (!summaryCourse) continue;
+        courseFound = true;
+
+        try {
+            const department = getCourseDepartment(summaryCourse, courseCode);
+            const payload = await loadHistoricalDepartmentPayload(loaded, department);
+            const course = payload?.courses?.[courseCode];
+            if (!course) continue;
+            const snapshots = getHistoricalSnapshots(course, payload);
+            if (courseHasProfessor(course, professorIdentity, snapshots)) {
+                return {
+                    ...loaded,
+                    historicalPayload: payload,
+                    historicalCourse: course,
+                    summaryCourse,
+                };
+            }
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    return { candidate: null, error: lastError, courseFound };
+}
+
+function displayInstructorName(value) {
+    if (typeof value !== 'string') return '';
+    return value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+}
+
+function getHistoricalComparisonLabel(descriptor, action = 'Show') {
+    if (!descriptor) return `${action} an earlier semester comparison`;
+    if (descriptor.mode === 'professor') {
+        return `${action} ${descriptor.semester} · ${descriptor.professorDisplayName}`;
+    }
+    return `${action} ${descriptor.semester} course aggregate`;
+}
+
+function updateHistoricalLegend() {
+    const legend = document.getElementById('chartLegend');
+    const historicalLegend = document.getElementById('historicalLegendItem');
+    const historicalLabel = document.getElementById('historicalLegendLabel');
+    const capacityVisible = currentEnrollmentData.some(point => point.capacityChanged);
+    const historicalVisible = historicalComparisonEnabled && historicalComparisonData;
+    if (historicalLegend) {
+        historicalLegend.hidden = !historicalVisible;
+        if (historicalVisible && historicalLabel) {
+            historicalLabel.textContent = historicalComparisonData.mode === 'professor'
+                ? `${historicalComparisonData.semester} · ${historicalComparisonData.professorDisplayName}`
+                : `${historicalComparisonData.semester} course aggregate`;
+        }
+    }
+    legend?.classList.toggle('visible', capacityVisible || Boolean(historicalVisible));
+}
+
+function setHistoricalComparisonState(status, descriptor = historicalComparisonDescriptor) {
+    historicalComparisonStatus = status;
+    historicalComparisonDescriptor = descriptor;
+    const controls = document.getElementById('historicalComparisonControls');
+    const toggle = document.getElementById('historicalComparisonToggle');
+    const statusEl = document.getElementById('historicalComparisonStatus');
+    if (!controls || !toggle || !statusEl) return;
+
+    controls.dataset.state = status;
+    if (status === 'hidden') {
+        controls.hidden = true;
+        toggle.disabled = true;
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.setAttribute('aria-label', 'Show an earlier semester comparison');
+        toggle.textContent = 'Compare earlier semester';
+        statusEl.textContent = '';
+        return;
+    }
+
+    controls.hidden = false;
+    if (status === 'loading') {
+        toggle.disabled = true;
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.setAttribute('aria-label', 'Historical comparison is loading');
+        toggle.textContent = 'Loading earlier comparison…';
+        statusEl.textContent = 'Finding the most recent qualifying semester…';
+        return;
+    }
+
+    if (status === 'idle') {
+        controls.hidden = false;
+        toggle.disabled = false;
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.setAttribute('aria-label', 'Find an earlier semester comparison');
+        toggle.textContent = 'Compare earlier semester';
+        statusEl.textContent = 'Not loaded';
+        return;
+    }
+
+    if (status === 'unavailable') {
+        toggle.disabled = true;
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.setAttribute('aria-label', 'No qualifying earlier comparison is available');
+        toggle.textContent = 'Earlier comparison unavailable';
+        statusEl.textContent = descriptor?.mode === 'professor'
+            ? 'This professor was not found in an earlier offering.'
+            : 'No earlier offering of this course was found.';
+        return;
+    }
+
+    if (status === 'failed') {
+        toggle.disabled = false;
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.setAttribute('aria-label', getHistoricalComparisonLabel(descriptor, 'Retry'));
+        toggle.textContent = 'Retry earlier comparison';
+        statusEl.textContent = 'Historical data could not be loaded or validated.';
+        return;
+    }
+
+    const enabled = status === 'enabled';
+    toggle.disabled = false;
+    toggle.setAttribute('aria-pressed', String(enabled));
+    toggle.setAttribute(
+        'aria-label',
+        getHistoricalComparisonLabel(descriptor, enabled ? 'Hide' : 'Show'),
+    );
+    toggle.textContent = getHistoricalComparisonLabel(descriptor, enabled ? 'Hide' : 'Show');
+    statusEl.textContent = enabled ? 'Showing' : 'Available';
+}
+
+function resetHistoricalComparisonState() {
+    comparisonRequestVersion += 1;
+    historicalComparisonEnabled = false;
+    historicalComparisonStatus = 'hidden';
+    historicalComparisonMode = 'course';
+    historicalComparisonDescriptor = null;
+    historicalComparisonData = null;
+    setHistoricalComparisonState('hidden', null);
+    updateHistoricalLegend();
+}
+
+function initializeHistoricalComparisonControl(course) {
+    if (IS_COMBINED || !staticManifest) {
+        setHistoricalComparisonState('hidden', null);
+        return;
+    }
+    const mode = selectedSection ? 'professor' : 'course';
+    historicalComparisonMode = mode;
+    if (mode === 'professor') {
+        const section = getCourseSections(course)[selectedSection];
+        const professorIdentity = normalizeInstructorName(section?.instructor ?? section?.in);
+        const professorDisplayName = displayInstructorName(section?.instructor ?? section?.in);
+        const descriptor = {
+            mode,
+            professorIdentity,
+            professorDisplayName: professorDisplayName || 'selected professor',
+        };
+        if (!professorIdentity) {
+            setHistoricalComparisonState('unavailable', descriptor);
+        } else {
+            setHistoricalComparisonState('idle', descriptor);
+        }
+        return;
+    }
+    setHistoricalComparisonState('idle', { mode: 'course' });
+}
+
+function hasHistoricalCandidateCache(courseCode) {
+    const identity = historicalComparisonDescriptor?.professorIdentity;
+    if (selectedSection && identity) {
+        return resolvedProfessorComparisons.has(
+            `${getCurrentSemesterLabel()}|${courseCode}|${identity}`,
+        );
+    }
+    return resolvedCourseComparisons.has(`${getCurrentSemesterLabel()}|${courseCode}`);
+}
+
+function isCurrentComparisonRequest(courseCode, requestVersion, token) {
+    return selectedCourse === courseCode
+        && requestVersion === courseRequestVersion
+        && token === comparisonRequestVersion;
+}
+
+async function resolveProfessorAvailability(courseCode, course, requestVersion, token) {
+    const section = getCourseSections(course)[selectedSection];
+    const professorIdentity = normalizeInstructorName(section?.instructor ?? section?.in);
+    const professorDisplayName = displayInstructorName(section?.instructor ?? section?.in);
+    const descriptorBase = {
+        mode: 'professor',
+        professorIdentity,
+        professorDisplayName: professorDisplayName || 'selected professor',
+    };
+    if (!professorIdentity) {
+        setHistoricalComparisonState('unavailable', descriptorBase);
+        updateHistoricalLegend();
+        return;
+    }
+    setHistoricalComparisonState('loading', descriptorBase);
+    const cacheKey = `${getCurrentSemesterLabel()}|${courseCode}|${professorIdentity}`;
+    if (!resolvedProfessorComparisons.has(cacheKey)) {
+        const request = findEarlierProfessorCandidate(courseCode, professorIdentity);
+        resolvedProfessorComparisons.set(cacheKey, request);
+        request.catch(() => resolvedProfessorComparisons.delete(cacheKey));
+    }
+    try {
+        const result = await resolvedProfessorComparisons.get(cacheKey);
+        if (!isCurrentComparisonRequest(courseCode, requestVersion, token)) return;
+        if (result?.candidate === null) {
+            const unavailable = result.courseFound === true;
+            if (result.error) resolvedProfessorComparisons.delete(cacheKey);
+            setHistoricalComparisonState(
+                result.error ? 'failed' : (unavailable ? 'unavailable' : 'hidden'),
+                unavailable || result.error ? descriptorBase : null,
+            );
+            return;
+        }
+        const descriptor = {
+            ...descriptorBase,
+            semester: result.semester,
+            candidate: result,
+        };
+        historicalComparisonDescriptor = descriptor;
+        setHistoricalComparisonState('available', descriptor);
+    } catch {
+        if (isCurrentComparisonRequest(courseCode, requestVersion, token)) {
+            setHistoricalComparisonState('failed', descriptorBase);
+        }
+    }
+}
+
+async function resolveCourseAvailability(courseCode, requestVersion, token) {
+    setHistoricalComparisonState('loading', { mode: 'course' });
+    const cacheKey = `${getCurrentSemesterLabel()}|${courseCode}`;
+    if (!resolvedCourseComparisons.has(cacheKey)) {
+        const request = findEarlierCourseCandidate(courseCode);
+        resolvedCourseComparisons.set(cacheKey, request);
+        request.catch(() => resolvedCourseComparisons.delete(cacheKey));
+    }
+    try {
+        const result = await resolvedCourseComparisons.get(cacheKey);
+        if (!isCurrentComparisonRequest(courseCode, requestVersion, token)) return;
+        if (result?.candidate === null) {
+            if (result.error) resolvedCourseComparisons.delete(cacheKey);
+            setHistoricalComparisonState(
+                result.error ? 'failed' : 'hidden',
+                result.error ? { mode: 'course' } : null,
+            );
+            return;
+        }
+        const descriptor = {
+            mode: 'course',
+            semester: result.semester,
+            candidate: result,
+        };
+        historicalComparisonDescriptor = descriptor;
+        setHistoricalComparisonState('available', descriptor);
+    } catch {
+        if (isCurrentComparisonRequest(courseCode, requestVersion, token)) {
+            setHistoricalComparisonState('failed', { mode: 'course' });
+        }
+    }
+}
+
+async function resolveHistoricalAvailability(courseCode, course, requestVersion) {
+    if (requestVersion !== courseRequestVersion || selectedCourse !== courseCode) return;
+    const token = ++comparisonRequestVersion;
+    historicalComparisonEnabled = false;
+    historicalComparisonData = null;
+    historicalComparisonMode = selectedSection ? 'professor' : 'course';
+
+    if (IS_COMBINED || !staticManifest) {
+        setHistoricalComparisonState('hidden', null);
+        updateHistoricalLegend();
+        return;
+    }
+    if (historicalComparisonMode === 'professor') {
+        await resolveProfessorAvailability(courseCode, course, requestVersion, token);
+    } else {
+        await resolveCourseAvailability(courseCode, requestVersion, token);
+    }
+}
+
+async function buildHistoricalComparisonData(descriptor, courseCode = selectedCourse) {
+    const candidate = descriptor?.candidate;
+    if (!candidate) throw new Error('Historical comparison candidate is missing');
+
+    let course = candidate.historicalCourse;
+    let payload = candidate.historicalPayload;
+    if (!course) {
+        const department = getCourseDepartment(candidate.summaryCourse, courseCode);
+        payload = await loadHistoricalDepartmentPayload(candidate, department);
+        course = payload?.courses?.[courseCode];
+    }
+    if (!course) throw new Error(`Missing historical department data for ${courseCode}`);
+
+    const snapshots = getHistoricalSnapshots(course, payload);
+    const chartPoints = descriptor.mode === 'professor'
+        ? buildProfessorAverageChartPoints(
+            course,
+            descriptor.professorIdentity,
+            snapshots,
+        )
+        : buildAverageChartPoints(course, snapshots);
+    if (chartPoints.length === 0) {
+        throw new Error('Historical comparison has no usable enrollment history');
+    }
+    return {
+        mode: descriptor.mode,
+        semester: candidate.semester,
+        professorDisplayName: descriptor.professorDisplayName,
+        chartPoints,
+        chartDomain: buildCourseChartDomain(course, snapshots),
+        milestones: candidate.payload?.milestones || [],
+        contributingSectionCounts: chartPoints.map(point => point.contributingSections ?? null),
+    };
+}
+
+async function enableHistoricalComparison() {
+    if (!selectedCourse || !historicalComparisonDescriptor) return;
+    const requestVersion = courseRequestVersion;
+    const token = comparisonRequestVersion;
+    if (historicalComparisonEnabled) {
+        historicalComparisonEnabled = false;
+        setHistoricalComparisonState('available', historicalComparisonDescriptor);
+        updateHistoricalLegend();
+        if (lastRenderArgs) {
+            const args = lastRenderArgs;
+            await renderChart(
+                args.chartLabel,
+                args.chartPoints,
+                args.chartDomain,
+                args.showCapacityMarkers,
+                { requestVersion: args.requestVersion },
+            );
+        }
+        return;
+    }
+
+    setHistoricalComparisonState('loading', historicalComparisonDescriptor);
+    try {
+        if (!historicalComparisonData) {
+            historicalComparisonData = await buildHistoricalComparisonData(
+                historicalComparisonDescriptor,
+                selectedCourse,
+            );
+        }
+        if (!isCurrentComparisonRequest(selectedCourse, requestVersion, token)) return;
+        historicalComparisonEnabled = true;
+        setHistoricalComparisonState('enabled', historicalComparisonDescriptor);
+        updateHistoricalLegend();
+        if (lastRenderArgs) {
+            const args = lastRenderArgs;
+            await renderChart(
+                args.chartLabel,
+                args.chartPoints,
+                args.chartDomain,
+                args.showCapacityMarkers,
+                {
+                    requestVersion: args.requestVersion,
+                    historicalComparison: historicalComparisonData,
+                },
+            );
+        }
+    } catch (error) {
+        if (!isCurrentComparisonRequest(selectedCourse, requestVersion, token)) return;
+        historicalComparisonEnabled = false;
+        setHistoricalComparisonState('failed', historicalComparisonDescriptor);
+        updateHistoricalLegend();
+        console.error('Failed to load historical comparison:', error);
+        if (lastRenderArgs) {
+            const args = lastRenderArgs;
+            try {
+                await renderChart(
+                    args.chartLabel,
+                    args.chartPoints,
+                    args.chartDomain,
+                    args.showCapacityMarkers,
+                    { requestVersion: args.requestVersion },
+                );
+            } catch (fallbackError) {
+                console.error('Failed to restore current enrollment chart:', fallbackError);
+            }
+        }
+    }
 }
 
 /**
@@ -495,6 +996,8 @@ function resetCourseDetailView() {
     currentEnrollmentData = [];
     lastRenderArgs = null;
     document.getElementById('chartLegend')?.classList.remove('visible');
+    const historicalLegend = document.getElementById('historicalLegendItem');
+    if (historicalLegend) historicalLegend.hidden = true;
     const placeholder = document.getElementById('chartPlaceholder');
     if (placeholder) placeholder.style.display = '';
     document.getElementById('enrollment-chart')?.classList.add('chart-hidden');
@@ -598,6 +1101,8 @@ function openCourseModal(courseCode, summaryCourse) {
 
     selectedCourse = courseCode;
     selectedSection = null;
+    resetHistoricalComparisonState();
+    initializeHistoricalComparisonControl(summaryCourse);
     const title = getCourseTitle(summaryCourse);
     document.getElementById('modalTitle').textContent = `${courseCode}${title ? ` - ${title}` : ''}`;
     updateModalBookmark(courseCode);
@@ -706,6 +1211,9 @@ function renderCourseDetails(courseCode, course, requestVersion) {
             .then(() => {
                 if (requestVersion === courseRequestVersion && selectedCourse === courseCode) {
                     markPerformance('registrar:course-rendered');
+                    if (hasHistoricalCandidateCache(courseCode)) {
+                        void resolveHistoricalAvailability(courseCode, course, requestVersion);
+                    }
                 }
             })
             .catch(error => {
@@ -1025,7 +1533,7 @@ async function showAverageFillChart(
 
     const hasCapacityChanges = chartPoints.some(point => point.capacityChanged);
     document.getElementById('chartLegend').classList.toggle('visible', hasCapacityChanges);
-    await renderChart(courseCode, chartPoints, chartDomain, true, requestVersion);
+    await renderChart(courseCode, chartPoints, chartDomain, true, { requestVersion });
 }
 
 /**
@@ -1040,8 +1548,11 @@ async function selectSection(sectionCode) {
     if (selectedSection === sectionCode) {
         document.getElementById(`section-${sectionCode}`)?.classList.remove('selected');
         selectedSection = null;
+        resetHistoricalComparisonState();
+        initializeHistoricalComparisonControl(course);
         currentEnrollmentData = [];
         await showAverageFillChart(selectedCourse, course, requestVersion);
+        void resolveHistoricalAvailability(selectedCourse, course, requestVersion);
         return;
     }
 
@@ -1050,10 +1561,12 @@ async function selectSection(sectionCode) {
         document.getElementById(`section-${selectedSection}`)?.classList.remove('selected');
     }
     selectedSection = sectionCode;
+    resetHistoricalComparisonState();
     document.getElementById(`section-${sectionCode}`)?.classList.add('selected');
 
     const section = getCourseSections(course)[sectionCode];
     if (!section) return;
+    initializeHistoricalComparisonControl(course);
 
     const snapshots = getCourseSnapshots(course);
     const chartPoints = buildSectionChartPoints(section, snapshots);
@@ -1069,8 +1582,9 @@ async function selectSection(sectionCode) {
         chartPoints,
         chartDomain,
         true,
-        requestVersion,
+        { requestVersion },
     );
+    void resolveHistoricalAvailability(selectedCourse, course, requestVersion);
 }
 
 /**
@@ -1081,7 +1595,7 @@ async function renderChart(
     chartPoints,
     chartDomain,
     showCapacityMarkers,
-    requestVersion = null,
+    { requestVersion = null, historicalComparison = null } = {},
 ) {
     await loadChartJs();
     if (requestVersion !== null && requestVersion !== courseRequestVersion) return;
@@ -1092,6 +1606,7 @@ async function renderChart(
         chartDomain,
         showCapacityMarkers,
         requestVersion,
+        historicalComparison,
     };
 
     const milestones = getMilestones();
@@ -1101,6 +1616,29 @@ async function renderChart(
     const domainTimestamps = chartDomain.map(point => point.timestamp);
     const { xValues, domainXValues, mapTime } = getChartMapper(chartMode, chartPoints, chartDomain, milestones);
     const xBounds = getXScaleBounds(domainXValues.length > 0 ? domainXValues : xValues);
+
+    let historicalDataPoints = [];
+    let historicalMappedPoints = [];
+    if (historicalComparison?.chartPoints?.length > 0) {
+        const historicalMapper = getChartMapper(
+            chartMode,
+            historicalComparison.chartPoints,
+            historicalComparison.chartDomain,
+            historicalComparison.milestones,
+        );
+        const currentComparisonDomain = domainXValues.length > 0 ? domainXValues : xValues;
+        historicalMappedPoints = normalizeHistoricalDomain(
+            historicalMapper.xValues,
+            historicalMapper.domainXValues.length > 0
+                ? historicalMapper.domainXValues
+                : historicalMapper.xValues,
+            currentComparisonDomain,
+        );
+        historicalDataPoints = historicalComparison.chartPoints
+            .map((point, index) => ({ x: historicalMappedPoints[index], y: point.fill }))
+            .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+    }
+    const hasHistoricalDataset = historicalDataPoints.length > 0;
 
     // Labels to exclude from non-phased mode (they clutter the chart)
     const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
@@ -1153,26 +1691,55 @@ async function renderChart(
     setZoomControlsState(false);
 
     // Point styling
-    const pointStyles = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : 'circle');
-    const pointColors = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? '#4ecdc4' : '#ffd700');
-    const pointRadii = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? 7 : (labels.length > 50 ? 0 : 3));
-    const pointBorderColors = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#ffd700');
-    const pointBorderWidths = currentEnrollmentData.map(d => showCapacityMarkers && d.capacityChanged ? 2 : 1);
+    const pointStyles = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : 'circle');
+    const pointColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#4ecdc4' : '#ffd700');
+    const pointRadii = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 7 : (labels.length > 50 ? 0 : 3));
+    const pointBorderColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#ffd700');
+    const pointBorderWidths = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 2 : 1);
 
     // Build dataset with {x, y} pairs
     const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y }));
 
+    const currentDataset = {
+        label: chartLabel,
+        data: dataPoints,
+        borderColor: '#ffd700',
+        backgroundColor: 'rgba(255, 215, 0, 0.1)',
+        fill: true,
+        tension: 0,
+        stepped: 'after',
+        pointStyle: pointStyles,
+        pointRadius: pointRadii,
+        pointHoverRadius: 6,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointBorderColors,
+        pointBorderWidth: pointBorderWidths,
+        order: 1,
+    };
+    const historicalDataset = hasHistoricalDataset ? {
+        label: historicalComparison.mode === 'professor'
+            ? `${historicalComparison.semester} · ${historicalComparison.professorDisplayName}`
+            : `${historicalComparison.semester} course aggregate`,
+        data: historicalDataPoints,
+        borderColor: 'rgba(220, 224, 232, 0.58)',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0,
+        stepped: 'after',
+        borderDash: [5, 4],
+        borderWidth: 1,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointBackgroundColor: 'rgba(220, 224, 232, 0.72)',
+        pointBorderColor: 'rgba(220, 224, 232, 0.72)',
+        order: 2,
+    } : null;
+    canvas.dataset.historicalDatasets = historicalDataset ? '2' : '1';
+
     chart = new Chart(canvas, {
         type: 'line',
         data: {
-            datasets: [{
-                label: chartLabel, data: dataPoints,
-                borderColor: '#ffd700', backgroundColor: 'rgba(255, 215, 0, 0.1)',
-                fill: true, tension: 0, stepped: 'after',
-                pointStyle: pointStyles, pointRadius: pointRadii, pointHoverRadius: 6,
-                pointBackgroundColor: pointColors, pointBorderColor: pointBorderColors,
-                pointBorderWidth: pointBorderWidths,
-            }]
+            datasets: historicalDataset ? [historicalDataset, currentDataset] : [currentDataset],
         },
         options: {
             responsive: true, maintainAspectRatio: false, animation: false,
@@ -1215,10 +1782,26 @@ async function renderChart(
                     backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
                     borderColor: '#3a3a5e', borderWidth: 1,
                     callbacks: {
-                        title: (items) => { if (!items.length) return ''; return labels[items[0].dataIndex] || ''; },
+                        title: (items) => {
+                            if (!items.length) return '';
+                            const item = items[0];
+                            if (item.datasetIndex === 0 && hasHistoricalDataset) {
+                                return historicalComparison.chartPoints[item.dataIndex]?.label || '';
+                            }
+                            return labels[item.dataIndex] || '';
+                        },
                         label: (ctx) => {
+                            if (ctx.datasetIndex === 0 && hasHistoricalDataset) {
+                                const historicalPoint = historicalComparison.chartPoints[ctx.dataIndex];
+                                if (!historicalPoint) return `${ctx.parsed.y}%`;
+                                if (historicalComparison.mode === 'professor') {
+                                    return `${historicalComparison.semester} · ${historicalComparison.professorDisplayName}: `
+                                        + `${ctx.parsed.y}% average across ${historicalPoint.contributingSections} sections`;
+                                }
+                                return `${historicalComparison.semester} course aggregate: ${ctx.parsed.y}%`;
+                            }
                             const idx = ctx.dataIndex;
-                            const enrollInfo = currentEnrollmentData[idx];
+                            const enrollInfo = chartPoints[idx];
                             let lbl = `${ctx.parsed.y}%`;
                             if (enrollInfo && enrollInfo.enrollment !== null) {
                                 lbl += ` (${enrollInfo.enrollment}/${enrollInfo.capacity})`;
@@ -1256,6 +1839,7 @@ async function renderChart(
             interaction: { intersect: false, mode: 'index' }
         }
     });
+    updateHistoricalLegend();
     updateZoomControls();
 }
 
@@ -1287,6 +1871,7 @@ function closeModal() {
     selectedSection = null;
     currentEnrollmentData = [];
     lastRenderArgs = null;
+    resetHistoricalComparisonState();
     resetCourseDetailView();
     // Clear URL hash
     history.replaceState(null, '', window.location.pathname);
@@ -1745,10 +2330,31 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
                 a.chartPoints,
                 a.chartDomain,
                 a.showCapacityMarkers,
-                a.requestVersion,
+                {
+                    requestVersion: a.requestVersion,
+                    historicalComparison: a.historicalComparison,
+                },
             );
         }
     });
+});
+
+document.getElementById('historicalComparisonToggle')?.addEventListener('click', async () => {
+    if (!selectedCourse || historicalComparisonStatus === 'loading') return;
+    const course = getHydratedCourse(selectedCourse);
+    if (!course) return;
+    if (historicalComparisonStatus === 'idle') {
+        await resolveHistoricalAvailability(selectedCourse, course, courseRequestVersion);
+        if (historicalComparisonStatus === 'available') {
+            await enableHistoricalComparison();
+        }
+        return;
+    }
+    if (historicalComparisonStatus === 'failed' && !historicalComparisonDescriptor?.candidate) {
+        void resolveHistoricalAvailability(selectedCourse, course, courseRequestVersion);
+        return;
+    }
+    void enableHistoricalComparison();
 });
 
 document.getElementById('chartZoomReset')?.addEventListener('click', resetChartZoom);

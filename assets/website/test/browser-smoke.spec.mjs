@@ -15,6 +15,30 @@ function readManifestFixture() {
     return { pointer, manifest };
 }
 
+function readSemesterManifestFixture(semesterSlug) {
+    const pointer = readSiteJson(`data/${semesterSlug}/manifest.json`);
+    const manifestPath = `data/${semesterSlug}/${pointer.current}`;
+    return {
+        pointer,
+        manifest: readSiteJson(manifestPath),
+        manifestPath: `/${manifestPath}`,
+    };
+}
+
+function readHistoricalDepartmentPaths(department, excludeSemester = '') {
+    return ['spring-2026', 'fall-2025', 'summer-2025']
+        .filter(semesterSlug => semesterSlug !== excludeSemester)
+        .flatMap(semesterSlug => {
+        const pointer = readSiteJson(`data/${semesterSlug}/manifest.json`);
+        const manifest = readSiteJson(`data/${semesterSlug}/${pointer.current}`);
+        const url = new URL(
+            manifest.departments[department].url,
+            `http://127.0.0.1/data/${semesterSlug}/${pointer.current}`,
+        );
+        return [url.pathname];
+    });
+}
+
 function sha256Hex(body) {
     return createHash('sha256').update(body).digest('hex');
 }
@@ -231,4 +255,154 @@ test('broken current manifest falls back with a visible stale-data state', async
     expect(response?.ok()).toBe(true);
     await expect(page.locator('#courseGrid')).toBeVisible();
     await expect(page.locator('#lastUpdated')).toContainText('Stale data');
+});
+
+test('historical course comparison is lazy, optional, aligned, and reset per modal', async ({ page }) => {
+    const jsonRequests = [];
+    page.on('request', request => {
+        const pathname = new URL(request.url()).pathname;
+        if (pathname.endsWith('.json')) jsonRequests.push(pathname);
+    });
+
+    const response = await page.goto('/fall2025.html');
+    expect(response?.ok()).toBe(true);
+    await expect(page.locator('.course-cell[data-course="MATH 161"]')).toBeVisible();
+
+    const historicalDepartmentPaths = readHistoricalDepartmentPaths('MATH', 'fall-2025');
+    expect(jsonRequests.some(pathname => /\/data\/(spring-2026|summer-2025)\//.test(pathname))).toBe(false);
+
+    await page.locator('.course-cell[data-course="MATH 161"]').click();
+    await expect(page.locator('#enrollment-chart')).toBeVisible();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'idle',
+    );
+    expect(jsonRequests.some(pathname => /\/data\/(spring-2026|summer-2025)\//.test(pathname))).toBe(false);
+    expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(0);
+
+    const toggle = page.locator('#historicalComparisonToggle');
+    await expect(toggle).toHaveAccessibleName(/find an earlier semester/i);
+    await toggle.click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'enabled',
+    );
+    await expect(page.locator('#historicalLegendItem')).toBeVisible();
+    await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
+        .toBe('2');
+    expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(1);
+
+    await page.locator('.chart-mode-btn[data-mode="timeline"]').click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'enabled',
+    );
+    await expect(page.locator('#historicalLegendItem')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
+    await page.locator('.course-cell[data-course="MATH 161"]').click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'available',
+    );
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(1);
+});
+
+test('selecting a section switches to professor comparison and deselecting returns to course mode', async ({ page }) => {
+    const current = readSemesterManifestFixture('fall-2025');
+    const historical = readSemesterManifestFixture('summer-2025');
+    const courseCode = 'MATH 161';
+
+    const currentDepartmentUrl = new URL(
+        current.manifest.departments.MATH.url,
+        `http://127.0.0.1${current.manifestPath}`,
+    );
+    const historicalDepartmentUrl = new URL(
+        historical.manifest.departments.MATH.url,
+        `http://127.0.0.1${historical.manifestPath}`,
+    );
+    const currentPayload = readSiteJson(currentDepartmentUrl.pathname.slice(1));
+    const historicalPayload = readSiteJson(historicalDepartmentUrl.pathname.slice(1));
+    currentPayload.courses[courseCode].sections['1L'].instructor = 'Jane Smith';
+    historicalPayload.courses[courseCode].sections['1L'].instructor = 'Jane Smith';
+    historicalPayload.courses[courseCode].sections['1R'].instructor = 'Jane Smith';
+
+    const currentBody = JSON.stringify(currentPayload);
+    const historicalBody = JSON.stringify(historicalPayload);
+    const currentManifest = {
+        ...current.manifest,
+        departments: {
+            ...current.manifest.departments,
+            MATH: {
+                ...current.manifest.departments.MATH,
+                sha256: sha256Hex(currentBody),
+                bytes: Buffer.byteLength(currentBody),
+            },
+        },
+    };
+    const historicalManifest = {
+        ...historical.manifest,
+        departments: {
+            ...historical.manifest.departments,
+            MATH: {
+                ...historical.manifest.departments.MATH,
+                sha256: sha256Hex(historicalBody),
+                bytes: Buffer.byteLength(historicalBody),
+            },
+        },
+    };
+
+    await page.route('**/*.json', async route => {
+        const pathname = new URL(route.request().url()).pathname;
+        if (pathname === current.manifestPath) {
+            await route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify(currentManifest),
+            });
+            return;
+        }
+        if (pathname === historical.manifestPath) {
+            await route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify(historicalManifest),
+            });
+            return;
+        }
+        if (pathname === currentDepartmentUrl.pathname) {
+            await route.fulfill({ contentType: 'application/json', body: currentBody });
+            return;
+        }
+        if (pathname === historicalDepartmentUrl.pathname) {
+            await route.fulfill({ contentType: 'application/json', body: historicalBody });
+            return;
+        }
+        await route.continue();
+    });
+
+    const response = await page.goto('/fall2025.html');
+    expect(response?.ok()).toBe(true);
+    await page.locator(`.course-cell[data-course="${courseCode}"]`).click();
+    await expect(page.locator('#section-1L')).toBeVisible();
+    await page.locator('#section-1L').click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'available',
+    );
+    await page.locator('#historicalComparisonToggle').click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'enabled',
+    );
+    await expect(page.locator('#historicalLegendLabel')).toHaveText('Summer 2025 · Jane Smith');
+    await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
+        .toBe('2');
+
+    await page.locator('#section-1L').click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'available',
+    );
+    await expect(page.locator('#historicalComparisonToggle')).toHaveAttribute('aria-pressed', 'false');
 });
