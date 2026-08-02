@@ -103,7 +103,7 @@ def build_semester_page(
         last_updated = "Last updated N/A"
 
     # The deployed frontend starts from the stable semester manifest pointer.
-    json_filename = f"data/{semester_to_slug(semester)}/manifest.json"
+    manifest_filename = f"data/{semester_to_slug(semester)}/manifest.json"
 
     canonical_url = f"{BASE_URL}/{semester_to_filename(semester)}"
 
@@ -113,7 +113,7 @@ def build_semester_page(
         title=f"Enrollment Monitor - {semester}",
         nav_html=nav_html,
         last_updated=last_updated,
-        json_filename=json_filename,
+        manifest_filename=manifest_filename,
         js_file=js_file,
         css_file=css_file,
         asset_base_url="assets/",

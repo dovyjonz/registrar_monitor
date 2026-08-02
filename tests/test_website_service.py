@@ -344,7 +344,7 @@ def test_generate_headers_contains_security_headers(tmp_path):
         patch.object(service, "is_any_semester_active", return_value=True),
         patch.object(service, "build_frontend_assets", return_value=True),
         patch(
-            "registrarmonitor.website.checksums.get_semesters_needing_update",
+            "registrarmonitor.services.website_service.get_semesters_needing_update",
             return_value=[],
         ),
         patch.object(service, "_generate_course_share_pages"),
@@ -375,7 +375,7 @@ def test_generate_creates_robots_txt(tmp_path):
         patch.object(service, "is_any_semester_active", return_value=True),
         patch.object(service, "build_frontend_assets", return_value=True),
         patch(
-            "registrarmonitor.website.checksums.get_semesters_needing_update",
+            "registrarmonitor.services.website_service.get_semesters_needing_update",
             return_value=[],
         ),
         patch.object(service, "_generate_course_share_pages"),

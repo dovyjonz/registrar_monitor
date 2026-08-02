@@ -155,6 +155,18 @@ class ModeTransitionResult:
 
 
 @dataclass(frozen=True)
+class FreshStorageResult:
+    """Result of creating an empty semester database in schema v2."""
+
+    status: str
+    database: Path
+    semester: str
+    metadata_mode: MetadataMode
+    active_mode: str
+    report_path: Path
+
+
+@dataclass(frozen=True)
 class FinalizationResult:
     """Result of compacting a v2 database and retiring compatibility tables."""
 
@@ -376,36 +388,40 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _legacy_fingerprint(path: Path) -> str:
+def _legacy_fingerprint_from_connection(connection: sqlite3.Connection) -> str:
     digest = hashlib.sha256()
+    for table, order in (
+        ("courses", "course_id"),
+        ("sections", "section_id"),
+        ("snapshots", "timestamp, snapshot_id"),
+        ("enrollment_data", "snapshot_id, section_id"),
+        ("reporting_log", "report_id"),
+        ("instructor_changes", "change_id"),
+    ):
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table,),
+        ).fetchone()
+        if exists is None:
+            continue
+        digest.update(table.encode())
+        for row in connection.execute(f"SELECT * FROM {table} ORDER BY {order}"):
+            digest.update(
+                json.dumps(
+                    list(row),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode()
+            )
+            digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _legacy_fingerprint(path: Path) -> str:
     with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True) as connection:
         connection.row_factory = sqlite3.Row
-        for table, order in (
-            ("courses", "course_id"),
-            ("sections", "section_id"),
-            ("snapshots", "timestamp, snapshot_id"),
-            ("enrollment_data", "snapshot_id, section_id"),
-            ("reporting_log", "report_id"),
-            ("instructor_changes", "change_id"),
-        ):
-            exists = connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-                (table,),
-            ).fetchone()
-            if exists is None:
-                continue
-            digest.update(table.encode())
-            for row in connection.execute(f"SELECT * FROM {table} ORDER BY {order}"):
-                digest.update(
-                    json.dumps(
-                        list(row),
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                        default=str,
-                    ).encode()
-                )
-                digest.update(b"\n")
-    return digest.hexdigest()
+        return _legacy_fingerprint_from_connection(connection)
 
 
 CONTROL_SCHEMA = """
@@ -435,6 +451,92 @@ CREATE TABLE IF NOT EXISTS migration_phase (
     PRIMARY KEY(target_version, phase)
 );
 """
+
+
+LEGACY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS courses (
+    course_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_code TEXT NOT NULL UNIQUE,
+    course_title TEXT,
+    department TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS sections (
+    section_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id INTEGER NOT NULL REFERENCES courses(course_id),
+    section_code TEXT NOT NULL,
+    section_type TEXT,
+    instructor TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(course_id, section_code)
+);
+CREATE TABLE IF NOT EXISTS snapshots (
+    snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL UNIQUE,
+    last_seen_at TEXT NOT NULL,
+    semester TEXT NOT NULL,
+    overall_fill REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS enrollment_data (
+    enrollment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL REFERENCES snapshots(snapshot_id),
+    section_id INTEGER NOT NULL REFERENCES sections(section_id),
+    status TEXT NOT NULL CHECK(status IN ('OPEN', 'NEAR', 'FULL')),
+    enrollment_count INTEGER NOT NULL,
+    capacity_count INTEGER NOT NULL,
+    fill_percentage REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(snapshot_id, section_id)
+);
+CREATE TABLE IF NOT EXISTS reporting_log (
+    report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reported_snapshot_id INTEGER NOT NULL REFERENCES snapshots(snapshot_id),
+    report_timestamp TEXT NOT NULL,
+    changes_found INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS instructor_changes (
+    change_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    section_id INTEGER NOT NULL REFERENCES sections(section_id),
+    old_instructor TEXT,
+    new_instructor TEXT,
+    timestamp TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_courses_code ON courses(course_code);
+CREATE INDEX IF NOT EXISTS idx_sections_course_id ON sections(course_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp);
+CREATE INDEX IF NOT EXISTS idx_enrollment_snapshot ON enrollment_data(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_enrollment_section ON enrollment_data(section_id);
+CREATE INDEX IF NOT EXISTS idx_reporting_log_timestamp
+    ON reporting_log(report_timestamp);
+CREATE INDEX IF NOT EXISTS idx_reporting_log_snapshot
+    ON reporting_log(reported_snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_instructor_changes_section
+    ON instructor_changes(section_id);
+"""
+
+
+def _ensure_legacy_schema(connection: sqlite3.Connection) -> None:
+    """Create the retained compatibility schema without importing legacy data."""
+    connection.executescript(LEGACY_SCHEMA)
+    section_columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(sections)")
+    }
+    if "instructor" not in section_columns:
+        connection.execute("ALTER TABLE sections ADD COLUMN instructor TEXT")
+
+    snapshot_columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(snapshots)")
+    }
+    if "last_seen_at" not in snapshot_columns:
+        connection.execute("ALTER TABLE snapshots ADD COLUMN last_seen_at TEXT")
+        connection.execute(
+            "UPDATE snapshots SET last_seen_at = timestamp WHERE last_seen_at IS NULL"
+        )
 
 
 def _now() -> str:
@@ -1555,6 +1657,257 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
     _atomic_write(markdown, body)
 
 
+def _fresh_storage_evidence(database: Path) -> dict[str, Any]:
+    """Capture the bounded schema and empty-baseline checks for a fresh DB."""
+    legacy_tables = (
+        "courses",
+        "sections",
+        "snapshots",
+        "enrollment_data",
+        "reporting_log",
+        "instructor_changes",
+    )
+    v2_tables = (
+        "course_catalog",
+        "section_catalog",
+        "state_snapshot",
+        "reporting_log_v2",
+    )
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        control_row = connection.execute(
+            "SELECT * FROM storage_control WHERE singleton = 1"
+        ).fetchone()
+        control = dict(control_row) if control_row is not None else None
+        counts: dict[str, int] = {}
+        for table in (*legacy_tables, *v2_tables):
+            counts[table] = int(
+                connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            )
+        return {
+            "user_version": int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            ),
+            "storage_control": control,
+            "counts": counts,
+            "legacy_tables_retained": all(table in counts for table in legacy_tables),
+            "integrity_check": str(
+                connection.execute("PRAGMA integrity_check").fetchone()[0]
+            ),
+            "foreign_key_violations": len(
+                connection.execute("PRAGMA foreign_key_check").fetchall()
+            ),
+        }
+
+
+def _write_fresh_storage_report(path: Path, report: dict[str, Any]) -> None:
+    _atomic_write(path, json.dumps(report, indent=2, sort_keys=True) + "\n")
+    verification = report["verification"]
+    counts = verification["counts"]
+    _atomic_write(
+        path.with_suffix(".md"),
+        "\n".join(
+            [
+                "# Fresh-semester schema initialization report",
+                "",
+                f"- Status: `{report['status']}`",
+                f"- Semester: `{report['semester']}`",
+                f"- Database: `{report['database']}`",
+                f"- Metadata mode: `{report['metadata_mode']}`",
+                f"- Active mode: `{report['active_mode']}`",
+                f"- Schema version: `{verification['user_version']}`",
+                f"- Migration phase: `{verification.get('migration_phase')}`",
+                f"- Empty baseline: `{verification['empty_baseline']}`",
+                f"- Legacy tables retained: `{verification['legacy_tables_retained']}`",
+                f"- Integrity check: `{verification['integrity_check']}`",
+                f"- Foreign-key violations: `{verification['foreign_key_violations']}`",
+                f"- Legacy snapshots: `{counts['snapshots']}`",
+                f"- v2 snapshots: `{counts['state_snapshot']}`",
+                "",
+            ]
+        ),
+    )
+
+
+def initialize_fresh_storage(
+    database: Path,
+    *,
+    semester: str,
+    metadata_mode: MetadataMode,
+    report_path: Path,
+    target_mode: str = "shadow",
+) -> FreshStorageResult:
+    """Create an empty semester database on the v2 dual-write path.
+
+    This is intentionally separate from ``run_migration``: a fresh semester
+    has no historical observations to backfill, but it still needs both the
+    v2 tables and the retained legacy compatibility tables before its first
+    controlled ingest.
+    """
+    database = Path(database).resolve()
+    report_path = Path(report_path)
+    metadata_mode = MetadataMode(metadata_mode)
+    if target_mode != "shadow":
+        raise MigrationError("fresh-semester initialization must start in shadow mode")
+    if not semester.strip():
+        raise MigrationError("fresh-semester initialization requires a semester")
+    if report_path.resolve() == database:
+        raise ValueError("report path must differ from the fresh database")
+
+    database.parent.mkdir(parents=True, exist_ok=True)
+    status = "initialized"
+    if database.exists():
+        with sqlite3.connect(database) as connection:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            control_table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'storage_control'"
+            ).fetchone()
+            if version == TARGET_SCHEMA_VERSION:
+                control = (
+                    connection.execute(
+                        "SELECT semester, metadata_mode, active_mode, migration_phase "
+                        "FROM storage_control WHERE singleton = 1"
+                    ).fetchone()
+                    if control_table is not None
+                    else None
+                )
+                if control is None:
+                    raise MigrationError(
+                        "existing schema v2 database has no completed fresh-storage control"
+                    )
+                if tuple(control) != (
+                    semester,
+                    metadata_mode.value,
+                    "shadow",
+                    "complete",
+                ):
+                    raise MigrationError(
+                        "existing database is not the requested empty shadow baseline"
+                    )
+                status = "already_initialized"
+            elif version not in {0, 1}:
+                raise MigrationError(
+                    f"unsupported existing schema version for fresh initialization: {version}"
+                )
+            elif control_table is not None:
+                raise MigrationError(
+                    "existing database has an incomplete storage-control initialization"
+                )
+
+            if version in {0, 1}:
+                for table in (
+                    "courses",
+                    "sections",
+                    "snapshots",
+                    "enrollment_data",
+                    "reporting_log",
+                    "instructor_changes",
+                    "course_catalog",
+                    "section_catalog",
+                    "state_snapshot",
+                    "reporting_log_v2",
+                ):
+                    exists = connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                        (table,),
+                    ).fetchone()
+                    if exists is not None and int(
+                        connection.execute(f"SELECT count(*) FROM {table}").fetchone()[
+                            0
+                        ]
+                    ):
+                        raise MigrationError(
+                            "fresh-semester initialization requires an empty database"
+                        )
+
+    if status == "initialized":
+        # This creates only the checkpointed tables. The compatibility schema
+        # and its control row are installed below after the empty-source check.
+        CheckpointedStateStore(database, set_user_version=False)
+        with sqlite3.connect(database) as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            _ensure_legacy_schema(connection)
+            connection.executescript(CONTROL_SCHEMA)
+            connection.execute("BEGIN IMMEDIATE")
+            legacy_fingerprint = _legacy_fingerprint_from_connection(connection)
+            now = _now()
+            connection.execute(
+                """
+                INSERT INTO storage_control(
+                    singleton, schema_version, semester, metadata_mode, active_mode,
+                    migration_phase, application_revision, legacy_fingerprint,
+                    legacy_tables_retained, backup_path, backup_sha256,
+                    last_parity_check_at, updated_at
+                ) VALUES (1, ?, ?, ?, 'shadow', 'initializing', ?, ?, 1,
+                          NULL, NULL, ?, ?)
+                """,
+                (
+                    TARGET_SCHEMA_VERSION,
+                    semester,
+                    metadata_mode.value,
+                    _revision(),
+                    legacy_fingerprint,
+                    now,
+                    now,
+                ),
+            )
+            _phase(connection, "schema", legacy_fingerprint)
+            _phase(connection, "complete", legacy_fingerprint)
+            connection.execute("PRAGMA user_version = 2")
+            connection.commit()
+
+    verification = _fresh_storage_evidence(database)
+    control = verification["storage_control"] or {}
+    counts = verification["counts"]
+    verification.update(
+        {
+            "migration_phase": control.get("migration_phase"),
+            "active_mode": control.get("active_mode"),
+            "empty_baseline": all(value == 0 for value in counts.values()),
+            "legacy_tables_retained": verification["legacy_tables_retained"],
+            "identity_parity": counts["courses"] == counts["course_catalog"]
+            and counts["sections"] == counts["section_catalog"]
+            and counts["snapshots"] == counts["state_snapshot"]
+            and counts["reporting_log"] == counts["reporting_log_v2"],
+        }
+    )
+    if (
+        verification["user_version"] != TARGET_SCHEMA_VERSION
+        or verification["migration_phase"] != "complete"
+        or verification["active_mode"] != "shadow"
+    ):
+        raise MigrationError("fresh storage initialization did not complete")
+    active_mode = str(verification["active_mode"])
+    if (
+        active_mode != "shadow"
+        or verification["integrity_check"] != "ok"
+        or verification["foreign_key_violations"] != 0
+        or not verification["empty_baseline"]
+    ):
+        raise MigrationError("fresh storage initialization failed its health checks")
+    report = {
+        "format": REPORT_FORMAT_VERSION,
+        "status": status,
+        "operation": "fresh_semester_initialization",
+        "database": str(database),
+        "semester": semester,
+        "metadata_mode": metadata_mode.value,
+        "active_mode": active_mode,
+        "application_revision": _revision(),
+        "verification": verification,
+    }
+    _write_fresh_storage_report(report_path, report)
+    return FreshStorageResult(
+        status=status,
+        database=database,
+        semester=semester,
+        metadata_mode=metadata_mode,
+        active_mode=active_mode,
+        report_path=report_path,
+    )
+
+
 def run_migration(
     request: MigrationRequest,
     *,
@@ -2089,7 +2442,11 @@ def finalize_storage(
             raise MigrationError(
                 "finalized database is missing its verified rollback archive"
             )
+        integrity = CheckpointedStateStore(database, initialize=False).integrity()
+        if integrity["integrity_check"] != "ok" or integrity["foreign_key_violations"]:
+            raise MigrationError("finalized database failed SQLite health checks")
         semantic_digest = _v2_semantic_digest(database)
+        operational_evidence = _finalized_operational_evidence(database, semester)
         report = {
             "format": REPORT_FORMAT_VERSION,
             "status": "already_finalized",
@@ -2103,6 +2460,9 @@ def finalize_storage(
             "source_sha256_after": source_hash_before,
             "semantic_digest_preserved": True,
             "semantic_digest": semantic_digest,
+            "integrity_check": integrity["integrity_check"],
+            "foreign_key_violations": integrity["foreign_key_violations"],
+            "operational_evidence": operational_evidence,
         }
         _write_finalization_report(report_path, report)
         return FinalizationResult(

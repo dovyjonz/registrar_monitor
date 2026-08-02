@@ -98,21 +98,78 @@ export function buildCourseChartDomain(course, snapshots) {
     return domain;
 }
 
+function getCapacityChangesBySnapshot(course) {
+    const changes = new Map();
+    for (const [sectionCode, section] of Object.entries(course?.s || {})) {
+        let previousCapacity = null;
+        for (const point of section.h || []) {
+            if (!Number.isInteger(point.i) || !Number.isFinite(point.c)) continue;
+            if (previousCapacity !== null && point.c !== previousCapacity) {
+                const snapshotChanges = changes.get(point.i) || [];
+                snapshotChanges.push({
+                    sectionCode,
+                    previousCapacity,
+                    capacity: point.c,
+                });
+                changes.set(point.i, snapshotChanges);
+            }
+            previousCapacity = point.c;
+        }
+    }
+    return changes;
+}
+
+function getSectionFillAtSnapshot(section, snapshotIdx) {
+    let fill = null;
+    for (const point of section?.h || []) {
+        if (!Number.isInteger(point.i) || point.i > snapshotIdx) continue;
+        if (Number.isFinite(point.f)) fill = point.f;
+    }
+    return fill;
+}
+
+function getAverageFillAtSnapshot(course, snapshotIdx) {
+    const fills = Object.values(course?.s || {})
+        .map(section => getSectionFillAtSnapshot(section, snapshotIdx))
+        .filter(Number.isFinite);
+    if (fills.length === 0) return null;
+    return fills.reduce((total, fill) => total + fill, 0) / fills.length;
+}
+
 export function buildAverageChartPoints(course, snapshots) {
-    return (course?.ah || []).flatMap(point => {
-        const timestamp = toTimestamp(snapshots?.[point.i]);
-        if (timestamp === null) return [];
-        return [{
-            snapshotIdx: point.i,
-            timestamp,
-            label: formatSnapshotLabel(timestamp),
-            fill: Math.round(point.f * 100),
-            enrollment: null,
-            capacity: null,
-            prevCapacity: null,
-            capacityChanged: false,
-        }];
-    });
+    const pointsBySnapshot = new Map(
+        (course?.ah || [])
+            .filter(point => Number.isInteger(point.i))
+            .map(point => [point.i, point]),
+    );
+    const capacityChanges = getCapacityChangesBySnapshot(course);
+    for (const snapshotIdx of capacityChanges.keys()) {
+        if (pointsBySnapshot.has(snapshotIdx)) continue;
+        const fill = getAverageFillAtSnapshot(course, snapshotIdx);
+        if (fill !== null) pointsBySnapshot.set(snapshotIdx, { i: snapshotIdx, f: fill });
+    }
+
+    return [...pointsBySnapshot.entries()]
+        .sort(([first], [second]) => first - second)
+        .flatMap(([snapshotIdx, point]) => {
+            const timestamp = toTimestamp(snapshots?.[point.i]);
+            if (timestamp === null) return [];
+            const snapshotCapacityChanges = capacityChanges.get(snapshotIdx) || [];
+            const chartPoint = {
+                snapshotIdx,
+                timestamp,
+                label: formatSnapshotLabel(timestamp),
+                fill: Math.round(point.f * 100),
+                enrollment: null,
+                capacity: null,
+                prevCapacity: null,
+                capacityChanged: snapshotCapacityChanges.length > 0,
+            };
+            if (snapshotCapacityChanges.length > 0) {
+                chartPoint.capacityChanges = snapshotCapacityChanges;
+            }
+            return [chartPoint];
+        });
 }
 
 export function buildSectionChartPoints(section, snapshots) {

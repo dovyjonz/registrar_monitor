@@ -103,7 +103,7 @@ Key decisions:
 - Schema v2 uses checkpointed state plus contiguous event sequences while
   retaining and atomically dual-writing the legacy tables for one compatibility
   release.
-- Static v2 data is published as a no-cache semester pointer to immutable,
+- Static v3 data is published as a no-cache semester pointer to immutable,
   content-addressed manifests and summary/department blobs.
 - Scheduler decisions and dashboard milestone rendering use the registrar
   timezone and milestones from `settings.toml`.

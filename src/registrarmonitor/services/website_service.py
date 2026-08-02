@@ -1,11 +1,11 @@
 """Service for generating and deploying the website."""
 
-import json
 import shutil
 import subprocess
 from pathlib import Path
 
 from ..core import get_logger
+from ..data.database_manager import DatabaseManager
 from ..website.checksums import get_semesters_needing_update, update_checksum
 from ..website.config import (
     MILESTONES_MAP,
@@ -24,10 +24,6 @@ from ..website.templates import (
     build_semester_page,
 )
 
-# Release A compatibility switch. Remove this branch after one production
-# release has served the v3 manifest-based frontend to all supported clients.
-EMIT_LEGACY_SEMESTER_JSON = True
-
 
 class WebsiteService:
     """Service for handling website generation and deployment."""
@@ -35,17 +31,10 @@ class WebsiteService:
     def __init__(
         self,
         output_dir: Path | None = None,
-        *,
-        emit_legacy_semester_json: bool | None = None,
     ):
         self.logger = get_logger(__name__)
         self.last_generation_skipped = False
         self._output_dir = output_dir.resolve() if output_dir is not None else None
-        self.emit_legacy_semester_json = (
-            EMIT_LEGACY_SEMESTER_JSON
-            if emit_legacy_semester_json is None
-            else emit_legacy_semester_json
-        )
         # Correct path to assets/website
         # src/registrarmonitor/services/website_service.py -> .../repo/assets/website
         self._default_website_assets_dir = (
@@ -67,7 +56,11 @@ class WebsiteService:
         return self.output_dir / ".checksums.json"
 
     def generate_semester_page(
-        self, semester: str, *, minify_assets: bool = False
+        self,
+        semester: str,
+        *,
+        minify_assets: bool = False,
+        database: DatabaseManager | None = None,
     ) -> tuple[Path | None, float]:
         """
         Generate a single semester page.
@@ -78,7 +71,7 @@ class WebsiteService:
         print(f"  Generating {semester}...")
 
         # Get data and milestones
-        data = get_semester_data(semester, minify=True)
+        data = get_semester_data(semester, minify=True, database=database)
         milestones = MILESTONES_MAP.get(semester, [])
 
         # Check if we have data
@@ -117,22 +110,13 @@ class WebsiteService:
             departments=departments,
         )
 
-        # Release A only: preserve the old root-level payload for previously
-        # deployed clients. New clients never reference this file. Removing a
-        # stale file when the switch is disabled makes Release B effective for
-        # an already-generated public directory as well.
-        json_path = self.output_dir / filename.replace(".html", ".json")
-        if self.emit_legacy_semester_json:
-            payload = {"data": data, "milestones": milestones, "semester": semester}
-            json_path.write_text(
-                json.dumps(payload, separators=(",", ":")),
-                encoding="utf-8",
-            )
-        else:
-            json_path.unlink(missing_ok=True)
+        # Remove a stale pre-v3 root payload when regenerating an existing
+        # public directory. The v3 manifest pointer is the only data entrypoint.
+        root_payload_path = self.output_dir / filename.replace(".html", ".json")
+        root_payload_path.unlink(missing_ok=True)
 
         # Update checksum
-        update_checksum(semester, self.checksums_file)
+        update_checksum(semester, self.checksums_file, database=database)
 
         file_size_kb = output_path.stat().st_size / 1024
         course_count = len(data.get("cr", {}))
@@ -523,9 +507,6 @@ class WebsiteService:
 /data/blobs/*
   Cache-Control: public, max-age=31536000, immutable
 
-/*.json
-  Cache-Control: public, max-age=60, stale-while-revalidate=300
-
 /courses/*
   Cache-Control: public, max-age=300, stale-while-revalidate=600
 """
@@ -541,7 +522,8 @@ class WebsiteService:
         """Validate that the public output directory contains only allowed files.
 
         Returns a list of error messages for disallowed artifacts.
-        Allowed: HTML, JSON, assets/, _headers, robots.txt, courses/, .checksums.json
+        Allowed: HTML, JSON under data/, assets/, _headers, robots.txt,
+        courses/, and .checksums.json.
         """
         errors = []
         allowed_extensions = {".html", ".json"}
@@ -573,6 +555,9 @@ class WebsiteService:
                 if name in allowed_names:
                     continue
                 ext = item.suffix
+                if ext == ".json":
+                    errors.append(f"Unexpected root JSON payload: {name}")
+                    continue
                 if ext in allowed_extensions:
                     continue
                 if name.startswith("."):

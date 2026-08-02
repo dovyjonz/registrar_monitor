@@ -303,6 +303,20 @@ class DatabaseManager:
         with self.get_connection() as conn:
             version = int(conn.execute("PRAGMA user_version").fetchone()[0])
             if version == EXPECTED_SCHEMA_VERSION:
+                if self._uses_configured_path and self.semester:
+                    config = get_config()
+                    configured = (
+                        config.get("storage", {})
+                        .get("semesters", {})
+                        .get(self.semester, {})
+                        .get("mode")
+                    )
+                    if configured not in {None, "legacy"}:
+                        raise sqlite3.DatabaseError(
+                            "schema v1 database cannot be opened while "
+                            f"{self.semester!r} is configured for {configured!r}; "
+                            "run `monitor db initialize` for a fresh semester"
+                        )
                 return "legacy"
             if version != CHECKPOINTED_SCHEMA_VERSION:
                 raise sqlite3.DatabaseError(

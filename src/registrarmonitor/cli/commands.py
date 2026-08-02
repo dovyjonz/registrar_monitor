@@ -17,6 +17,9 @@ from ..data.migration import (
     run_migration,
     transition_storage_mode,
 )
+from ..data.migration import (
+    initialize_fresh_storage as initialize_fresh_storage_database,
+)
 from ..data.migration_rehearsal import RehearsalRequest, run_rehearsal
 from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
@@ -562,6 +565,43 @@ class DatabaseCommands:
                     f"the current {prior_semester!r} source"
                 )
 
+    async def initialize_fresh_storage(
+        self,
+        *,
+        semester: str,
+        report_path: Path,
+        database: Path | None = None,
+    ) -> bool:
+        """Create one empty semester database in the controlled shadow mode."""
+        try:
+            semester_config = self._storage_config(semester)
+            if semester_config.get("mode") != "shadow":
+                raise ValueError(
+                    "fresh-semester initialization requires the approved mode "
+                    "to be shadow"
+                )
+            metadata_mode = MetadataMode(str(semester_config["metadata_mode"]))
+            if database is None:
+                config = get_config()
+                data_dir = Path(config["directories"]["data_storage"])
+                slug = DatabaseManager._sanitize_semester_name_static(semester)
+                database = data_dir / f"enrollment_{slug}.db"
+            result = initialize_fresh_storage_database(
+                database,
+                semester=semester,
+                metadata_mode=metadata_mode,
+                report_path=report_path,
+            )
+            print(
+                f"✅ Fresh storage {result.status}: {semester}; "
+                f"mode={result.active_mode}; report={result.report_path}"
+            )
+            return True
+        except Exception as error:
+            print(f"❌ Fresh storage initialization failed: {error}")
+            self.logger.error(f"Fresh storage initialization error: {error}")
+            return False
+
     async def stats(self) -> bool:
         """Show database statistics."""
         try:
@@ -763,9 +803,11 @@ class DatabaseCommands:
     ) -> bool:
         """Compact one v2 database after explicit operator authorization."""
         try:
-            if self._storage_config(semester).get("mode") != "v2":
+            configured_mode = self._storage_config(semester).get("mode")
+            if configured_mode not in {"v2", "finalized"}:
                 raise ValueError(
-                    "finalization requires the semester's approved mode to be v2"
+                    "finalization requires the semester's approved mode to be "
+                    "v2 or finalized"
                 )
             if database is None:
                 config = get_config()

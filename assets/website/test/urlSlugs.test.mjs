@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
     courseToSlug,
-    getEnrollmentJsonUrl,
+    getManifestUrl,
     semesterToSlug,
 } from '../src/urlSlugs.mjs';
 
@@ -16,16 +16,15 @@ test('course slugs remove filesystem-unsafe characters like the Python generator
     assert.equal(courseToSlug('CSCI 101'), 'csci-101');
 });
 
-test('enrollment JSON URL keeps the legacy window fallback for patched pages', () => {
+test('manifest URL reads only the generated body pointer', () => {
     assert.equal(
-        getEnrollmentJsonUrl({ body: { dataset: {} } }, { JSON_URL: 'summer2026.json' }),
-        'summer2026.json',
+        getManifestUrl({ body: { dataset: {} } }),
+        '',
     );
     assert.equal(
-        getEnrollmentJsonUrl(
-            { body: { dataset: { jsonUrl: 'spring2026.json' } } },
-            { JSON_URL: 'summer2026.json' },
+        getManifestUrl(
+            { body: { dataset: { manifestUrl: 'data/spring-2026/manifest.json' } } },
         ),
-        'spring2026.json',
+        'data/spring-2026/manifest.json',
     );
 });

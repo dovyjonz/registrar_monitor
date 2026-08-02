@@ -104,8 +104,7 @@ def test_website_adapter_generates_expected_artifacts(tmp_path):
     assert artifacts["query_count"] > 0
     assert artifacts["slowest_sql"]
     assert (output / "summer2026.html").is_file()
-    payload = json.loads((output / "summer2026.json").read_text())
-    assert payload["semester"] == "Summer 2026"
+    assert not (output / "summer2026.json").exists()
     pointer_path = output / "data" / "summer-2026" / "manifest.json"
     pointer = json.loads(pointer_path.read_text())
     assert pointer["manifestVersion"] == 1
@@ -118,11 +117,10 @@ def test_website_adapter_generates_expected_artifacts(tmp_path):
         / Path(manifest["summary"]["url"]).name
     )
     assert summary_path.is_file()
-    assert artifacts["old_payload_bytes"] == (output / "summer2026.json").stat().st_size
-    assert artifacts["new_summary_bytes"] == summary_path.stat().st_size
-    assert artifacts["new_summary_to_old_payload_ratio"] == pytest.approx(
-        artifacts["new_summary_bytes"] / artifacts["old_payload_bytes"]
-    )
+    summary = json.loads(summary_path.read_text())
+    assert summary["semester"] == "Summer 2026"
+    assert artifacts["summary_bytes"] == summary_path.stat().st_size
+    assert artifacts["manifest_bytes"] == manifest_path.stat().st_size
 
 
 def test_browser_metric_schema_and_payload_comparison_are_reported(
@@ -167,8 +165,8 @@ def test_browser_metric_schema_and_payload_comparison_are_reported(
     result = benchmark.run(args)
 
     assert result["measurements"]["browser"]["warm"]["summary_bytes"]["median"] == 80
-    assert result["measurements"]["website"]["artifacts"]["old_payload_bytes"] > 0
-    assert result["measurements"]["website"]["artifacts"]["new_summary_bytes"] > 0
+    assert result["measurements"]["website"]["artifacts"]["summary_bytes"] > 0
+    assert result["measurements"]["website"]["artifacts"]["manifest_bytes"] > 0
 
 
 def test_result_schema_and_markdown_share_values(tmp_path, monkeypatch):

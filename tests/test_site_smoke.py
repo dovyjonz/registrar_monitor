@@ -48,11 +48,11 @@ def test_main_checks_nested_course_pages(tmp_path):
         site_smoke.main()
 
 
-def test_main_fails_when_json_payload_is_missing(tmp_path):
+def test_main_fails_when_manifest_is_missing(tmp_path):
     output_dir = tmp_path / "public"
     output_dir.mkdir()
     (output_dir / "fall2026.html").write_text(
-        '<body data-json-url="missing.json"></body>',
+        '<body data-manifest-url="data/fall-2026/manifest.json"></body>',
         encoding="utf-8",
     )
 
@@ -65,22 +65,25 @@ def test_main_fails_when_json_payload_is_missing(tmp_path):
         ),
         pytest.raises(
             SystemExit,
-            match=r"fall2026\.html: missing missing\.json",
+            match=r"fall2026\.html: missing data/fall-2026/manifest\.json",
         ),
     ):
         site_smoke.main()
 
 
-def test_main_accepts_present_and_external_json_payloads(tmp_path):
+def test_main_accepts_present_and_external_manifest_urls(tmp_path):
     output_dir = tmp_path / "public"
     output_dir.mkdir()
     (output_dir / "fall2026.html").write_text(
-        '<body data-json-url="fall2026.json"></body>',
+        '<body data-manifest-url="data/fall-2026/manifest.json"></body>',
         encoding="utf-8",
     )
-    (output_dir / "fall2026.json").write_text("{}", encoding="utf-8")
+    (output_dir / "data" / "fall-2026").mkdir(parents=True)
+    (output_dir / "data" / "fall-2026" / "manifest.json").write_text(
+        "{}", encoding="utf-8"
+    )
     (output_dir / "external.html").write_text(
-        '<body data-json-url="https://example.com/fall2026.json"></body>',
+        '<body data-manifest-url="https://example.com/data/fall-2026/manifest.json"></body>',
         encoding="utf-8",
     )
 
@@ -95,14 +98,17 @@ def test_main_accepts_present_and_external_json_payloads(tmp_path):
         site_smoke.main()
 
 
-def test_main_rejects_invalid_json_payload(tmp_path):
+def test_main_rejects_invalid_manifest_json(tmp_path):
     output_dir = tmp_path / "public"
     output_dir.mkdir()
     (output_dir / "fall2026.html").write_text(
-        '<body data-json-url="fall2026.json"></body>',
+        '<body data-manifest-url="data/fall-2026/manifest.json"></body>',
         encoding="utf-8",
     )
-    (output_dir / "fall2026.json").write_text("{invalid", encoding="utf-8")
+    (output_dir / "data" / "fall-2026").mkdir(parents=True)
+    (output_dir / "data" / "fall-2026" / "manifest.json").write_text(
+        "{invalid", encoding="utf-8"
+    )
 
     with (
         patch.object(site_smoke, "OUTPUT_DIR", output_dir),

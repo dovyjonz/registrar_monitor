@@ -9,6 +9,6 @@ export function courseToSlug(courseCode) {
         .replace(/[/\\:*?"<>|]/g, '');
 }
 
-export function getEnrollmentJsonUrl(documentObject, windowObject) {
-    return documentObject.body?.dataset?.jsonUrl || windowObject.JSON_URL || '';
+export function getManifestUrl(documentObject) {
+    return documentObject.body?.dataset?.manifestUrl || '';
 }

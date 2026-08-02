@@ -162,6 +162,20 @@ monitor db finalize \
   --rollback-dir output/migration/rollback \
   --report output/spring-2025-finalization.json \
   --authorize
+
+# Initialize a fresh active semester after setting its approved mode to shadow
+monitor db initialize \
+  --semester "Fall 2026" \
+  --database data/enrollment_fall_2026.db \
+  --report output/migration/fall-2026-initialize.json
+
+# After the controlled first ingest and compatibility qualification, set the
+# approved mode to v2 and promote the same database.
+monitor db mode \
+  --semester "Fall 2026" \
+  --target-mode v2 \
+  --database data/enrollment_fall_2026.db \
+  --report output/migration/fall-2026-v2.json
 ```
 
 Migration is idempotent and resumes at committed phase markers. A completed
@@ -175,6 +189,13 @@ mode/configuration mismatch blocks the operation.
 injects an interruption before and after schema, catalog, every snapshot,
 reporting, and completion commits, then records each resumed digest and table
 count in JSON and Markdown. It never applies to the source database.
+
+`monitor db initialize` is the separate fresh-semester path. It accepts only an
+empty schema-v0/v1 database (or an absent database), creates schema v2 plus the
+retained legacy compatibility tables, and records a completed control row in
+`shadow` mode. It does not import historical observations and never adds the
+semester to `storage.migration_order`. The first controlled ingest then uses the
+same atomic v2-primary/legacy-compatibility write path as an active semester.
 
 Legacy-site verification can be generated without touching the normal public
 tree by passing `monitor deploy --force --output-dir <isolated-directory>`.
@@ -217,6 +238,29 @@ atomically replaces the active database. It never deletes the archive. A
 finalized database uses v2 reads and reporting only; update the semester's
 approved storage mode to `finalized` when that explicit rollout state is being
 recorded (the application also accepts `v2` during the handoff).
+
+## Production Step 3, Step 4, and Step 5 evidence
+
+The authorized 2026-08-02 production migration evidence is retained on the
+runtime VM at:
+
+`/home/dmitry_s_ivanenko/registrar_monitor/output/migration/`
+
+The folder contains target-host dry-run and apply JSON reports, candidate
+databases, verified timestamped backup/restore-check databases, serial Step 4
+mode reports, and Step 5 finalization reports plus rollback archives for all
+five historical semesters. Summer 2025 was already schema v2 and complete, so
+it was verified rather than reapplied. This is generated runtime output and is
+intentionally not tracked in the repository.
+
+All five production databases are schema v2 with `migration_phase=finalized`,
+active mode `finalized`, SQLite integrity `ok`, zero foreign-key violations,
+no legacy compatibility tables, and verified rollback archives. The serial
+`legacy -> shadow -> v2 -> finalized` rollout completed on 2026-08-02 while
+monitoring remained stopped. Each finalization retained a final checkpoint,
+preserved the reconstructed state and reporting position, and passed the
+post-finalization website read. Deployment and service activation remain
+separate operations.
 
 ## Example Queries
 

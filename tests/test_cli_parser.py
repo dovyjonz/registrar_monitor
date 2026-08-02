@@ -29,6 +29,17 @@ from registrarmonitor.main import create_parser
         (["doctor", "--json"], "doctor"),
         (["doctor", "--output", "output/doctor.json"], "doctor"),
         (["db", "stats"], "db"),
+        (
+            [
+                "db",
+                "initialize",
+                "--semester",
+                "Fall 2026",
+                "--report",
+                "output/fall-2026-init.json",
+            ],
+            "db",
+        ),
         (["db", "cleanup", "--keep", "100"], "db"),
         (["db", "dedupe-instructor-changes", "--dry-run"], "db"),
         (

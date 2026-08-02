@@ -12,7 +12,7 @@ import {
 } from './chartMapping.mjs';
 import {
     courseToSlug,
-    getEnrollmentJsonUrl,
+    getManifestUrl,
     semesterToSlug,
 } from './urlSlugs.mjs';
 import {
@@ -80,9 +80,11 @@ window.addEventListener('pagehide', () => dataLoadController.abort(), { once: tr
 // Cache for last render args so toggle can re-render
 let lastRenderArgs = null;
 
-// Access global variables injected by Python
-let DATA = window.DATA || null;
-let MILESTONES = window.MILESTONES || [];
+// The generated semester page receives its v3 summary through the manifest
+// pointer in the body data attribute. Combined prototype pages may still
+// provide their own in-memory dataset below.
+let DATA = null;
+let MILESTONES = [];
 const COMBINED_DATA = window.COMBINED_DATA;
 
 // Determine mode from data structure
@@ -128,9 +130,9 @@ function refreshCourseMaps() {
 
     for (const [code, course] of Object.entries(data.cr)) {
         summaryCourses.set(code, course);
-        // Legacy and v2 payloads already contain the complete course detail.
-        // Keep it in the detail map without changing the summary map's value.
-        if (!staticManifest || staticManifest.dataModelVersion === 2) {
+        // Combined prototype pages keep their complete course data in memory;
+        // generated semester pages hydrate details from the v3 department blob.
+        if (IS_COMBINED) {
             hydratedCourses.set(code, course);
         }
     }
@@ -436,9 +438,8 @@ async function hydrateCourse(courseCode) {
     const summaryCourse = summaryCourses.get(courseCode);
     if (!summaryCourse) return null;
 
-    // A legacy or v2 payload already contains complete course details. Keep a
-    // separate map entry, but do not replace the summary object in DATA.
-    if (!staticManifest || staticManifest.dataModelVersion === 2) {
+    // Combined prototype pages keep their complete course data in memory.
+    if (IS_COMBINED) {
         hydratedCourses.set(courseCode, summaryCourse);
         return summaryCourse;
     }
@@ -1022,8 +1023,9 @@ async function showAverageFillChart(
     const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
 
-    document.getElementById('chartLegend').classList.remove('visible');
-    await renderChart(courseCode, chartPoints, chartDomain, false, requestVersion);
+    const hasCapacityChanges = chartPoints.some(point => point.capacityChanged);
+    document.getElementById('chartLegend').classList.toggle('visible', hasCapacityChanges);
+    await renderChart(courseCode, chartPoints, chartDomain, true, requestVersion);
 }
 
 /**
@@ -1217,12 +1219,22 @@ async function renderChart(
                         label: (ctx) => {
                             const idx = ctx.dataIndex;
                             const enrollInfo = currentEnrollmentData[idx];
+                            let lbl = `${ctx.parsed.y}%`;
                             if (enrollInfo && enrollInfo.enrollment !== null) {
-                                let lbl = `${ctx.parsed.y}% (${enrollInfo.enrollment}/${enrollInfo.capacity})`;
-                                if (enrollInfo.capacityChanged) lbl += ` \u2022 Cap: ${enrollInfo.prevCapacity} \u2192 ${enrollInfo.capacity}`;
-                                return lbl;
+                                lbl += ` (${enrollInfo.enrollment}/${enrollInfo.capacity})`;
                             }
-                            return `${ctx.parsed.y}%`;
+                            if (enrollInfo?.capacityChanged) {
+                                const changes = enrollInfo.capacityChanges?.length
+                                    ? enrollInfo.capacityChanges
+                                        .map(change => (
+                                            `${change.sectionCode} capacity: `
+                                            + `${change.previousCapacity} \u2192 ${change.capacity}`
+                                        ))
+                                        .join('; ')
+                                    : `Capacity: ${enrollInfo.prevCapacity} \u2192 ${enrollInfo.capacity}`;
+                                lbl += ` \u2022 ${changes}`;
+                            }
+                            return lbl;
                         }
                     }
                 }
@@ -1772,35 +1784,22 @@ function installPayload(payload) {
 }
 
 async function initApp() {
-    // If JSON_URL is provided, fetch it asynchronously
-    const jsonUrl = getEnrollmentJsonUrl(document, window);
+    // Generated semester pages always start from the v3 manifest pointer.
+    const manifestUrl = getManifestUrl(document);
     let summaryReadyMarked = false;
-    if (jsonUrl && !DATA) {
+    if (manifestUrl && !DATA) {
         // Show loading timeout warning after 12 seconds
         const timeoutId = setTimeout(showTimeoutWarning, 12000);
 
         try {
-            const absoluteUrl = new URL(jsonUrl, window.location.href);
-            let payload;
-            if (absoluteUrl.pathname.endsWith('/manifest.json')) {
-                const loaded = await loadSemesterManifest(absoluteUrl.href, {
-                    signal: dataLoadController.signal,
-                });
-                payload = loaded.payload;
-                staticManifest = loaded.manifest;
-                staticManifestUrl = loaded.manifestUrl;
-                staticManifestStale = loaded.stale;
-            } else {
-                staticManifest = null;
-                staticManifestUrl = null;
-                staticManifestStale = false;
-                const res = await fetch(absoluteUrl.href, {
-                    signal: dataLoadController.signal,
-                });
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                payload = await res.json();
-            }
-            installPayload(payload);
+            const absoluteUrl = new URL(manifestUrl, window.location.href);
+            const loaded = await loadSemesterManifest(absoluteUrl.href, {
+                signal: dataLoadController.signal,
+            });
+            installPayload(loaded.payload);
+            staticManifest = loaded.manifest;
+            staticManifestUrl = loaded.manifestUrl;
+            staticManifestStale = loaded.stale;
             markPerformance('registrar:summary-ready');
             summaryReadyMarked = true;
 

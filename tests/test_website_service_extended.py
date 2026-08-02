@@ -34,7 +34,7 @@ class TestGenerateSemesterPage:
             assert output_path is not None
             assert output_path.read_text() == "<html>empty semester</html>"
 
-    def test_generates_html_and_json(self, tmp_path):
+    def test_generates_html_and_v3_manifest(self, tmp_path):
         data = {
             "cr": {"CS 101": {}},
             "sn": [{"id": 1, "timestamp": "2024-01-15"}],
@@ -61,9 +61,10 @@ class TestGenerateSemesterPage:
 
         assert out_path is not None
         assert (tmp_path / "spring2024.html").exists()
-        assert (tmp_path / "spring2024.json").exists()
+        assert (tmp_path / "data" / "spring-2024" / "manifest.json").exists()
+        assert not (tmp_path / "spring2024.json").exists()
 
-    def test_dual_publication_keeps_legacy_file_and_manifest_only_html(self, tmp_path):
+    def test_v3_publication_embeds_only_the_manifest_pointer(self, tmp_path):
         data = {
             "cr": {"CS 101": {}},
             "sn": [{"id": 1, "timestamp": "2024-01-15"}],
@@ -85,15 +86,9 @@ class TestGenerateSemesterPage:
 
         assert out_path is not None
         html = out_path.read_text()
-        assert 'data-json-url="data/spring-2024/manifest.json"' in html
+        assert 'data-manifest-url="data/spring-2024/manifest.json"' in html
         assert "spring2024.json" not in html
-
-        legacy_payload = json.loads((tmp_path / "spring2024.json").read_text())
-        assert legacy_payload == {
-            "data": data,
-            "milestones": [],
-            "semester": "Spring 2024",
-        }
+        assert not (tmp_path / "spring2024.json").exists()
 
         pointer = json.loads(
             (tmp_path / "data" / "spring-2024" / "manifest.json").read_text()
@@ -117,7 +112,7 @@ class TestGenerateSemesterPage:
         )
         assert department["kind"] == "department-detail"
 
-    def test_legacy_semester_json_can_be_disabled(self, tmp_path):
+    def test_v3_generation_removes_a_stale_root_payload(self, tmp_path):
         data = {"cr": {}, "sn": []}
         legacy_path = tmp_path / "spring2024.json"
         legacy_path.write_text("stale compatibility payload")
@@ -133,10 +128,7 @@ class TestGenerateSemesterPage:
             ),
             patch("registrarmonitor.services.website_service.update_checksum"),
         ):
-            service = WebsiteService(
-                output_dir=tmp_path,
-                emit_legacy_semester_json=False,
-            )
+            service = WebsiteService(output_dir=tmp_path)
             service.generate_semester_page("Spring 2024")
 
         assert not legacy_path.exists()
@@ -227,6 +219,7 @@ class TestGenerate:
                 return_value=[],
             ),
             patch.object(service, "generate_semester_page", return_value=(None, 0.0)),
+            patch.object(service, "_generate_course_share_pages"),
             patch(
                 "registrarmonitor.website.templates.build_redirect_index",
                 return_value="<html>redirect</html>",
@@ -325,7 +318,6 @@ class TestValidatePublicOutput:
         service = WebsiteService()
         # Create allowed files
         (tmp_path / "summer2026.html").write_text("<html>")
-        (tmp_path / "summer2026.json").write_text("{}")
         (tmp_path / "_headers").write_text("/*")
         (tmp_path / "robots.txt").write_text("User-agent: *")
         (tmp_path / ".checksums.json").write_text("{}")
@@ -347,6 +339,15 @@ class TestValidatePublicOutput:
 
         # data/ is not an allowed directory, so it is flagged
         assert any("data" in e for e in errors)
+
+    def test_rejects_root_json_payloads(self, tmp_path):
+        service = WebsiteService()
+        (tmp_path / "summer2026.json").write_text("{}")
+
+        with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
+            errors = service.validate_public_output()
+
+        assert any("root JSON payload" in error for error in errors)
 
     def test_detects_log_files(self, tmp_path):
         service = WebsiteService()

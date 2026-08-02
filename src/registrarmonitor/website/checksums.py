@@ -88,9 +88,14 @@ def get_semesters_needing_update(
     return needs_update
 
 
-def update_checksum(semester: str, checksums_file: Path | None = None) -> None:
+def update_checksum(
+    semester: str,
+    checksums_file: Path | None = None,
+    *,
+    database: DatabaseManager | None = None,
+) -> None:
     """Update the stored checksum for a semester after regeneration."""
     checksums_file = checksums_file or CHECKSUMS_FILE
     checksums = load_checksums(checksums_file)
-    checksums[semester] = compute_semester_hash(semester)
+    checksums[semester] = compute_semester_hash(semester, database=database)
     save_checksums(checksums, checksums_file)

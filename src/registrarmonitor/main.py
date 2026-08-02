@@ -263,6 +263,18 @@ Telegram Control:
         help="Report duplicate count without deleting rows",
     )
 
+    initialize_parser = db_subparsers.add_parser(
+        "initialize",
+        help="Create an empty semester database on the schema-v2 shadow path",
+        description=(
+            "Initialize a fresh semester with checkpointed v2 tables and the "
+            "retained legacy compatibility tables."
+        ),
+    )
+    initialize_parser.add_argument("--semester", required=True)
+    initialize_parser.add_argument("--database", type=Path)
+    initialize_parser.add_argument("--report", type=Path, required=True)
+
     migrate_parser = db_subparsers.add_parser(
         "migrate",
         help="Build or apply the checkpointed-state schema for one semester",
@@ -462,6 +474,12 @@ async def handle_db_command(args) -> int:
     elif args.db_command == "dedupe-instructor-changes":
         success = await command.dedupe_instructor_changes(
             dry_run=getattr(args, "dry_run", False)
+        )
+    elif args.db_command == "initialize":
+        success = await command.initialize_fresh_storage(
+            semester=args.semester,
+            report_path=args.report,
+            database=getattr(args, "database", None),
         )
     elif args.db_command == "migrate":
         success = await command.migrate(

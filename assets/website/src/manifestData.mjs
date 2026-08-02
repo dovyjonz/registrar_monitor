@@ -1,5 +1,4 @@
 const MANIFEST_VERSION = 1;
-const DATA_MODEL_VERSION_V2 = 2;
 const DATA_MODEL_VERSION_V3 = 3;
 const SUMMARY_SCHEMA_VERSION = 1;
 const DEPARTMENT_SCHEMA_VERSION = 1;
@@ -76,13 +75,12 @@ function requireArray(value, context) {
     return value;
 }
 
-function validateSnapshot(value, context, allowNullFields = false) {
+function validateSnapshot(value, context) {
     if (value === null) return;
     const snapshot = requireRecord(value, context);
     const fields = ['id', 'observedAt', 'overallFill'];
     for (const field of fields) {
         const fieldValue = snapshot[field];
-        if (allowNullFields && fieldValue === null) continue;
         if (field === 'id') {
             if (!Number.isInteger(fieldValue)) {
                 throw new Error(`${context}.id must be an integer`);
@@ -107,22 +105,14 @@ function validateMilestones(milestones, context) {
 function validateBlobReference(
     reference,
     context,
-    dataModelVersion,
     schemaVersion = DEPARTMENT_SCHEMA_VERSION,
 ) {
     const value = requireRecord(reference, context);
-    if (dataModelVersion === DATA_MODEL_VERSION_V3) {
-        requireSupportedVersion(
-            value.schemaVersion,
-            schemaVersion,
-            `${context} schema`,
-        );
-    } else if (Object.hasOwn(value, 'schemaVersion')) {
-        throw new UnsupportedSchemaError(
-            `${context} schema`,
-            value.schemaVersion,
-        );
-    }
+    requireSupportedVersion(
+        value.schemaVersion,
+        schemaVersion,
+        `${context} schema`,
+    );
     requireString(value.url, `${context}.url`);
     if (typeof value.sha256 !== 'string' || !SHA256_PATTERN.test(value.sha256)) {
         throw new Error(`${context}.sha256 must be a SHA-256 hex digest`);
@@ -154,21 +144,21 @@ export function validateManifest(manifest) {
         MANIFEST_VERSION,
         'manifest',
     );
-    if (![DATA_MODEL_VERSION_V2, DATA_MODEL_VERSION_V3].includes(value.dataModelVersion)) {
-        throw new UnsupportedSchemaError('data model', value.dataModelVersion);
-    }
+    requireSupportedVersion(
+        value.dataModelVersion,
+        DATA_MODEL_VERSION_V3,
+        'data model',
+    );
     requireString(value.buildId, 'manifest.buildId');
     requireString(value.semester, 'manifest.semester');
     requireString(value.generatedAt, 'manifest.generatedAt');
     validateSnapshot(
         value.currentSnapshot,
         'manifest.currentSnapshot',
-        value.dataModelVersion === DATA_MODEL_VERSION_V2,
     );
     validateBlobReference(
         value.summary,
         'manifest.summary',
-        value.dataModelVersion,
         SUMMARY_SCHEMA_VERSION,
     );
 
@@ -178,7 +168,6 @@ export function validateManifest(manifest) {
         validateBlobReference(
             reference,
             `manifest.departments.${department}`,
-            value.dataModelVersion,
         );
     }
     return value;
@@ -227,43 +216,8 @@ function validateV3Summary(summary, semester) {
     return summary;
 }
 
-function validateLegacySummary(summary, semester) {
-    const value = requireRecord(summary, 'v2 summary');
-    const data = requireRecord(value.data, 'v2 summary.data');
-    if (value.semester !== undefined && value.semester !== semester) {
-        throw new Error('v2 summary semester does not match the manifest');
-    }
-    if (data.sem !== undefined && data.sem !== semester) {
-        throw new Error('v2 summary.data semester does not match the manifest');
-    }
-    if (value.semester === undefined && data.sem === undefined) {
-        throw new Error('v2 summary has no semester identity');
-    }
-    if (data.lrt !== undefined && data.lrt !== null) {
-        requireText(data.lrt, 'v2 summary.data.lrt');
-    }
-    if (data.sn !== undefined) requireArray(data.sn, 'v2 summary.data.sn');
-    validateMilestones(
-        value.milestones === undefined ? [] : value.milestones,
-        'v2 summary.milestones',
-    );
-
-    const courses = requireRecord(data.cr, 'v2 summary.data.cr');
-    for (const [code, courseValue] of Object.entries(courses)) {
-        const course = requireRecord(courseValue, `v2 summary.data.cr.${code}`);
-        requireRecord(course.s, `v2 summary.data.cr.${code}.s`);
-    }
-    return value;
-}
-
-export function validateSummary(summary, semester, dataModelVersion = DATA_MODEL_VERSION_V3) {
+export function validateSummary(summary, semester) {
     const value = requireRecord(summary, 'semester summary');
-    if (dataModelVersion === DATA_MODEL_VERSION_V2) {
-        return validateLegacySummary(value, semester);
-    }
-    if (dataModelVersion !== DATA_MODEL_VERSION_V3) {
-        throw new UnsupportedSchemaError('data model', dataModelVersion);
-    }
     return validateV3Summary(value, semester);
 }
 
@@ -371,44 +325,8 @@ function validateV3Department(payload, semester, department) {
     return payload;
 }
 
-function validateLegacyDepartment(payload, semester, department) {
-    const value = requireRecord(payload, 'v2 department');
-    if (value.semester !== semester) {
-        throw new Error('v2 department semester does not match the manifest');
-    }
-    if (value.department !== department) {
-        throw new Error('v2 department name does not match the requested department');
-    }
-    const courses = requireRecord(value.courses, 'v2 department.courses');
-    for (const [code, courseValue] of Object.entries(courses)) {
-        const course = requireRecord(courseValue, `v2 department.courses.${code}`);
-        const sections = requireRecord(course.s, `v2 department.courses.${code}.s`);
-        for (const [sectionCode, sectionValue] of Object.entries(sections)) {
-            const section = requireRecord(
-                sectionValue,
-                `v2 department.courses.${code}.s.${sectionCode}`,
-            );
-            if (section.h !== undefined) requireArray(section.h, `${code}.${sectionCode}.h`);
-        }
-        if (course.ah !== undefined) requireArray(course.ah, `${code}.ah`);
-        if (course.ev !== undefined) requireArray(course.ev, `${code}.ev`);
-    }
-    return value;
-}
-
-export function validateDepartmentPayload(
-    payload,
-    semester,
-    department,
-    dataModelVersion = DATA_MODEL_VERSION_V3,
-) {
+export function validateDepartmentPayload(payload, semester, department) {
     const value = requireRecord(payload, 'department payload');
-    if (dataModelVersion === DATA_MODEL_VERSION_V2) {
-        return validateLegacyDepartment(value, semester, department);
-    }
-    if (dataModelVersion !== DATA_MODEL_VERSION_V3) {
-        throw new UnsupportedSchemaError('data model', dataModelVersion);
-    }
     return validateV3Department(value, semester, department);
 }
 
@@ -460,18 +378,6 @@ async function fetchVerifiedJson(url, reference, options) {
     } catch (error) {
         throw new Error(`Invalid JSON in ${url}: ${error.message}`, { cause: error });
     }
-}
-
-function adaptV2Summary(payload, semester) {
-    // The v2 shape is intentionally retained for the old frontend contract;
-    // validation here is the bounded compatibility adapter until Release B.
-    return validateLegacySummary(payload, semester);
-}
-
-function adaptV2Department(payload, semester, department) {
-    // v2 department details retain global snapshot indexes and are consumed by
-    // the v2 compatibility path. Do not reinterpret them as v3 local indexes.
-    return validateLegacyDepartment(payload, semester, department);
 }
 
 function adaptV3Summary(payload, semester) {
@@ -575,9 +481,7 @@ async function loadManifestVersion(reference, pointerUrl, options) {
         manifest.summary,
         options,
     );
-    const payload = manifest.dataModelVersion === DATA_MODEL_VERSION_V2
-        ? adaptV2Summary(rawPayload, manifest.semester)
-        : adaptV3Summary(rawPayload, manifest.semester);
+    const payload = adaptV3Summary(rawPayload, manifest.semester);
     return { manifest, manifestUrl, payload };
 }
 
@@ -627,13 +531,6 @@ export function loadDepartmentPayload(
                 signal,
                 cryptoImpl,
             });
-            if (validatedManifest.dataModelVersion === DATA_MODEL_VERSION_V2) {
-                return adaptV2Department(
-                    rawPayload,
-                    validatedManifest.semester,
-                    department,
-                );
-            }
             return adaptV3Department(
                 rawPayload,
                 validatedManifest.semester,

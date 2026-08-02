@@ -36,12 +36,14 @@ test('generated production site serves a working semester dashboard', async ({ p
     await expect(page.locator('body')).not.toContainText('Loading enrollment data...');
     await expect(page.locator('#courseGrid')).toBeVisible();
 
-    const payloadUrl = await page.locator('body').getAttribute('data-json-url');
-    expect(payloadUrl).toBeTruthy();
-    expect(payloadUrl).toMatch(/^data\/[^/]+\/manifest\.json$/);
-    const payloadResponse = await page.request.get(new URL(payloadUrl, page.url()).href);
-    expect(payloadResponse.ok()).toBe(true);
-    expect(await payloadResponse.json()).toBeTruthy();
+    const manifestPointerUrl = await page.locator('body').getAttribute('data-manifest-url');
+    expect(manifestPointerUrl).toBeTruthy();
+    expect(manifestPointerUrl).toMatch(/^data\/[^/]+\/manifest\.json$/);
+    const manifestPointerResponse = await page.request.get(
+        new URL(manifestPointerUrl, page.url()).href,
+    );
+    expect(manifestPointerResponse.ok()).toBe(true);
+    expect(await manifestPointerResponse.json()).toBeTruthy();
 
     expect(jsonRequests.some(url => /\/data\/[^/]+\/manifest\.json$/.test(url))).toBe(true);
     expect(jsonRequests.some(url => /\/data\/[^/]+\/manifests\/.+\.json$/.test(url))).toBe(true);

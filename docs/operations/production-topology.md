@@ -2,8 +2,10 @@
 
 This is the current operator-facing description of Registrar Monitor production.
 The full host was inspected on 2026-07-28; systemd, processes, and cron were
-re-verified after cleanup on 2026-07-29. Runtime timestamps use `Asia/Almaty`
-unless stated otherwise.
+re-verified after cleanup on 2026-07-29. Step 3 database migration, Step 4
+storage-mode rollout, Step 5 historical finalization, and the stopped Step 6 /
+Step 7 state were verified on 2026-08-02. Runtime timestamps use
+`Asia/Almaty` unless stated otherwise.
 
 ## Evidence labels
 
@@ -20,10 +22,15 @@ unless stated otherwise.
 | Obsolete systemd unit | **Removed** | `registrar-monitor.service` is absent and `LoadState=not-found` |
 | Cron daemon | **Active** | `cron.service` active |
 | Registrar Monitor cron jobs | **None active** | Zero matching entries for runtime user, root, SSH operator, and system cron |
+| Step 3 database migration | **Applied and verified** | Five semester databases are schema v2/complete; evidence is retained under `/home/dmitry_s_ivanenko/registrar_monitor/output/migration/` |
+| Step 4 storage-mode rollout | **Completed; superseded by Step 5** | All five historical databases completed serial `legacy -> shadow -> v2`; the finalization step now makes their reads v2-only |
+| Step 5 historical finalization | **Finalized and verified** | All five historical databases are configured/persisted `finalized`; legacy tables retired; rollback archives retained; integrity and foreign-key checks pass |
+| Step 6 Fall 2026 qualification | **Completed at bounded operational scope** | Fresh schema-v2 initialization, one controlled Fall 2026 ingest, exact legacy/v2 parity, and audited `shadow -> v2` promotion passed; the existing broad compatibility evaluator was stopped after exceeding the requested test boundary |
+| Step 7 stopped completion state | **Recorded** | Fall 2026 is configured/persisted `v2`; v2 reads return snapshot 1; `registrarmonitor.service` remains loaded, failed/inactive, and disabled |
 | Latest successful poll | **Stale** | 2026-06-10 15:32:18 +05 |
 | Latest successful report | **Stale** | 2026-06-10 15:32:23 +05 |
 | Latest successful Pages deployment | **Stale** | 2026-06-10 15:33:17 +05 |
-| Database backups | **Unconfirmed** | No local job or backup files found in bounded locations |
+| Recurring database backup policy | **Unconfirmed** | Step 3 migration backup artifacts are verified in the evidence directory; recurring ownership and retention remain open |
 
 Monitoring must remain paused until the planned data changes are complete and an
 operator explicitly verifies them. Repository setup, code deployment, and unit
@@ -42,11 +49,26 @@ installation do not authorize activation.
 | Project root | `/home/dmitry_s_ivanenko/registrar_monitor` |
 | Database directory | `/home/dmitry_s_ivanenko/registrar_monitor/data` |
 | Environment file | `/home/dmitry_s_ivanenko/registrar_monitor/.env` |
-| Last inspected deployed revision | prefix `668893f` |
+| Migration evidence directory | `/home/dmitry_s_ivanenko/registrar_monitor/output/migration/` |
+| Last inspected target revision | prefix `aa9334e8` |
 
-The deployed checkout predates the repository revision used for this document.
-The `.env` exists with restrictive permissions; its contents were not printed or
-copied.
+The target checkout used for the Step 3 apply, Step 4 mode transitions, and
+Step 5 finalizations is based on the approved revision
+`aa9334e838d951a99cf7de8cffc351cdab68b6c2`. The four fresh-semester runtime
+modules were synchronized as a working-tree implementation change for Step 6;
+the target's historical settings edits were preserved. The last observed Pages deployment
+remains at the older source revision recorded below. The `.env` exists with
+restrictive permissions; its contents were not printed or copied.
+
+The controlled Fall 2026 download observed `2026-08-02 18:49:38`, wrote one
+snapshot (sequence 1; 404 courses and 884 sections) to both representations,
+and retained the initialization and v2-promotion reports under
+`/home/dmitry_s_ivanenko/registrar_monitor/output/migration/`. The direct
+post-ingest parity check and final `DatabaseManager` v2 read passed. The
+existing evaluator was attempted once against the full raw corpus and once
+against the single controlled file, but both runs exceeded the requested
+bounded test window and were stopped; no evaluator report is treated as
+production evidence.
 
 ## Process supervision
 
@@ -129,9 +151,12 @@ an operator-invoked backup command. No Registrar Monitor backup files, cron job,
 systemd timer/service, Restic job, or Borg job were found in the bounded local
 locations inspected on 2026-07-28.
 
-This does not establish whether Google Cloud disk snapshots or another off-host
-backup mechanism exists. Backup ownership, retention, RPO/RTO, encryption, and
-restore-test history remain unknown.
+The 2026-08-02 Step 3 apply reports, verified backup/restore-check archives,
+and Step 5 finalization rollback archives are retained in
+`/home/dmitry_s_ivanenko/registrar_monitor/output/migration/`. This is
+migration evidence, not a recurring backup policy. Backup ownership, retention,
+RPO/RTO, encryption, and restore-test history outside these apply artifacts
+remain unknown.
 
 ## Open operator decisions
 

@@ -15,7 +15,6 @@ from typing import Any
 PublicationHook = Callable[[str, str], None]
 
 MANIFEST_VERSION = 1
-DATA_MODEL_VERSION_V2 = 2
 DATA_MODEL_VERSION_V3 = 3
 SUMMARY_SCHEMA_VERSION = 1
 DEPARTMENT_SCHEMA_VERSION = 1
@@ -164,7 +163,7 @@ def _resolve_timestamp(
     *,
     required: bool,
 ) -> str | None:
-    """Resolve a legacy snapshot index or direct timestamp to a string."""
+    """Resolve a snapshot index or direct timestamp to a string."""
     index = _value(value, "timestampIdx", "snapshotIdx", "i", default=_MISSING)
     if index is not _MISSING:
         if isinstance(index, bool) or not isinstance(index, int):
@@ -530,6 +529,8 @@ def _validate_snapshot(value: Any, context: str, *, allow_none: bool = False) ->
 
 
 def _validate_summary_v3(summary: dict[str, Any], semester: str) -> None:
+    if not isinstance(summary, dict):
+        raise TypeError("semester summary must be an object")
     if summary.get("schemaVersion") != SUMMARY_SCHEMA_VERSION:
         raise ValueError("semester summary has an unsupported schemaVersion")
     if summary.get("kind") != "semester-summary":
@@ -607,6 +608,8 @@ def _validate_index(index: Any, timestamp_count: int, context: str) -> int:
 def _validate_department_v3(
     department_payload: dict[str, Any], semester: str, department: str
 ) -> None:
+    if not isinstance(department_payload, dict):
+        raise TypeError(f"department {department} must be an object")
     if department_payload.get("schemaVersion") != DEPARTMENT_SCHEMA_VERSION:
         raise ValueError(f"department {department} has an unsupported schemaVersion")
     if department_payload.get("kind") != "department-detail":
@@ -728,19 +731,6 @@ def _validate_department_v3(
         )
 
 
-def _validate_legacy_payloads(
-    summary: dict[str, Any], departments: dict[str, dict[str, Any]]
-) -> None:
-    """Keep the phase-1 compatibility path safe without imposing the v3 shape."""
-    if not isinstance(summary, dict):
-        raise TypeError("legacy summary must be an object")
-    if not isinstance(departments, dict):
-        raise TypeError("legacy departments must be an object")
-    for department, payload in departments.items():
-        if not isinstance(department, str) or not isinstance(payload, dict):
-            raise TypeError("legacy department payloads must be named objects")
-
-
 def build_frontend_payloads_v3(
     *,
     data: dict[str, Any],
@@ -829,40 +819,6 @@ def build_frontend_payloads_v3(
     return summary, departments
 
 
-def build_legacy_frontend_payloads(
-    *,
-    data: dict[str, Any],
-    milestones: list[dict[str, str]],
-    semester: str,
-) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-    """Compatibility adapter for the pre-v3 frontend payload shape."""
-    summary_courses: dict[str, Any] = {}
-    departments: dict[str, dict[str, Any]] = {}
-
-    for code, course_value in sorted(data.get("cr", {}).items()):
-        course = dict(_mapping(course_value, f"data.cr.{code}"))
-        department = str(course.get("d") or code.split()[0])
-        departments.setdefault(
-            department,
-            {"semester": semester, "department": department, "courses": {}},
-        )["courses"][code] = _copy_json_value(course_value)
-
-        course.pop("ah", None)
-        course.pop("ev", None)
-        course["s"] = {
-            section_code: {key: value for key, value in section.items() if key != "h"}
-            for section_code, section in course.get("s", {}).items()
-        }
-        summary_courses[code] = course
-
-    summary_data = dict(data)
-    summary_data["cr"] = summary_courses
-    return (
-        {"data": summary_data, "milestones": milestones, "semester": semester},
-        departments,
-    )
-
-
 def publish_semester(
     output_root: Path,
     *,
@@ -883,50 +839,23 @@ def publish_semester(
 
     if not isinstance(departments, dict):
         raise TypeError("departments must be an object")
-    is_v3 = isinstance(summary, dict) and any(
-        key in summary for key in ("schemaVersion", "kind")
-    )
-    if is_v3:
-        _validate_summary_v3(summary, semester)
-        for department, payload in departments.items():
-            _validate_department_v3(payload, semester, department)
-        data_model_version = DATA_MODEL_VERSION_V3
-    else:
-        _validate_legacy_payloads(summary, departments)
-        data_model_version = DATA_MODEL_VERSION_V2
+    _validate_summary_v3(summary, semester)
+    for department, payload in departments.items():
+        _validate_department_v3(payload, semester, department)
 
-    if is_v3:
-        if current_snapshot is None:
-            normalised_snapshot = None
-            effective_generated_at = generated_at or EMPTY_GENERATED_AT
-        else:
-            normalised_snapshot = _normalise_snapshot(
-                _mapping(current_snapshot, "currentSnapshot"),
-                "currentSnapshot",
-            )
-            effective_generated_at = generated_at or normalised_snapshot["observedAt"]
-            if (
-                not isinstance(effective_generated_at, str)
-                or not effective_generated_at
-            ):
-                raise ValueError(
-                    "generated_at is required when currentSnapshot.observedAt is unavailable"
-                )
+    if current_snapshot is None:
+        normalised_snapshot = None
+        effective_generated_at = generated_at or EMPTY_GENERATED_AT
     else:
-        raw_current_snapshot = _mapping(current_snapshot, "currentSnapshot")
-        # The pre-v3 service can publish an empty semester with null snapshot
-        # metadata. Preserve that compatibility shape, but keep its fallback
-        # deterministic now that wall-clock generation is no longer allowed.
-        normalised_snapshot = {
-            "id": raw_current_snapshot.get("id"),
-            "observedAt": raw_current_snapshot.get("observedAt"),
-            "overallFill": raw_current_snapshot.get("overallFill"),
-        }
+        normalised_snapshot = _normalise_snapshot(
+            _mapping(current_snapshot, "currentSnapshot"),
+            "currentSnapshot",
+        )
         effective_generated_at = generated_at or normalised_snapshot["observedAt"]
-        if effective_generated_at is None:
-            effective_generated_at = EMPTY_GENERATED_AT
         if not isinstance(effective_generated_at, str) or not effective_generated_at:
-            raise ValueError("generated_at must be a non-empty string")
+            raise ValueError(
+                "generated_at is required when currentSnapshot.observedAt is unavailable"
+            )
 
     summary_payload = _canonical_bytes(summary)
     summary_hash = _sha256(summary_payload)
@@ -939,9 +868,9 @@ def publish_semester(
     }
     identity = {
         "manifestVersion": MANIFEST_VERSION,
-        "dataModelVersion": data_model_version,
-        "summarySchemaVersion": (summary.get("schemaVersion") if is_v3 else None),
-        "departmentSchemaVersion": (DEPARTMENT_SCHEMA_VERSION if is_v3 else None),
+        "dataModelVersion": DATA_MODEL_VERSION_V3,
+        "summarySchemaVersion": SUMMARY_SCHEMA_VERSION,
+        "departmentSchemaVersion": DEPARTMENT_SCHEMA_VERSION,
         "semester": semester,
         "currentSnapshot": normalised_snapshot,
         "summary": summary_hash,
@@ -974,20 +903,20 @@ def publish_semester(
 
     manifest = {
         "manifestVersion": MANIFEST_VERSION,
-        "dataModelVersion": data_model_version,
+        "dataModelVersion": DATA_MODEL_VERSION_V3,
         "buildId": build_id,
         "semester": semester,
         "generatedAt": effective_generated_at,
         "currentSnapshot": normalised_snapshot,
         "summary": {
-            **({"schemaVersion": SUMMARY_SCHEMA_VERSION} if is_v3 else {}),
+            "schemaVersion": SUMMARY_SCHEMA_VERSION,
             "url": f"../../blobs/{summary_hash}.json",
             "sha256": summary_hash,
             "bytes": len(summary_payload),
         },
         "departments": {
             name: {
-                **({"schemaVersion": DEPARTMENT_SCHEMA_VERSION} if is_v3 else {}),
+                "schemaVersion": DEPARTMENT_SCHEMA_VERSION,
                 "url": f"../../blobs/{department_hashes[name]}.json",
                 "sha256": department_hashes[name],
                 "bytes": len(department_payloads[name]),

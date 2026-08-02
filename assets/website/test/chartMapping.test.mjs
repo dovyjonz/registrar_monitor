@@ -94,3 +94,31 @@ test('section chart points keep tooltip and capacity marker metadata on the sour
         capacityChanged: true,
     });
 });
+
+test('average chart points surface section capacity changes at course level', () => {
+    const courseWithStableAverage = {
+        ah: [
+            { i: 0, f: 0.50 },
+            { i: 2, f: 0.50 },
+        ],
+        s: {
+            A: {
+                h: [
+                    { i: 0, f: 0.50, e: 10, c: 20 },
+                    { i: 1, f: 0.50, e: 15, c: 30 },
+                    { i: 2, f: 0.50, e: 15, c: 30 },
+                ],
+            },
+        },
+    };
+
+    const points = buildAverageChartPoints(courseWithStableAverage, snapshots);
+
+    assert.deepEqual(points.map(point => point.snapshotIdx), [0, 1, 2]);
+    assert.deepEqual(points[1].capacityChanges, [{
+        sectionCode: 'A',
+        previousCapacity: 20,
+        capacity: 30,
+    }]);
+    assert.equal(points[1].capacityChanged, true);
+});

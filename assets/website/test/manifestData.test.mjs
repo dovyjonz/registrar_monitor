@@ -93,24 +93,6 @@ function v3Manifest(summaryArtifact, departmentArtifacts = {}, overrides = {}) {
     };
 }
 
-function v2Manifest(summaryArtifact, overrides = {}) {
-    return {
-        manifestVersion: 1,
-        dataModelVersion: 2,
-        buildId: 'v2-build',
-        semester: SEMESTER,
-        generatedAt: '2026-05-31T00:00:00+00:00',
-        currentSnapshot: {
-            id: 1,
-            observedAt: '2026-05-31T00:00:00+00:00',
-            overallFill: 0,
-        },
-        summary: summaryArtifact.reference,
-        departments: {},
-        ...overrides,
-    };
-}
-
 function pointer(current = 'manifests/current.json', previous = null) {
     return { manifestVersion: 1, current, previous };
 }
@@ -324,17 +306,12 @@ test('summary semester identity mismatch is rejected', async () => {
     );
 });
 
-test('current failure falls back to a validated v2 previous manifest', async () => {
-    const v2Summary = {
-        semester: SEMESTER,
-        milestones: [],
-        data: { sem: SEMESTER, lrt: null, sn: [], cr: {} },
-    };
+test('current failure falls back to a validated v3 previous manifest', async () => {
     const summaryArtifact = await artifact(
-        v2Summary,
-        'https://example.test/data/blobs/v2-summary.json',
+        emptyV3Summary(),
+        'https://example.test/data/blobs/previous-summary.json',
     );
-    const previousManifest = v2Manifest(summaryArtifact);
+    const previousManifest = v3Manifest(summaryArtifact);
     const fetchImpl = async url => {
         const value = String(url);
         if (value.endsWith('/manifest.json')) {
@@ -351,9 +328,34 @@ test('current failure falls back to a validated v2 previous manifest', async () 
     );
 
     assert.equal(loaded.stale, true);
-    assert.equal(loaded.manifest.dataModelVersion, 2);
+    assert.equal(loaded.manifest.dataModelVersion, 3);
     assert.match(loaded.manifestUrl, /previous\.json$/);
-    assert.deepEqual(loaded.payload, v2Summary);
+    assert.deepEqual(loaded.payload.data.cr, {});
+});
+
+test('v2 manifests are rejected without loading blobs', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    let summaryFetches = 0;
+    const fetchImpl = async url => {
+        if (String(url).endsWith('/manifest.json')) return jsonResponse(pointer());
+        if (String(url).endsWith('/manifests/current.json')) {
+            return jsonResponse(v3Manifest(summaryArtifact, {}, { dataModelVersion: 2 }));
+        }
+        summaryFetches += 1;
+        return bytesResponse(summaryArtifact);
+    };
+
+    await assert.rejects(
+        loadSemesterManifest(
+            'https://example.test/data/summer-2026/manifest.json',
+            { fetchImpl, cryptoImpl: webcrypto },
+        ),
+        error => error instanceof UnsupportedSchemaError,
+    );
+    assert.equal(summaryFetches, 0);
 });
 
 test('department payload is validated, promise-cached, and fetched once', async () => {

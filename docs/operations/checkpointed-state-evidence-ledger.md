@@ -1,16 +1,32 @@
 # Checkpointed-state production evidence ledger
 
-Updated 2026-08-02. This ledger records evidence state; it does not authorize a
-migration, storage-mode change, deployment, finalization, or service activation.
-Monitoring must remain stopped.
+Updated 2026-08-02 after the authorized target-host Step 3 applies, Step 4 mode
+transitions, Step 5 historical finalizations, and the stopped Fall 2026 Step 6 /
+Step 7 rollout. This ledger records evidence state; it does not authorize a
+deployment or service activation. Monitoring must remain stopped.
 
-| Semester | Mode | Dry run | Backup | Apply | Shadow | v2 reads | Static pointer | Rollback readiness |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Summer 2025 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Isolated pointer/browser passed; not deployed | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Spring 2025 | legacy-preserving | Local candidate and 16/16 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Fall 2025 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Spring 2026 | legacy-preserving | Local candidate and 22/22 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
-| Summer 2026 | raw-enriched | Local candidate and 12/12 sampled recovery scenarios passed; target-host dry run pending approved revision sync (unmarked user_version=0 is now supported) | Workspace backup and restore-check verified | Workspace schema apply verified; production apply not authorized | Not authorized | Not authorized | Legacy/current | Legacy tables retained; regional snapshot READY; target source and runtime revision pending |
+| Semester | Metadata mode | Active mode | Dry run | Backup | Apply | Shadow | Finalization / reads | Static pointer | Rollback readiness |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Summer 2025 | raw-enriched | `finalized` | Pre-existing production v2/complete state verified; not rerun | Regional snapshot verified `READY`/`UP_TO_DATE`; no new apply backup needed | Already complete before this rollout; verified, not reapplied | Completed serially; 70/70 snapshots, latest ID 58, integrity `ok`, zero foreign keys | Finalized serially; configured and persisted `finalized`; latest state unchanged; 2 checkpoints | Existing isolated pointer/browser evidence reused; not deployed | Legacy tables retired; rollback archive hash verified |
+| Spring 2025 | legacy-preserving | `finalized` | Target-host dry run passed; rehearsal stopped after a disk-I/O stall per operator instruction | Production backup and restore-check verified | Applied 2026-08-02; all Step 3 gates passed | Completed serially; 254/254 snapshots, latest ID 110, integrity `ok`, zero foreign keys | Finalized serially; configured and persisted `finalized`; latest state unchanged; 4 checkpoints | Existing isolated website evidence reused; not deployed | Legacy tables retired; rollback archive hash verified |
+| Fall 2025 | legacy-preserving | `finalized` | Target-host dry run passed | Production backup and restore-check verified | Applied 2026-08-02; all Step 3 gates passed | Completed serially; 497/497 snapshots, latest ID 497, integrity `ok`, zero foreign keys | Finalized serially; configured and persisted `finalized`; latest state unchanged; 8 checkpoints | Existing isolated website evidence reused; not deployed | Legacy tables retired; rollback archive hash verified |
+| Spring 2026 | legacy-preserving | `finalized` | Target-host dry run passed | Production backup and restore-check verified | Applied 2026-08-02; all Step 3 gates passed | Completed serially; 495/495 snapshots, latest ID 495, integrity `ok`, zero foreign keys | Finalized serially; configured and persisted `finalized`; latest state unchanged; 8 checkpoints | Existing isolated website evidence reused; not deployed | Legacy tables retired; rollback archive hash verified |
+| Summer 2026 | raw-enriched | `finalized` | Target-host dry run passed after three raw files were restored; 3,263 files scanned, 1,970 matched, 0 missing/conflicting/parse failures | Production backup and restore-check verified | Applied 2026-08-02; all Step 3 gates passed | Completed serially; 1,970/1,970 snapshots, latest ID 1,970, integrity `ok`, zero foreign keys | Finalized serially; configured and persisted `finalized`; latest state unchanged; 22 checkpoints | Existing isolated website evidence reused; not deployed | Legacy tables retired; rollback archive hash verified |
+| Fall 2026 | legacy-preserving | `v2` | Fresh initializer and controlled ingest completed; sequence 1; integrity `ok`; zero foreign keys | Existing verified target protection retained; no historical migration backup required | Fresh schema-v2 initialization completed; one real registrar observation written atomically | Initialized in `shadow`; 404/404 course identities, 884/884 section identities, and latest snapshot parity passed | Promoted serially to configured/persisted `v2`; v2 `DatabaseManager` read snapshot 1 with 404 courses; legacy tables retained | Not generated or deployed | Active semester; not finalized; compatibility tables retained |
+
+All five production databases now report `user_version=2`, SQLite integrity
+`ok`, zero foreign-key violations, `migration_phase=finalized`, and active mode
+`finalized`. Each finalization retained a verified rollback archive, retired
+legacy tables, preserved the latest reconstructed state and reporting position,
+and passed the post-finalization website read. No synthetic historical
+observations were written. Deployment and service activation were not
+performed.
+
+Fall 2026 now reports `user_version=2`, SQLite integrity `ok`, zero
+foreign-key violations, `migration_phase=complete`, and active mode `v2`.
+The v2 and retained legacy representations have exact catalog, snapshot, and
+latest-state parity. Fall 2026 was not finalized and its compatibility tables
+remain enabled.
 
 ## Repository evidence
 
@@ -30,7 +46,7 @@ Monitoring must remain stopped.
 - `monitor deploy --output-dir` builds only `assets/website/src/main.js` into an
   isolated tree and refuses deployment. The production public tree is not its
   build destination.
-- Browser coverage targets the deployed legacy frontend and verifies manifest
+- Browser coverage targets the deployed v3 manifest frontend and verifies manifest
   fetch order, no startup department history, one lazy department fetch with
   cache reuse, current-manifest fallback with a visible stale label, keyboard
   modal operation, focus restoration, and basic accessible naming/ID checks.
@@ -48,36 +64,49 @@ Each semester uses its lowercase hyphenated slug in these durable locations:
 - Browser report: `output/playwright/report/`
 - Production benchmark: `output/migration/summer-2025-benchmark.json`
 - Applied migration report: `output/migration/summer-2025-apply.json` and `.md`
+- Fall 2026 fresh initialization report: `output/migration/fall-2026-initialize.json` and `.md`
+- Fall 2026 v2 promotion report: `output/migration/fall-2026-v2.json` and `.md`
 
 Equivalent evidence exists for `spring-2025`, `fall-2025`, `spring-2026`, and
 `summer-2026`.
 
-Each apply report records its backup and restore-check paths. The five local
-workspace backup pairs are under `output/migration/backups/`; production backup
-and restore evidence remain pending.
+Each apply report records its backup and restore-check paths. The durable
+production evidence folder is:
 
-## Current authorization boundary
+`/home/dmitry_s_ivanenko/registrar_monitor/output/migration/`
 
-Read-only target-host verification on 2026-08-01 confirmed the expected VM is
-`RUNNING`, its 30 GB boot disk is `instance-20260501-152532`, and the regional
-standard snapshot `registrar-monitor-pre-migration-20260801` is already
-`READY`/`UP_TO_DATE` in `us-east1`. Do not create a second snapshot. The
-canonical `registrarmonitor.service` remains failed/inactive and disabled, the
-obsolete unit is `not-found`, cron is active, and no monitor process was found.
+It contains the target-host JSON reports, candidate databases, and the verified
+per-apply backup/restore-check pairs for Spring 2025, Fall 2025, Spring 2026,
+and Summer 2026. Summer 2025 was already v2/complete and was not reapplied.
+This folder is runtime output and is intentionally not tracked in the repository.
 
-The target checkout is clean at revision `c96b9f100a7e97ebf5eca275fde1700fcd696e8d`
-(`c96b9f10`). It does not contain the current local write changes or the
-explicit-authorization guard, which remain uncommitted in the workspace. The
-target runtime user cannot read `.env` (`0600 spook:spook`); no secret contents
-were read or changed. Aggregate target raw-corpus inventory is 3,260 files,
-3,260 XLS/XLSX files, and 1,057,168,900 bytes. The five target source
-databases are integrity-clean with zero foreign keys, and all report
-`user_version=0`; the current workspace runner accepts that value when the
-normalized legacy table shape is present. Target snapshot counts remain
-`0/254/497/495/1970` in migration order. The earlier Summer 2025 target dry run
-used the older deployed runner and stopped at `unsupported source schema version
-0` before a candidate or live write; rerun all five target-host dry runs after
-the approved revision is synchronized.
+Step 5 finalization reports and verified rollback archives are retained under:
+
+`/home/dmitry_s_ivanenko/registrar_monitor/output/migration/rollback/`
+
+## Current production evidence boundary
+
+The authorized Step 3, Step 4, and Step 5 run completed on 2026-08-02 against the `RUNNING` VM
+`instance-20260501-152532` in `us-east1-c`. The regional standard snapshot
+`registrar-monitor-pre-migration-20260801` remains `READY`/`UP_TO_DATE`; do not
+create a second snapshot. The canonical `registrarmonitor.service` remains
+failed/inactive and disabled, and no monitoring process was started.
+
+The target checkout used for the apply was based on the approved revision
+`aa9334e838d951a99cf7de8cffc351cdab68b6c2` (`aa9334e8`). The four
+fresh-semester runtime modules were synchronized as a working-tree
+implementation change for Step 6. The target raw corpus contains 3,263 `.xls`
+files, including the three Summer 2026 files restored before its successful
+raw-enriched dry run. The runtime `.env` was not read or changed.
+
+The controlled Fall 2026 download observed `2026-08-02 18:49:38` and wrote one
+snapshot (sequence 1; 404 courses and 884 sections) atomically to the v2 and
+retained legacy representations. The target reports are retained in the
+production evidence folder. The direct post-ingest parity/integrity gate and
+the final v2 `DatabaseManager` read passed. The existing evaluator was
+attempted once against the full raw corpus and once against the single
+controlled file, but both runs exceeded the requested bounded test window and
+were stopped; no evaluator report is accepted as production evidence.
 
 The disposable target prototype evaluator was staged only under `/tmp`. Its
 first run exposed and the workspace now fixes a read-only harness
@@ -86,15 +115,14 @@ work interval and was terminated. No evaluator remains, and the Spring 2026
 source hash stayed `7429fbf56aaa55caecfddaea8d1464fc923f52d2e38b1c357d013eb643ca2496`.
 This is not accepted v2-read evidence for the current writes.
 
-The first live apply is not yet approval-only. Technical blockers remain:
-sync the approved revision to the target without starting monitoring, resolve
-the runtime `.env` access boundary, reconcile the target source databases to
-the expected migration precondition without an unapproved live write, rerun
-all five target dry runs/rehearsals and v2-read checks, and resolve the failed
-end-to-end performance gate. Backup ownership, retention, RPO/RTO, and restore
-evidence also remain pending. After those gates pass, use one prepared
-`--apply --authorize` command per semester in the configured order; do not run
-any of them now.
+Step 3 schema migration, Step 4 mode promotion, and the authorized Step 5
+finalization are complete. The five historical databases are in active
+`finalized` mode with legacy tables retired and verified rollback archives
+retained; no synthetic historical writes were replayed. The local
+compatibility-write performance gate remains unresolved, but it does not block
+the frozen-semester finalization exception. Deployment and service activation
+remain separate gates. Ongoing backup ownership, retention, RPO/RTO, and
+encryption decisions remain separate from the verified migration artifacts.
 
 ## Five-semester local results
 
@@ -208,44 +236,68 @@ in the configured order.
   metrics. Regenerate results with the fixed harness, then either optimize the
   compatibility path or obtain an explicit decision on a revised threshold.
   Repeat the accepted test on the target host.
-- [ ] **Prepare and validate the target host.** Sync the approved repository
-  revision and dependencies without starting monitoring. Confirm the exact
-  `settings.toml` migration order, source databases, raw XLS corpus needed by
-  raw-enriched semesters, writable space, and backup/restore tooling. Run
-  target-host dry runs and bounded rehearsals for Summer 2025, Spring 2025,
-  Fall 2025, Spring 2026, and Summer 2026; repeat v2-read, freshness,
-  ID-preservation, integrity/foreign-key, and website/static-pointer/browser
-  checks.
+- [x] **Prepare and validate the target host.** The approved revision and
+  dependencies were synchronized without starting monitoring; the configured
+  databases and raw corpus were verified, and target-host dry runs passed for
+  the applied semesters. Standalone recovery rehearsal was not repeated after
+  the operator requested that testing be minimized. v2-read, freshness, and
+  website/static-pointer/browser rollout checks remain separate gates.
 - [ ] **Set the backup and authorization boundary.** Decide backup ownership,
   retention, RPO/RTO, and restore evidence. The existing regional standard
   disk snapshot is `READY`; retain it and verify its identity before any live
   apply. A replacement snapshot would require separate explicit authorization.
   Monitoring must remain stopped.
-- [ ] **Apply the historical migrations one at a time.** Run the approved
-  `--apply --authorize` command in the exact `storage.migration_order`; the
-  authorization flag is required separately for every semester. After each
-  semester, verify the migration report, backup/restore evidence,
-  `user_version`, `storage_control` phase, SQLite integrity and foreign keys,
-  source/target hashes where applicable, preserved IDs, and the
-  predecessor-completion marker before proceeding.
-- [ ] **Complete the storage rollout.** Run the approved `legacy -> shadow`
-  transition, perform a shadow dual-write/parity burn-in and v2-read/stateful-
-  reporting checks, and transition `shadow -> v2` only after the performance,
-  rollback, and parity evidence is accepted. Keep legacy tables until
-  compatibility retirement has its own evidence and authorization; finalization
-  is not an implicit part of the apply.
-- [ ] **Configure the new semester explicitly.** `settings.toml` now contains a
-  legacy-mode `[storage.semesters."Fall 2026"]` baseline, but Fall 2026 remains
-  outside `storage.migration_order` while it is a fresh semester. Change its
-  metadata/storage mode only through an approved rollout, and treat the new
-  semester database as a fresh operational baseline unless it contains
-  historical snapshots.
-- [ ] **Validate first-use readiness.** Initialize or verify the Fall 2026
-  database in the approved mode, run a controlled first ingest and report/site
-  generation in the target environment, and confirm the first snapshot, catalog,
-  integrity, website payload, and rollback evidence. Enabling or starting
-  `registrarmonitor.service` remains a separate explicit operator authorization
-  after these checks.
+- [x] **Apply the historical migrations one at a time.** Spring 2025, Fall
+  2025, Spring 2026, and Summer 2026 were applied in the configured order with
+  separate `--apply --authorize` invocations. Summer 2025 was already
+  v2/complete and was verified without a redundant apply. Each live apply was
+  followed by migration-report, backup/restore, schema, phase, integrity,
+  foreign-key, parity, reporting, and ID-preservation checks. The evidence is
+  retained under the production evidence folder above.
+- [x] **Complete the storage rollout.** Each historical semester completed the
+  approved serial `legacy -> shadow -> v2` transition on 2026-08-02 with
+  monitoring stopped. The transition reports and bounded post-transition checks
+  recorded configured/persisted `v2`, equal legacy/v2 snapshot counts, unchanged
+  latest state, integrity `ok`, and zero foreign-key violations. Existing
+  migration report and isolated website evidence was reused; no synthetic
+  historical observations were written. Keep legacy tables until compatibility
+  retirement has its own evidence and authorization; finalization is not an
+  implicit part of the apply.
+- [x] **Finalize the frozen historical semesters.** After explicit approval of
+  the frozen-semester exception, Summer 2025, Spring 2025, Fall 2025, Spring
+  2026, and Summer 2026 were finalized serially with monitoring stopped. Each
+  database now has configured/persisted `finalized` mode, a final checkpoint,
+  no legacy compatibility tables, a verified rollback archive, clean SQLite
+  integrity/foreign-key checks, and successful `DatabaseManager` plus website
+  reads. Fall 2026 remains active and is not finalized.
+- [x] **Configure the new semester explicitly.** `settings.toml` now contains a
+  configured `v2`-mode `[storage.semesters."Fall 2026"]` entry. Fall 2026
+  remains outside `storage.migration_order` and was handled by the
+  fresh-semester initializer rather than historical backfill.
+- [x] **Validate first-use readiness at the requested bounded scope.** The fresh
+  schema-v2 initializer, controlled first ingest, exact legacy/v2 parity,
+  integrity/foreign-key checks, and audited `shadow -> v2` promotion passed on
+  the target. The existing compatibility evaluator was attempted once against
+  the full raw corpus and once against the single controlled file, but both
+  exceeded the requested test window and were stopped; no evaluator report is
+  accepted as production evidence. Enabling or starting
+  `registrarmonitor.service` remains a separate explicit operator
+  authorization.
+
+## Step 6 and Step 7 stopped completion state
+
+The repository is stopped with the five historical semesters finalized as
+recorded above. Fall 2026 is schema v2 with configured/persisted mode `v2`, v2
+as the authoritative reader, retained legacy compatibility tables, and atomic
+dual writes still enabled. The controlled target ingest wrote the first real
+Fall 2026 observation as sequence 1; exact parity, integrity, and foreign-key
+checks passed. Fall 2026 was not finalized.
+
+`registrarmonitor.service` remains loaded, failed/inactive, and disabled. No
+normal monitoring, public website deployment, or service activation was
+performed. The broad compatibility evaluator was intentionally stopped after
+exceeding the requested test boundary; this is recorded as a testing
+limitation, not as production data evidence.
 
 ## Raw-enriched results
 
@@ -262,7 +314,7 @@ in the configured order.
 ## Website and repository verification
 
 - Static crawl: 1,008 pages passed from the isolated output tree; Playwright
-  passed 2/2 legacy-frontend scenarios.
+  passed 2/2 v3 frontend scenarios.
 - The 2026-08-01 full repository check passed formatting, lint, typing, 722
   Python tests (79.29% coverage), 12 frontend unit/build tests, and the
   production frontend build after the v2-only operational-reader changes.
@@ -270,8 +322,11 @@ in the configured order.
   in `SnapshotComparator`. Course and section traversal is now sorted, a
   mapping-insertion-order regression test passes, and all sampled Spring 2026
   recovery scenarios pass.
-- All candidates remain in legacy mode, so target-host v2-read benchmarks are
-  still required. The four failed local performance gates block live apply.
+- All five historical databases now use configured and persisted `finalized`
+  reads with legacy tables retired and rollback archives retained. The full
+  quantitative performance gate was not rerun per the rollout instruction; its
+  prior local compatibility-write result remains unresolved for active-semester
+  operations and does not change the frozen-semester finalization evidence.
 
 The protected files already present under `assets/website/public` remained
 outside the Jujutsu diff. The post-apply SHA-256 values of the local database

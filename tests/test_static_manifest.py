@@ -10,7 +10,6 @@ import pytest
 
 from registrarmonitor.website.static_manifest import (
     build_frontend_payloads_v3,
-    build_legacy_frontend_payloads,
     publish_semester,
     rollback_semester_pointer,
 )
@@ -22,33 +21,54 @@ def _publish(
     enrollment: int = 10,
     hook=None,
 ):
+    timestamp = f"2026-05-01T10:{enrollment:02}:00+00:00"
+    data = {
+        "sem": "Summer 2025",
+        "lrt": timestamp,
+        "sn": [
+            {"id": enrollment, "timestamp": timestamp, "overallFill": enrollment / 20}
+        ],
+        "cr": {
+            "CSCI 101": {
+                "d": "CSCI",
+                "ti": "Computer Science",
+                "af": enrollment / 20,
+                "if": False,
+                "ah": [{"i": 0, "f": enrollment / 20}],
+                "ev": [],
+                "s": {
+                    "1L": {
+                        "t": "L",
+                        "in": "Instructor",
+                        "ce": enrollment,
+                        "cc": 20,
+                        "cf": enrollment / 20,
+                        "h": [
+                            {
+                                "i": 0,
+                                "e": enrollment,
+                                "c": 20,
+                                "f": enrollment / 20,
+                            }
+                        ],
+                    }
+                },
+            }
+        },
+    }
+    summary, departments = build_frontend_payloads_v3(
+        data=data,
+        milestones=[],
+        semester="Summer 2025",
+    )
     return publish_semester(
         root,
         semester_slug="summer-2025",
         semester="Summer 2025",
-        generated_at=f"2026-05-01T10:{enrollment:02}:00+00:00",
-        current_snapshot={
-            "id": enrollment,
-            "observedAt": f"2026-05-01T10:{enrollment:02}:00+00:00",
-            "overallFill": enrollment / 20,
-        },
-        summary={
-            "courseRows": [
-                {
-                    "code": "CSCI 101",
-                    "department": "CSCI",
-                    "enrollmentTotal": enrollment,
-                }
-            ]
-        },
-        departments={
-            "CSCI": {
-                "courses": {
-                    "CSCI 101": {"sections": {"1L": {"enrollment": enrollment}}}
-                },
-                "timestamps": ["2026-05-01T10:00:00+00:00"],
-            }
-        },
+        generated_at=timestamp,
+        current_snapshot=summary["currentSnapshot"],
+        summary=summary,
+        departments=departments,
         hook=hook,
     )
 
@@ -456,40 +476,14 @@ def test_pointer_rollback_swaps_current_and_previous(tmp_path: Path) -> None:
     }
 
 
-def test_legacy_frontend_payloads_keep_current_state_and_lazy_load_histories() -> None:
-    data = {
-        "sem": "Summer 2026",
-        "lrt": "2026-06-01T12:00:00+00:00",
-        "sn": [{"id": 1, "ts": "2026-06-01T12:00:00+00:00"}],
-        "cr": {
-            "CSCI 101": {
-                "d": "CSCI",
-                "ti": "Intro",
-                "af": 0.5,
-                "ah": [{"i": 0, "f": 0.5}],
-                "ev": [{"et": "course_added"}],
-                "s": {
-                    "1L": {
-                        "t": "L",
-                        "ce": 10,
-                        "cc": 20,
-                        "cf": 0.5,
-                        "h": [{"i": 0, "e": 10, "c": 20, "f": 0.5}],
-                    }
-                },
-            }
-        },
-    }
-
-    summary, departments = build_legacy_frontend_payloads(
-        data=data,
-        milestones=[{"time": "2026-06-01T12:00:00+00:00"}],
-        semester="Summer 2026",
-    )
-
-    summary_course = summary["data"]["cr"]["CSCI 101"]
-    assert summary_course["s"]["1L"]["ce"] == 10
-    assert "ah" not in summary_course
-    assert "ev" not in summary_course
-    assert "h" not in summary_course["s"]["1L"]
-    assert departments["CSCI"]["courses"]["CSCI 101"] == data["cr"]["CSCI 101"]
+def test_publication_rejects_pre_v3_payloads_before_writing(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="unsupported schemaVersion"):
+        publish_semester(
+            tmp_path,
+            semester_slug="summer-2026",
+            semester="Summer 2026",
+            current_snapshot=None,
+            summary={"data": {}, "milestones": [], "semester": "Summer 2026"},
+            departments={},
+        )
+    assert not (tmp_path / "data").exists()

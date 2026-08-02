@@ -19,6 +19,7 @@ from registrarmonitor.data.migration import (
     MigrationInterrupted,
     MigrationRequest,
     finalize_storage,
+    initialize_fresh_storage,
     run_migration,
     transition_storage_mode,
 )
@@ -227,6 +228,66 @@ def test_apply_requires_explicit_operator_authorization(tmp_path: Path) -> None:
 
     with pytest.raises(MigrationError, match="explicit operator authorization"):
         run_migration(request)
+
+
+def test_fresh_storage_starts_shadow_and_promotes_after_first_dual_write(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "fall-2026.db"
+    result = initialize_fresh_storage(
+        database,
+        semester="Fall 2026",
+        metadata_mode=MetadataMode.LEGACY_PRESERVING,
+        report_path=tmp_path / "fresh.json",
+    )
+
+    assert result.status == "initialized"
+    assert result.active_mode == "shadow"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT semester, metadata_mode, active_mode, migration_phase "
+            "FROM storage_control WHERE singleton = 1"
+        ).fetchone() == (
+            "Fall 2026",
+            "legacy-preserving",
+            "shadow",
+            "complete",
+        )
+
+    manager = DatabaseManager(db_path=str(database), semester="Fall 2026")
+    first = replace(
+        _changed_snapshot(),
+        semester="Fall 2026",
+        timestamp="2026-08-02 10:00:00",
+    )
+    manager.store_enrollment_snapshot(first)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 1
+        )
+        assert connection.execute(
+            "SELECT snapshot_id, sequence_no FROM state_snapshot"
+        ).fetchone() == (1, 1)
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    stored = manager.get_snapshot_data(1)
+    assert stored is not None
+    assert stored.to_dict() == first.to_dict()
+
+    transition_storage_mode(
+        database,
+        semester="Fall 2026",
+        target_mode="v2",
+        report_path=tmp_path / "v2.json",
+    )
+    reopened = DatabaseManager(db_path=str(database), semester="Fall 2026")
+    assert reopened.storage_mode == "v2"
+    stored = reopened.get_snapshot_data(1)
+    assert stored is not None
+    assert stored.to_dict() == first.to_dict()
 
 
 def test_migration_rejects_database_as_report_path_before_mutation(
@@ -897,6 +958,20 @@ def test_finalization_requires_authorization_and_retires_legacy_tables(
     assert report["semantic_digest_preserved"] is True
     assert report["operational_evidence"]["website_snapshot_count"] == 2
     assert report["operational_evidence"]["website_course_count"] == 1
+
+    repeated = finalize_storage(
+        source,
+        semester="Summer 2025",
+        report_path=tmp_path / "repeat-finalize.json",
+        rollback_dir=tmp_path / "rollback",
+        authorized=True,
+    )
+    repeated_report = json.loads((tmp_path / "repeat-finalize.json").read_text())
+    assert repeated.status == "already_finalized"
+    assert repeated_report["integrity_check"] == "ok"
+    assert repeated_report["foreign_key_violations"] == 0
+    assert repeated_report["operational_evidence"]["website_snapshot_count"] == 2
+
     with sqlite3.connect(source) as connection:
         assert connection.execute(
             "SELECT active_mode, migration_phase, legacy_tables_retained "
