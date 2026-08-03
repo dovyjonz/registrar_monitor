@@ -198,6 +198,12 @@ test('malformed summary produces a visible page-level error', async ({ page }) =
         },
     };
 
+    await page.route('**/data/summer-2026/manifest.json', async route => {
+        await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ ...pointer, previous: null }),
+        });
+    });
     await page.route(`**/data/summer-2026/${pointer.current}`, async route => {
         await route.fulfill({
             contentType: 'application/json',
@@ -308,6 +314,31 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
     );
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
     expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(1);
+});
+
+test('historical comparison prefers the prior year of the same semester', async ({ page }) => {
+    const response = await page.goto('/fall2026.html');
+    expect(response?.ok()).toBe(true);
+    const course = page.locator('.course-cell[data-course="KAZ 368"]');
+    await expect(course).toBeVisible();
+    await course.click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'idle',
+    );
+
+    await page.locator('#historicalComparisonToggle').click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'enabled',
+    );
+    await expect(page.locator('#historicalLegendLabel')).toHaveText(
+        'Fall 2025 course aggregate',
+    );
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-historical-datasets',
+        '2',
+    );
 });
 
 test('historical course comparison renders when the current course has no chart history', async ({ page }) => {

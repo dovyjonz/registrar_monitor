@@ -1,12 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { _steppedLineTo } from 'chart.js/helpers';
 
 import {
+    OBSERVATION_STEP_MODE,
     buildAverageChartPoints,
     buildCourseChartDomain,
     buildSectionChartPoints,
     getChartMapper,
 } from '../src/chartMapping.mjs';
+
+test('enrollment step transitions occur at the observation timestamp', () => {
+    const calls = [];
+    _steppedLineTo(
+        { lineTo: (...args) => calls.push(args) },
+        { x: 10, y: 20 },
+        { x: 30, y: 40 },
+        false,
+        OBSERVATION_STEP_MODE,
+    );
+
+    assert.deepEqual(calls, [[30, 20], [30, 40]]);
+});
 
 const snapshots = [
     { ts: '2026-01-01T10:00:00Z' },

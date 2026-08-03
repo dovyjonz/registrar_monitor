@@ -6,6 +6,8 @@ import {
     buildProfessorAverageChartPoints,
     buildSectionActivityTimeline,
     courseHasProfessor,
+    createHistoricalCoordinateMapper,
+    getHistoricalMilestoneAlignment,
     getChartMapper,
     getInstructorAtSnapshot,
     normalizeHistoricalDomain,
@@ -239,4 +241,56 @@ test('historical domains align phased, snapshots, and timeline mappings', () => 
         assert.equal(normalized[0], Math.min(...current.domainXValues));
         assert.equal(normalized.at(-1), Math.max(...current.domainXValues));
     }
+});
+
+test('historical milestone alignment tolerates old semesters without deadlines', () => {
+    const currentMilestones = [
+        { time: '2026-08-05T09:00:00Z', label: 'Y4+' },
+        { time: '2026-08-05T11:00:00Z', label: 'Y3' },
+        { time: '2026-08-05T13:00:00Z', label: 'Y2' },
+        { time: '2026-08-15T09:00:00Z', label: 'ALL' },
+        { time: '2026-08-26T12:00:00Z', label: 'Drop' },
+        { time: '2026-08-28T17:30:00Z', label: 'Close' },
+    ];
+    const historicalMilestones = currentMilestones.slice(0, 4).map((milestone, index) => ({
+        ...milestone,
+        time: `2025-08-${String(5 + index).padStart(2, '0')}T09:00:00Z`,
+    }));
+    const alignment = getHistoricalMilestoneAlignment({
+        historicalMilestones,
+        currentMilestones,
+        historicalMapTime: time => time,
+        currentMapTime: time => time,
+    });
+
+    assert.deepEqual(
+        alignment.map(pair => [pair.historical.label, pair.current.label]),
+        [['Y4+', 'Y4+'], ['Y3', 'Y3'], ['Y2', 'Y2'], ['ALL', 'ALL']],
+    );
+
+    const mapper = createHistoricalCoordinateMapper({
+        historicalDomainXValues: [0, 900],
+        currentDomainXValues: [0, 1100],
+        historicalMilestones: [
+            { time: 100, label: 'Y4+' },
+            { time: 200, label: 'Y3' },
+            { time: 300, label: 'Y2' },
+            { time: 900, label: 'ALL' },
+        ],
+        currentMilestones: [
+            { time: 100, label: 'Y4+' },
+            { time: 200, label: 'Y3' },
+            { time: 300, label: 'Y2' },
+            { time: 900, label: 'ALL' },
+            { time: 1000, label: 'Drop' },
+            { time: 1100, label: 'Close' },
+        ],
+        historicalMapTime: time => time,
+        currentMapTime: time => time,
+    });
+
+    assert.equal(mapper.mapX(100), 100);
+    assert.equal(mapper.mapX(300), 300);
+    assert.equal(mapper.mapX(900), 900);
+    assert.equal(mapper.anchors.length, 4);
 });

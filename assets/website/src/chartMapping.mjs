@@ -8,12 +8,19 @@ export {
     buildProfessorChartPoints,
     buildSectionActivityTimeline,
     courseHasProfessor,
+    createHistoricalCoordinateMapper,
     getInstructorAtSnapshot,
+    getHistoricalMilestoneAlignment,
     normalizeHistoricalChartDomain,
     normalizeHistoricalDomain,
     normalizeInstructorName,
     normalizeProfessorIdentity,
 } from './historicalComparison.mjs';
+
+// Chart.js's "before" mode draws the transition at the newer observation's
+// x-coordinate. Enrollment history points represent observations, so a value
+// must not appear before the snapshot that reports it.
+export const OBSERVATION_STEP_MODE = 'before';
 
 export function getSortedUniqueNumbers(values) {
     return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);

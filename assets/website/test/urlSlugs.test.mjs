@@ -4,11 +4,26 @@ import assert from 'node:assert/strict';
 import {
     courseToSlug,
     getManifestUrl,
+    prioritizeHistoricalSemesters,
     semesterToSlug,
 } from '../src/urlSlugs.mjs';
 
 test('semester slugs match generated share-page directories', () => {
     assert.equal(semesterToSlug('Summer 2026'), 'summer-2026');
+});
+
+test('historical comparisons prefer the prior year of the same semester', () => {
+    assert.deepEqual(
+        prioritizeHistoricalSemesters(
+            'Fall 2026',
+            ['Summer 2026', 'Spring 2026', 'Fall 2025', 'Summer 2025'],
+        ),
+        ['Fall 2025', 'Summer 2026', 'Spring 2026', 'Summer 2025'],
+    );
+    assert.deepEqual(
+        prioritizeHistoricalSemesters('Spring 2026', ['Fall 2025', 'Summer 2025']),
+        ['Fall 2025', 'Summer 2025'],
+    );
 });
 
 test('course slugs remove filesystem-unsafe characters like the Python generator', () => {

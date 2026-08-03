@@ -4,19 +4,21 @@
 
 import './style.css';
 import {
+    OBSERVATION_STEP_MODE,
     buildAverageChartPoints,
     buildCourseChartDomain,
     buildProfessorAverageChartPoints,
     buildSectionChartPoints,
     courseHasProfessor,
+    createHistoricalCoordinateMapper,
     getChartMapper,
     getXScaleBounds,
-    normalizeHistoricalDomain,
     normalizeInstructorName,
 } from './chartMapping.mjs';
 import {
     courseToSlug,
     getManifestUrl,
+    prioritizeHistoricalSemesters,
     semesterToSlug,
 } from './urlSlugs.mjs';
 import {
@@ -219,9 +221,10 @@ function getHistoricalSemesterCandidates() {
         || link.textContent.trim() === currentSemester
     ));
     const earlierLinks = currentIndex >= 0 ? links.slice(currentIndex + 1) : links;
-    return earlierLinks
+    const earlierSemesters = earlierLinks
         .map(link => link.textContent.trim())
-        .filter(semester => semester && semester !== currentSemester)
+        .filter(semester => semester && semester !== currentSemester);
+    return prioritizeHistoricalSemesters(currentSemester, earlierSemesters)
         .map(semester => ({ semester, slug: semesterToSlug(semester) }));
 }
 
@@ -685,21 +688,232 @@ async function enableHistoricalComparison() {
     }
 }
 
-function mapHistoricalComparisonPoints(historicalComparison, historicalMapper, currentDomain) {
+function mapHistoricalComparisonPoints(
+    historicalComparison,
+    historicalMapper,
+    historicalCoordinateMapper,
+) {
+    return historicalComparison.chartPoints
+        .map((point, index) => ({
+            x: historicalCoordinateMapper.mapX(historicalMapper.xValues[index]),
+            y: point.fill,
+        }))
+        .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+}
+
+const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
+
+function shouldRenderMilestone(milestone, chartMode, dataTimestamps) {
+    if (chartMode !== 'phased' && DEADLINE_LABELS.has(milestone.label)) return false;
+    const milestoneTime = new Date(milestone.time).getTime();
+    if (!Number.isFinite(milestoneTime)) return false;
+    if (chartMode !== 'phased' && dataTimestamps.length > 0) {
+        const dataMin = Math.min(...dataTimestamps);
+        const dataMax = Math.max(...dataTimestamps);
+        if (milestoneTime < dataMin || milestoneTime > dataMax) return false;
+    }
+    return true;
+}
+
+function getMilestoneXValues(milestones, chartMode, dataTimestamps, mapTime) {
+    if (chartMode !== 'phased') return [];
+    return milestones
+        .filter(milestone => shouldRenderMilestone(milestone, chartMode, dataTimestamps))
+        .map(milestone => mapTime(new Date(milestone.time).getTime()))
+        .filter(Number.isFinite);
+}
+
+function getHistoricalMilestoneXValues(
+    milestones,
+    chartMode,
+    dataTimestamps,
+    historicalMapper,
+    historicalCoordinateMapper,
+) {
+    return milestones
+        .filter(milestone => shouldRenderMilestone(milestone, chartMode, dataTimestamps))
+        .map(milestone => historicalCoordinateMapper.mapX(
+            historicalMapper.mapTime(new Date(milestone.time).getTime()),
+        ))
+        .filter(Number.isFinite);
+}
+
+function addHistoricalMilestoneAnnotations({
+    annotations,
+    milestones,
+    chartMode,
+    dataTimestamps,
+    historicalMapper,
+    historicalCoordinateMapper,
+}) {
+    milestones.forEach((milestone, index) => {
+        if (!shouldRenderMilestone(milestone, chartMode, dataTimestamps)) return;
+        const sourceTime = new Date(milestone.time).getTime();
+        const sourceX = historicalMapper.mapTime(sourceTime);
+        const xPos = historicalCoordinateMapper.mapX(sourceX);
+        if (!Number.isFinite(xPos)) return;
+        annotations[`historicalLine${index}`] = {
+            type: 'line', xMin: xPos, xMax: xPos,
+            borderColor: milestone.color || 'rgba(220, 224, 232, 0.58)',
+            borderWidth: 1, borderDash: [2, 4],
+            drawTime: 'beforeDatasetsDraw',
+            label: { display: false },
+        };
+    });
+}
+
+function addCurrentMilestoneAnnotations({
+    annotations,
+    milestones,
+    chartMode,
+    dataTimestamps,
+    mapTime,
+    xValues,
+    fillData,
+    historicalDataPoints,
+}) {
+    const labelXValues = xValues.length > 0
+        ? xValues
+        : historicalDataPoints.map(point => point.x);
+    const labelFillData = fillData.length > 0
+        ? fillData
+        : historicalDataPoints.map(point => point.y);
+
+    milestones.forEach((milestone, index) => {
+        if (!shouldRenderMilestone(milestone, chartMode, dataTimestamps)) return;
+        const xPos = mapTime(new Date(milestone.time).getTime());
+        if (!Number.isFinite(xPos)) return;
+
+        let closestDataIdx = 0;
+        let minDiff2 = Infinity;
+        labelXValues.forEach((x, dataIndex) => {
+            const difference = Math.abs(x - xPos);
+            if (difference < minDiff2) {
+                minDiff2 = difference;
+                closestDataIdx = dataIndex;
+            }
+        });
+        const fillAtPoint = labelFillData[closestDataIdx] || 0;
+        const labelPos = fillAtPoint > 50 ? 'start' : 'end';
+        const color = milestone.color || '#78909C';
+
+        annotations[`line${index}`] = {
+            type: 'line', xMin: xPos, xMax: xPos,
+            borderColor: color, borderWidth: 2, borderDash: [5, 3],
+            drawTime: 'beforeDatasetsDraw',
+            label: {
+                display: true, content: milestone.label, position: labelPos,
+                backgroundColor: color, color: getContrastColor(color),
+                font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
+                z: 10, drawTime: 'afterDatasetsDraw',
+            }
+        };
+    });
+}
+
+function buildHistoricalChartState({
+    historicalComparison,
+    chartMode,
+    currentComparisonDomain,
+    currentMapper,
+    milestones,
+}) {
+    if (!historicalComparison?.chartPoints?.length) {
+        return {
+            historicalDataPoints: [],
+            historicalMapper: null,
+            historicalCoordinateMapper: null,
+        };
+    }
+
+    const historicalMapper = getChartMapper(
+        chartMode,
+        historicalComparison.chartPoints,
+        historicalComparison.chartDomain,
+        historicalComparison.milestones,
+    );
     const historicalDomain = historicalMapper.domainXValues.length > 0
         ? historicalMapper.domainXValues
         : historicalMapper.xValues;
-    // With no current points, normalize the historical series to its own
-    // domain so it remains drawable until the current semester has history.
-    const targetDomain = currentDomain.length > 0 ? currentDomain : historicalDomain;
-    const mappedPoints = normalizeHistoricalDomain(
-        historicalMapper.xValues,
-        historicalDomain,
-        targetDomain,
+    // A current semester may have only its first observation. Keep the
+    // historical shadow drawable until the current domain has two anchors.
+    const targetDomain = currentComparisonDomain.length > 1
+        ? currentComparisonDomain
+        : historicalDomain;
+    const alignMilestones = chartMode === 'phased' || currentComparisonDomain.length > 1;
+    const historicalCoordinateMapper = createHistoricalCoordinateMapper({
+        historicalDomainXValues: historicalDomain,
+        currentDomainXValues: targetDomain,
+        historicalMilestones: alignMilestones ? historicalComparison.milestones : [],
+        currentMilestones: alignMilestones ? milestones : [],
+        historicalMapTime: historicalMapper.mapTime,
+        currentMapTime: currentMapper.mapTime,
+    });
+
+    return {
+        historicalDataPoints: mapHistoricalComparisonPoints(
+            historicalComparison,
+            historicalMapper,
+            historicalCoordinateMapper,
+        ),
+        historicalMapper,
+        historicalCoordinateMapper,
+    };
+}
+
+function buildMilestoneRenderState({
+    chartMode,
+    milestones,
+    domainTimestamps,
+    mapTime,
+    xValues,
+    fillData,
+    historicalDataPoints,
+    historicalComparison,
+    historicalMapper,
+    historicalCoordinateMapper,
+}) {
+    const annotationXValues = getMilestoneXValues(
+        milestones,
+        chartMode,
+        domainTimestamps,
+        mapTime,
     );
-    return historicalComparison.chartPoints
-        .map((point, index) => ({ x: mappedPoints[index], y: point.fill }))
-        .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+    const annotations = {};
+    if (historicalMapper && historicalCoordinateMapper) {
+        const historicalTimestamps = (historicalComparison.chartDomain || [])
+            .map(point => point.timestamp)
+            .filter(Number.isFinite);
+        annotationXValues.push(...getHistoricalMilestoneXValues(
+            historicalComparison.milestones || [],
+            chartMode,
+            historicalTimestamps,
+            historicalMapper,
+            historicalCoordinateMapper,
+        ));
+        addHistoricalMilestoneAnnotations({
+            annotations,
+            milestones: historicalComparison.milestones || [],
+            chartMode,
+            dataTimestamps: historicalTimestamps,
+            historicalMapper,
+            historicalCoordinateMapper,
+        });
+    }
+    if (milestones.length > 0
+        && (chartMode === 'phased' || domainTimestamps.length > 0)) {
+        addCurrentMilestoneAnnotations({
+            annotations,
+            milestones,
+            chartMode,
+            dataTimestamps: domainTimestamps,
+            mapTime,
+            xValues,
+            fillData,
+            historicalDataPoints,
+        });
+    }
+    return { annotations, annotationXValues };
 }
 
 /**
@@ -1629,72 +1843,41 @@ async function renderChart(
     const milestones = getMilestones();
     const labels = chartPoints.map(point => point.label);
     const fillData = chartPoints.map(point => point.fill);
-    const timestamps = chartPoints.map(point => point.timestamp);
     const domainTimestamps = chartDomain.map(point => point.timestamp);
-    const { xValues, domainXValues, mapTime } = getChartMapper(chartMode, chartPoints, chartDomain, milestones);
+    const currentMapper = getChartMapper(chartMode, chartPoints, chartDomain, milestones);
+    const { xValues, domainXValues, mapTime } = currentMapper;
     const currentComparisonDomain = domainXValues.length > 0 ? domainXValues : xValues;
-
-    let historicalDataPoints = [];
-    if (historicalComparison?.chartPoints?.length > 0) {
-        const historicalMapper = getChartMapper(
-            chartMode,
-            historicalComparison.chartPoints,
-            historicalComparison.chartDomain,
-            historicalComparison.milestones,
-        );
-        historicalDataPoints = mapHistoricalComparisonPoints(
-            historicalComparison,
-            historicalMapper,
-            currentComparisonDomain,
-        );
-    }
-    const xBounds = getXScaleBounds(
-        currentComparisonDomain.length > 0
-            ? currentComparisonDomain
-            : historicalDataPoints.map(point => point.x),
-    );
+    const historicalChartState = buildHistoricalChartState({
+        historicalComparison,
+        chartMode,
+        currentComparisonDomain,
+        currentMapper,
+        milestones,
+    });
+    const {
+        historicalDataPoints,
+        historicalMapper,
+        historicalCoordinateMapper,
+    } = historicalChartState;
     const hasHistoricalDataset = historicalDataPoints.length > 0;
-
-    // Labels to exclude from non-phased mode (they clutter the chart)
-    const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
-
-    // Build milestone annotations
-    const annotations = {};
-    if (timestamps.length > 0 && milestones && milestones.length > 0) {
-        milestones.forEach((m, idx) => {
-            // Skip deadline milestones in timeline and snapshots mode
-            if (chartMode !== 'phased' && DEADLINE_LABELS.has(m.label)) return;
-
-            const mTime = new Date(m.time).getTime();
-
-            // In non-phased mode, skip milestones outside data range
-            if (chartMode !== 'phased' && domainTimestamps.length > 0) {
-                const dataMin = Math.min(...domainTimestamps);
-                const dataMax = Math.max(...domainTimestamps);
-                if (mTime < dataMin || mTime > dataMax) return;
-            }
-
-            const xPos = mapTime(mTime);
-
-            // Position label based on fill value at closest point
-            let closestDataIdx = 0, minDiff2 = Infinity;
-            xValues.forEach((x, i) => { const d = Math.abs(x - xPos); if (d < minDiff2) { minDiff2 = d; closestDataIdx = i; } });
-            const fillAtPoint = fillData[closestDataIdx] || 0;
-            const labelPos = fillAtPoint > 50 ? 'start' : 'end';
-
-            annotations[`line${idx}`] = {
-                type: 'line', xMin: xPos, xMax: xPos,
-                borderColor: m.color, borderWidth: 2, borderDash: [5, 3],
-                drawTime: 'beforeDatasetsDraw',
-                label: {
-                    display: true, content: m.label, position: labelPos,
-                    backgroundColor: m.color, color: getContrastColor(m.color),
-                    font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
-                    z: 10, drawTime: 'afterDatasetsDraw',
-                }
-            };
-        });
-    }
+    const { annotations, annotationXValues } = buildMilestoneRenderState({
+        chartMode,
+        milestones,
+        domainTimestamps,
+        mapTime,
+        xValues,
+        fillData,
+        historicalDataPoints,
+        historicalComparison,
+        historicalMapper,
+        historicalCoordinateMapper,
+    });
+    const xBounds = getXScaleBounds([
+        ...(currentComparisonDomain.length > 0
+            ? currentComparisonDomain
+            : historicalDataPoints.map(point => point.x)),
+        ...annotationXValues,
+    ]);
 
     // Show chart canvas
     document.getElementById('chartPlaceholder').style.display = 'none';
@@ -1722,7 +1905,7 @@ async function renderChart(
         backgroundColor: 'rgba(255, 215, 0, 0.1)',
         fill: true,
         tension: 0,
-        stepped: 'after',
+        stepped: OBSERVATION_STEP_MODE,
         pointStyle: pointStyles,
         pointRadius: pointRadii,
         pointHoverRadius: 6,
@@ -1740,7 +1923,7 @@ async function renderChart(
         backgroundColor: 'transparent',
         fill: false,
         tension: 0,
-        stepped: 'after',
+        stepped: OBSERVATION_STEP_MODE,
         borderDash: [5, 4],
         borderWidth: 1,
         pointRadius: 0,

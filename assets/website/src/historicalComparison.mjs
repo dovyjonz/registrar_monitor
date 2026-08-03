@@ -421,6 +421,161 @@ export function normalizeHistoricalDomain(
     ));
 }
 
+function getMilestoneTime(milestone) {
+    const time = new Date(milestone?.time).getTime();
+    return Number.isFinite(time) ? time : null;
+}
+
+function getMilestoneLabel(milestone) {
+    return typeof milestone?.label === 'string'
+        ? milestone.label.trim().toLocaleLowerCase()
+        : '';
+}
+
+function getOrderedMilestones(milestones) {
+    return (Array.isArray(milestones) ? milestones : [])
+        .map((milestone, index) => ({
+            milestone,
+            index,
+            time: getMilestoneTime(milestone),
+            label: getMilestoneLabel(milestone),
+        }))
+        .filter(item => item.time !== null && item.label)
+        .sort((first, second) => first.time - second.time || first.index - second.index);
+}
+
+/**
+ * Pair historical and current milestones by label and occurrence order.
+ * Matching by label keeps an older term aligned when it has fewer deadlines.
+ */
+export function getHistoricalMilestoneAlignment({
+    historicalMilestones = [],
+    currentMilestones = [],
+    historicalMapTime = value => value,
+    currentMapTime = value => value,
+} = {}) {
+    const currentByKey = new Map();
+    const currentOccurrences = new Map();
+    for (const item of getOrderedMilestones(currentMilestones)) {
+        const occurrence = currentOccurrences.get(item.label) || 0;
+        currentOccurrences.set(item.label, occurrence + 1);
+        const key = `${item.label}\u0000${occurrence}`;
+        currentByKey.set(key, item);
+    }
+
+    const alignment = [];
+    const historicalOccurrences = new Map();
+    for (const item of getOrderedMilestones(historicalMilestones)) {
+        const occurrence = historicalOccurrences.get(item.label) || 0;
+        historicalOccurrences.set(item.label, occurrence + 1);
+        const current = currentByKey.get(`${item.label}\u0000${occurrence}`);
+        if (!current) continue;
+
+        const historicalX = Number(historicalMapTime(item.time));
+        const currentX = Number(currentMapTime(current.time));
+        if (!Number.isFinite(historicalX) || !Number.isFinite(currentX)) continue;
+        alignment.push({
+            historical: item.milestone,
+            current: current.milestone,
+            historicalX,
+            currentX,
+        });
+    }
+    return alignment;
+}
+
+/**
+ * Map a historical chart's x-coordinates into the current chart. Matching
+ * milestone coordinates are used as piecewise anchors; the domain endpoints
+ * remain anchors as well. This preserves the regular historical scaling for
+ * terms with no matching milestones and prevents missing old deadlines from
+ * shifting every later phase.
+ */
+export function createHistoricalCoordinateMapper({
+    historicalDomainXValues = [],
+    currentDomainXValues = [],
+    historicalMilestones = [],
+    currentMilestones = [],
+    historicalMapTime = value => value,
+    currentMapTime = value => value,
+} = {}) {
+    const source = [...new Set((historicalDomainXValues || [])
+        .map(Number)
+        .filter(Number.isFinite))].sort((first, second) => first - second);
+    const target = [...new Set((currentDomainXValues || [])
+        .map(Number)
+        .filter(Number.isFinite))].sort((first, second) => first - second);
+    if (source.length === 0 || target.length === 0) {
+        return { mapX: () => Number.NaN, anchors: [] };
+    }
+
+    const sourceMin = source[0];
+    const sourceMax = source.at(-1);
+    const targetMin = target[0];
+    const targetMax = target.at(-1);
+    const fallbackMap = value => {
+        if (!Number.isFinite(value)) return Number.NaN;
+        if (sourceMax <= sourceMin || targetMax <= targetMin) return targetMin;
+        return targetMin + ((value - sourceMin) / (sourceMax - sourceMin))
+            * (targetMax - targetMin);
+    };
+
+    if (sourceMax <= sourceMin || targetMax <= targetMin) {
+        return {
+            mapX: fallbackMap,
+            anchors: [],
+            sourceDomain: source,
+            targetDomain: target,
+        };
+    }
+
+    const anchors = getHistoricalMilestoneAlignment({
+        historicalMilestones,
+        currentMilestones,
+        historicalMapTime,
+        currentMapTime,
+    });
+    const pointsBySource = new Map([
+        [sourceMin, targetMin],
+        [sourceMax, targetMax],
+    ]);
+    for (const anchor of anchors) {
+        pointsBySource.set(anchor.historicalX, anchor.currentX);
+    }
+    const points = [...pointsBySource.entries()]
+        .sort(([first], [second]) => first - second)
+        .map(([sourceX, targetX]) => ({ sourceX, targetX }));
+
+    const mapX = value => {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) return Number.NaN;
+        if (points.length < 2) return fallbackMap(numericValue);
+
+        let left = points[0];
+        let right = points[1];
+        if (numericValue <= left.sourceX) {
+            right = points[1];
+        } else {
+            for (let index = 1; index < points.length; index++) {
+                right = points[index];
+                left = points[index - 1];
+                if (numericValue <= right.sourceX) break;
+            }
+        }
+        const sourceRange = right.sourceX - left.sourceX;
+        if (sourceRange <= 0) return right.targetX;
+        return left.targetX + ((numericValue - left.sourceX) / sourceRange)
+            * (right.targetX - left.targetX);
+    };
+
+    return {
+        mapX,
+        anchors,
+        sourceDomain: source,
+        targetDomain: target,
+    };
+}
+
 export const normalizeProfessorIdentity = normalizeInstructorName;
 export const buildProfessorChartPoints = buildProfessorAverageChartPoints;
 export const normalizeHistoricalChartDomain = normalizeHistoricalDomain;
