@@ -685,6 +685,23 @@ async function enableHistoricalComparison() {
     }
 }
 
+function mapHistoricalComparisonPoints(historicalComparison, historicalMapper, currentDomain) {
+    const historicalDomain = historicalMapper.domainXValues.length > 0
+        ? historicalMapper.domainXValues
+        : historicalMapper.xValues;
+    // With no current points, normalize the historical series to its own
+    // domain so it remains drawable until the current semester has history.
+    const targetDomain = currentDomain.length > 0 ? currentDomain : historicalDomain;
+    const mappedPoints = normalizeHistoricalDomain(
+        historicalMapper.xValues,
+        historicalDomain,
+        targetDomain,
+    );
+    return historicalComparison.chartPoints
+        .map((point, index) => ({ x: mappedPoints[index], y: point.fill }))
+        .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
+}
+
 /**
  * Get contrasting text color (black or white) based on background.
  */
@@ -1615,10 +1632,9 @@ async function renderChart(
     const timestamps = chartPoints.map(point => point.timestamp);
     const domainTimestamps = chartDomain.map(point => point.timestamp);
     const { xValues, domainXValues, mapTime } = getChartMapper(chartMode, chartPoints, chartDomain, milestones);
-    const xBounds = getXScaleBounds(domainXValues.length > 0 ? domainXValues : xValues);
+    const currentComparisonDomain = domainXValues.length > 0 ? domainXValues : xValues;
 
     let historicalDataPoints = [];
-    let historicalMappedPoints = [];
     if (historicalComparison?.chartPoints?.length > 0) {
         const historicalMapper = getChartMapper(
             chartMode,
@@ -1626,18 +1642,17 @@ async function renderChart(
             historicalComparison.chartDomain,
             historicalComparison.milestones,
         );
-        const currentComparisonDomain = domainXValues.length > 0 ? domainXValues : xValues;
-        historicalMappedPoints = normalizeHistoricalDomain(
-            historicalMapper.xValues,
-            historicalMapper.domainXValues.length > 0
-                ? historicalMapper.domainXValues
-                : historicalMapper.xValues,
+        historicalDataPoints = mapHistoricalComparisonPoints(
+            historicalComparison,
+            historicalMapper,
             currentComparisonDomain,
         );
-        historicalDataPoints = historicalComparison.chartPoints
-            .map((point, index) => ({ x: historicalMappedPoints[index], y: point.fill }))
-            .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
     }
+    const xBounds = getXScaleBounds(
+        currentComparisonDomain.length > 0
+            ? currentComparisonDomain
+            : historicalDataPoints.map(point => point.x),
+    );
     const hasHistoricalDataset = historicalDataPoints.length > 0;
 
     // Labels to exclude from non-phased mode (they clutter the chart)

@@ -310,6 +310,71 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
     expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(1);
 });
 
+test('historical course comparison renders when the current course has no chart history', async ({ page }) => {
+    const current = readSemesterManifestFixture('fall-2025');
+    const courseCode = 'MATH 161';
+    const currentDepartmentUrl = new URL(
+        current.manifest.departments.MATH.url,
+        `http://127.0.0.1${current.manifestPath}`,
+    );
+    const currentPayload = readSiteJson(currentDepartmentUrl.pathname.slice(1));
+    const currentCourse = currentPayload.courses[courseCode];
+    currentCourse.averageHistory = [];
+    currentCourse.sectionHistory = Object.fromEntries(
+        Object.keys(currentCourse.sectionHistory).map(sectionCode => [sectionCode, []]),
+    );
+    const currentBody = JSON.stringify(currentPayload);
+    const currentManifest = {
+        ...current.manifest,
+        departments: {
+            ...current.manifest.departments,
+            MATH: {
+                ...current.manifest.departments.MATH,
+                sha256: sha256Hex(currentBody),
+                bytes: Buffer.byteLength(currentBody),
+            },
+        },
+    };
+
+    await page.route('**/*.json', async route => {
+        const pathname = new URL(route.request().url()).pathname;
+        if (pathname === current.manifestPath) {
+            await route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify(currentManifest),
+            });
+            return;
+        }
+        if (pathname === currentDepartmentUrl.pathname) {
+            await route.fulfill({ contentType: 'application/json', body: currentBody });
+            return;
+        }
+        await route.continue();
+    });
+
+    const response = await page.goto('/fall2025.html');
+    expect(response?.ok()).toBe(true);
+    await page.locator(`.course-cell[data-course="${courseCode}"]`).click();
+    await expect(page.locator('#enrollment-chart')).toBeVisible();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'idle',
+    );
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-historical-datasets',
+        '1',
+    );
+
+    await page.locator('#historicalComparisonToggle').click();
+    await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
+        'data-state',
+        'enabled',
+    );
+    await expect(page.locator('#historicalLegendItem')).toBeVisible();
+    await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
+        .toBe('2');
+});
+
 test('selecting a section switches to professor comparison and deselecting returns to course mode', async ({ page }) => {
     const current = readSemesterManifestFixture('fall-2025');
     const historical = readSemesterManifestFixture('summer-2025');
