@@ -281,16 +281,31 @@ def _normalise_history_point(
 def _compact_timestamped_points(
     points: list[tuple[str, dict[str, Any]]],
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Sort points and discard consecutive states that add no information."""
+    """Sort points and retain run endpoints for stable chart boundaries."""
     ordered = sorted(
         points,
         key=lambda item: (item[0], _canonical_bytes(item[1])),
     )
+    if len(ordered) <= 1:
+        return ordered
+
     compacted: list[tuple[str, dict[str, Any]]] = []
-    for timestamp, payload in ordered:
-        if compacted and compacted[-1][1] == payload:
+    run_first = ordered[0]
+    run_last = ordered[0]
+    for point in ordered[1:]:
+        if point[1] == run_first[1]:
+            run_last = point
             continue
-        compacted.append((timestamp, payload))
+
+        compacted.append(run_first)
+        if run_last != run_first:
+            compacted.append(run_last)
+        run_first = point
+        run_last = point
+
+    compacted.append(run_first)
+    if run_last != run_first:
+        compacted.append(run_last)
     return compacted
 
 

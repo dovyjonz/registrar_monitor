@@ -570,15 +570,26 @@ class TwoPhaseScheduler:
             if not latest_snapshot_id:
                 return
 
-            # If this is the first run, initialize the reporting log with latest snapshot
+            # A single retained snapshot is only a baseline. If history exists,
+            # compare the latest state against its first retained snapshot so
+            # the initial reporting cycle does not discard changes.
             if not last_reported_id:
+                first_snapshot_id = db_manager.get_first_snapshot_id()
+                if first_snapshot_id is None or first_snapshot_id == latest_snapshot_id:
+                    self.logger_ops.info(
+                        "ℹ️  First run detected with one snapshot. Setting the "
+                        f"baseline reported snapshot to {latest_snapshot_id}."
+                    )
+                    db_manager.add_reporting_log(
+                        snapshot_id=latest_snapshot_id, changes_were_found=False
+                    )
+                    return
                 self.logger_ops.info(
-                    f"ℹ️  First run detected. Setting baseline reported snapshot to {latest_snapshot_id}."
+                    "ℹ️  First run detected with retained history. Comparing "
+                    f"latest snapshot {latest_snapshot_id} against first "
+                    f"snapshot {first_snapshot_id}."
                 )
-                db_manager.add_reporting_log(
-                    snapshot_id=latest_snapshot_id, changes_were_found=False
-                )
-                return
+                last_reported_id = first_snapshot_id
 
             if latest_snapshot_id == last_reported_id:
                 return

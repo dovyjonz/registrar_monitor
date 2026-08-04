@@ -198,6 +198,46 @@ class TestFormatChangesReport:
         # Should show enrollment delta
         assert "+5" in report or "(+5)" in report
 
+    def test_modified_instructor_formatting(self, formatter: ReportFormatter):
+        previous_section = Section("10L", "L", 20, 30, 0.67, "Ada Lovelace")
+        current_section = Section("10L", "L", 20, 30, 0.67, "Grace Hopper")
+        previous_course = Course("CS 101", "CS", {"10L": previous_section}, 0.67)
+        current_course = Course("CS 101", "CS", {"10L": current_section}, 0.67)
+        comparison = EnrollmentComparison(
+            previous_snapshot_timestamp="2024-01-15 09:00:00",
+            current_snapshot_timestamp="2024-01-15 10:00:00",
+            changed_courses=[
+                CourseChangeDetail(
+                    course_code="CS 101",
+                    modified_sections=[
+                        SectionChangeDetail(
+                            section_id="10L",
+                            previous_fill=0.67,
+                            current_fill=0.67,
+                            previous_enrollment=20,
+                            current_enrollment=20,
+                            previous_capacity=30,
+                            current_capacity=30,
+                            previous_instructor="Ada Lovelace",
+                            current_instructor="Grace Hopper",
+                        )
+                    ],
+                )
+            ],
+        )
+
+        report = formatter.format_changes_report(
+            comparison,
+            EnrollmentSnapshot(
+                "2024-01-15 10:00:00", "Spring 2024", 0.67, {"CS 101": current_course}
+            ),
+            EnrollmentSnapshot(
+                "2024-01-15 09:00:00", "Spring 2024", 0.67, {"CS 101": previous_course}
+            ),
+        )
+
+        assert "instructor: Ada Lovelace → Grace Hopper" in report
+
     def test_courses_sorted_alphabetically(self, formatter: ReportFormatter):
         """Courses in report should be sorted alphabetically."""
         course_a = Course("AA 101", "AA", {}, 0.50)

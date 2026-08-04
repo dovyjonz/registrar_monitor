@@ -14,6 +14,8 @@ from typing import Any
 
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 
+from .instructor_normalization import clean_instructor_text, instructor_identity
+
 STATE_THRESHOLD = 96
 EVENT_THRESHOLD = 2_048
 
@@ -46,7 +48,7 @@ def _snapshot_payload(snapshot: EnrollmentSnapshot) -> dict[str, Any]:
                         "section_type": _text(section.section_type),
                         "enrollment_count": section.enrollment,
                         "capacity_count": section.capacity,
-                        "instructor": _text(section.instructor),
+                        "instructor": instructor_identity(section.instructor),
                     }
                     for section_code, section in sorted(course.sections.items())
                 ],
@@ -230,10 +232,20 @@ class CheckpointedStateStore:
                 _text(section.section_type),
                 section.enrollment,
                 section.capacity,
-                _text(section.instructor),
+                clean_instructor_text(section.instructor),
             )
             for course_code, course in snapshot.courses.items()
             for section_code, section in course.sections.items()
+        }
+
+    @staticmethod
+    def _section_identity_state(
+        sections: dict[tuple[str, str], tuple[str, int, int, str]],
+    ) -> dict[tuple[str, str], tuple[str, int, int, str]]:
+        """Return section state with presentation-only instructor details removed."""
+        return {
+            key: (*state[:3], instructor_identity(state[3]))
+            for key, state in sections.items()
         }
 
     @staticmethod
@@ -622,7 +634,7 @@ class CheckpointedStateStore:
                 phase_started = perf_counter_ns()
                 latest = connection.execute(
                     """
-                    SELECT snapshot_id, state_hash
+                    SELECT snapshot_id, state_hash, semester, overall_fill
                     FROM state_snapshot
                     ORDER BY sequence_no DESC LIMIT 1
                     """
@@ -630,9 +642,23 @@ class CheckpointedStateStore:
                 old_courses, old_sections = self._cached_latest_states(
                     connection, latest
                 )
+                old_section_identities = self._section_identity_state(old_sections)
+                current_section_identities = self._section_identity_state(
+                    current_sections
+                )
+                semantically_identical = (
+                    latest is not None
+                    and latest["semester"] == snapshot.semester
+                    and latest["overall_fill"] == snapshot.overall_fill
+                    and old_courses == current_courses
+                    and old_section_identities == current_section_identities
+                )
                 if (
                     latest is not None
-                    and bytes(latest["state_hash"]) == state_hash
+                    and (
+                        bytes(latest["state_hash"]) == state_hash
+                        or semantically_identical
+                    )
                     and not preserve_duplicate_import
                 ):
                     connection.execute(
@@ -710,7 +736,8 @@ class CheckpointedStateStore:
                 section_changes = [
                     (key, old_sections.get(key), current_sections.get(key))
                     for key in sorted(set(old_sections) | set(current_sections))
-                    if old_sections.get(key) != current_sections.get(key)
+                    if old_section_identities.get(key)
+                    != current_section_identities.get(key)
                 ]
                 course_ids: dict[str, int] = {}
                 for code, _, _ in course_changes:

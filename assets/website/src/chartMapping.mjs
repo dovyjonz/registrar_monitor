@@ -22,6 +22,23 @@ export {
 // must not appear before the snapshot that reports it.
 export const OBSERVATION_STEP_MODE = 'before';
 
+// Keep full-capacity markers inside the chart area instead of placing their
+// radius directly on the 100% boundary. This is the minimum ceiling; charts
+// with over-capacity sections expand beyond it.
+export const ENROLLMENT_SCALE_MAX = 105;
+
+export function getEnrollmentScaleMax(values = []) {
+    const maxValue = values
+        .filter(Number.isFinite)
+        .reduce((maximum, value) => Math.max(maximum, value), 0);
+    const paddedMax = Math.ceil((maxValue + 5) / 5) * 5;
+    return Math.max(ENROLLMENT_SCALE_MAX, paddedMax);
+}
+
+export function getEnrollmentPointRadius(pointCount) {
+    return pointCount > 50 ? 2 : 3;
+}
+
 export function getSortedUniqueNumbers(values) {
     return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);
 }

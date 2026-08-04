@@ -57,7 +57,12 @@
                 <button class="filter-btn" data-filter="full" title="Show full courses only">Full</button>
                 <button class="filter-btn" data-filter="near" title="Show near-full courses">Near</button>
                 <button class="filter-btn" data-filter="open" title="Show open courses">Open</button>
-                <button class="filter-btn" data-filter="starred" title="Show bookmarked courses" aria-label="Show bookmarked courses">★ Starred</button>
+                <button class="filter-btn" data-filter="starred" title="Show bookmarked courses" aria-label="Show bookmarked courses">
+                    <svg class="filter-bookmark-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M7.25 4.75A2.25 2.25 0 0 1 9.5 2.5h5A2.25 2.25 0 0 1 16.75 4.75V21L12 17.8 7.25 21V4.75Z"></path>
+                    </svg>
+                    <span>Starred</span>
+                </button>
             </div>
 
             <select id="sortSelect" class="sort-select" aria-label="Sort courses" title="Sort courses by">
@@ -88,14 +93,30 @@
         <div class="modal">
             <div class="modal-header">
                 <div class="modal-header-left">
-                    <button type="button" class="bookmark-btn" id="modalBookmark" aria-label="Bookmark course"
-                        title="Bookmark this course">☆</button>
+                    <button type="button" class="modal-icon-btn bookmark-btn" id="modalBookmark"
+                        aria-label="Bookmark course" aria-pressed="false" title="Bookmark this course">
+                        <svg class="modal-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path class="modal-icon-bookmark" d="M7.25 4.75A2.25 2.25 0 0 1 9.5 2.5h5A2.25 2.25 0 0 1 16.75 4.75V21L12 17.8 7.25 21V4.75Z"></path>
+                        </svg>
+                    </button>
                     <h2 id="modalTitle">Course Details</h2>
                 </div>
                 <div class="modal-header-right">
-                    <button type="button" class="share-btn" id="modalShareLink" aria-label="Copy share link"
-                        title="Copy share link" style="display:none;">🔗</button>
-                    <button type="button" class="close-btn" id="modalCloseBtn" aria-label="Close modal">&times;</button>
+                    <button type="button" class="modal-icon-btn share-btn" id="modalShareLink"
+                        aria-label="Copy share link" title="Copy share link" style="display:none;">
+                        <svg class="modal-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <circle cx="6.75" cy="12" r="2.25"></circle>
+                            <circle cx="17.25" cy="6.5" r="2.25"></circle>
+                            <circle cx="17.25" cy="17.5" r="2.25"></circle>
+                            <path d="m8.8 10.9 6.4-3.35M8.8 13.1l6.4 3.35"></path>
+                        </svg>
+                    </button>
+                    <button type="button" class="modal-icon-btn close-btn" id="modalCloseBtn" aria-label="Close modal">
+                        <svg class="modal-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M5 5 19 19"></path>
+                            <path d="m19 5-14 14"></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
             <div class="modal-body">

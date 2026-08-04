@@ -1,5 +1,6 @@
 """Formats enrollment data into human-readable reports."""
 
+from ..data.instructor_normalization import instructor_identity
 from ..models import (
     Course,
     EnrollmentComparison,
@@ -159,8 +160,20 @@ class ReportFormatter:
                         enrollment_delta = (sec_mod.current_enrollment or 0) - (
                             sec_mod.previous_enrollment or 0
                         )
+                        change_details = [f"{enrollment_delta:+d}"]
+                        if instructor_identity(
+                            sec_mod.previous_instructor
+                        ) != instructor_identity(sec_mod.current_instructor):
+                            previous_instructor = sec_mod.previous_instructor or "TBA"
+                            current_instructor = sec_mod.current_instructor or "TBA"
+                            change_details.append(
+                                "instructor: "
+                                f"{previous_instructor} → {current_instructor}"
+                            )
                         section_lines.append(
-                            f"  {sec_emoji} {sec_mod.section_id:<4}: {sec_mod.current_enrollment:>3}/{sec_mod.current_capacity} ({enrollment_delta:+d})"
+                            f"  {sec_emoji} {sec_mod.section_id:<4}: "
+                            f"{sec_mod.current_enrollment:>3}/{sec_mod.current_capacity} "
+                            f"({'; '.join(change_details)})"
                         )
 
                 if section_lines:

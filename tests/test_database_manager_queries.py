@@ -77,6 +77,17 @@ class TestGetLatestSnapshotId:
         assert isinstance(sid, int)
 
 
+class TestGetFirstSnapshotId:
+    """Tests for get_first_snapshot_id."""
+
+    def test_returns_none_when_no_snapshots(self, db_manager: DatabaseManager):
+        assert db_manager.get_first_snapshot_id() is None
+
+    def test_returns_id_of_oldest_snapshot(self, seeded_db: DatabaseManager):
+        sid = seeded_db.get_first_snapshot_id()
+        assert sid == 1
+
+
 class TestGetLatestSnapshotTimestamp:
     """Tests for get_latest_snapshot_timestamp."""
 

@@ -854,6 +854,78 @@ def test_dual_write_deduplicates_identical_poll_in_both_representations(
         )
 
 
+def test_v2_deduplicates_instructor_markup_and_order_only_changes(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "checkpointed.db"
+    store = CheckpointedStateStore(database)
+    first = _changed_snapshot()
+    first.courses["CSCI 101"].sections["1L"].instructor = "Akarca, Halit"
+    store.write_snapshot(first)
+
+    equivalent = _changed_snapshot()
+    equivalent.timestamp = "2026-05-01 10:15:00"
+    equivalent.courses["CSCI 101"].sections["1L"].instructor = "<b>Halit</b> Akarca"
+    result = store.write_snapshot(equivalent)
+
+    assert result.created is False
+    assert result.section_events == 0
+    assert store.statistics()["snapshots"] == 1
+
+
+def test_v2_records_genuine_instructor_changes(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "checkpointed.db"
+    store = CheckpointedStateStore(database)
+    first = _changed_snapshot()
+    first.courses["CSCI 101"].sections["1L"].instructor = "Ada Lovelace"
+    store.write_snapshot(first)
+
+    changed = _changed_snapshot()
+    changed.timestamp = "2026-05-01 10:15:00"
+    changed.courses["CSCI 101"].sections["1L"].instructor = "Grace Hopper"
+    result = store.write_snapshot(changed)
+
+    assert result.created is True
+    assert result.section_events == 1
+
+
+def test_v2_ignores_presentation_only_instructor_change_with_other_changes(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "checkpointed.db"
+    store = CheckpointedStateStore(database)
+    first = _changed_snapshot()
+    first.courses["CSCI 101"].sections["1L"].instructor = "Akarca, Halit"
+    first.courses["CSCI 101"].sections["2L"] = Section(
+        "2L", "L", 10, 20, 0.5, "Ada Lovelace"
+    )
+    store.write_snapshot(first)
+
+    changed = _changed_snapshot()
+    changed.timestamp = "2026-05-01 10:15:00"
+    changed.courses["CSCI 101"].sections["1L"].instructor = "<b>Halit</b> Akarca"
+    changed.courses["CSCI 101"].sections["2L"] = Section(
+        "2L", "L", 11, 20, 0.55, "Ada Lovelace"
+    )
+    result = store.write_snapshot(changed)
+
+    assert result.created is True
+    assert result.section_events == 1
+    with store.connection() as connection:
+        event = connection.execute(
+            """
+            SELECT section_code, old_instructor, new_instructor
+            FROM section_change_event e
+            JOIN section_catalog s ON s.section_id = e.section_id
+            WHERE e.snapshot_id = ?
+            """,
+            (result.snapshot_id,),
+        ).fetchone()
+    assert tuple(event) == ("2L", "Ada Lovelace", "Ada Lovelace")
+
+
 def test_v2_mode_can_roll_back_to_legacy_after_dual_write(tmp_path: Path) -> None:
     source = _legacy_database(tmp_path / "legacy.db")
     run_migration(_request(source, tmp_path, dry_run=False))

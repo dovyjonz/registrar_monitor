@@ -61,18 +61,18 @@ must not remove databases, downloads, reports, or logs.
 
 ## Latest full verification
 
-The most recent full quality gate was run on 2026-07-29 in `Asia/Almaty`:
+The most recent full quality gate was run on 2026-08-04 in `Asia/Almaty`:
 
 - `make check`: passed
 - Ruff formatting and lint: passed
 - `ty check`: passed
-- pytest: 652 passed with 32 warnings
-- coverage: 78.39%, above the 75% threshold
-- website ESLint and Vite build: passed
+- pytest: 765 passed with 1,862 warnings
+- coverage: 80.95%, above the 75% threshold
+- website ESLint, 38 Node unit tests, and Vite build: passed
 
-The pure JavaScript `node:test` suite and generated-site Playwright smoke were
-last recorded on 2026-07-29 with 9 and 1 passing tests, respectively. A focused
-Python 3.14 compatibility run passed 43 tests.
+The generated-site Playwright smoke was not part of this quality-gate run. Run
+the browser and site-smoke targets separately when generated-output evidence is
+needed.
 
 These results describe that revision only. Run the relevant verification again
 after source, dependency, or toolchain changes.
@@ -81,7 +81,7 @@ after source, dependency, or toolchain changes.
 
 | Path | Repository status | Production status |
 |---|---|---|
-| `monitor schedule` via `registrarmonitor.service` | Canonical; includes stateful reports at :15 and :45 | Installed but paused |
+| `monitor schedule` via `registrarmonitor.service` | Canonical; includes stateful reports at :15 and :45 | Installed, enabled, and running |
 | External Registrar Monitor cron | Retired | No active entries |
 | `monitor run` | Supported operator workflow | Production use not established |
 | Direct Cloudflare Pages upload | Canonical website deployment | Last observed success 2026-06-10 |
@@ -106,8 +106,8 @@ writes reporting state; it does not force an additional poll.
 ## Evidence boundaries
 
 - Passing local checks does not prove that production is active or current.
-- Production monitoring is intentionally paused; activation requires a separate,
-  explicit operator decision.
+- Production monitoring is currently active; service-state changes require a
+  separate, explicit operator decision.
 - Never include `.env`, process environments, Telegram identifiers, Cloudflare
   tokens, unrestricted crontabs, or unrestricted service configuration in a
   baseline.

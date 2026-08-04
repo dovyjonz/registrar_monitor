@@ -9,10 +9,26 @@ from pathlib import Path
 import pytest
 
 from registrarmonitor.website.static_manifest import (
+    _compact_timestamped_points,
     build_frontend_payloads_v3,
     publish_semester,
     rollback_semester_pointer,
 )
+
+
+def test_timestamped_compaction_preserves_terminal_duplicate_state():
+    points = [
+        ("2026-06-01T00:00:00+00:00", {"fill": 0.5}),
+        ("2026-06-02T00:00:00+00:00", {"fill": 1.0}),
+        ("2026-06-03T00:00:00+00:00", {"fill": 1.0}),
+        ("2026-06-04T00:00:00+00:00", {"fill": 1.0}),
+    ]
+
+    assert _compact_timestamped_points(points) == [
+        points[0],
+        points[1],
+        points[3],
+    ]
 
 
 def _publish(
@@ -256,6 +272,7 @@ def test_v3_builder_emits_small_summary_and_local_department_histories() -> None
     assert departments["MATH"]["timestamps"] == [
         "2026-06-01T00:00:00+00:00",
         "2026-06-02T00:00:00+00:00",
+        "2026-06-03T00:00:00+00:00",
     ]
     assert all(
         point["timestampIdx"] < len(payload["timestamps"])

@@ -17,6 +17,7 @@ from ..core import get_logger
 from ..models import Course, EnrollmentSnapshot, Section
 from ..validation import validate_directory_exists
 from .checkpointed_state import CheckpointedStateStore
+from .instructor_normalization import clean_instructor_text, instructor_identity
 
 EXPECTED_SCHEMA_VERSION = 1
 CHECKPOINTED_SCHEMA_VERSION = 2
@@ -464,7 +465,7 @@ class DatabaseManager:
                     section.section_type or "",
                     section.enrollment,
                     section.capacity,
-                    section.instructor or "",
+                    clean_instructor_text(section.instructor),
                 )
                 old_instructor, created = self._sync_legacy_section(
                     connection,
@@ -473,8 +474,10 @@ class DatabaseManager:
                     section_id,
                     section,
                 )
-                desired_instructor = section.instructor or ""
-                if not created and old_instructor != desired_instructor:
+                desired_instructor = clean_instructor_text(section.instructor)
+                if not created and instructor_identity(
+                    old_instructor
+                ) != instructor_identity(desired_instructor):
                     instructor_changes.append(
                         (
                             section_id,
@@ -498,7 +501,17 @@ class DatabaseManager:
                     fill_percentage,
                 )
                 all_enrollment_rows.append(enrollment_row)
-                if previous_sections.get((course_code, section_code)) != current_state:
+                previous_state = previous_sections.get((course_code, section_code))
+                previous_identity = (
+                    (*previous_state[:3], instructor_identity(previous_state[3]))
+                    if previous_state is not None
+                    else None
+                )
+                current_identity = (
+                    *current_state[:3],
+                    instructor_identity(current_state[3]),
+                )
+                if previous_identity != current_identity:
                     changed_enrollment_rows.append(enrollment_row)
 
         removed_section_ids: set[int] = set()
@@ -713,7 +726,7 @@ class DatabaseManager:
                 (course_id, section_code),
             ).fetchone()
             desired_type = section.section_type or ""
-            desired_instructor = section.instructor or ""
+            desired_instructor = clean_instructor_text(section.instructor)
             if row is None:
                 connection.execute(
                     """
@@ -742,11 +755,11 @@ class DatabaseManager:
         stored_type = cached[1]
         stored_instructor = cached[2]
         desired_type = section.section_type or stored_type or ""
-        desired_instructor = section.instructor or ""
-        if (desired_type, desired_instructor) != (
-            stored_type,
-            stored_instructor,
-        ):
+        desired_instructor = clean_instructor_text(section.instructor)
+        instructor_changed = instructor_identity(
+            desired_instructor
+        ) != instructor_identity(stored_instructor)
+        if desired_type != stored_type or instructor_changed:
             connection.execute(
                 """
                 UPDATE sections
@@ -755,10 +768,15 @@ class DatabaseManager:
                 """,
                 (desired_type, desired_instructor, section_id),
             )
+        effective_instructor = (
+            desired_instructor
+            if desired_type != stored_type or instructor_changed
+            else stored_instructor
+        )
         self._legacy_section_cache[cache_key] = (
             section_id,
             desired_type,
-            desired_instructor,
+            effective_instructor,
         )
         return stored_instructor or "", created
 
@@ -1100,7 +1118,9 @@ class DatabaseManager:
                     return False
                 if sec1.capacity != sec2.capacity:
                     return False
-                if normalize(sec1.instructor) != normalize(sec2.instructor):
+                if instructor_identity(sec1.instructor) != instructor_identity(
+                    sec2.instructor
+                ):
                     return False
 
         return True
@@ -1243,7 +1263,7 @@ class DatabaseManager:
                                 course_id,
                                 section_code,
                                 section.section_type,
-                                section.instructor,
+                                clean_instructor_text(section.instructor),
                             )
                         )
 
@@ -1257,12 +1277,17 @@ class DatabaseManager:
                         ):
                             section_id, stored_instructor = existing_section
                             old_instructor = stored_instructor or ""
-                            if old_instructor != section.instructor:
+                            desired_instructor = clean_instructor_text(
+                                section.instructor
+                            )
+                            if instructor_identity(
+                                old_instructor
+                            ) != instructor_identity(desired_instructor):
                                 instructor_changes.append(
                                     (
                                         section_id,
                                         old_instructor,
-                                        section.instructor,
+                                        desired_instructor,
                                         snapshot.timestamp,
                                     )
                                 )
@@ -1696,6 +1721,30 @@ class DatabaseManager:
                 return result[0] if result else None
         except sqlite3.Error as e:
             self.logger.error(f"Database error getting latest snapshot ID: {e}")
+            raise
+
+    def get_first_snapshot_id(self) -> int | None:
+        """Find the ID of the earliest retained snapshot."""
+        try:
+            if self.storage_mode in {"v2", "finalized"}:
+                with self.get_connection() as conn:
+                    row = conn.execute(
+                        """
+                        SELECT snapshot_id FROM state_snapshot
+                        ORDER BY sequence_no ASC LIMIT 1
+                        """
+                    ).fetchone()
+                    return int(row[0]) if row else None
+            with self.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT snapshot_id FROM snapshots
+                    ORDER BY timestamp ASC LIMIT 1
+                    """
+                ).fetchone()
+                return int(row[0]) if row else None
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error getting first snapshot ID: {e}")
             raise
 
     def get_previous_snapshot_id(self, snapshot_id: int) -> int | None:

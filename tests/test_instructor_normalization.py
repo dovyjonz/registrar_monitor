@@ -7,6 +7,7 @@ pytestmark = pytest.mark.unit
 
 from registrarmonitor.data.instructor_normalization import (
     aggregate_instructors_by_section,
+    instructor_identity,
     normalize_instructors,
 )
 
@@ -47,9 +48,38 @@ class TestNormalizeInstructors:
     def test_strips_whitespace(self):
         assert normalize_instructors(["  Smith  ", "  Jones  "]) == "Smith, Jones"
 
+    def test_removes_html_markup_and_preserves_name_separators(self):
+        assert normalize_instructors(["<b>Smith</b><br/> <span>Jones</span>"]) == (
+            "Smith, Jones"
+        )
+
     def test_keeps_multiple_distinct_names(self):
         assert (
             normalize_instructors(["Smith", "Jones", "Brown"]) == "Smith, Jones, Brown"
+        )
+
+
+class TestInstructorIdentity:
+    """Tests for comparison-safe instructor identities."""
+
+    def test_ignores_html_and_name_order(self):
+        assert instructor_identity("Akarca, Halit") == instructor_identity(
+            "<span>Halit</span> Akarca"
+        )
+
+    def test_ignores_order_of_multiple_instructors(self):
+        assert instructor_identity("Ada Lovelace, Grace Hopper") == instructor_identity(
+            "Grace Hopper, Ada Lovelace"
+        )
+
+    def test_preserves_multi_instructor_boundaries(self):
+        assert instructor_identity("John Smith, Jane Doe") != instructor_identity(
+            "John Doe, Jane Smith"
+        )
+
+    def test_preserves_genuine_name_changes(self):
+        assert instructor_identity("Ada Lovelace") != instructor_identity(
+            "Grace Hopper"
         )
 
 

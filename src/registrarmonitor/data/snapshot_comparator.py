@@ -4,6 +4,7 @@ from ..models import (
     EnrollmentSnapshot,
     SectionChangeDetail,
 )
+from .instructor_normalization import instructor_identity
 
 
 class SnapshotComparator:
@@ -70,7 +71,8 @@ class SnapshotComparator:
                     abs(current_section.fill - prev_section.fill) > 0.001
                     or current_section.enrollment != prev_section.enrollment
                     or current_section.capacity != prev_section.capacity
-                    or current_section.instructor != prev_section.instructor
+                    or instructor_identity(current_section.instructor)
+                    != instructor_identity(prev_section.instructor)
                     or current_section.section_type != prev_section.section_type
                 ):
                     section_detail = SectionChangeDetail(

@@ -21,21 +21,20 @@ Do not copy command inventories into this file. The Makefile and
 
 ## Current production state
 
-As verified on 2026-07-29:
+As verified on 2026-08-04:
 
 - Google Cloud project `registrarmonitor` contains the runtime VM
   `instance-20260501-152532` in `us-east1-c`.
-- Monitoring is intentionally paused. No poll, report, deploy, or scheduler
-  process is running.
-- `registrarmonitor.service` is the sole supported systemd unit. It is installed,
-  disabled, and failed/inactive.
+- Monitoring is active. The scheduler process is running under the sole supported
+  `registrarmonitor.service` unit.
+- `registrarmonitor.service` is installed, enabled, and active/running.
 - The obsolete `registrar-monitor.service` unit was removed from the host.
 - The cron daemon is active, but no active Registrar Monitor entry exists in the
   runtime-user, root, operator, or system crontabs.
 
-Do not start or enable monitoring unless the operator explicitly asks and the
-planned data changes have been verified. A service activation request is
-separate from repository setup or deployment work.
+Do not change the monitoring service state unless the operator explicitly asks
+and the planned data changes have been verified. Repository setup, code sync,
+and reporting tests are separate from service-state changes.
 
 ## Repository invariants
 

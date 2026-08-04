@@ -3,8 +3,8 @@
 This is the current operator-facing description of Registrar Monitor production.
 The full host was inspected on 2026-07-28; systemd, processes, and cron were
 re-verified after cleanup on 2026-07-29. Step 3 database migration, Step 4
-storage-mode rollout, Step 5 historical finalization, and the stopped Step 6 /
-Step 7 state were verified on 2026-08-02. Runtime timestamps use
+storage-mode rollout, Step 5 historical finalization, and the active Step 6 /
+Step 7 runtime were verified on 2026-08-04. Runtime timestamps use
 `Asia/Almaty` unless stated otherwise.
 
 ## Evidence labels
@@ -17,8 +17,8 @@ Step 7 state were verified on 2026-08-02. Runtime timestamps use
 
 | Concern | Status | Evidence |
 |---|---|---|
-| Monitoring | **Paused** | No poll, report, deploy, or scheduler process on 2026-07-29 |
-| Canonical systemd unit | **Installed, disabled, failed/inactive** | `registrarmonitor.service` |
+| Monitoring | **Active** | Scheduler process and service verified running on 2026-08-04 |
+| Canonical systemd unit | **Installed, enabled, active/running** | `registrarmonitor.service` |
 | Obsolete systemd unit | **Removed** | `registrar-monitor.service` is absent and `LoadState=not-found` |
 | Cron daemon | **Active** | `cron.service` active |
 | Registrar Monitor cron jobs | **None active** | Zero matching entries for runtime user, root, SSH operator, and system cron |
@@ -26,15 +26,24 @@ Step 7 state were verified on 2026-08-02. Runtime timestamps use
 | Step 4 storage-mode rollout | **Completed; superseded by Step 5** | All five historical databases completed serial `legacy -> shadow -> v2`; the finalization step now makes their reads v2-only |
 | Step 5 historical finalization | **Finalized and verified** | All five historical databases are configured/persisted `finalized`; legacy tables retired; rollback archives retained; integrity and foreign-key checks pass |
 | Step 6 Fall 2026 qualification | **Completed at bounded operational scope** | Fresh schema-v2 initialization, one controlled Fall 2026 ingest, exact legacy/v2 parity, and audited `shadow -> v2` promotion passed; the existing broad compatibility evaluator was stopped after exceeding the requested test boundary |
-| Step 7 stopped completion state | **Recorded** | Fall 2026 is configured/persisted `v2`; v2 reads return snapshot 1; `registrarmonitor.service` remains loaded, failed/inactive, and disabled |
+| Step 7 active runtime state | **Recorded** | Fall 2026 is configured/persisted `v2`; v2 reads are authoritative; `registrarmonitor.service` is active and running |
 | Latest successful poll | **Stale** | 2026-06-10 15:32:18 +05 |
 | Latest successful report | **Stale** | 2026-06-10 15:32:23 +05 |
 | Latest successful Pages deployment | **Stale** | 2026-06-10 15:33:17 +05 |
 | Recurring database backup policy | **Unconfirmed** | Step 3 migration backup artifacts are verified in the evidence directory; recurring ownership and retention remain open |
 
-Monitoring must remain paused until the planned data changes are complete and an
-operator explicitly verifies them. Repository setup, code deployment, and unit
-installation do not authorize activation.
+Monitoring is currently active. Do not change service state or perform a
+production data migration without an explicit operator request and the bounded
+verification required by this runbook.
+
+## Current code behavior
+
+The current source compares instructor assignments semantically: HTML markup,
+case, and presentation order are ignored while multi-instructor boundaries are
+preserved. Presentation-only instructor changes do not create checkpoint events,
+including when another section changes in the same snapshot. Stateful reporting
+uses the earliest retained snapshot as the first-run comparison point when
+reporting history exists but no reporting log has yet been recorded.
 
 ## Runtime identity
 
@@ -50,8 +59,8 @@ installation do not authorize activation.
 | Database directory | `/home/dmitry_s_ivanenko/registrar_monitor/data` |
 | Environment file | `/home/dmitry_s_ivanenko/registrar_monitor/.env` |
 | Migration evidence directory | `/home/dmitry_s_ivanenko/registrar_monitor/output/migration/` |
-| Last inspected target revision | prefix `aa9334e8` |
-| Current reconciled checkout | clean `main`/`origin/main` at `6a25c7c4`; colocated Jujutsu active working copy |
+| Last inspected target revision | Updated from `origin/main` during the 2026-08-04 synchronization |
+| Current reconciled checkout | Clean colocated Jujutsu `main`/`origin/main`; exact revision is recorded after synchronization below |
 
 The target checkout used for the Step 3 apply, Step 4 mode transitions, and
 Step 5 finalizations is based on the approved revision
@@ -114,9 +123,9 @@ the secret-free binary record is retained at
 - the Jujutsu-rendered archive diff is byte-identical to the saved patch and
   contains all 19 original modified paths.
 
-No fetch, push, rebase, deployment, service activation, or database operation
-was performed. `registrarmonitor.service` remains disabled and inactive/failed,
-and no monitor workflow process is running; monitoring is still paused.
+The 2026-08-04 synchronization and reporting test are recorded below. The
+canonical service was already enabled and running; this work did not change its
+service state.
 
 ## Process supervision
 
@@ -294,9 +303,10 @@ URI mode (`mode=ro`) and verify cloud backups through bounded inventory queries.
 - A later 2026-07-29 exact-match cron retirement check found zero active
   `uv run monitor report --stateful` entries for the runtime user, root, the SSH
   operator, `/etc/crontab`, or `/etc/cron.d`; no crontab file was rewritten.
-- The post-check confirmed `registrarmonitor.service` remains disabled and
-  failed/inactive, the obsolete unit remains absent, `cron.service` remains
-  active, and no Registrar Monitor workflow process is running.
+- The 2026-07-29 post-check confirmed that historical stopped state:
+  `registrarmonitor.service` was disabled and failed/inactive, the obsolete unit
+  was absent, `cron.service` was active, and no Registrar Monitor workflow
+  process was running. The current state is in the status table above.
 - The 2026-08-02 permissions/tooling repair did not modify the canonical unit,
   cron configuration, databases, runtime data, environment file, or application
   processes; it intentionally reconciled only the checkout permissions and

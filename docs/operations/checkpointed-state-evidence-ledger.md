@@ -2,8 +2,9 @@
 
 Updated 2026-08-02 after the authorized target-host Step 3 applies, Step 4 mode
 transitions, Step 5 historical finalizations, and the stopped Fall 2026 Step 6 /
-Step 7 rollout. This ledger records evidence state; it does not authorize a
-deployment or service activation. Monitoring must remain stopped.
+Step 7 rollout. This ledger records that historical evidence state; it does not
+authorize a deployment or service activation. The current live VM state is
+recorded in `production-topology.md` and is no longer the stopped rollout state.
 
 | Semester | Metadata mode | Active mode | Dry run | Backup | Apply | Shadow | Finalization / reads | Static pointer | Rollback readiness |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

@@ -93,9 +93,9 @@ sudo -u spook -H prlimit --nofile=65536:65536 -- \
   make -C /home/dmitry_s_ivanenko/registrar_monitor check-fast
 ```
 
-The 2026-08-02 verification returned 22 doctor passes, 7 informational
-warnings, 0 failures, and `748 passed` in `make check-fast`; monitoring stayed
-paused throughout.
+The 2026-08-04 local verification returned `765 passed` in the full `make check`
+gate with 80.95% coverage; the live VM service is documented in
+`production-topology.md`.
 
 ## Baselines and benchmarks
 

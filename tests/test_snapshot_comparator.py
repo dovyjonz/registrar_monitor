@@ -21,6 +21,78 @@ def comparator() -> SnapshotComparator:
 class TestSnapshotComparator:
     """Tests for the SnapshotComparator class."""
 
+    def test_ignores_instructor_markup_and_order_changes(
+        self, comparator: SnapshotComparator
+    ):
+        previous = EnrollmentSnapshot(
+            "2024-01-15 09:00:00",
+            "Spring 2024",
+            0.50,
+            {
+                "CS 101": Course(
+                    "CS 101",
+                    "CS",
+                    {"10L": Section("10L", "L", 15, 30, 0.50, "Akarca, Halit")},
+                    0.50,
+                )
+            },
+        )
+        current = EnrollmentSnapshot(
+            "2024-01-15 10:00:00",
+            "Spring 2024",
+            0.50,
+            {
+                "CS 101": Course(
+                    "CS 101",
+                    "CS",
+                    {"10L": Section("10L", "L", 15, 30, 0.50, "<b>Halit</b> Akarca")},
+                    0.50,
+                )
+            },
+        )
+
+        comparison = comparator.compare_snapshots(current, previous)
+
+        assert comparison.changed_courses == []
+
+    def test_detects_genuine_instructor_change(self, comparator: SnapshotComparator):
+        previous = EnrollmentSnapshot(
+            "2024-01-15 09:00:00",
+            "Spring 2024",
+            0.50,
+            {
+                "CS 101": Course(
+                    "CS 101",
+                    "CS",
+                    {"10L": Section("10L", "L", 15, 30, 0.50, "Ada Lovelace")},
+                    0.50,
+                )
+            },
+        )
+        current = EnrollmentSnapshot(
+            "2024-01-15 10:00:00",
+            "Spring 2024",
+            0.50,
+            {
+                "CS 101": Course(
+                    "CS 101",
+                    "CS",
+                    {"10L": Section("10L", "L", 15, 30, 0.50, "Grace Hopper")},
+                    0.50,
+                )
+            },
+        )
+
+        comparison = comparator.compare_snapshots(current, previous)
+
+        assert len(comparison.changed_courses) == 1
+        assert comparison.changed_courses[0].modified_sections[
+            0
+        ].previous_instructor == ("Ada Lovelace")
+        assert comparison.changed_courses[0].modified_sections[
+            0
+        ].current_instructor == ("Grace Hopper")
+
     def test_no_changes(self, comparator: SnapshotComparator):
         """Identical snapshots should produce no changes."""
         sections = {

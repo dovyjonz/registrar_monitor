@@ -12,6 +12,8 @@ import {
     courseHasProfessor,
     createHistoricalCoordinateMapper,
     getChartMapper,
+    getEnrollmentPointRadius,
+    getEnrollmentScaleMax,
     getXScaleBounds,
     normalizeInstructorName,
 } from './chartMapping.mjs';
@@ -805,7 +807,9 @@ function addCurrentMilestoneAnnotations({
                 display: true, content: milestone.label, position: labelPos,
                 backgroundColor: color, color: getContrastColor(color),
                 font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
-                z: 10, drawTime: 'afterDatasetsDraw',
+                // Keep milestone labels behind the enrollment series so a
+                // full-capacity marker at the milestone remains visible.
+                z: 10, drawTime: 'beforeDatasetsDraw',
             }
         };
     });
@@ -1860,6 +1864,10 @@ async function renderChart(
         historicalCoordinateMapper,
     } = historicalChartState;
     const hasHistoricalDataset = historicalDataPoints.length > 0;
+    const enrollmentScaleMax = getEnrollmentScaleMax([
+        ...fillData,
+        ...historicalDataPoints.map(point => point.y),
+    ]);
     const { annotations, annotationXValues } = buildMilestoneRenderState({
         chartMode,
         milestones,
@@ -1872,6 +1880,25 @@ async function renderChart(
         historicalMapper,
         historicalCoordinateMapper,
     });
+    annotations.fullCapacityGuide = {
+        type: 'line',
+        yMin: 100,
+        yMax: 100,
+        borderColor: 'rgba(245, 247, 255, 0.86)',
+        borderWidth: 1.5,
+        borderDash: [6, 4],
+        drawTime: 'afterDatasetsDraw',
+        label: {
+            display: true,
+            content: 'FULL 100%',
+            position: 'start',
+            backgroundColor: '#17213f',
+            color: '#f5f7ff',
+            font: { size: 8, weight: 'bold' },
+            padding: { top: 2, bottom: 2, left: 4, right: 4 },
+            borderRadius: 2,
+        },
+    };
     const xBounds = getXScaleBounds([
         ...(currentComparisonDomain.length > 0
             ? currentComparisonDomain
@@ -1891,9 +1918,10 @@ async function renderChart(
     // Point styling
     const pointStyles = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : 'circle');
     const pointColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#4ecdc4' : '#ffd700');
-    const pointRadii = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 7 : (labels.length > 50 ? 0 : 3));
-    const pointBorderColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#ffd700');
-    const pointBorderWidths = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 2 : 1);
+    const regularPointRadius = getEnrollmentPointRadius(labels.length);
+    const pointRadii = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 7 : regularPointRadius);
+    const pointBorderColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#17213f');
+    const pointBorderWidths = chartPoints.map(() => 2);
 
     // Build dataset with {x, y} pairs
     const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y }));
@@ -1948,7 +1976,7 @@ async function renderChart(
                 zoom: {
                     limits: {
                         x: { min: xBounds.min, max: xBounds.max, minRange: xBounds.minRange },
-                        y: { min: 0, max: 100 }
+                        y: { min: 0, max: enrollmentScaleMax }
                     },
                     pan: {
                         enabled: true,
@@ -2028,9 +2056,22 @@ async function renderChart(
                     max: xBounds.max
                 },
                 y: {
-                    min: 0, max: 100,
-                    ticks: { display: false },
-                    grid: { color: 'rgba(255,255,255,0.06)', drawTicks: false },
+                    min: 0, max: enrollmentScaleMax,
+                    ticks: {
+                        display: true,
+                        stepSize: 25,
+                        color: 'rgba(220, 224, 232, 0.68)',
+                        font: { size: 9, weight: '600' },
+                        padding: 4,
+                        callback: value => `${value}%`,
+                    },
+                    grid: {
+                        color: context => context.tick?.value === 100
+                            ? 'rgba(255, 215, 0, 0.62)'
+                            : 'rgba(220, 224, 232, 0.18)',
+                        lineWidth: context => context.tick?.value === 100 ? 1.5 : 1,
+                        drawTicks: false,
+                    },
                     border: { display: false }
                 }
             },
@@ -2147,7 +2188,7 @@ document.getElementById('modalShareLink')?.addEventListener('click', async () =>
 
     try {
         await navigator.clipboard.writeText(shareUrl);
-        showToast('🔗 Share link copied!');
+        showToast('Share link copied');
     } catch {
         // Fallback: select a temporary input
         const input = document.createElement('input');
@@ -2156,7 +2197,7 @@ document.getElementById('modalShareLink')?.addEventListener('click', async () =>
         input.select();
         document.execCommand('copy');
         input.remove();
-        showToast('🔗 Share link copied!');
+        showToast('Share link copied');
     }
 });
 
@@ -2488,8 +2529,12 @@ const modalBookmarkBtn = document.getElementById('modalBookmark');
 function updateModalBookmark(code) {
     if (!modalBookmarkBtn) return;
     const isStarred = bookmarks.has(code);
-    modalBookmarkBtn.textContent = isStarred ? '⭐' : '☆';
     modalBookmarkBtn.classList.toggle('starred', isStarred);
+    modalBookmarkBtn.setAttribute('aria-pressed', String(isStarred));
+    modalBookmarkBtn.setAttribute(
+        'aria-label',
+        isStarred ? 'Remove bookmark' : 'Bookmark course',
+    );
     modalBookmarkBtn.onclick = () => {
         if (bookmarks.has(code)) {
             bookmarks.delete(code);
@@ -2503,7 +2548,7 @@ function updateModalBookmark(code) {
         if (cell) {
             cell.classList.toggle('starred', bookmarks.has(code));
         }
-        showToast(bookmarks.has(code) ? '⭐ Bookmarked!' : '☆ Removed bookmark');
+        showToast(bookmarks.has(code) ? 'Course bookmarked' : 'Bookmark removed');
     };
 }
 

@@ -199,18 +199,28 @@ class ReportingService:
             self.logger.info("No snapshots in the database. Nothing to do.")
             return False
 
-        # Handle the first-run scenario
+        # Handle the first-run scenario. A single retained snapshot is only a
+        # baseline; existing history must be compared so its changes are not
+        # silently discarded.
         if not last_reported_id:
+            first_snapshot_id = self.db_manager.get_first_snapshot_id()
+            if first_snapshot_id is None or first_snapshot_id == latest_snapshot_id:
+                self.logger.info(
+                    "First run detected with one snapshot. Logging it as the baseline."
+                )
+                self.db_manager.add_reporting_log(
+                    snapshot_id=latest_snapshot_id, changes_were_found=False
+                )
+                self.logger.info(
+                    "Baseline set. Next run will compare against this snapshot."
+                )
+                return False
             self.logger.info(
-                "First run detected. Logging the latest snapshot as the baseline."
+                "First run detected with retained history. Comparing the latest "
+                f"snapshot ({latest_snapshot_id}) against the first snapshot "
+                f"({first_snapshot_id})."
             )
-            self.db_manager.add_reporting_log(
-                snapshot_id=latest_snapshot_id, changes_were_found=False
-            )
-            self.logger.info(
-                "Baseline set. Next run will compare against this snapshot."
-            )
-            return False
+            last_reported_id = first_snapshot_id
 
         # Decide if a report is needed
         if latest_snapshot_id == last_reported_id:

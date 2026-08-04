@@ -131,6 +131,22 @@ def _history_indices_in_milestone_window(
     return keep
 
 
+def _history_indices_for_website(
+    snapshots: list[dict[str, Any]],
+    milestones: list[dict[str, str]],
+    buffer_hours: int = 1,
+) -> set[int] | None:
+    """Keep the milestone window and the latest snapshot as a chart anchor."""
+    keep_indices = _history_indices_in_milestone_window(
+        snapshots,
+        milestones,
+        buffer_hours=buffer_hours,
+    )
+    if keep_indices is not None and snapshots:
+        keep_indices.add(len(snapshots) - 1)
+    return keep_indices
+
+
 def _compact_section_history(
     history: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -818,7 +834,7 @@ def _checkpointed_semester_data(
 
     milestones = MILESTONES_MAP.get(semester, [])
     if milestones:
-        keep_indices = _history_indices_in_milestone_window(
+        keep_indices = _history_indices_for_website(
             data["snapshots"], milestones, buffer_hours=1
         )
         if keep_indices is not None:
@@ -1025,7 +1041,7 @@ def get_semester_data(
     # The snapshots array stays intact so counts and snapshotIdx references remain stable.
     milestones = MILESTONES_MAP.get(semester, [])
     if milestones and data["snapshots"]:
-        keep_indices = _history_indices_in_milestone_window(
+        keep_indices = _history_indices_for_website(
             data["snapshots"], milestones, buffer_hours=1
         )
         if keep_indices is not None:

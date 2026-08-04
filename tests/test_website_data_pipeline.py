@@ -15,6 +15,7 @@ from registrarmonitor.website.data import (
     _compact_histories_for_website,
     _compact_section_history,
     _filter_snapshots_to_milestone_window,
+    _history_indices_for_website,
     _history_indices_in_milestone_window,
     _minify_keys,
     build_prototype_payloads,
@@ -136,6 +137,23 @@ class TestHistoryIndicesInMilestoneWindow:
             snapshots, milestones, buffer_hours=3
         )
         assert result == {0, 1}
+
+
+def test_history_indices_for_website_keeps_terminal_snapshot_outside_window():
+    snapshots = [
+        {"timestamp": "2024-01-15T11:00:00"},
+        {"timestamp": "2024-01-15T12:00:00"},
+        {"timestamp": "2024-01-16T12:00:00"},
+    ]
+    milestones = [{"time": "2024-01-15T12:00:00"}]
+
+    result = _history_indices_for_website(
+        snapshots,
+        milestones,
+        buffer_hours=1,
+    )
+
+    assert result == {0, 1, 2}
 
 
 class TestCompactSectionHistory:

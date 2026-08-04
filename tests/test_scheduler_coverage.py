@@ -339,10 +339,45 @@ class TestCheckAndTriggerUpdates:
         ):
             db_cls.return_value.get_latest_snapshot_id.return_value = 1
             db_cls.return_value.get_last_reported_snapshot_id.return_value = None
+            db_cls.return_value.get_first_snapshot_id.return_value = 1
             await scheduler._check_and_trigger_updates()
             db_cls.return_value.add_reporting_log.assert_called_once_with(
                 snapshot_id=1, changes_were_found=False
             )
+
+    @pytest.mark.asyncio
+    async def test_first_run_triggers_report_for_retained_history(
+        self, current_snapshot, previous_snapshot
+    ):
+        import registrarmonitor.cli.utils as cli_utils
+
+        scheduler = TwoPhaseScheduler(no_telegram=False)
+        with (
+            patch.object(
+                cli_utils,
+                "detect_active_semester",
+                new_callable=AsyncMock,
+                return_value="Spring 2024",
+            ),
+            patch("registrarmonitor.automation.scheduler.DatabaseManager") as db_cls,
+            patch.object(
+                scheduler, "_run_report_cycle_async", new_callable=AsyncMock
+            ) as run_report,
+        ):
+            db_cls.return_value.get_latest_snapshot_id.return_value = 2
+            db_cls.return_value.get_last_reported_snapshot_id.return_value = None
+            db_cls.return_value.get_first_snapshot_id.return_value = 1
+            db_cls.return_value.get_snapshot_data.side_effect = lambda snapshot_id: (
+                current_snapshot if snapshot_id == 2 else previous_snapshot
+            )
+
+            await scheduler._check_and_trigger_updates()
+
+            assert scheduler._telegram_report_task is not None
+            await scheduler._telegram_report_task
+
+        run_report.assert_awaited_once_with(force_poll=False)
+        db_cls.return_value.add_reporting_log.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_already_reported_skips(self):

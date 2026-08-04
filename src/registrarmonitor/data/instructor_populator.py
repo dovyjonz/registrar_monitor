@@ -4,7 +4,10 @@ from datetime import datetime
 
 from ..core import get_logger
 from ..data.excel_reader import ExcelReader
-from .instructor_normalization import aggregate_instructors_by_section
+from .instructor_normalization import (
+    aggregate_instructors_by_section,
+    instructor_identity,
+)
 
 logger = get_logger(__name__)
 
@@ -97,7 +100,9 @@ def populate_instructors(db_path: str, excel_path: str, dry_run: bool = False) -
                 section_id, old_instructor = result
                 seen_section_ids.add(section_id)
 
-                if old_instructor != final_instructor:
+                if instructor_identity(old_instructor) != instructor_identity(
+                    final_instructor
+                ):
                     if not dry_run:
                         updates.append((final_instructor, section_id))
                         change_records.append(
