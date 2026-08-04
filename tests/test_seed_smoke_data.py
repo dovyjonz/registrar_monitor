@@ -42,6 +42,9 @@ def test_main_builds_fixture_for_configured_storage_modes(tmp_path: Path):
         configured_mode, _ = seed_smoke_data._configured_storage(semester)
         assert manager.storage_mode == configured_mode
         assert manager.get_latest_snapshot_id() == 1
+        snapshot = manager.get_snapshot_data(1)
+        assert snapshot is not None
+        assert {"MATH 161", "KAZ 368"} <= set(snapshot.courses)
 
 
 @pytest.mark.parametrize("configured_mode", ["v2", "finalized"])

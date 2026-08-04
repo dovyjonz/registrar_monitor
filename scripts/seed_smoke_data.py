@@ -124,6 +124,13 @@ def main(
         0.5,
         "Generated historical-comparison fixture",
     )
+    kaz_course = Course(
+        "KAZ 368",
+        "KAZ",
+        {"001": Section("001", "Lecture", 12, 20, 0.6, "Test Instructor")},
+        0.6,
+        "Onomastics: History and Function of Names",
+    )
     config = get_config()
     if data_dir is None:
         directories = config.get("directories", {})
@@ -140,7 +147,11 @@ def main(
             timestamp="2026-07-29 00:00:00",
             semester=semester,
             overall_fill=0.6,
-            courses={"TEST 101": test_course, "MATH 161": math_course},
+            courses={
+                "TEST 101": test_course,
+                "MATH 161": math_course,
+                "KAZ 368": kaz_course,
+            },
         )
         configured_mode, metadata_mode = _configured_storage(semester)
         _seed_semester(
