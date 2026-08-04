@@ -9,7 +9,6 @@ import {
     buildCourseChartDomain,
     buildSectionChartPoints,
     getChartMapper,
-    getEnrollmentPointRadius,
     getEnrollmentScaleMax,
 } from '../src/chartMapping.mjs';
 
@@ -30,11 +29,6 @@ test('full enrollment markers have headroom above the chart boundary', () => {
     assert.equal(getEnrollmentScaleMax([100]), ENROLLMENT_SCALE_MAX);
     assert.equal(getEnrollmentScaleMax([132]), 140);
     assert.equal(getEnrollmentScaleMax([]), ENROLLMENT_SCALE_MAX);
-});
-
-test('dense enrollment histories keep visible compact markers', () => {
-    assert.equal(getEnrollmentPointRadius(50), 3);
-    assert.equal(getEnrollmentPointRadius(51), 2);
 });
 
 const snapshots = [

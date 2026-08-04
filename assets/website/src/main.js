@@ -12,7 +12,6 @@ import {
     courseHasProfessor,
     createHistoricalCoordinateMapper,
     getChartMapper,
-    getEnrollmentPointRadius,
     getEnrollmentScaleMax,
     getXScaleBounds,
     normalizeInstructorName,
@@ -1887,17 +1886,8 @@ async function renderChart(
         borderColor: 'rgba(245, 247, 255, 0.86)',
         borderWidth: 1.5,
         borderDash: [6, 4],
-        drawTime: 'afterDatasetsDraw',
-        label: {
-            display: true,
-            content: 'FULL 100%',
-            position: 'start',
-            backgroundColor: '#17213f',
-            color: '#f5f7ff',
-            font: { size: 8, weight: 'bold' },
-            padding: { top: 2, bottom: 2, left: 4, right: 4 },
-            borderRadius: 2,
-        },
+        drawTime: 'beforeDatasetsDraw',
+        z: -1,
     };
     const xBounds = getXScaleBounds([
         ...(currentComparisonDomain.length > 0
@@ -1916,10 +1906,9 @@ async function renderChart(
     setZoomControlsState(false);
 
     // Point styling
-    const pointStyles = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : 'circle');
+    const pointStyles = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : false);
     const pointColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#4ecdc4' : '#ffd700');
-    const regularPointRadius = getEnrollmentPointRadius(labels.length);
-    const pointRadii = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 7 : regularPointRadius);
+    const pointRadii = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 7 : 0);
     const pointBorderColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#17213f');
     const pointBorderWidths = chartPoints.map(() => 2);
 
@@ -1936,7 +1925,7 @@ async function renderChart(
         stepped: OBSERVATION_STEP_MODE,
         pointStyle: pointStyles,
         pointRadius: pointRadii,
-        pointHoverRadius: 6,
+        pointHoverRadius: pointRadii,
         pointBackgroundColor: pointColors,
         pointBorderColor: pointBorderColors,
         pointBorderWidth: pointBorderWidths,
@@ -2066,6 +2055,8 @@ async function renderChart(
                         callback: value => `${value}%`,
                     },
                     grid: {
+                        // Keep horizontal guides beneath the yellow course series.
+                        z: -1,
                         color: context => context.tick?.value === 100
                             ? 'rgba(255, 215, 0, 0.62)'
                             : 'rgba(220, 224, 232, 0.18)',

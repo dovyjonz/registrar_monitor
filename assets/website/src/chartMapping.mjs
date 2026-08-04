@@ -35,10 +35,6 @@ export function getEnrollmentScaleMax(values = []) {
     return Math.max(ENROLLMENT_SCALE_MAX, paddedMax);
 }
 
-export function getEnrollmentPointRadius(pointCount) {
-    return pointCount > 50 ? 2 : 3;
-}
-
 export function getSortedUniqueNumbers(values) {
     return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);
 }
