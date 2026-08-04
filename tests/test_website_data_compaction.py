@@ -247,6 +247,12 @@ def test_instructor_events_dedupe_consecutive_duplicates_and_preserve_toggles(
             VALUES (?, ?, ?, ?)
             """,
             [
+                (
+                    section_id,
+                    "Park, Chun Young",
+                    "Chun Young Park",
+                    "2024-01-15T09:00:00",
+                ),
                 (section_id, "A", "B", "2024-01-15T10:00:00"),
                 (section_id, "A", "B", "2024-01-15T10:01:00"),
                 (section_id, "B", "A", "2024-01-15T10:02:00"),
@@ -319,6 +325,48 @@ def test_snapshot_instructor_transition_is_recorded_once_and_emitted(tmp_path):
             "snapshotTimestamp": "2024-01-15T10:15:00",
         }
     ]
+
+
+def test_snapshot_formatting_only_instructor_change_is_not_an_event(tmp_path):
+    db = DatabaseManager(db_path=str(tmp_path / "events.db"), semester="Test 2024")
+
+    def snapshot(timestamp: str, instructor: str, enrollment: int):
+        section = Section(
+            "10L",
+            "L",
+            enrollment,
+            20,
+            enrollment / 20,
+            instructor,
+        )
+        course = Course(
+            "BUS 101",
+            "BUS",
+            {"10L": section},
+            enrollment / 20,
+            "Business",
+        )
+        return EnrollmentSnapshot(
+            timestamp=timestamp,
+            semester="Test 2024",
+            overall_fill=enrollment / 20,
+            courses={"BUS 101": course},
+        )
+
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:00:00", "Mun, Ellina", 10))
+    db.store_enrollment_snapshot(snapshot("2024-01-15T10:15:00", "Ellina Mun", 11))
+
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT old_instructor, new_instructor FROM instructor_changes"
+        ).fetchall()
+
+    assert rows == []
+    assert [
+        event
+        for event in _build_course_events("Test 2024", db).get("BUS 101", [])
+        if event["eventType"] == "instructor_changed"
+    ] == []
 
 
 def test_removed_section_clears_stale_instructor_before_reappearing(tmp_path):

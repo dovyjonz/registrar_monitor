@@ -7,6 +7,7 @@ from typing import Any
 from registrarmonitor.config import get_timezone
 from registrarmonitor.data.checkpointed_state import CheckpointedStateStore
 from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.data.instructor_normalization import instructor_identity
 
 from .config import KEY_MAP, MILESTONES_MAP, course_to_slug
 
@@ -659,6 +660,8 @@ def _build_course_events(
             last_transition_by_section: dict[int, tuple[str, str]] = {}
             for row in cursor.fetchall():
                 section_id, cc, sc, old_val, new_val, ts = row
+                if instructor_identity(old_val) == instructor_identity(new_val):
+                    continue
                 transition = (old_val or "", new_val or "")
                 if last_transition_by_section.get(section_id) == transition:
                     continue
@@ -820,7 +823,9 @@ def _checkpointed_semester_data(
                             "snapshotTimestamp": timestamp,
                         },
                     )
-                if (old.instructor or "") != (new.instructor or ""):
+                if instructor_identity(old.instructor) != instructor_identity(
+                    new.instructor
+                ):
                     append_event(
                         course_code,
                         {

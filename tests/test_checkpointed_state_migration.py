@@ -873,6 +873,36 @@ def test_v2_deduplicates_instructor_markup_and_order_only_changes(
     assert store.statistics()["snapshots"] == 1
 
 
+@pytest.mark.parametrize(
+    ("first_instructor", "equivalent_instructor"),
+    [
+        ("Park, Chun Young", "Chun Young Park"),
+        ("Arif, Syed Muhammad Umair", "Syed Muhammad Umair Arif"),
+        ("Petrikin Jr, Ian Albert", "Ian Albert Petrikin Jr"),
+        ("Mun, Ellina, Elkamhawy, Ahmed", "Ellina Mun, Ahmed Elkamhawy"),
+    ],
+)
+def test_v2_does_not_event_formatting_only_instructor_changes(
+    tmp_path: Path,
+    first_instructor: str,
+    equivalent_instructor: str,
+) -> None:
+    database = tmp_path / "checkpointed.db"
+    store = CheckpointedStateStore(database)
+    first = _changed_snapshot()
+    first.courses["CSCI 101"].sections["1L"].instructor = first_instructor
+    store.write_snapshot(first)
+
+    equivalent = _changed_snapshot()
+    equivalent.timestamp = "2026-05-01 10:15:00"
+    equivalent.courses["CSCI 101"].sections["1L"].instructor = equivalent_instructor
+    result = store.write_snapshot(equivalent)
+
+    assert result.created is False
+    assert result.section_events == 0
+    assert store.statistics()["snapshots"] == 1
+
+
 def test_v2_records_genuine_instructor_changes(
     tmp_path: Path,
 ) -> None:

@@ -62,9 +62,35 @@ class TestNormalizeInstructors:
 class TestInstructorIdentity:
     """Tests for comparison-safe instructor identities."""
 
+    @pytest.mark.parametrize(
+        ("first", "formatted"),
+        [
+            ("Park, Chun Young", "Chun Young Park"),
+            ("Arif, Syed Muhammad Umair", "Syed Muhammad Umair Arif"),
+            ("Petrikin Jr, Ian Albert", "Ian Albert Petrikin Jr"),
+            (
+                "Mun, Ellina, Elkamhawy, Ahmed",
+                "Ellina Mun, Ahmed Elkamhawy",
+            ),
+        ],
+    )
+    def test_ignores_registrar_name_formatting(self, first, formatted):
+        assert instructor_identity(first) == instructor_identity(formatted)
+
     def test_ignores_html_and_name_order(self):
         assert instructor_identity("Akarca, Halit") == instructor_identity(
             "<span>Halit</span> Akarca"
+        )
+
+    def test_ignores_typographic_name_formatting(self):
+        assert instructor_identity("Dr. José O'Connor-Smith") == instructor_identity(
+            "Jose O Connor Smith"
+        )
+
+    def test_ignores_placeholder_and_suffix_formatting(self):
+        assert instructor_identity("TBA") == instructor_identity("TBA TBA")
+        assert instructor_identity("Petrikin, Jr, Ian Albert") == instructor_identity(
+            "Ian Albert Petrikin Jr"
         )
 
     def test_ignores_order_of_multiple_instructors(self):

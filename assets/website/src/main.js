@@ -350,14 +350,13 @@ function updateHistoricalLegend() {
     const legend = document.getElementById('chartLegend');
     const historicalLegend = document.getElementById('historicalLegendItem');
     const historicalLabel = document.getElementById('historicalLegendLabel');
-    const capacityVisible = currentEnrollmentData.some(point => point.capacityChanged);
     const historicalVisible = historicalComparisonEnabled && historicalComparisonData;
+    const capacityVisible = !historicalVisible
+        && currentEnrollmentData.some(point => point.capacityChanged);
     if (historicalLegend) {
         historicalLegend.hidden = !historicalVisible;
         if (historicalVisible && historicalLabel) {
-            historicalLabel.textContent = historicalComparisonData.mode === 'professor'
-                ? `${historicalComparisonData.semester} · ${historicalComparisonData.professorDisplayName}`
-                : `${historicalComparisonData.semester} course aggregate`;
+            historicalLabel.textContent = historicalComparisonData.semester;
         }
     }
     legend?.classList.toggle('visible', capacityVisible || Boolean(historicalVisible));
@@ -368,8 +367,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
     historicalComparisonDescriptor = descriptor;
     const controls = document.getElementById('historicalComparisonControls');
     const toggle = document.getElementById('historicalComparisonToggle');
-    const statusEl = document.getElementById('historicalComparisonStatus');
-    if (!controls || !toggle || !statusEl) return;
+    if (!controls || !toggle) return;
 
     controls.dataset.state = status;
     if (status === 'hidden') {
@@ -377,8 +375,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'Show an earlier semester comparison');
-        toggle.textContent = 'Compare earlier semester';
-        statusEl.textContent = '';
+        toggle.textContent = 'Historical';
         return;
     }
 
@@ -387,8 +384,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'Historical comparison is loading');
-        toggle.textContent = 'Loading earlier comparison…';
-        statusEl.textContent = 'Finding the most recent qualifying semester…';
+        toggle.textContent = 'Loading earlier…';
         return;
     }
 
@@ -397,8 +393,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = false;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'Find an earlier semester comparison');
-        toggle.textContent = 'Compare earlier semester';
-        statusEl.textContent = 'Not loaded';
+        toggle.textContent = 'Historical';
         return;
     }
 
@@ -406,10 +401,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'No qualifying earlier comparison is available');
-        toggle.textContent = 'Earlier comparison unavailable';
-        statusEl.textContent = descriptor?.mode === 'professor'
-            ? 'This professor was not found in an earlier offering.'
-            : 'No earlier offering of this course was found.';
+        toggle.textContent = 'Unavailable';
         return;
     }
 
@@ -417,8 +409,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = false;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', getHistoricalComparisonLabel(descriptor, 'Retry'));
-        toggle.textContent = 'Retry earlier comparison';
-        statusEl.textContent = 'Historical data could not be loaded or validated.';
+        toggle.textContent = 'Retry earlier';
         return;
     }
 
@@ -429,8 +420,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         'aria-label',
         getHistoricalComparisonLabel(descriptor, enabled ? 'Hide' : 'Show'),
     );
-    toggle.textContent = getHistoricalComparisonLabel(descriptor, enabled ? 'Hide' : 'Show');
-    statusEl.textContent = enabled ? 'Showing' : 'Available';
+    toggle.textContent = 'Historical';
 }
 
 function resetHistoricalComparisonState() {
@@ -716,8 +706,7 @@ function shouldRenderMilestone(milestone, chartMode, dataTimestamps) {
     return true;
 }
 
-function getMilestoneXValues(milestones, chartMode, dataTimestamps, mapTime) {
-    if (chartMode !== 'phased') return [];
+function getCurrentMilestoneXValues(milestones, chartMode, dataTimestamps, mapTime) {
     return milestones
         .filter(milestone => shouldRenderMilestone(milestone, chartMode, dataTimestamps))
         .map(milestone => mapTime(new Date(milestone.time).getTime()))
@@ -746,6 +735,7 @@ function addHistoricalMilestoneAnnotations({
     dataTimestamps,
     historicalMapper,
     historicalCoordinateMapper,
+    currentMilestoneXValues = [],
 }) {
     milestones.forEach((milestone, index) => {
         if (!shouldRenderMilestone(milestone, chartMode, dataTimestamps)) return;
@@ -753,11 +743,16 @@ function addHistoricalMilestoneAnnotations({
         const sourceX = historicalMapper.mapTime(sourceTime);
         const xPos = historicalCoordinateMapper.mapX(sourceX);
         if (!Number.isFinite(xPos)) return;
+        // Current and historical milestones are aligned in the comparison
+        // mapper. Draw one line at that shared position instead of stacking
+        // two differently dashed annotations on top of each other.
+        if (currentMilestoneXValues.some(currentX => Math.abs(currentX - xPos) < 0.5)) return;
         annotations[`historicalLine${index}`] = {
             type: 'line', xMin: xPos, xMax: xPos,
             borderColor: milestone.color || 'rgba(220, 224, 232, 0.58)',
             borderWidth: 1, borderDash: [2, 4],
             drawTime: 'beforeDatasetsDraw',
+            z: -1,
             label: { display: false },
         };
     });
@@ -802,13 +797,14 @@ function addCurrentMilestoneAnnotations({
             type: 'line', xMin: xPos, xMax: xPos,
             borderColor: color, borderWidth: 2, borderDash: [5, 3],
             drawTime: 'beforeDatasetsDraw',
+            z: -1,
             label: {
                 display: true, content: milestone.label, position: labelPos,
                 backgroundColor: color, color: getContrastColor(color),
                 font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
-                // Keep milestone labels behind the enrollment series so a
-                // full-capacity marker at the milestone remains visible.
-                z: 10, drawTime: 'beforeDatasetsDraw',
+                // Keep the line behind the enrollment series, but draw the
+                // label afterward so its text and background stay opaque.
+                z: 10, drawTime: 'afterDatasetsDraw',
             }
         };
     });
@@ -876,12 +872,13 @@ function buildMilestoneRenderState({
     historicalMapper,
     historicalCoordinateMapper,
 }) {
-    const annotationXValues = getMilestoneXValues(
+    const currentMilestoneXValues = getCurrentMilestoneXValues(
         milestones,
         chartMode,
         domainTimestamps,
         mapTime,
     );
+    const annotationXValues = chartMode === 'phased' ? [...currentMilestoneXValues] : [];
     const annotations = {};
     if (historicalMapper && historicalCoordinateMapper) {
         const historicalTimestamps = (historicalComparison.chartDomain || [])
@@ -901,6 +898,7 @@ function buildMilestoneRenderState({
             dataTimestamps: historicalTimestamps,
             historicalMapper,
             historicalCoordinateMapper,
+            currentMilestoneXValues,
         });
     }
     if (milestones.length > 0
@@ -1494,12 +1492,8 @@ async function retryCourse(courseCode) {
 
 function setZoomControlsState(isZoomed) {
     const resetBtn = document.getElementById('chartZoomReset');
-    const status = document.getElementById('chartZoomStatus');
     if (resetBtn) {
         resetBtn.disabled = !chart || !isZoomed;
-    }
-    if (status) {
-        status.textContent = chart && isZoomed ? 'Zoomed' : '';
     }
 }
 
@@ -1765,8 +1759,7 @@ async function showAverageFillChart(
     const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
 
-    const hasCapacityChanges = chartPoints.some(point => point.capacityChanged);
-    document.getElementById('chartLegend').classList.toggle('visible', hasCapacityChanges);
+    updateHistoricalLegend();
     await renderChart(courseCode, chartPoints, chartDomain, true, { requestVersion });
 }
 
@@ -1807,9 +1800,7 @@ async function selectSection(sectionCode) {
     const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
 
-    // Show legend if there are capacity changes
-    const hasCapacityChanges = currentEnrollmentData.some(d => d.capacityChanged);
-    document.getElementById('chartLegend').classList.toggle('visible', hasCapacityChanges);
+    updateHistoricalLegend();
 
     await renderChart(
         `${sectionCode} Enrollment %`,
@@ -1879,16 +1870,6 @@ async function renderChart(
         historicalMapper,
         historicalCoordinateMapper,
     });
-    annotations.fullCapacityGuide = {
-        type: 'line',
-        yMin: 100,
-        yMax: 100,
-        borderColor: 'rgba(245, 247, 255, 0.86)',
-        borderWidth: 1.5,
-        borderDash: [6, 4],
-        drawTime: 'beforeDatasetsDraw',
-        z: -1,
-    };
     const xBounds = getXScaleBounds([
         ...(currentComparisonDomain.length > 0
             ? currentComparisonDomain
@@ -1906,10 +1887,11 @@ async function renderChart(
     setZoomControlsState(false);
 
     // Point styling
-    const pointStyles = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 'rectRot' : false);
-    const pointColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#4ecdc4' : '#ffd700');
-    const pointRadii = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? 7 : 0);
-    const pointBorderColors = chartPoints.map(d => showCapacityMarkers && d.capacityChanged ? '#ffffff' : '#17213f');
+    const capacityMarkersVisible = showCapacityMarkers && !hasHistoricalDataset;
+    const pointStyles = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? 'rectRot' : false);
+    const pointColors = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? '#4ecdc4' : '#ffd700');
+    const pointRadii = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? 7 : 0);
+    const pointBorderColors = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? '#ffffff' : '#17213f');
     const pointBorderWidths = chartPoints.map(() => 2);
 
     // Build dataset with {x, y} pairs

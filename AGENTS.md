@@ -28,9 +28,11 @@ As verified on 2026-08-04:
 - Monitoring is active. The scheduler process is running under the sole supported
   `registrarmonitor.service` unit.
 - `registrarmonitor.service` is installed, enabled, and active/running.
-- The VM checkout is clean on `main`/`origin/main`; one manual stateful
-  reporting cycle completed successfully with Telegram disabled using the
-  `758345d9` code revision.
+- The VM checkout is clean on `main`/`origin/main` at `c48e35fb`; the canonical
+  service was restarted after synchronization and remains active/running.
+- The latest forced Pages deployment is
+  `019c6b0e.registrar-monitor.pages.dev`; the canonical domain returned HTTP
+  200 after deployment.
 - The obsolete `registrar-monitor.service` unit was removed from the host.
 - The cron daemon is active, but no active Registrar Monitor entry exists in the
   runtime-user, root, operator, or system crontabs.
@@ -109,6 +111,47 @@ UV_CACHE_DIR=/private/tmp/uv-cache uv run python -c "from registrarmonitor.servi
 ```
 
 Hard-refresh the browser after patching.
+
+## Common pitfalls and papercuts
+
+- Jujutsu commands snapshot `@`, and concurrent operations can commit or
+  restore working-copy content unexpectedly. Inspect `jj op log` before
+  recovery, then re-check `jj status`, a bounded `jj log`, and `jj diff` after
+  every restore, commit, or bookmark move. A clean empty `@` does not prove
+  that the intended files are present.
+- `jj commit` does not move bookmarks. For a deliberate `main` commit, commit
+  the working copy, move `main` to the new commit, fetch before pushing, use a
+  bookmark-specific dry-run, and confirm `main@origin` afterward.
+- The production VM is a colocated Jujutsu/Git checkout whose system Git is
+  too old for the native `jj git fetch` path. Use the documented system-Git
+  fetch followed by Jujutsu import and bookmark/working-copy reconciliation.
+  The `.jj/working_copy` metadata is owned by the SSH checkout owner, so run
+  Jujutsu synchronization as that owner; separately verify that the runtime
+  user can read the updated source files.
+- `gcloud compute ssh` needs exact leaf-level help validation, explicit
+  project/zone scoping, `--quiet`, and a `--dry-run` preview. The local
+  sandbox may block the gcloud credentials database; retry the same approved
+  read-only command with elevated permission instead of changing repository or
+  VM state to work around it.
+- Chromium smoke tests can fail before test startup in the sandbox with a
+  macOS Mach-port permission error. Treat that as an environment failure and
+  rerun the same browser check with the approved elevated execution path.
+- A Vite build can leave generated HTML pointing at an older asset hash. Use
+  the generated `public` output, compare `.vite/manifest.json`, and run the
+  supported forced `monitor deploy --force --deploy` path when the deploy must
+  include current assets. Validate the deployed hashed asset, not only the
+  source build log.
+- Forced deployment can be quiet while generating the course-share pages and
+  uploading thousands of files. Poll the existing process/session; do not
+  start a second deployment while the first is still running.
+- Updating the VM checkout does not reload an already-running Python process.
+  After an explicitly authorized code sync, restart only
+  `registrarmonitor.service` and verify its active/running state, new process
+  start time/PID, and source checksums. Never revive the retired unit.
+- Chart.js layering is easy to regress: regular point and hover radii must be
+  zero when dots are removed, while capacity-change markers remain visible;
+  horizontal guides need `drawTime: 'beforeDatasetsDraw'` and `z: -1` so they
+  stay behind the yellow course series and markers.
 
 ## Version control
 

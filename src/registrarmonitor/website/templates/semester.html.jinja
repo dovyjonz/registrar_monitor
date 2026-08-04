@@ -131,16 +131,26 @@
                             <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false" title="Show individual snapshots">Snapshots</button>
                             <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false" title="Show continuous timeline">Timeline</button>
                         </div>
-                        <div class="chart-zoom-controls">
-                            <button type="button" class="chart-zoom-btn" id="chartZoomReset" disabled title="Reset chart zoom">Reset zoom</button>
-                            <span class="chart-zoom-status" id="chartZoomStatus" aria-live="polite"></span>
-                        </div>
-                        <div class="historical-comparison-controls" id="historicalComparisonControls" hidden data-state="hidden">
-                            <button type="button" class="historical-comparison-toggle" id="historicalComparisonToggle"
-                                aria-pressed="false" aria-label="Show an earlier semester comparison" disabled>
-                                Compare earlier semester
-                            </button>
-                            <span class="historical-comparison-status" id="historicalComparisonStatus" role="status" aria-live="polite"></span>
+                        <div class="chart-action-controls">
+                            <div class="chart-zoom-controls">
+                                <button type="button" class="chart-zoom-btn" id="chartZoomReset" disabled title="Reset chart zoom">Reset zoom</button>
+                            </div>
+                            <div class="historical-comparison-controls" id="historicalComparisonControls" hidden data-state="hidden">
+                                <button type="button" class="historical-comparison-toggle" id="historicalComparisonToggle"
+                                    aria-pressed="false" aria-label="Show an earlier semester comparison" disabled>
+                                    Historical
+                                </button>
+                            </div>
+                            <div class="chart-legend" id="chartLegend">
+                                <div class="chart-legend-item">
+                                    <div class="chart-legend-dot capacity-changed"></div>
+                                    <span>Capacity changed</span>
+                                </div>
+                                <div class="chart-legend-item historical-legend-item" id="historicalLegendItem" hidden>
+                                    <span class="historical-legend-line" aria-hidden="true"></span>
+                                    <span id="historicalLegendLabel">Earlier semester</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="chart-wrapper">
@@ -148,16 +158,6 @@
                             Click a section to view enrollment history
                         </div>
                         <canvas id="enrollment-chart" class="chart-hidden" aria-label="Enrollment chart" role="img"></canvas>
-                    </div>
-                    <div class="chart-legend" id="chartLegend">
-                        <div class="chart-legend-item">
-                            <div class="chart-legend-dot capacity-changed"></div>
-                            <span>Capacity changed</span>
-                        </div>
-                        <div class="chart-legend-item historical-legend-item" id="historicalLegendItem" hidden>
-                            <span class="historical-legend-line" aria-hidden="true"></span>
-                            <span id="historicalLegendLabel">Earlier semester</span>
-                        </div>
                     </div>
                 </div>
 

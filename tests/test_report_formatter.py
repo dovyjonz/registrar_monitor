@@ -4,6 +4,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
+from registrarmonitor.data.snapshot_comparator import SnapshotComparator
 from registrarmonitor.models import (
     Course,
     CourseChangeDetail,
@@ -237,6 +238,33 @@ class TestFormatChangesReport:
         )
 
         assert "instructor: Ada Lovelace → Grace Hopper" in report
+
+    def test_name_formatting_is_not_reported(self, formatter: ReportFormatter):
+        previous_course = Course(
+            "CS 101",
+            "CS",
+            {"10L": Section("10L", "L", 20, 30, 0.67, "Park, Chun Young")},
+            0.67,
+        )
+        current_course = Course(
+            "CS 101",
+            "CS",
+            {"10L": Section("10L", "L", 20, 30, 0.67, "Chun Young Park")},
+            0.67,
+        )
+        previous = EnrollmentSnapshot(
+            "2024-01-15 09:00:00", "Spring 2024", 0.67, {"CS 101": previous_course}
+        )
+        current = EnrollmentSnapshot(
+            "2024-01-15 10:00:00", "Spring 2024", 0.67, {"CS 101": current_course}
+        )
+
+        comparison = SnapshotComparator().compare_snapshots(current, previous)
+        report = formatter.format_changes_report(comparison, current, previous)
+
+        assert comparison.changed_courses == []
+        assert "No significant changes" in report
+        assert "instructor:" not in report
 
     def test_courses_sorted_alphabetically(self, formatter: ReportFormatter):
         """Courses in report should be sorted alphabetically."""
