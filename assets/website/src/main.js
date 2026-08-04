@@ -356,7 +356,10 @@ function updateHistoricalLegend() {
     if (historicalLegend) {
         historicalLegend.hidden = !historicalVisible;
         if (historicalVisible && historicalLabel) {
-            historicalLabel.textContent = historicalComparisonData.semester;
+            historicalLabel.textContent = getHistoricalComparisonLabel(
+                historicalComparisonData,
+                '',
+            ).trim();
         }
     }
     legend?.classList.toggle('visible', capacityVisible || Boolean(historicalVisible));
