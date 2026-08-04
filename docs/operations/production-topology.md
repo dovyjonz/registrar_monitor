@@ -60,7 +60,7 @@ reporting history exists but no reporting log has yet been recorded.
 | Environment file | `/home/dmitry_s_ivanenko/registrar_monitor/.env` |
 | Migration evidence directory | `/home/dmitry_s_ivanenko/registrar_monitor/output/migration/` |
 | Last inspected target revision | Updated from `origin/main` during the 2026-08-04 synchronization |
-| Current reconciled checkout | Clean colocated Jujutsu `main`/`origin/main`; exact revision is recorded after synchronization below |
+| Current reconciled checkout | Clean colocated Jujutsu `main`/`origin/main`; the current revision is discoverable with `jj log` |
 
 The target checkout used for the Step 3 apply, Step 4 mode transitions, and
 Step 5 finalizations is historical evidence based on the approved revision
@@ -104,8 +104,9 @@ minimal group traversal/read ACL needed for the operator to run the shared
 toolchain.
 
 The checkout is now a colocated Jujutsu repository. The active working copy is
-clean on `main`/`origin/main` at `758345d9`, with an empty working-copy child
-for ongoing work. The stale VM patch is recoverable as local, untracked
+clean on `main`/`origin/main`, with an empty working-copy child for ongoing
+work. The code/reporting/deployment test used `758345d9`; the documentation
+follow-up is on the same `main` line. The stale VM patch is recoverable as local, untracked
 bookmark `vm-pre-reconciliation-2026-08-02` (Jujutsu change `d65d29af`), and
 the secret-free binary record is retained at
 `/home/dmitry_s_ivanenko/registrar_monitor/output/maintenance/`:
@@ -152,6 +153,8 @@ service state.
   `2026-08-04T20:49:54+05`. Wrangler returned the production deployment URL
   [`70f9a377.registrar-monitor.pages.dev`](https://70f9a377.registrar-monitor.pages.dev).
   The VM service remained active/running after the upload.
+- After the deployment, the documentation-only follow-up was pushed and the VM
+  was reconciled again to `main`/`origin/main`; its working copy remained clean.
 
 ## Process supervision
 
