@@ -27,9 +27,9 @@ Step 7 runtime were verified on 2026-08-04. Runtime timestamps use
 | Step 5 historical finalization | **Finalized and verified** | All five historical databases are configured/persisted `finalized`; legacy tables retired; rollback archives retained; integrity and foreign-key checks pass |
 | Step 6 Fall 2026 qualification | **Completed at bounded operational scope** | Fresh schema-v2 initialization, one controlled Fall 2026 ingest, exact legacy/v2 parity, and audited `shadow -> v2` promotion passed; the existing broad compatibility evaluator was stopped after exceeding the requested test boundary |
 | Step 7 active runtime state | **Recorded** | Fall 2026 is configured/persisted `v2`; v2 reads are authoritative; `registrarmonitor.service` is active and running |
-| Latest successful poll | **Stale** | 2026-06-10 15:32:18 +05 |
-| Latest successful report | **Stale** | 2026-06-10 15:32:23 +05 |
-| Latest successful Pages deployment | **Stale** | 2026-06-10 15:33:17 +05 |
+| Latest observed snapshot | **Current** | Snapshot 132 at 2026-08-04 20:34:32 +05; 132 snapshots retained |
+| Latest successful report | **Current** | Snapshot 132 at 2026-08-04 20:36:55.273853 +05; changes found; Telegram disabled for the test |
+| Latest successful Pages deployment | **Current** | 2026-08-04; production upload succeeded; deployment URL recorded below |
 | Recurring database backup policy | **Unconfirmed** | Step 3 migration backup artifacts are verified in the evidence directory; recurring ownership and retention remain open |
 
 Monitoring is currently active. Do not change service state or perform a
@@ -63,12 +63,10 @@ reporting history exists but no reporting log has yet been recorded.
 | Current reconciled checkout | Clean colocated Jujutsu `main`/`origin/main`; exact revision is recorded after synchronization below |
 
 The target checkout used for the Step 3 apply, Step 4 mode transitions, and
-Step 5 finalizations is based on the approved revision
-`aa9334e838d951a99cf7de8cffc351cdab68b6c2`. The four fresh-semester runtime
-modules were synchronized as a working-tree implementation change for Step 6;
-the target's historical settings edits were preserved. The last observed Pages deployment
-remains at the older source revision recorded below. The `.env` exists with
-restrictive permissions; its contents were not printed or copied.
+Step 5 finalizations is historical evidence based on the approved revision
+`aa9334e838d951a99cf7de8cffc351cdab68b6c2`. The current VM checkout is the
+reconciled `main` revision recorded below. The `.env` exists with restrictive
+permissions; its contents were not printed or copied.
 
 The controlled Fall 2026 download observed `2026-08-02 18:49:38`, wrote one
 snapshot (sequence 1; 404 courses and 884 sections) to both representations,
@@ -106,7 +104,7 @@ minimal group traversal/read ACL needed for the operator to run the shared
 toolchain.
 
 The checkout is now a colocated Jujutsu repository. The active working copy is
-clean on `main`/`origin/main` at `6a25c7c4`, with an empty working-copy child
+clean on `main`/`origin/main` at `758345d9`, with an empty working-copy child
 for ongoing work. The stale VM patch is recoverable as local, untracked
 bookmark `vm-pre-reconciliation-2026-08-02` (Jujutsu change `d65d29af`), and
 the secret-free binary record is retained at
@@ -127,6 +125,34 @@ The 2026-08-04 synchronization and reporting test are recorded below. The
 canonical service was already enabled and running; this work did not change its
 service state.
 
+## 2026-08-04 synchronization and reporting test
+
+- Local `main` and `origin/main` were pushed at commit
+  `758345d91700a311a866b98c69740d02f5b4d36b` (`758345d9`). The VM fetched that
+  revision, moved its local `main` bookmark, and checked out a clean empty child
+  of `main`; no runtime or generated files are tracked as working-copy changes.
+- The VM's `/usr/local/bin/jj` is v0.43.0 and its system Git is 2.39.5. The
+  native `jj git fetch` path rejected that Git version, so synchronization used
+  the supported system `git fetch origin main` followed by Jujutsu import and
+  bookmark/working-copy reconciliation. Upgrade Git before relying on native
+  `jj git fetch` on this host.
+- `registrarmonitor.service` remained loaded, enabled, active, and running; no
+  restart, stop, or enablement change was performed.
+- The manual test command was
+  `monitor report --stateful --no-telegram` as `dmitry_s_ivanenko`. It compared
+  snapshot `132` with last reported snapshot `125`, found changes, generated
+  `assets/changes/fall_2026_2026-08-04_20-34-32.txt`, and completed successfully
+  without sending Telegram.
+- The resulting `reporting_log_v2` row was report `23`, snapshot `132`,
+  `changes_found=1`, at `2026-08-04T20:36:55.273853`. `monitor db stats`
+  reported 132 snapshots, 409 courses, 893 sections, and a latest snapshot at
+  `2026-08-04 20:34:32`.
+- The forced website build generated five semester pages and 1,416 course-share
+  pages, then uploaded successfully to Cloudflare Pages at approximately
+  `2026-08-04T20:49:54+05`. Wrangler returned the production deployment URL
+  [`70f9a377.registrar-monitor.pages.dev`](https://70f9a377.registrar-monitor.pages.dev).
+  The VM service remained active/running after the upload.
+
 ## Process supervision
 
 ### Canonical unit
@@ -139,9 +165,10 @@ service state.
 - `Restart=always` with a five-second delay;
 - journal output.
 
-The installed unit is disabled and failed/inactive. It is the only supported
-unit name. `scripts/setup_vps.sh` installs dependencies and generates the unit,
-but intentionally does not enable or start it.
+The installed unit is enabled and active/running. It is the only supported unit
+name. `scripts/setup_vps.sh` installs dependencies and generates the unit, but
+intentionally leaves enablement and startup as separate operator actions; the
+current host has those actions already completed.
 
 ### Retired unit
 
@@ -197,7 +224,8 @@ The supported website path is a direct Cloudflare Pages upload from generated
 | Pages domain | `registrar-monitor.pages.dev` |
 | Deployment mode | Direct Pages upload |
 | Last observed branch | `main` |
-| Last observed source revision | prefix `668893f` |
+| Last observed source revision | `758345d9` |
+| Latest deployment | [`70f9a377.registrar-monitor.pages.dev`](https://70f9a377.registrar-monitor.pages.dev), 2026-08-04 |
 
 The retired Worker asset-deployment path is not supported.
 
@@ -217,16 +245,15 @@ remain unknown.
 
 ## Open operator decisions
 
-1. When and through what controlled procedure should the stale VPS checkout be
-   updated?
-2. When are the planned data changes complete enough to permit a separate
-   service-activation decision?
-3. What alert should verify the daemon's twice-hourly stateful reporter?
-4. Who owns backups, retention, RPO/RTO, encryption, and restore testing?
-5. Are Google Cloud disk snapshots or another off-host backup mechanism active?
-6. Has the credential-like value from old commented crontab material been
+1. Should the VM Git client be upgraded to at least 2.41.0 so native
+   `jj git fetch` is supported, or should the documented direct-fetch procedure
+   remain the operational path?
+2. What alert should verify the daemon's twice-hourly stateful reporter?
+3. Who owns backups, retention, RPO/RTO, encryption, and restore testing?
+4. Are Google Cloud disk snapshots or another off-host backup mechanism active?
+5. Has the credential-like value from old commented crontab material been
    rotated?
-7. What alert should detect stale polling, reporting, deployment, or backups?
+6. What alert should detect stale polling, reporting, deployment, or backups?
 
 ## Safe verification runbook
 
@@ -307,6 +334,9 @@ URI mode (`mode=ro`) and verify cloud backups through bounded inventory queries.
   `registrarmonitor.service` was disabled and failed/inactive, the obsolete unit
   was absent, `cron.service` was active, and no Registrar Monitor workflow
   process was running. The current state is in the status table above.
+- The 2026-08-04 synchronization and no-Telegram reporting test updated the VM
+  checkout to `758345d9`; snapshot 132 was reported successfully and the
+  canonical service remained active/running. No service-state change occurred.
 - The 2026-08-02 permissions/tooling repair did not modify the canonical unit,
   cron configuration, databases, runtime data, environment file, or application
   processes; it intentionally reconciled only the checkout permissions and

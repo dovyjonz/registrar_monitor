@@ -28,6 +28,8 @@ As verified on 2026-08-04:
 - Monitoring is active. The scheduler process is running under the sole supported
   `registrarmonitor.service` unit.
 - `registrarmonitor.service` is installed, enabled, and active/running.
+- The VM checkout is clean on `main`/`origin/main` at `758345d9`; one manual
+  stateful reporting cycle completed successfully with Telegram disabled.
 - The obsolete `registrar-monitor.service` unit was removed from the host.
 - The cron daemon is active, but no active Registrar Monitor entry exists in the
   runtime-user, root, operator, or system crontabs.

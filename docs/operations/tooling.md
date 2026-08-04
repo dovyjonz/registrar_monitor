@@ -78,7 +78,7 @@ checkout's stale 19-path patch is archived under
 `9c7040b7e2dacd17afd46cd898781b30f1edd8eb667654bf6c2e7d84135d23e6`) as
 Jujutsu change `d65d29af` / local bookmark
 `vm-pre-reconciliation-2026-08-02`; the active working copy is clean on
-`main`/`6a25c7c4`.
+`main`/`origin/main` at `758345d9`.
 
 For the repaired host, run the runtime diagnostic as `dmitry_s_ivanenko` and
 run the operator gate with a raised file-descriptor limit while keeping dotenv

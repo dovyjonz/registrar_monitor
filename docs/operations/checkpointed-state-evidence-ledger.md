@@ -285,7 +285,11 @@ in the configured order.
   `registrarmonitor.service` remains a separate explicit operator
   authorization.
 
-## Step 6 and Step 7 stopped completion state
+## Step 6 and Step 7 stopped completion state (historical)
+
+This section records the stopped rollout state at the time of the 2026-08-02
+ledger update. It is not the current VM status; see
+`production-topology.md` for the active runtime and the 2026-08-04 test record.
 
 The repository is stopped with the five historical semesters finalized as
 recorded above. Fall 2026 is schema v2 with configured/persisted mode `v2`, v2
@@ -294,11 +298,12 @@ dual writes still enabled. The controlled target ingest wrote the first real
 Fall 2026 observation as sequence 1; exact parity, integrity, and foreign-key
 checks passed. Fall 2026 was not finalized.
 
-`registrarmonitor.service` remains loaded, failed/inactive, and disabled. No
-normal monitoring, public website deployment, or service activation was
-performed. The broad compatibility evaluator was intentionally stopped after
-exceeding the requested test boundary; this is recorded as a testing
-limitation, not as production data evidence.
+At the time of this historical ledger update, `registrarmonitor.service` was
+loaded, failed/inactive, and disabled. No normal monitoring, public website
+deployment, or service activation had been performed. The broad compatibility
+evaluator was intentionally stopped after exceeding the requested test
+boundary; this is recorded as a testing limitation, not as production data
+evidence.
 
 ## Raw-enriched results
 

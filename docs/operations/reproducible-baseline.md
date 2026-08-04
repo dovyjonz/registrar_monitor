@@ -84,7 +84,7 @@ after source, dependency, or toolchain changes.
 | `monitor schedule` via `registrarmonitor.service` | Canonical; includes stateful reports at :15 and :45 | Installed, enabled, and running |
 | External Registrar Monitor cron | Retired | No active entries |
 | `monitor run` | Supported operator workflow | Production use not established |
-| Direct Cloudflare Pages upload | Canonical website deployment | Last observed success 2026-06-10 |
+| Direct Cloudflare Pages upload | Canonical website deployment | Last observed success 2026-08-04 from `758345d9`; [deployment](https://70f9a377.registrar-monitor.pages.dev) |
 | Worker asset deployment | Retired | Not present |
 
 The obsolete `registrar-monitor.service` unit was removed from production on
