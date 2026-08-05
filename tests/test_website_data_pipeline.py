@@ -156,6 +156,20 @@ def test_history_indices_for_website_keeps_terminal_snapshot_outside_window():
     assert result == {0, 1, 2}
 
 
+def test_history_indices_for_website_keeps_a_24_hour_milestone_buffer():
+    snapshots = [
+        {"timestamp": "2024-01-14T11:59:59"},
+        {"timestamp": "2024-01-14T12:00:00"},
+        {"timestamp": "2024-01-15T12:00:00"},
+        {"timestamp": "2024-01-16T12:00:00"},
+    ]
+    milestones = [{"time": "2024-01-15T12:00:00"}]
+
+    result = _history_indices_for_website(snapshots, milestones)
+
+    assert result == {1, 2, 3}
+
+
 class TestCompactSectionHistory:
     def test_short_history_unchanged(self):
         h = [{"enrollment": 25}, {"enrollment": 30}]

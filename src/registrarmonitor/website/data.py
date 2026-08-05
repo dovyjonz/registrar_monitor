@@ -11,6 +11,8 @@ from registrarmonitor.data.instructor_normalization import instructor_identity
 
 from .config import KEY_MAP, MILESTONES_MAP, course_to_slug
 
+WEBSITE_HISTORY_BUFFER_HOURS = 24
+
 
 def _parse_registrar_timestamp(value: str) -> datetime:
     """Parse an ISO timestamp into the configured registrar timezone."""
@@ -135,9 +137,9 @@ def _history_indices_in_milestone_window(
 def _history_indices_for_website(
     snapshots: list[dict[str, Any]],
     milestones: list[dict[str, str]],
-    buffer_hours: int = 1,
+    buffer_hours: int = WEBSITE_HISTORY_BUFFER_HOURS,
 ) -> set[int] | None:
-    """Keep the milestone window and the latest snapshot as a chart anchor."""
+    """Keep the buffered milestone window and latest snapshot as a chart anchor."""
     keep_indices = _history_indices_in_milestone_window(
         snapshots,
         milestones,
@@ -840,7 +842,9 @@ def _checkpointed_semester_data(
     milestones = MILESTONES_MAP.get(semester, [])
     if milestones:
         keep_indices = _history_indices_for_website(
-            data["snapshots"], milestones, buffer_hours=1
+            data["snapshots"],
+            milestones,
+            buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
         )
         if keep_indices is not None:
             for course_data in data["courses"].values():
@@ -1042,12 +1046,14 @@ def get_semester_data(
                 }
             )
 
-    # Apply milestone-based filtering to trim histories outside registration window.
+    # Apply milestone-based filtering with a 24-hour buffer on both sides.
     # The snapshots array stays intact so counts and snapshotIdx references remain stable.
     milestones = MILESTONES_MAP.get(semester, [])
     if milestones and data["snapshots"]:
         keep_indices = _history_indices_for_website(
-            data["snapshots"], milestones, buffer_hours=1
+            data["snapshots"],
+            milestones,
+            buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
         )
         if keep_indices is not None:
             for course_data in data["courses"].values():
