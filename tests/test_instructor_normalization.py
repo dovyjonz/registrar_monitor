@@ -68,6 +68,7 @@ class TestInstructorIdentity:
             ("Park, Chun Young", "Chun Young Park"),
             ("Arif, Syed Muhammad Umair", "Syed Muhammad Umair Arif"),
             ("Petrikin Jr, Ian Albert", "Ian Albert Petrikin Jr"),
+            ("Ted Parent, Parent, Ted", "Ted Parent"),
             (
                 "Mun, Ellina, Elkamhawy, Ahmed",
                 "Ellina Mun, Ahmed Elkamhawy",
@@ -128,6 +129,20 @@ class TestAggregateInstructorsBySection:
         ]
         result = aggregate_instructors_by_section(rows)
         assert result[("CS 101", "10L")] == "Smith, Jones"
+
+    def test_aggregates_duplicate_full_and_last_first_fragments_once(self):
+        rows = [
+            {"Course Abbr": "CS 101", "S/T": "10L", "Instructor": "Ted Parent"},
+            {
+                "Course Abbr": "CS 101",
+                "S/T": "10L",
+                "Instructor": "Parent, Ted",
+            },
+        ]
+
+        result = aggregate_instructors_by_section(rows)
+
+        assert result[("CS 101", "10L")] == "Ted Parent"
 
     def test_skips_rows_without_course_code(self):
         rows = [{"Course Abbr": "", "S/T": "10L", "Instructor": "Smith"}]

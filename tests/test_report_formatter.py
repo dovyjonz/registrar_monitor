@@ -172,6 +172,8 @@ class TestFormatChangesReport:
             current_enrollment=25,
             previous_capacity=30,
             current_capacity=30,
+            previous_instructor="Ada Lovelace",
+            current_instructor="Grace Hopper",
         )
         course_change = CourseChangeDetail(
             course_code="CS 101",
@@ -198,8 +200,9 @@ class TestFormatChangesReport:
         assert "10L" in report
         # Should show enrollment delta
         assert "+5" in report or "(+5)" in report
+        assert "instructor:" not in report
 
-    def test_modified_instructor_formatting(self, formatter: ReportFormatter):
+    def test_instructor_only_changes_are_not_reported(self, formatter: ReportFormatter):
         previous_section = Section("10L", "L", 20, 30, 0.67, "Ada Lovelace")
         current_section = Section("10L", "L", 20, 30, 0.67, "Grace Hopper")
         previous_course = Course("CS 101", "CS", {"10L": previous_section}, 0.67)
@@ -237,7 +240,9 @@ class TestFormatChangesReport:
             ),
         )
 
-        assert "instructor: Ada Lovelace → Grace Hopper" in report
+        assert "CS 101" not in report
+        assert "instructor:" not in report
+        assert "No significant changes" in report
 
     def test_name_formatting_is_not_reported(self, formatter: ReportFormatter):
         previous_course = Course(

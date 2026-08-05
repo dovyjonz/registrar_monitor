@@ -120,6 +120,27 @@ def _person_identities(value: str | None) -> list[str]:
         if all(_looks_like_last_first_pair(first, second) for first, second in pairs):
             token_parts = [first + second for first, second in pairs]
 
+    # Registrar rows can contain both a full name and the same person's
+    # ``Last, First`` fragments, for example ``Ted Parent, Parent, Ted``.
+    # Treat the fragments as evidence for the larger identity instead of as
+    # additional instructors.
+    unique_token_parts: list[tuple[str, ...]] = []
+    seen_token_parts: set[tuple[str, ...]] = set()
+    for tokens in token_parts:
+        key = tuple(sorted(tokens))
+        if key not in seen_token_parts:
+            seen_token_parts.add(key)
+            unique_token_parts.append(tokens)
+    token_parts = [
+        tokens
+        for tokens in unique_token_parts
+        if not any(
+            set(tokens) < set(other_tokens)
+            for other_tokens in unique_token_parts
+            if other_tokens is not tokens
+        )
+    ]
+
     return [" ".join(sorted(tokens)) for tokens in token_parts]
 
 
@@ -151,6 +172,20 @@ def normalize_instructors(raw_instructors: Iterable[Any]) -> str:
             if identity and identity not in identities:
                 identities.add(identity)
                 names.append(name)
+
+    # The same duplicate-fragment pattern can be produced across separate
+    # registrar rows: a full name in one row and ``Last, First`` in another.
+    # Drop the fragment identities when a larger name identity is present.
+    name_token_sets = [set(_name_tokens(clean_instructor_text(name))) for name in names]
+    names = [
+        name
+        for index, name in enumerate(names)
+        if not any(
+            name_token_sets[index] < other_tokens
+            for other_index, other_tokens in enumerate(name_token_sets)
+            if other_index != index
+        )
+    ]
     return ", ".join(names)
 
 

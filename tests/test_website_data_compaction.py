@@ -253,6 +253,12 @@ def test_instructor_events_dedupe_consecutive_duplicates_and_preserve_toggles(
                     "Chun Young Park",
                     "2024-01-15T09:00:00",
                 ),
+                (
+                    section_id,
+                    "Ted Parent, Parent, Ted",
+                    "Ted Parent",
+                    "2024-01-15T09:30:00",
+                ),
                 (section_id, "A", "B", "2024-01-15T10:00:00"),
                 (section_id, "A", "B", "2024-01-15T10:01:00"),
                 (section_id, "B", "A", "2024-01-15T10:02:00"),

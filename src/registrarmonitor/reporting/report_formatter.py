@@ -1,8 +1,8 @@
 """Formats enrollment data into human-readable reports."""
 
-from ..data.instructor_normalization import instructor_identity
 from ..models import (
     Course,
+    CourseChangeDetail,
     EnrollmentComparison,
     EnrollmentSnapshot,
 )
@@ -15,6 +15,37 @@ SIGNIFICANT_CHANGE_THRESHOLD = 0.15  # 15%
 
 class ReportFormatter:
     """Formats enrollment data into human-readable reports."""
+
+    @staticmethod
+    def _has_reportable_section_change(section_change) -> bool:
+        """Return whether a modified section has an enrollment-side change."""
+        return (
+            section_change.current_enrollment != section_change.previous_enrollment
+            or section_change.current_capacity != section_change.previous_capacity
+        )
+
+    @classmethod
+    def _has_reportable_course_change(cls, course_change: CourseChangeDetail) -> bool:
+        """Ignore instructor-only changes in text reports."""
+        return bool(
+            course_change.added_sections
+            or course_change.removed_sections
+            or any(
+                cls._has_reportable_section_change(section_change)
+                for section_change in course_change.modified_sections
+            )
+        )
+
+    def has_reportable_changes(self, comparison: EnrollmentComparison) -> bool:
+        """Return whether a comparison warrants an enrollment report."""
+        return bool(
+            comparison.new_courses
+            or comparison.removed_courses
+            or any(
+                self._has_reportable_course_change(course_change)
+                for course_change in comparison.changed_courses
+            )
+        )
 
     def _get_status_emoji(
         self, fill: float, is_course: bool = False, course: Course | None = None
@@ -67,7 +98,11 @@ class ReportFormatter:
         # Pre-compute lookups for O(1) access
         new_course_codes = {c.course_code for c in comparison.new_courses}
         removed_course_codes = {c.course_code for c in comparison.removed_courses}
-        changed_courses_dict = {cc.course_code: cc for cc in comparison.changed_courses}
+        changed_courses_dict = {
+            cc.course_code: cc
+            for cc in comparison.changed_courses
+            if self._has_reportable_course_change(cc)
+        }
 
         all_course_codes: set[str] = (
             new_course_codes | removed_course_codes | set(changed_courses_dict.keys())
@@ -112,14 +147,6 @@ class ReportFormatter:
                 )
 
             elif course_change_detail and current_course and prev_course:
-                # Skip if there are no actual section changes
-                if not (
-                    course_change_detail.added_sections
-                    or course_change_detail.removed_sections
-                    or course_change_detail.modified_sections
-                ):
-                    continue
-
                 emoji = self._get_status_emoji(
                     current_course.average_fill, is_course=True, course=current_course
                 )
@@ -150,8 +177,13 @@ class ReportFormatter:
                     section_lines.append(f"  ❌ {section.section_id:<4}: (REMOVED)")
 
                 # Modified sections
+                reportable_modified_sections = [
+                    section_change
+                    for section_change in course_change_detail.modified_sections
+                    if self._has_reportable_section_change(section_change)
+                ]
                 for sec_mod in sorted(
-                    course_change_detail.modified_sections,
+                    reportable_modified_sections,
                     key=lambda sm: self._modified_section_sort_key(sm, current_course),
                 ):
                     curr_sec = current_course.sections.get(sec_mod.section_id)
@@ -161,15 +193,6 @@ class ReportFormatter:
                             sec_mod.previous_enrollment or 0
                         )
                         change_details = [f"{enrollment_delta:+d}"]
-                        if instructor_identity(
-                            sec_mod.previous_instructor
-                        ) != instructor_identity(sec_mod.current_instructor):
-                            previous_instructor = sec_mod.previous_instructor or "TBA"
-                            current_instructor = sec_mod.current_instructor or "TBA"
-                            change_details.append(
-                                "instructor: "
-                                f"{previous_instructor} → {current_instructor}"
-                            )
                         section_lines.append(
                             f"  {sec_emoji} {sec_mod.section_id:<4}: "
                             f"{sec_mod.current_enrollment:>3}/{sec_mod.current_capacity} "

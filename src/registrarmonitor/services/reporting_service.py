@@ -246,12 +246,9 @@ class ReportingService:
             current_snapshot, previous_snapshot
         )
 
-        # Determine if there are significant changes
-        changes_found = bool(
-            comparison.new_courses
-            or comparison.removed_courses
-            or comparison.changed_courses
-        )
+        # Instructor-only changes belong to the website event history, not to
+        # Telegram enrollment reports.
+        changes_found = self.report_formatter.has_reportable_changes(comparison)
 
         if changes_found:
             self.logger.info("Changes found! Generating and sending reports...")
@@ -432,6 +429,13 @@ class ReportingService:
             comparison = self.snapshot_comparator.compare_snapshots(
                 current_snapshot, previous_snapshot
             )
+
+            if not self.report_formatter.has_reportable_changes(comparison):
+                self.logger.info(
+                    "Skipping text report because there are no reportable "
+                    "enrollment or capacity changes"
+                )
+                return None
 
             # Generate text report
             text_report = self.report_formatter.format_changes_report(
