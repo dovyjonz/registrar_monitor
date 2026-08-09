@@ -538,6 +538,7 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     const box = await canvas.boundingBox();
     const wrapperTopBeforeTouch = (await chartWrapper.boundingBox()).y;
     expect(box).toBeTruthy();
+    const canvasTopBeforeTouch = box.y;
 
     const client = await context.newCDPSession(page);
     const y = box.y + box.height * 0.5;
@@ -565,6 +566,11 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     await expect(readout).toHaveCSS('position', 'absolute');
     await expect.poll(async () => (await chartWrapper.boundingBox()).y)
         .toBeCloseTo(wrapperTopBeforeTouch, 0);
+    await expect.poll(async () => (await canvas.boundingBox()).y)
+        .toBeCloseTo(canvasTopBeforeTouch, 0);
+    const readoutBox = await readout.boundingBox();
+    const canvasBox = await canvas.boundingBox();
+    expect(readoutBox.y + readoutBox.height).toBeLessThanOrEqual(canvasBox.y);
     expect(await readout.evaluate(element => {
         const style = getComputedStyle(element);
         return style.borderLeftWidth === style.borderRightWidth;

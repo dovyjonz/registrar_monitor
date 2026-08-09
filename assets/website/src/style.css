@@ -1186,6 +1186,36 @@ header p {
     height: 100% !important;
 }
 
+@media (pointer: coarse) {
+    /* Keep a stable readout lane above the plot: no reflow and no chart occlusion. */
+    .chart-wrapper {
+        height: 324px;
+    }
+
+    .chart-wrapper canvas {
+        top: 64px;
+        height: 260px !important;
+    }
+
+    .chart-readout {
+        top: 0;
+        right: 0;
+        left: 0;
+        min-height: 54px;
+        max-height: 58px;
+        padding: 5px 7px;
+        overflow: hidden;
+        border-color: transparent;
+        background: hsl(var(--muted) / 0.46);
+        box-shadow: none;
+    }
+
+    .chart-readout[hidden] {
+        display: block;
+        visibility: hidden;
+    }
+}
+
 .chart-placeholder {
     text-align: center;
     color: hsl(var(--muted-foreground));
