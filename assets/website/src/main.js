@@ -2058,6 +2058,7 @@ async function renderChart(
     } : null;
     canvas.dataset.historicalDatasets = historicalDataset ? '1' : '0';
     const compactTooltip = window.matchMedia('(max-width: 768px)').matches;
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
     canvas.dataset.tooltipDensity = compactTooltip ? 'compact' : 'regular';
     const tooltipMetrics = {
         id: 'tooltipMetrics',
@@ -2088,7 +2089,9 @@ async function renderChart(
                         y: { min: 0, max: enrollmentScaleMax }
                     },
                     pan: {
-                        enabled: true,
+                        // A one-finger drag on touch screens is for inspecting the
+                        // tooltip. Pinch remains available for deliberate zooming.
+                        enabled: !coarsePointer,
                         mode: 'x',
                         threshold: 8,
                         onPanComplete: updateZoomControls

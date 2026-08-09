@@ -1114,7 +1114,8 @@ header p {
 .chart-wrapper {
     position: relative;
     height: 260px;
-    touch-action: none;       /* prevent scroll-through on mobile */
+    /* Horizontal moves inspect the graph; vertical moves keep scrolling the modal. */
+    touch-action: pan-y pinch-zoom;
 }
 
 .chart-wrapper canvas {
@@ -1707,7 +1708,7 @@ html.modal-open,
 html.modal-open body {
     overflow: hidden;
     overscroll-behavior: contain;
-    touch-action: none;
+    touch-action: pan-y pinch-zoom;
 }
 
 /* Inert background: dimmed when modal is open */
@@ -1763,7 +1764,7 @@ html.modal-open body {
     /* Prevent scroll when modal is open - use overflow only, not position:fixed */
     body.modal-open {
         overflow: hidden;
-        touch-action: none;
+        touch-action: pan-y pinch-zoom;
     }
 
     header {

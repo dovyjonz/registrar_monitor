@@ -269,7 +269,7 @@ class TestGenerateCourseSharePages:
                 return_value="<html>current</html>",
             ),
         ):
-            service._generate_course_share_pages()
+            service._generate_course_share_pages(["Summer 2026"])
 
         assert not stale_page.exists()
         assert (tmp_path / "courses" / "summer-2026" / "csci-101.html").exists()

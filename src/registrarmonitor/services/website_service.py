@@ -24,6 +24,8 @@ from ..website.templates import (
     build_semester_page,
 )
 
+DEPLOY_TIMEOUT_SECONDS = 900
+
 
 class WebsiteService:
     """Service for handling website generation and deployment."""
@@ -41,6 +43,15 @@ class WebsiteService:
             Path(__file__).parent.parent.parent.parent / "assets" / "website"
         )
         self.website_assets_dir = self._default_website_assets_dir
+        self._semester_data_cache: dict[str, dict] = {}
+
+    def _get_semester_data(self, semester: str) -> dict:
+        """Load each semester payload at most once during a generation run."""
+        if semester not in self._semester_data_cache:
+            self._semester_data_cache[semester] = get_semester_data(
+                semester, minify=True
+            )
+        return self._semester_data_cache[semester]
 
     @property
     def output_dir(self) -> Path:
@@ -68,10 +79,14 @@ class WebsiteService:
         Returns:
             Tuple of (output_path, file_size_kb) - output_path may be None if no data
         """
-        print(f"  Generating {semester}...")
+        print(f"  Generating {semester}...", flush=True)
 
         # Get data and milestones
-        data = get_semester_data(semester, minify=True, database=database)
+        data = (
+            get_semester_data(semester, minify=True, database=database)
+            if database is not None
+            else self._get_semester_data(semester)
+        )
         milestones = MILESTONES_MAP.get(semester, [])
 
         # Check if we have data
@@ -443,26 +458,27 @@ class WebsiteService:
             print("Error: npm not found. Is Node.js installed?")
             return False
 
-    def _generate_course_share_pages(self) -> None:
-        """Generate per-course share pages with OG/Twitter metadata."""
+    def _generate_course_share_pages(self, semesters: list[str]) -> None:
+        """Regenerate share pages only for semesters whose data changed."""
         from ..website.templates import build_course_share_page
 
         share_dir = self.output_dir / "courses"
-        if share_dir.exists():
-            shutil.rmtree(share_dir)
         share_dir.mkdir(parents=True, exist_ok=True)
 
         generated = 0
 
-        for semester in SEMESTER_MAP.values():
-            data = get_semester_data(semester, minify=True)
+        for semester in semesters:
+            sem_slug = semester_to_slug(semester)
+            sem_dir = share_dir / sem_slug
+            if sem_dir.exists():
+                shutil.rmtree(sem_dir)
+            sem_dir.mkdir(parents=True, exist_ok=True)
+
+            print(f"  Generating {semester} course share pages...", flush=True)
+            data = self._get_semester_data(semester)
             courses = data.get("cr", {})
             if not courses:
                 continue
-
-            sem_slug = semester_to_slug(semester)
-            sem_dir = share_dir / sem_slug
-            sem_dir.mkdir(parents=True, exist_ok=True)
 
             for code, course in courses.items():
                 title = course.get("ti", "")
@@ -482,7 +498,7 @@ class WebsiteService:
                 out_path.write_text(html)
                 generated += 1
 
-        print(f"Generated {generated} course share pages")
+        print(f"Generated {generated} course share pages", flush=True)
 
     def _build_headers_content(self) -> str:
         """Build Cloudflare Pages headers for generated public output."""
@@ -621,6 +637,7 @@ class WebsiteService:
         """
         try:
             self.last_generation_skipped = False
+            self._semester_data_cache.clear()
             # Skip if not active (unless forced)
             if not force and not self.is_any_semester_active():
                 print("💤 Outside active registration windows. Skipping build/deploy.")
@@ -644,6 +661,7 @@ class WebsiteService:
                 semester = SEMESTER_MAP[semester_key]
                 print(f"Generating website for {semester}...")
                 self.generate_semester_page(semester, minify_assets=minify)
+                self._generate_course_share_pages([semester])
             else:
                 # Generate all semesters (incremental by default)
                 semesters_to_update = get_semesters_needing_update(
@@ -665,8 +683,9 @@ class WebsiteService:
                         f"\nGenerated {len(semesters_to_update)} pages ({total_size:.1f} KB total)"
                     )
 
-                # Generate course share pages
-                self._generate_course_share_pages()
+                # Reuse the already-loaded payloads and touch only changed semesters.
+                if semesters_to_update:
+                    self._generate_course_share_pages(semesters_to_update)
 
                 # Always regenerate index.html (redirect page)
                 index_html = build_redirect_index()
@@ -719,7 +738,7 @@ class WebsiteService:
             print("❌ Deployment is disabled for isolated generation output.")
             return False
 
-        print("\n🚀 Deploying to Cloudflare Pages...")
+        print("\n🚀 Deploying to Cloudflare Pages...", flush=True)
         print(f"   Project: {project_name}")
         if branch:
             print(f"   Branch: {branch}")
@@ -770,20 +789,15 @@ class WebsiteService:
         env["NO_UPDATE_NOTIFIER"] = "1"
 
         try:
-            # Run inside website_assets_dir where package.json/node_modules are.
-            # Capture output so deployment failures leave the actionable Wrangler
-            # error in scheduler/systemd logs.
+            # Inherit stdout/stderr so Wrangler progress reaches the operator and
+            # systemd journal immediately. Bound the process so a stalled network
+            # upload cannot block the scheduler indefinitely.
             result = subprocess.run(
                 deploy_cmd,
                 cwd=self.website_assets_dir,
                 env=env,
-                capture_output=True,
-                text=True,
+                timeout=DEPLOY_TIMEOUT_SECONDS,
             )
-            if result.stdout:
-                print(result.stdout.rstrip())
-            if result.stderr:
-                print(result.stderr.rstrip())
             if result.returncode == 0:
                 print("✅ Deployment successful!")
                 return True
@@ -792,6 +806,11 @@ class WebsiteService:
                 return False
         except FileNotFoundError:
             print("❌ Error: npx/wrangler not found. Is Node.js installed?")
+            return False
+        except subprocess.TimeoutExpired:
+            print(
+                f"❌ Deployment timed out after {DEPLOY_TIMEOUT_SECONDS // 60} minutes."
+            )
             return False
         except Exception as e:
             self.logger.error(f"Deployment failed: {e}")

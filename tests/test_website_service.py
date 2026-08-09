@@ -281,15 +281,14 @@ def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys, monkeypat
         patch("subprocess.run") as run,
     ):
         run.return_value.returncode = 1
-        run.return_value.stdout = "stdout details\n"
-        run.return_value.stderr = "stderr details\n"
-
         assert service.deploy(project_name="registrar-monitor") is False
 
     output = capsys.readouterr().out
-    assert "stdout details" in output
-    assert "stderr details" in output
     assert "Deployment failed with exit code: 1" in output
+    assert "capture_output" not in run.call_args.kwargs
+    assert "stdout" not in run.call_args.kwargs
+    assert "stderr" not in run.call_args.kwargs
+    assert run.call_args.kwargs["timeout"] == 900
 
 
 def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
@@ -431,3 +430,41 @@ def test_generate_fails_when_public_validation_has_issues(tmp_path):
     ):
         tmp_path.mkdir(exist_ok=True)
         assert service.generate(force=True) is False
+
+
+def test_generation_reuses_semester_data_and_limits_share_rebuild(tmp_path):
+    service = WebsiteService(output_dir=tmp_path)
+    semester_data = {"cr": {}, "sn": []}
+
+    with (
+        patch.object(service, "is_any_semester_active", return_value=True),
+        patch.object(service, "build_frontend_assets", return_value=True),
+        patch(
+            "registrarmonitor.services.website_service.get_semesters_needing_update",
+            return_value=["Summer 2026"],
+        ),
+        patch(
+            "registrarmonitor.services.website_service.get_semester_data",
+            return_value=semester_data,
+        ) as get_data,
+        patch.object(
+            service,
+            "generate_semester_page",
+            wraps=service.generate_semester_page,
+        ),
+        patch.object(
+            service,
+            "_generate_course_share_pages",
+            wraps=service._generate_course_share_pages,
+        ) as shares,
+        patch("registrarmonitor.services.website_service.update_checksum"),
+        patch(
+            "registrarmonitor.services.website_service.build_semester_page",
+            return_value="<html></html>",
+        ),
+        patch.object(service, "validate_public_output", return_value=[]),
+    ):
+        assert service.generate(force=True) is True
+
+    get_data.assert_called_once_with("Summer 2026", minify=True)
+    shares.assert_called_once_with(["Summer 2026"])

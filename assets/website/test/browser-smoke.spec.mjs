@@ -479,6 +479,10 @@ test('continuous phased time works on mobile', async ({ page }) => {
 
     const canvas = page.locator('#enrollment-chart');
     await canvas.scrollIntoViewIfNeeded();
+    await expect(page.locator('.chart-wrapper')).toHaveCSS(
+        'touch-action',
+        'pan-y pinch-zoom',
+    );
     const box = await canvas.boundingBox();
     expect(box).toBeTruthy();
     await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.5);
@@ -507,6 +511,49 @@ test('continuous phased time works on mobile', async ({ page }) => {
     expect(await page.locator('#modalOverlay').evaluate(element => (
         element.scrollWidth <= element.clientWidth
     ))).toBe(true);
+});
+
+test('touch dragging inspects the chart without trapping vertical scrolling', async ({ browser }) => {
+    const context = await browser.newContext({
+        viewport: { width: 360, height: 740 },
+        hasTouch: true,
+        isMobile: true,
+    });
+    const page = await context.newPage();
+    await page.goto('/fall2025.html#MATH-161');
+
+    const canvas = page.locator('#enrollment-chart');
+    await expect(canvas).toBeVisible();
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+
+    const client = await context.newCDPSession(page);
+    const y = box.y + box.height * 0.5;
+    const startX = box.x + box.width * 0.2;
+    const endX = box.x + box.width * 0.8;
+    await client.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: startX, y }],
+    });
+    await expect(canvas).toHaveAttribute('data-hover-timestamp', /\d+/);
+    const firstTimestamp = Number(await canvas.getAttribute('data-hover-timestamp'));
+    await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: endX, y }],
+    });
+    await expect.poll(async () => Number(await canvas.getAttribute('data-hover-timestamp')))
+        .toBeGreaterThan(firstTimestamp);
+    await client.send('Input.dispatchTouchEvent', {
+        type: 'touchEnd',
+        touchPoints: [],
+    });
+
+    await expect(page.locator('.chart-wrapper')).toHaveCSS(
+        'touch-action',
+        'pan-y pinch-zoom',
+    );
+    await context.close();
 });
 
 test('historical comparison prefers the prior year of the same semester', async ({ page }) => {
