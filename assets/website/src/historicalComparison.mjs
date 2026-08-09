@@ -573,9 +573,21 @@ export function createHistoricalCoordinateMapper({
     for (const anchor of anchors) {
         pointsBySource.set(anchor.historicalX, anchor.currentX);
     }
-    const points = [...pointsBySource.entries()]
+    const candidatePoints = [...pointsBySource.entries()]
         .sort(([first], [second]) => first - second)
         .map(([sourceX, targetX]) => ({ sourceX, targetX }));
+    // A current term can stop before future milestone anchors while the
+    // historical term already spans the full semester. In that case the
+    // sourceMax -> targetMax endpoint would sit after those anchors in source
+    // time but before them in target time, causing the rendered line to fold
+    // backward. Keep only anchors that preserve chronological x-order; the
+    // final valid segment naturally extrapolates beyond the last anchor.
+    const points = candidatePoints.reduce((chronological, point) => {
+        if (chronological.length === 0 || point.targetX >= chronological.at(-1).targetX) {
+            chronological.push(point);
+        }
+        return chronological;
+    }, []);
 
     const mapX = value => {
         const numericValue = Number(value);

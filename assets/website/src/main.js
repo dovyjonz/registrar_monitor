@@ -5,6 +5,7 @@
 import './style.css';
 import {
     OBSERVATION_STEP_MODE,
+    buildObservedCapacityPoints,
     buildAverageChartPoints,
     buildCourseChartDomain,
     buildProfessorAverageChartPoints,
@@ -2005,24 +2006,7 @@ async function renderChart(
 
     // Build dataset with {x, y} pairs
     const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y }));
-    const observedCapacityPoints = capacityData.flatMap((y, i) => (
-        Number.isFinite(y) ? [{ x: xValues[i], y, sourceIndex: i }] : []
-    ));
-    const capacityDataPoints = observedCapacityPoints.length > 0 ? [
-        {
-            x: xBounds.min,
-            y: observedCapacityPoints[0].y,
-            sourceIndex: observedCapacityPoints[0].sourceIndex,
-            synthetic: true,
-        },
-        ...observedCapacityPoints,
-        {
-            x: xBounds.max,
-            y: observedCapacityPoints.at(-1).y,
-            sourceIndex: observedCapacityPoints.at(-1).sourceIndex,
-            synthetic: true,
-        },
-    ] : [];
+    const capacityDataPoints = buildObservedCapacityPoints(capacityData, xValues);
 
     const currentDataset = {
         id: 'enrollment',

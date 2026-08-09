@@ -294,3 +294,23 @@ test('historical milestone alignment tolerates old semesters without deadlines',
     assert.equal(mapper.mapX(900), 900);
     assert.equal(mapper.anchors.length, 4);
 });
+
+test('historical mapping never folds backward when current observations stop before future milestones', () => {
+    const historicalMilestones = [35, 135, 235, 335, 435, 535, 635, 735, 835]
+        .map((time, index) => ({ time, label: `M${index}` }));
+    const currentMilestones = historicalMilestones.map(milestone => ({ ...milestone }));
+    const mapper = createHistoricalCoordinateMapper({
+        historicalDomainXValues: [0, 870],
+        currentDomainXValues: [0, 296],
+        historicalMilestones,
+        currentMilestones,
+        historicalMapTime: time => time,
+        currentMapTime: time => time,
+    });
+
+    const mapped = [0, 35, 135, 235, 335, 435, 535, 635, 735, 835, 870]
+        .map(mapper.mapX);
+    assert.ok(mapped.every((value, index) => index === 0 || value >= mapped[index - 1]));
+    assert.equal(mapper.mapX(835), 835);
+    assert.equal(mapper.mapX(870), 870);
+});

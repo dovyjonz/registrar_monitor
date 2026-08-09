@@ -326,6 +326,14 @@ export function extendSteppedSeriesToDomainEnd(points, domainEnd) {
     }];
 }
 
+export function buildObservedCapacityPoints(capacityValues, xValues) {
+    return (capacityValues || []).flatMap((y, index) => (
+        Number.isFinite(y) && Number.isFinite(xValues?.[index])
+            ? [{ x: xValues[index], y, sourceIndex: index }]
+            : []
+    ));
+}
+
 function getDomainTimes(domain) {
     return getSortedUniqueNumbers((domain || []).map(point => point.timestamp));
 }

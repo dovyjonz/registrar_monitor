@@ -7,6 +7,7 @@ import {
     OBSERVATION_STEP_MODE,
     buildAverageChartPoints,
     buildCourseChartDomain,
+    buildObservedCapacityPoints,
     buildSectionChartPoints,
     extendSteppedSeriesToDomainEnd,
     getChartMapper,
@@ -160,6 +161,16 @@ test('capacity changes move the capacity line without moving unchanged enrollmen
     assert.deepEqual(points.map(point => point.enrollmentLevel), [50, 50]);
     assert.deepEqual(points.map(point => point.capacityLevel), [100, 150]);
     assert.deepEqual(points.map(point => point.fill), [50, 33]);
+});
+
+test('capacity line covers observed timestamps only', () => {
+    assert.deepEqual(
+        buildObservedCapacityPoints([undefined, 100, 125], [10, 20, 30]),
+        [
+            { x: 20, y: 100, sourceIndex: 1 },
+            { x: 30, y: 125, sourceIndex: 2 },
+        ],
+    );
 });
 
 test('removed sections do not dilute later course enrollment or capacity levels', () => {

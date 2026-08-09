@@ -100,6 +100,26 @@ test('generated production site serves a working semester dashboard', async ({ p
     await expect(page.locator('#courseSearch')).toBeFocused();
     await page.locator('#courseSearch').fill('ANT');
     await expect(page.locator('#clearSearch')).toBeVisible();
+    const clearButtonGeometry = await page.locator('#clearSearch').evaluate(element => {
+        const inputRect = document.querySelector('#courseSearch').getBoundingClientRect();
+        const buttonRect = element.getBoundingClientRect();
+        const visual = getComputedStyle(element, '::before');
+        return {
+            contained: buttonRect.top >= inputRect.top
+                && buttonRect.right <= inputRect.right
+                && buttonRect.bottom <= inputRect.bottom,
+            hitTarget: Math.round(buttonRect.width),
+            rightInset: Math.round(inputRect.right - buttonRect.right),
+            visualWidth: Math.round(buttonRect.width
+                - parseFloat(visual.left) - parseFloat(visual.right)),
+        };
+    });
+    expect(clearButtonGeometry).toEqual({
+        contained: true,
+        hitTarget: 44,
+        rightInset: 2,
+        visualWidth: 34,
+    });
     await page.locator('#clearSearch').click();
     await expect(page.locator('#courseSearch')).toHaveValue('');
     await expect(page.locator('#clearSearch')).toBeHidden();
