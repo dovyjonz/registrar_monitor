@@ -297,6 +297,28 @@ function getFillAtOrBefore(sectionHistory, snapshotIdx) {
     return latestFill;
 }
 
+function getEnrollmentStateAtOrBefore(sectionHistory, snapshotIdx) {
+    let latest = null;
+    for (const point of sectionHistory || []) {
+        const pointIndex = getHistorySnapshotIndex(point);
+        const enrollment = point?.enrollment ?? point?.e;
+        const capacity = point?.capacity ?? point?.c;
+        if (pointIndex === null || pointIndex > snapshotIdx) continue;
+        if (Number.isFinite(enrollment) && Number.isFinite(capacity)) {
+            latest = { enrollment, capacity };
+        }
+    }
+    return latest;
+}
+
+function getOpeningCapacity(sectionHistory) {
+    for (const point of sectionHistory || []) {
+        const capacity = point?.capacity ?? point?.c;
+        if (Number.isFinite(capacity) && capacity > 0) return capacity;
+    }
+    return null;
+}
+
 /**
  * Build an equal-weight professor fill series. The returned fill is the
  * displayed whole percentage; fillRatio preserves the exact mean for callers
@@ -323,7 +345,7 @@ export function buildProfessorAverageChartPoints(
     const points = [];
 
     for (const snapshotIdx of relevantIndexes) {
-        const fills = [];
+        const contributions = [];
         for (const sectionCode of sectionCodes) {
             const section = sections[sectionCode];
             const activity = buildSectionActivityTimeline(
@@ -343,16 +365,23 @@ export function buildProfessorAverageChartPoints(
             );
             if (instructor !== professor) continue;
 
-            const fill = getFillAtOrBefore(
-                getSectionHistory(course, sectionCode, section),
-                snapshotIdx,
-            );
-            if (fill !== null) fills.push(fill);
+            const history = getSectionHistory(course, sectionCode, section);
+            const fill = getFillAtOrBefore(history, snapshotIdx);
+            const state = getEnrollmentStateAtOrBefore(history, snapshotIdx);
+            const openingCapacity = getOpeningCapacity(history);
+            if (fill !== null) contributions.push({ fill, state, openingCapacity });
         }
 
         const timestamp = getSnapshotTimestamp(snapshots[snapshotIdx]);
-        if (fills.length === 0 || !timestamp) continue;
-        const fillRatio = fills.reduce((total, fill) => total + fill, 0) / fills.length;
+        if (contributions.length === 0 || !timestamp) continue;
+        const fillRatio = contributions.reduce((total, value) => total + value.fill, 0)
+            / contributions.length;
+        const indexed = contributions.filter(value => value.state && value.openingCapacity);
+        const averageLevel = key => indexed.length > 0
+            ? indexed.reduce((total, value) => (
+                total + (value.state[key] / value.openingCapacity) * 100
+            ), 0) / indexed.length
+            : null;
         points.push({
             snapshotIdx,
             timestamp: new Date(timestamp).getTime(),
@@ -363,8 +392,10 @@ export function buildProfessorAverageChartPoints(
             enrollment: null,
             capacity: null,
             capacityChanged: false,
-            contributingSections: fills.length,
-            contributorCount: fills.length,
+            enrollmentLevel: averageLevel('enrollment') ?? fillRatio * 100,
+            capacityLevel: averageLevel('capacity') ?? 100,
+            contributingSections: contributions.length,
+            contributorCount: contributions.length,
         });
     }
     return points.filter(point => Number.isFinite(point.timestamp));

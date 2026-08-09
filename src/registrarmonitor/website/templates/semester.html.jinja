@@ -99,7 +99,10 @@
                             <path class="modal-icon-bookmark" d="M7.25 4.75A2.25 2.25 0 0 1 9.5 2.5h5A2.25 2.25 0 0 1 16.75 4.75V21L12 17.8 7.25 21V4.75Z"></path>
                         </svg>
                     </button>
-                    <h2 id="modalTitle">Course Details</h2>
+                    <h2 id="modalTitle" class="modal-course-heading" aria-label="Course details">
+                        <span class="modal-course-code" id="modalCourseCode">Course</span>
+                        <span class="modal-course-name" id="modalCourseName">Details</span>
+                    </h2>
                 </div>
                 <div class="modal-header-right">
                     <button type="button" class="modal-icon-btn share-btn" id="modalShareLink"
@@ -127,9 +130,9 @@
                     <div class="chart-toolbar">
                         <!-- Chart mode toggle -->
                         <div class="chart-mode-toggle" id="chartModeToggle" role="group" aria-label="Chart display mode">
-                            <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true" title="Show phased enrollment view">Phased</button>
-                            <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false" title="Show individual snapshots">Snapshots</button>
-                            <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false" title="Show continuous timeline">Timeline</button>
+                            <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true" title="Equal-width registration phases">Phases</button>
+                            <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false" title="Equal-width snapshots">Steps</button>
+                            <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false" title="Elapsed time with long gaps shortened">Time</button>
                         </div>
                         <div class="chart-action-controls">
                             <div class="chart-zoom-controls">
@@ -143,12 +146,8 @@
                             </div>
                             <div class="chart-legend" id="chartLegend">
                                 <div class="chart-legend-item">
-                                    <div class="chart-legend-dot capacity-changed"></div>
-                                    <span>Capacity changed</span>
-                                </div>
-                                <div class="chart-legend-item historical-legend-item" id="historicalLegendItem" hidden>
-                                    <span class="historical-legend-line" aria-hidden="true"></span>
-                                    <span id="historicalLegendLabel">Earlier semester</span>
+                                    <span class="capacity-legend-line" aria-hidden="true"></span>
+                                    <span>Capacity</span>
                                 </div>
                             </div>
                         </div>

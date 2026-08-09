@@ -18,11 +18,18 @@ test('historical comparisons prefer the prior year of the same semester', () => 
             'Fall 2026',
             ['Summer 2026', 'Spring 2026', 'Fall 2025', 'Summer 2025'],
         ),
-        ['Fall 2025', 'Summer 2026', 'Spring 2026', 'Summer 2025'],
+        ['Fall 2025', 'Spring 2026'],
     );
     assert.deepEqual(
         prioritizeHistoricalSemesters('Spring 2026', ['Fall 2025', 'Summer 2025']),
-        ['Fall 2025', 'Summer 2025'],
+        ['Fall 2025'],
+    );
+    assert.deepEqual(
+        prioritizeHistoricalSemesters(
+            'Summer 2026',
+            ['Spring 2026', 'Summer 2025', 'Fall 2025'],
+        ),
+        ['Summer 2025'],
     );
 });
 

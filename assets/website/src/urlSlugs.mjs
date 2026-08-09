@@ -3,9 +3,9 @@ export function semesterToSlug(semester) {
 }
 
 /**
- * Put the prior year's matching term first when looking for historical data.
- * The caller still controls which semesters are eligible; this only changes
- * the order of the supplied candidates.
+ * Exclude semesters with incompatible registration behavior, then put the
+ * prior year's matching term first. Summer compares only with Summer; Fall
+ * and Spring may compare with each other but never with Summer.
  */
 export function prioritizeHistoricalSemesters(currentSemester, semesters) {
     const candidates = Array.isArray(semesters) ? [...semesters] : [];
@@ -14,16 +14,28 @@ export function prioritizeHistoricalSemesters(currentSemester, semesters) {
     );
     if (!match) return candidates;
 
+    const currentTerm = match[1].toLocaleLowerCase();
+    const eligibleCandidates = candidates.filter((semester) => {
+        const candidateMatch = /^(Fall|Spring|Summer)\s+\d{4}$/iu.exec(
+            String(semester || '').trim(),
+        );
+        if (!candidateMatch) return false;
+        const candidateTerm = candidateMatch[1].toLocaleLowerCase();
+        return currentTerm === 'summer'
+            ? candidateTerm === 'summer'
+            : candidateTerm !== 'summer';
+    });
+
     const priorSemester = `${match[1]} ${Number(match[2]) - 1}`.toLocaleLowerCase();
-    const priorIndex = candidates.findIndex(semester => (
+    const priorIndex = eligibleCandidates.findIndex(semester => (
         String(semester).trim().toLocaleLowerCase() === priorSemester
     ));
-    if (priorIndex <= 0) return candidates;
+    if (priorIndex <= 0) return eligibleCandidates;
 
     return [
-        candidates[priorIndex],
-        ...candidates.slice(0, priorIndex),
-        ...candidates.slice(priorIndex + 1),
+        eligibleCandidates[priorIndex],
+        ...eligibleCandidates.slice(0, priorIndex),
+        ...eligibleCandidates.slice(priorIndex + 1),
     ];
 }
 

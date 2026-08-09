@@ -14,6 +14,8 @@ import {
     getChartMapper,
     getEnrollmentScaleMax,
     getXScaleBounds,
+    extendSteppedSeriesToDomainEnd,
+    limitPointsBeforeFirstMilestone,
     normalizeInstructorName,
 } from './chartMapping.mjs';
 import {
@@ -57,13 +59,95 @@ let Chart = null;
 
 async function loadChartJs() {
     if (chartJsLoaded) return;
-    const [chartModule, annotationModule, zoomModule] = await Promise.all([
+    const [chartModule, chartHelpers, annotationModule, zoomModule] = await Promise.all([
         import('chart.js/auto'),
+        import('chart.js/helpers'),
         import('chartjs-plugin-annotation'),
         import('chartjs-plugin-zoom'),
     ]);
     Chart = chartModule.default;
-    Chart.register(annotationModule.default, zoomModule.default);
+    chartModule.Tooltip.positioners.glide = function(items, eventPosition) {
+        const average = chartModule.Tooltip.positioners.average.call(this, items, eventPosition);
+        if (average === false) return false;
+        return {
+            x: Math.min(Math.max(eventPosition.x, this.chart.chartArea.left), this.chart.chartArea.right),
+            y: average.y,
+        };
+    };
+    const getSteppedElementAtX = (meta, pixelX, useFinalPosition = false) => {
+        let selected = null;
+        for (let index = 0; index < meta.data.length; index++) {
+            const element = meta.data[index];
+            const properties = element.getProps(['x'], useFinalPosition);
+            if (!selected) selected = { element, index };
+            if (properties.x <= pixelX) selected = { element, index };
+            if (properties.x > pixelX) break;
+        }
+        return selected;
+    };
+    chartModule.Interaction.modes.glideStepped = (chartInstance, event, options, useFinalPosition) => {
+        const position = chartHelpers.getRelativePosition(event, chartInstance);
+        return chartInstance.data.datasets.flatMap((_, datasetIndex) => {
+            const meta = chartInstance.getDatasetMeta(datasetIndex);
+            if (!meta.visible) return [];
+            const selected = getSteppedElementAtX(meta, position.x, useFinalPosition);
+            return selected ? [{
+                element: selected.element,
+                datasetIndex,
+                index: selected.index,
+            }] : [];
+        });
+    };
+    const hoverIndicator = {
+        id: 'hoverIndicator',
+        afterEvent(chartInstance, args, options) {
+            const { chartArea } = chartInstance;
+            const { event } = args;
+            const inside = event.type !== 'mouseout'
+                && event.x >= chartArea.left && event.x <= chartArea.right
+                && event.y >= chartArea.top && event.y <= chartArea.bottom;
+            const nextX = inside ? event.x : null;
+            if (chartInstance.$hoverPixelX !== nextX) {
+                chartInstance.$hoverPixelX = nextX;
+                if (Number.isFinite(nextX) && typeof options.unmapX === 'function') {
+                    const mappedX = chartInstance.scales.x.getValueForPixel(nextX);
+                    chartInstance.canvas.dataset.hoverTimestamp = String(options.unmapX(mappedX));
+                } else {
+                    delete chartInstance.canvas.dataset.hoverTimestamp;
+                }
+                args.changed = true;
+            }
+        },
+        afterDatasetsDraw(chartInstance) {
+            const pixelX = chartInstance.$hoverPixelX;
+            if (!Number.isFinite(pixelX)) return;
+            const { ctx } = chartInstance;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(pixelX, chartInstance.chartArea.top);
+            ctx.lineTo(pixelX, chartInstance.chartArea.bottom);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(220, 224, 232, 0.32)';
+            ctx.stroke();
+            chartInstance.data.datasets.forEach((dataset, datasetIndex) => {
+                const meta = chartInstance.getDatasetMeta(datasetIndex);
+                if (!meta.visible) return;
+                const selected = getSteppedElementAtX(meta, pixelX);
+                if (!selected) return;
+                const { y } = selected.element.getProps(['y'], false);
+                if (!Number.isFinite(y)) return;
+                ctx.beginPath();
+                ctx.arc(pixelX, y, dataset.id === 'enrollment' ? 4 : 3, 0, Math.PI * 2);
+                ctx.fillStyle = '#1f3b60';
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = dataset.borderColor;
+                ctx.stroke();
+            });
+            ctx.restore();
+        },
+    };
+    Chart.register(annotationModule.default, zoomModule.default, hoverIndicator);
     chartJsLoaded = true;
 }
 
@@ -348,21 +432,8 @@ function getHistoricalComparisonLabel(descriptor, action = 'Show') {
 
 function updateHistoricalLegend() {
     const legend = document.getElementById('chartLegend');
-    const historicalLegend = document.getElementById('historicalLegendItem');
-    const historicalLabel = document.getElementById('historicalLegendLabel');
-    const historicalVisible = historicalComparisonEnabled && historicalComparisonData;
-    const capacityVisible = !historicalVisible
-        && currentEnrollmentData.some(point => point.capacityChanged);
-    if (historicalLegend) {
-        historicalLegend.hidden = !historicalVisible;
-        if (historicalVisible && historicalLabel) {
-            historicalLabel.textContent = getHistoricalComparisonLabel(
-                historicalComparisonData,
-                '',
-            ).trim();
-        }
-    }
-    legend?.classList.toggle('visible', capacityVisible || Boolean(historicalVisible));
+    const capacityVisible = currentEnrollmentData.some(point => Number.isFinite(point.capacityLevel));
+    legend?.classList.toggle('visible', capacityVisible);
 }
 
 function setHistoricalComparisonState(status, descriptor = historicalComparisonDescriptor) {
@@ -627,7 +698,6 @@ async function enableHistoricalComparison() {
                 args.chartLabel,
                 args.chartPoints,
                 args.chartDomain,
-                args.showCapacityMarkers,
                 { requestVersion: args.requestVersion },
             );
         }
@@ -652,7 +722,6 @@ async function enableHistoricalComparison() {
                 args.chartLabel,
                 args.chartPoints,
                 args.chartDomain,
-                args.showCapacityMarkers,
                 {
                     requestVersion: args.requestVersion,
                     historicalComparison: historicalComparisonData,
@@ -672,7 +741,6 @@ async function enableHistoricalComparison() {
                     args.chartLabel,
                     args.chartPoints,
                     args.chartDomain,
-                    args.showCapacityMarkers,
                     { requestVersion: args.requestVersion },
                 );
             } catch (fallbackError) {
@@ -690,7 +758,8 @@ function mapHistoricalComparisonPoints(
     return historicalComparison.chartPoints
         .map((point, index) => ({
             x: historicalCoordinateMapper.mapX(historicalMapper.xValues[index]),
-            y: point.fill,
+            y: point.enrollmentLevel ?? point.fill,
+            sourceIndex: point.sourceIndex ?? index,
         }))
         .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
 }
@@ -714,51 +783,6 @@ function getCurrentMilestoneXValues(milestones, chartMode, dataTimestamps, mapTi
         .filter(milestone => shouldRenderMilestone(milestone, chartMode, dataTimestamps))
         .map(milestone => mapTime(new Date(milestone.time).getTime()))
         .filter(Number.isFinite);
-}
-
-function getHistoricalMilestoneXValues(
-    milestones,
-    chartMode,
-    dataTimestamps,
-    historicalMapper,
-    historicalCoordinateMapper,
-) {
-    return milestones
-        .filter(milestone => shouldRenderMilestone(milestone, chartMode, dataTimestamps))
-        .map(milestone => historicalCoordinateMapper.mapX(
-            historicalMapper.mapTime(new Date(milestone.time).getTime()),
-        ))
-        .filter(Number.isFinite);
-}
-
-function addHistoricalMilestoneAnnotations({
-    annotations,
-    milestones,
-    chartMode,
-    dataTimestamps,
-    historicalMapper,
-    historicalCoordinateMapper,
-    currentMilestoneXValues = [],
-}) {
-    milestones.forEach((milestone, index) => {
-        if (!shouldRenderMilestone(milestone, chartMode, dataTimestamps)) return;
-        const sourceTime = new Date(milestone.time).getTime();
-        const sourceX = historicalMapper.mapTime(sourceTime);
-        const xPos = historicalCoordinateMapper.mapX(sourceX);
-        if (!Number.isFinite(xPos)) return;
-        // Current and historical milestones are aligned in the comparison
-        // mapper. Draw one line at that shared position instead of stacking
-        // two differently dashed annotations on top of each other.
-        if (currentMilestoneXValues.some(currentX => Math.abs(currentX - xPos) < 0.5)) return;
-        annotations[`historicalLine${index}`] = {
-            type: 'line', xMin: xPos, xMax: xPos,
-            borderColor: milestone.color || 'rgba(220, 224, 232, 0.58)',
-            borderWidth: 1, borderDash: [2, 4],
-            drawTime: 'beforeDatasetsDraw',
-            z: -1,
-            label: { display: false },
-        };
-    });
 }
 
 function addCurrentMilestoneAnnotations({
@@ -821,17 +845,25 @@ function buildHistoricalChartState({
     milestones,
 }) {
     if (!historicalComparison?.chartPoints?.length) {
-        return {
-            historicalDataPoints: [],
-            historicalMapper: null,
-            historicalCoordinateMapper: null,
-        };
+        return { historicalDataPoints: [] };
     }
+
+    const historicalChartPoints = limitPointsBeforeFirstMilestone(
+        historicalComparison.chartPoints.map((point, sourceIndex) => ({
+            ...point,
+            sourceIndex,
+        })),
+        historicalComparison.milestones,
+    );
+    const historicalChartDomain = limitPointsBeforeFirstMilestone(
+        historicalComparison.chartDomain,
+        historicalComparison.milestones,
+    );
 
     const historicalMapper = getChartMapper(
         chartMode,
-        historicalComparison.chartPoints,
-        historicalComparison.chartDomain,
+        historicalChartPoints,
+        historicalChartDomain,
         historicalComparison.milestones,
     );
     const historicalDomain = historicalMapper.domainXValues.length > 0
@@ -852,15 +884,12 @@ function buildHistoricalChartState({
         currentMapTime: currentMapper.mapTime,
     });
 
-    return {
-        historicalDataPoints: mapHistoricalComparisonPoints(
-            historicalComparison,
+    const historicalDataPoints = mapHistoricalComparisonPoints(
+            { ...historicalComparison, chartPoints: historicalChartPoints },
             historicalMapper,
             historicalCoordinateMapper,
-        ),
-        historicalMapper,
-        historicalCoordinateMapper,
-    };
+        );
+    return { historicalDataPoints };
 }
 
 function buildMilestoneRenderState({
@@ -871,9 +900,6 @@ function buildMilestoneRenderState({
     xValues,
     fillData,
     historicalDataPoints,
-    historicalComparison,
-    historicalMapper,
-    historicalCoordinateMapper,
 }) {
     const currentMilestoneXValues = getCurrentMilestoneXValues(
         milestones,
@@ -883,27 +909,6 @@ function buildMilestoneRenderState({
     );
     const annotationXValues = chartMode === 'phased' ? [...currentMilestoneXValues] : [];
     const annotations = {};
-    if (historicalMapper && historicalCoordinateMapper) {
-        const historicalTimestamps = (historicalComparison.chartDomain || [])
-            .map(point => point.timestamp)
-            .filter(Number.isFinite);
-        annotationXValues.push(...getHistoricalMilestoneXValues(
-            historicalComparison.milestones || [],
-            chartMode,
-            historicalTimestamps,
-            historicalMapper,
-            historicalCoordinateMapper,
-        ));
-        addHistoricalMilestoneAnnotations({
-            annotations,
-            milestones: historicalComparison.milestones || [],
-            chartMode,
-            dataTimestamps: historicalTimestamps,
-            historicalMapper,
-            historicalCoordinateMapper,
-            currentMilestoneXValues,
-        });
-    }
     if (milestones.length > 0
         && (chartMode === 'phased' || domainTimestamps.length > 0)) {
         addCurrentMilestoneAnnotations({
@@ -1231,8 +1236,6 @@ function resetCourseDetailView() {
     currentEnrollmentData = [];
     lastRenderArgs = null;
     document.getElementById('chartLegend')?.classList.remove('visible');
-    const historicalLegend = document.getElementById('historicalLegendItem');
-    if (historicalLegend) historicalLegend.hidden = true;
     const placeholder = document.getElementById('chartPlaceholder');
     if (placeholder) placeholder.style.display = '';
     document.getElementById('enrollment-chart')?.classList.add('chart-hidden');
@@ -1328,6 +1331,17 @@ function focusModal() {
     }, 50);
 }
 
+function updateModalCourseTitle(courseCode, title) {
+    const heading = document.getElementById('modalTitle');
+    const code = document.getElementById('modalCourseCode');
+    const name = document.getElementById('modalCourseName');
+    if (!heading || !code || !name) return;
+    code.textContent = courseCode;
+    name.textContent = title || '';
+    name.hidden = !title;
+    heading.setAttribute('aria-label', title ? `${courseCode}: ${title}` : courseCode);
+}
+
 function openCourseModal(courseCode, summaryCourse) {
     const overlay = document.getElementById('modalOverlay');
     if (!overlay?.classList.contains('active')) {
@@ -1339,7 +1353,7 @@ function openCourseModal(courseCode, summaryCourse) {
     resetHistoricalComparisonState();
     initializeHistoricalComparisonControl(summaryCourse);
     const title = getCourseTitle(summaryCourse);
-    document.getElementById('modalTitle').textContent = `${courseCode}${title ? ` - ${title}` : ''}`;
+    updateModalCourseTitle(courseCode, title);
     updateModalBookmark(courseCode);
     overlay.classList.add('active');
     document.documentElement.classList.add('modal-open');
@@ -1369,7 +1383,7 @@ function renderCourseDetails(courseCode, course, requestVersion) {
     document.getElementById('modalDetailState')?.remove();
     setModalDetailVisibility(true);
     const title = getCourseTitle(course);
-    document.getElementById('modalTitle').textContent = `${courseCode}${title ? ` - ${title}` : ''}`;
+    updateModalCourseTitle(courseCode, title);
     updateModalBookmark(courseCode);
 
     const sectionList = document.getElementById('sectionList');
@@ -1757,13 +1771,12 @@ async function showAverageFillChart(
     if (requestVersion !== null && requestVersion !== courseRequestVersion) return;
     if (!course) return;
     const snapshots = getCourseSnapshots(course);
-
     const chartPoints = buildAverageChartPoints(course, snapshots);
     const chartDomain = buildCourseChartDomain(course, snapshots);
     currentEnrollmentData = chartPoints;
 
     updateHistoricalLegend();
-    await renderChart(courseCode, chartPoints, chartDomain, true, { requestVersion });
+    await renderChart(courseCode, chartPoints, chartDomain, { requestVersion });
 }
 
 /**
@@ -1809,7 +1822,6 @@ async function selectSection(sectionCode) {
         `${sectionCode} Enrollment %`,
         chartPoints,
         chartDomain,
-        true,
         { requestVersion },
     );
     void resolveHistoricalAvailability(selectedCourse, course, requestVersion);
@@ -1822,7 +1834,6 @@ async function renderChart(
     chartLabel,
     chartPoints,
     chartDomain,
-    showCapacityMarkers,
     { requestVersion = null, historicalComparison = null } = {},
 ) {
     await loadChartJs();
@@ -1832,17 +1843,23 @@ async function renderChart(
         chartLabel,
         chartPoints,
         chartDomain,
-        showCapacityMarkers,
         requestVersion,
         historicalComparison,
     };
 
     const milestones = getMilestones();
-    const labels = chartPoints.map(point => point.label);
-    const fillData = chartPoints.map(point => point.fill);
-    const domainTimestamps = chartDomain.map(point => point.timestamp);
-    const currentMapper = getChartMapper(chartMode, chartPoints, chartDomain, milestones);
-    const { xValues, domainXValues, mapTime } = currentMapper;
+    const visibleChartPoints = limitPointsBeforeFirstMilestone(chartPoints, milestones);
+    const visibleChartDomain = limitPointsBeforeFirstMilestone(chartDomain, milestones);
+    const fillData = visibleChartPoints.map(point => point.enrollmentLevel ?? point.fill);
+    const capacityData = visibleChartPoints.map(point => point.capacityLevel);
+    const domainTimestamps = visibleChartDomain.map(point => point.timestamp);
+    const currentMapper = getChartMapper(
+        chartMode,
+        visibleChartPoints,
+        visibleChartDomain,
+        milestones,
+    );
+    const { xValues, domainXValues, mapTime, unmapX } = currentMapper;
     const currentComparisonDomain = domainXValues.length > 0 ? domainXValues : xValues;
     const historicalChartState = buildHistoricalChartState({
         historicalComparison,
@@ -1851,14 +1868,11 @@ async function renderChart(
         currentMapper,
         milestones,
     });
-    const {
-        historicalDataPoints,
-        historicalMapper,
-        historicalCoordinateMapper,
-    } = historicalChartState;
+    const { historicalDataPoints } = historicalChartState;
     const hasHistoricalDataset = historicalDataPoints.length > 0;
     const enrollmentScaleMax = getEnrollmentScaleMax([
         ...fillData,
+        ...capacityData,
         ...historicalDataPoints.map(point => point.y),
     ]);
     const { annotations, annotationXValues } = buildMilestoneRenderState({
@@ -1869,16 +1883,20 @@ async function renderChart(
         xValues,
         fillData,
         historicalDataPoints,
-        historicalComparison,
-        historicalMapper,
-        historicalCoordinateMapper,
     });
+    const historicalXValues = historicalDataPoints.map(point => point.x);
+    const xScaleDomain = currentComparisonDomain.length > 1
+        ? currentComparisonDomain
+        : historicalXValues.length > 1
+            ? historicalXValues
+            : currentComparisonDomain;
     const xBounds = getXScaleBounds([
-        ...(currentComparisonDomain.length > 0
-            ? currentComparisonDomain
-            : historicalDataPoints.map(point => point.x)),
+        ...xScaleDomain,
         ...annotationXValues,
     ]);
+    const displayHistoricalDataPoints = historicalComparison?.mode === 'course'
+        ? extendSteppedSeriesToDomainEnd(historicalDataPoints, xBounds.max)
+        : historicalDataPoints;
 
     // Show chart canvas
     document.getElementById('chartPlaceholder').style.display = 'none';
@@ -1889,18 +1907,29 @@ async function renderChart(
     if (chart) { chart.destroy(); chart = null; }
     setZoomControlsState(false);
 
-    // Point styling
-    const capacityMarkersVisible = showCapacityMarkers && !hasHistoricalDataset;
-    const pointStyles = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? 'rectRot' : false);
-    const pointColors = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? '#4ecdc4' : '#ffd700');
-    const pointRadii = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? 7 : 0);
-    const pointBorderColors = chartPoints.map(d => capacityMarkersVisible && d.capacityChanged ? '#ffffff' : '#17213f');
-    const pointBorderWidths = chartPoints.map(() => 2);
-
     // Build dataset with {x, y} pairs
     const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y }));
+    const observedCapacityPoints = capacityData.flatMap((y, i) => (
+        Number.isFinite(y) ? [{ x: xValues[i], y, sourceIndex: i }] : []
+    ));
+    const capacityDataPoints = observedCapacityPoints.length > 0 ? [
+        {
+            x: xBounds.min,
+            y: observedCapacityPoints[0].y,
+            sourceIndex: observedCapacityPoints[0].sourceIndex,
+            synthetic: true,
+        },
+        ...observedCapacityPoints,
+        {
+            x: xBounds.max,
+            y: observedCapacityPoints.at(-1).y,
+            sourceIndex: observedCapacityPoints.at(-1).sourceIndex,
+            synthetic: true,
+        },
+    ] : [];
 
     const currentDataset = {
+        id: 'enrollment',
         label: chartLabel,
         data: dataPoints,
         borderColor: '#ffd700',
@@ -1908,44 +1937,58 @@ async function renderChart(
         fill: true,
         tension: 0,
         stepped: OBSERVATION_STEP_MODE,
-        pointStyle: pointStyles,
-        pointRadius: pointRadii,
-        pointHoverRadius: pointRadii,
-        pointBackgroundColor: pointColors,
-        pointBorderColor: pointBorderColors,
-        pointBorderWidth: pointBorderWidths,
-        order: 1,
+        borderWidth: 3,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        order: 0,
     };
-    const historicalDataset = hasHistoricalDataset ? {
-        label: historicalComparison.mode === 'professor'
-            ? `${historicalComparison.semester} · ${historicalComparison.professorDisplayName}`
-            : `${historicalComparison.semester} course aggregate`,
-        data: historicalDataPoints,
-        borderColor: 'rgba(220, 224, 232, 0.58)',
+    const capacityDataset = capacityDataPoints.length > 0 ? {
+        id: 'capacity',
+        label: 'Capacity',
+        data: capacityDataPoints,
+        borderColor: 'rgba(78, 205, 196, 0.84)',
         backgroundColor: 'transparent',
         fill: false,
         tension: 0,
         stepped: OBSERVATION_STEP_MODE,
-        borderDash: [5, 4],
-        borderWidth: 1,
+        borderWidth: 6,
         pointRadius: 0,
-        pointHoverRadius: 4,
-        pointBackgroundColor: 'rgba(220, 224, 232, 0.72)',
-        pointBorderColor: 'rgba(220, 224, 232, 0.72)',
+        pointHoverRadius: 0,
+        // The wide supporting stroke remains visible as a teal halo when the
+        // yellow enrollment line is exactly equal to capacity.
         order: 2,
     } : null;
-    canvas.dataset.historicalDatasets = historicalDataset ? '2' : '1';
+    const historicalDataset = hasHistoricalDataset ? {
+        id: 'historical',
+        label: historicalComparison.mode === 'professor'
+            ? `${historicalComparison.semester} · ${historicalComparison.professorDisplayName}`
+            : `${historicalComparison.semester} course aggregate`,
+        data: displayHistoricalDataPoints,
+        borderColor: 'rgba(247, 249, 252, 0.9)',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0,
+        stepped: OBSERVATION_STEP_MODE,
+        borderDash: [7, 4],
+        borderWidth: 2.5,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        // Draw above capacity and milestones, but behind the current line.
+        order: 1,
+    } : null;
+    canvas.dataset.historicalDatasets = historicalDataset ? '1' : '0';
 
     chart = new Chart(canvas, {
         type: 'line',
         data: {
-            datasets: historicalDataset ? [historicalDataset, currentDataset] : [currentDataset],
+            datasets: [historicalDataset, capacityDataset, currentDataset].filter(Boolean),
         },
         options: {
             responsive: true, maintainAspectRatio: false, animation: false,
-            layout: { padding: { left: 8, right: 8, top: 4, bottom: 4 } },
+            layout: { padding: { left: 0, right: 0, top: 4, bottom: 4 } },
             plugins: {
                 annotation: { annotations },
+                hoverIndicator: { unmapX },
                 legend: { display: false },
                 zoom: {
                     limits: {
@@ -1979,45 +2022,61 @@ async function renderChart(
                     }
                 },
                 tooltip: {
+                    position: 'glide',
                     backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
                     borderColor: '#3a3a5e', borderWidth: 1,
                     callbacks: {
                         title: (items) => {
                             if (!items.length) return '';
-                            const item = items[0];
-                            if (item.datasetIndex === 0 && hasHistoricalDataset) {
-                                return historicalComparison.chartPoints[item.dataIndex]?.label || '';
-                            }
-                            return labels[item.dataIndex] || '';
+                            const chartInstance = items[0].chart;
+                            const pixelX = chartInstance.$hoverPixelX;
+                            const mappedX = Number.isFinite(pixelX)
+                                ? chartInstance.scales.x.getValueForPixel(pixelX)
+                                : items[0].parsed.x;
+                            const timestamp = unmapX(mappedX);
+                            if (!Number.isFinite(timestamp)) return '';
+                            return new Date(timestamp).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                            });
                         },
                         label: (ctx) => {
-                            if (ctx.datasetIndex === 0 && hasHistoricalDataset) {
-                                const historicalPoint = historicalComparison.chartPoints[ctx.dataIndex];
+                            if (ctx.dataset.id === 'historical') {
+                                const sourceIndex = displayHistoricalDataPoints[ctx.dataIndex]?.sourceIndex;
+                                const historicalPoint = historicalComparison.chartPoints[sourceIndex];
                                 if (!historicalPoint) return `${ctx.parsed.y}%`;
-                                if (historicalComparison.mode === 'professor') {
-                                    return `${historicalComparison.semester} · ${historicalComparison.professorDisplayName}: `
-                                        + `${ctx.parsed.y}% average across ${historicalPoint.contributingSections} sections`;
+                                const openingLevel = Math.round(ctx.parsed.y);
+                                const fillLevel = historicalPoint.fill;
+                                if (Math.abs(openingLevel - fillLevel) > 1) {
+                                    return [
+                                        `${historicalComparison.semester} line: ${openingLevel}% of opening capacity`,
+                                        `Same enrollment: ${fillLevel}% of capacity on this date`,
+                                    ];
                                 }
-                                return `${historicalComparison.semester} course aggregate: ${ctx.parsed.y}%`;
+                                return `${historicalComparison.semester}: ${fillLevel}% full`;
                             }
-                            const idx = ctx.dataIndex;
-                            const enrollInfo = chartPoints[idx];
-                            let lbl = `${ctx.parsed.y}%`;
+                            const idx = ctx.dataset.id === 'capacity'
+                                ? capacityDataPoints[ctx.dataIndex]?.sourceIndex
+                                : ctx.dataIndex;
+                            const enrollInfo = visibleChartPoints[idx];
+                            if (ctx.dataset.id === 'capacity') {
+                                const amount = Number.isFinite(enrollInfo?.capacity)
+                                    ? ` ${enrollInfo.capacity}`
+                                    : '';
+                                return `Capacity${amount} · ${Math.round(ctx.parsed.y)}% of opening`;
+                            }
+                            let lbl = 'Enrollment';
                             if (enrollInfo && enrollInfo.enrollment !== null) {
-                                lbl += ` (${enrollInfo.enrollment}/${enrollInfo.capacity})`;
+                                lbl += ` ${enrollInfo.enrollment}/${enrollInfo.capacity}`;
                             }
-                            if (enrollInfo?.capacityChanged) {
-                                const changes = enrollInfo.capacityChanges?.length
-                                    ? enrollInfo.capacityChanges
-                                        .map(change => (
-                                            `${change.sectionCode} capacity: `
-                                            + `${change.previousCapacity} \u2192 ${change.capacity}`
-                                        ))
-                                        .join('; ')
-                                    : `Capacity: ${enrollInfo.prevCapacity} \u2192 ${enrollInfo.capacity}`;
-                                lbl += ` \u2022 ${changes}`;
-                            }
-                            return lbl;
+                            const openingLevel = Math.round(ctx.parsed.y);
+                            const fillLevel = enrollInfo?.fill ?? openingLevel;
+                            const details = Math.abs(openingLevel - fillLevel) > 1
+                                ? `${openingLevel}% of opening · ${fillLevel}% full`
+                                : `${fillLevel}% full`;
+                            return `${lbl} · ${details}`;
                         }
                     }
                 }
@@ -2042,16 +2101,14 @@ async function renderChart(
                     grid: {
                         // Keep horizontal guides beneath the yellow course series.
                         z: -1,
-                        color: context => context.tick?.value === 100
-                            ? 'rgba(255, 215, 0, 0.62)'
-                            : 'rgba(220, 224, 232, 0.18)',
-                        lineWidth: context => context.tick?.value === 100 ? 1.5 : 1,
+                        color: 'rgba(220, 224, 232, 0.18)',
+                        lineWidth: 1,
                         drawTicks: false,
                     },
                     border: { display: false }
                 }
             },
-            interaction: { intersect: false, mode: 'index' }
+            interaction: { intersect: false, mode: 'glideStepped', axis: 'x' }
         }
     });
     updateHistoricalLegend();
@@ -2548,7 +2605,6 @@ document.querySelectorAll('.chart-mode-btn').forEach(btn => {
                 a.chartLabel,
                 a.chartPoints,
                 a.chartDomain,
-                a.showCapacityMarkers,
                 {
                     requestVersion: a.requestVersion,
                     historicalComparison: a.historicalComparison,

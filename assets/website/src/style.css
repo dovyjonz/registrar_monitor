@@ -710,11 +710,30 @@ header p {
     z-index: 10;
 }
 
-.modal-header h2 {
+.modal-course-heading {
     min-width: 0;
     flex: 1 1 auto;
-    font-size: clamp(1rem, 2vw, 1.25rem);
-    line-height: 1.25;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.modal-course-code {
+    color: hsl(var(--ring));
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.modal-course-name {
+    color: hsl(var(--foreground));
+    font-size: clamp(1.2rem, 2.4vw, 1.55rem);
+    font-weight: 700;
+    line-height: 1.2;
     overflow-wrap: anywhere;
 }
 
@@ -892,17 +911,11 @@ header p {
     justify-content: center;
 }
 
-.chart-legend-dot.capacity-changed {
-    background: transparent;
-}
-
-.chart-legend-dot.capacity-changed::after {
-    content: '';
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    background: hsl(var(--ring));
-    transform: rotate(45deg);
+.capacity-legend-line {
+    width: 22px;
+    height: 0;
+    flex: 0 0 22px;
+    border-top: 4px solid rgba(78, 205, 196, 0.84);
 }
 
 /* ============================================
@@ -1029,14 +1042,14 @@ header p {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
 }
 
 .chart-zoom-controls {
     display: flex;
     align-items: center;
-    flex: 0 1 150px;
+    flex: 0 0 auto;
     min-width: 0;
 }
 
@@ -1044,7 +1057,7 @@ header p {
     height: 40px;
     min-height: 40px;
     padding: 6px 14px;
-    width: 100%;
+    width: auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1065,23 +1078,23 @@ header p {
 }
 
 .chart-zoom-btn:disabled {
-    cursor: default;
-    opacity: 0.45;
+    display: none;
 }
 
 .historical-comparison-controls {
     display: flex;
     align-items: center;
-    flex: 0 1 150px;
-    min-width: 0;
+    flex: 0 0 auto;
+    min-width: 96px;
 }
 
 .historical-comparison-toggle {
     height: 40px;
     min-height: 40px;
     padding: 6px 14px;
-    width: 100%;
+    width: auto;
     display: flex;
+    gap: 8px;
     align-items: center;
     justify-content: center;
     border: 1px solid hsl(var(--border));
@@ -1095,6 +1108,13 @@ header p {
     text-align: center;
     white-space: nowrap;
     transition: border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.historical-comparison-toggle::before {
+    content: '';
+    width: 18px;
+    flex: 0 0 18px;
+    border-top: 2px dashed rgba(247, 249, 252, 0.9);
 }
 
 .historical-comparison-toggle:hover:not(:disabled) {
@@ -1116,17 +1136,6 @@ header p {
 .historical-comparison-toggle:disabled {
     cursor: default;
     opacity: 0.55;
-}
-
-.historical-legend-line {
-    width: 18px;
-    height: 0;
-    flex: 0 0 18px;
-    border-top: 2px dashed hsl(var(--muted-foreground) / 0.65);
-}
-
-.historical-legend-item {
-    color: hsl(var(--muted-foreground));
 }
 
 /* ============================================
@@ -1400,10 +1409,13 @@ html.modal-open body {
         gap: 8px;
     }
 
-    .modal-header h2 {
-        font-size: 0.72rem;
+    .modal-course-code {
+        font-size: 0.65rem;
+    }
+
+    .modal-course-name {
+        font-size: 1rem;
         line-height: 1.15;
-        letter-spacing: -0.02em;
     }
 
     .modal-header-left {
@@ -1451,7 +1463,7 @@ html.modal-open body {
     }
 
     .chart-wrapper {
-        height: 180px;
+        height: 220px;
     }
 
     .chart-toolbar {
@@ -1460,7 +1472,7 @@ html.modal-open body {
     }
 
     .chart-mode-toggle {
-        flex: 1 1 100%;
+        flex: 1 1 auto;
     }
 
     .chart-mode-btn {
@@ -1471,8 +1483,7 @@ html.modal-open body {
     }
 
     .chart-action-controls {
-        flex: 1 1 100%;
-        width: 100%;
+        flex: 0 1 auto;
         gap: 8px;
         row-gap: 7px;
         flex-wrap: wrap;
@@ -1480,14 +1491,11 @@ html.modal-open body {
 
     .chart-action-controls .chart-zoom-controls,
     .chart-action-controls .historical-comparison-controls {
-        flex: 1 1 0;
-        min-width: 0;
+        flex: 0 0 auto;
     }
 
-    .chart-action-controls .chart-legend.visible {
-        flex: 1 1 100%;
-        min-width: 0;
-        justify-content: center;
+    .chart-action-controls .chart-legend {
+        display: none;
     }
 
     .event-history {

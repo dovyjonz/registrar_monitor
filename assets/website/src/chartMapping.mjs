@@ -2,6 +2,8 @@
  * Pure helpers for course modal chart point construction and x-axis mapping.
  */
 
+import { buildSectionActivityTimeline } from './historicalComparison.mjs';
+
 export {
     buildInstructorAssignmentTimeline,
     buildProfessorAverageChartPoints,
@@ -74,7 +76,7 @@ export function getXScaleBounds(xValues) {
     const max = sorted[sorted.length - 1];
     const range = Math.max(max - min, 1);
     const medianGap = getMedianPositiveGap(sorted) || range;
-    const padding = Math.min(Math.max(medianGap * 0.5, range * 0.02), range * 0.08);
+    const padding = Math.min(Math.max(medianGap * 0.25, range * 0.01), range * 0.03);
     const minRange = Math.min(Math.max(medianGap * 2, range * 0.03), range);
 
     return {
@@ -131,12 +133,33 @@ export function buildCourseChartDomain(course, snapshots) {
     return domain;
 }
 
-function getCapacityChangesBySnapshot(course) {
+function getCourseSections(course) {
+    return course?.s || course?.sections || {};
+}
+
+function getCourseEvents(course) {
+    return course?.ev || course?.events || [];
+}
+
+function buildCourseSectionActivity(course, snapshots) {
+    const events = getCourseEvents(course);
+    return new Map(Object.entries(getCourseSections(course)).map(([sectionCode, section]) => [
+        sectionCode,
+        buildSectionActivityTimeline(sectionCode, section, events, snapshots, course),
+    ]));
+}
+
+function isSectionActiveAtSnapshot(activity, sectionCode, snapshotIdx) {
+    return activity.get(sectionCode)?.isActiveAt(snapshotIdx) ?? false;
+}
+
+function getCapacityChangesBySnapshot(course, activity) {
     const changes = new Map();
-    for (const [sectionCode, section] of Object.entries(course?.s || {})) {
+    for (const [sectionCode, section] of Object.entries(getCourseSections(course))) {
         let previousCapacity = null;
         for (const point of section.h || []) {
             if (!Number.isInteger(point.i) || !Number.isFinite(point.c)) continue;
+            if (!isSectionActiveAtSnapshot(activity, sectionCode, point.i)) continue;
             if (previousCapacity !== null && point.c !== previousCapacity) {
                 const snapshotChanges = changes.get(point.i) || [];
                 snapshotChanges.push({
@@ -161,24 +184,71 @@ function getSectionFillAtSnapshot(section, snapshotIdx) {
     return fill;
 }
 
-function getAverageFillAtSnapshot(course, snapshotIdx) {
-    const fills = Object.values(course?.s || {})
-        .map(section => getSectionFillAtSnapshot(section, snapshotIdx))
+function getSectionStateAtSnapshot(section, snapshotIdx) {
+    let state = null;
+    for (const point of section?.h || []) {
+        if (!Number.isInteger(point.i) || point.i > snapshotIdx) continue;
+        if (Number.isFinite(point.e) && Number.isFinite(point.c)) state = point;
+    }
+    return state;
+}
+
+function getOpeningCapacity(section) {
+    return (section?.h || []).find(point => Number.isFinite(point.c) && point.c > 0)?.c ?? null;
+}
+
+function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
+    const levels = Object.entries(getCourseSections(course)).flatMap(([sectionCode, section]) => {
+        if (!isSectionActiveAtSnapshot(activity, sectionCode, snapshotIdx)) return [];
+        const state = getSectionStateAtSnapshot(section, snapshotIdx);
+        const openingCapacity = getOpeningCapacity(section);
+        if (!state || !openingCapacity) return [];
+        return [{
+            sectionType: section.t || section.type || 'Other',
+            enrollment: state.e,
+            capacity: state.c,
+            enrollmentLevel: (state.e / openingCapacity) * 100,
+            capacityLevel: (state.c / openingCapacity) * 100,
+        }];
+    });
+    if (levels.length === 0) return null;
+    const average = key => levels.reduce((total, value) => total + value[key], 0) / levels.length;
+    const totalsByType = new Map();
+    for (const level of levels) {
+        const totals = totalsByType.get(level.sectionType) || { enrollment: 0, capacity: 0 };
+        totals.enrollment += level.enrollment;
+        totals.capacity += level.capacity;
+        totalsByType.set(level.sectionType, totals);
+    }
+    const typeTotals = [...totalsByType.values()];
+    return {
+        enrollment: Math.min(...typeTotals.map(value => value.enrollment)),
+        capacity: Math.min(...typeTotals.map(value => value.capacity)),
+        enrollmentLevel: average('enrollmentLevel'),
+        capacityLevel: average('capacityLevel'),
+    };
+}
+
+function getAverageFillAtSnapshot(course, snapshotIdx, activity) {
+    const fills = Object.entries(getCourseSections(course))
+        .filter(([sectionCode]) => isSectionActiveAtSnapshot(activity, sectionCode, snapshotIdx))
+        .map(([, section]) => getSectionFillAtSnapshot(section, snapshotIdx))
         .filter(Number.isFinite);
     if (fills.length === 0) return null;
     return fills.reduce((total, fill) => total + fill, 0) / fills.length;
 }
 
 export function buildAverageChartPoints(course, snapshots) {
+    const activity = buildCourseSectionActivity(course, snapshots);
     const pointsBySnapshot = new Map(
         (course?.ah || [])
             .filter(point => Number.isInteger(point.i))
             .map(point => [point.i, point]),
     );
-    const capacityChanges = getCapacityChangesBySnapshot(course);
+    const capacityChanges = getCapacityChangesBySnapshot(course, activity);
     for (const snapshotIdx of capacityChanges.keys()) {
         if (pointsBySnapshot.has(snapshotIdx)) continue;
-        const fill = getAverageFillAtSnapshot(course, snapshotIdx);
+        const fill = getAverageFillAtSnapshot(course, snapshotIdx, activity);
         if (fill !== null) pointsBySnapshot.set(snapshotIdx, { i: snapshotIdx, f: fill });
     }
 
@@ -188,15 +258,18 @@ export function buildAverageChartPoints(course, snapshots) {
             const timestamp = toTimestamp(snapshots?.[point.i]);
             if (timestamp === null) return [];
             const snapshotCapacityChanges = capacityChanges.get(snapshotIdx) || [];
+            const levels = getCourseLevelsAtSnapshot(course, snapshotIdx, activity);
             const chartPoint = {
                 snapshotIdx,
                 timestamp,
                 label: formatSnapshotLabel(timestamp),
                 fill: Math.round(point.f * 100),
-                enrollment: null,
-                capacity: null,
+                enrollment: levels?.enrollment ?? null,
+                capacity: levels?.capacity ?? null,
                 prevCapacity: null,
                 capacityChanged: snapshotCapacityChanges.length > 0,
+                enrollmentLevel: levels?.enrollmentLevel ?? Math.round(point.f * 100),
+                capacityLevel: levels?.capacityLevel ?? 100,
             };
             if (snapshotCapacityChanges.length > 0) {
                 chartPoint.capacityChanges = snapshotCapacityChanges;
@@ -207,6 +280,7 @@ export function buildAverageChartPoints(course, snapshots) {
 
 export function buildSectionChartPoints(section, snapshots) {
     let prevCapacity = null;
+    const openingCapacity = getOpeningCapacity(section);
     return (section?.h || []).flatMap(point => {
         const timestamp = toTimestamp(snapshots?.[point.i]);
         if (timestamp === null) return [];
@@ -221,10 +295,35 @@ export function buildSectionChartPoints(section, snapshots) {
             capacity: point.c,
             prevCapacity,
             capacityChanged,
+            enrollmentLevel: openingCapacity ? (point.e / openingCapacity) * 100 : Math.round(point.f * 100),
+            capacityLevel: openingCapacity ? (point.c / openingCapacity) * 100 : 100,
         };
         prevCapacity = point.c;
         return [chartPoint];
     });
+}
+
+export function limitPointsBeforeFirstMilestone(points, milestones, maximum = 2) {
+    const firstMilestone = (milestones || [])
+        .map(milestone => new Date(milestone?.time).getTime())
+        .filter(Number.isFinite)
+        .sort((first, second) => first - second)[0];
+    if (!Number.isFinite(firstMilestone) || maximum < 0) return [...(points || [])];
+    const before = (points || []).filter(point => point.timestamp < firstMilestone);
+    const after = (points || []).filter(point => point.timestamp >= firstMilestone);
+    return [...before.slice(-maximum), ...after];
+}
+
+export function extendSteppedSeriesToDomainEnd(points, domainEnd) {
+    const series = [...(points || [])];
+    const last = series.at(-1);
+    if (!last || !Number.isFinite(domainEnd) || last.x >= domainEnd) return series;
+    return [...series, {
+        x: domainEnd,
+        y: last.y,
+        synthetic: true,
+        ...('sourceIndex' in last ? { sourceIndex: last.sourceIndex } : {}),
+    }];
 }
 
 function getDomainTimes(domain) {
@@ -240,6 +339,26 @@ function getFallbackDomain(points, domain) {
     }));
 }
 
+function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), maximum);
+}
+
+function createPiecewiseInverse(sourceValues, mappedValues) {
+    if (sourceValues.length === 0 || mappedValues.length === 0) return value => value;
+    if (sourceValues.length === 1 || mappedValues.length === 1) return () => sourceValues[0];
+    return (mappedValue) => {
+        const value = clamp(mappedValue, mappedValues[0], mappedValues.at(-1));
+        for (let index = 0; index < mappedValues.length - 1; index++) {
+            if (value > mappedValues[index + 1]) continue;
+            const mappedSpan = mappedValues[index + 1] - mappedValues[index];
+            const fraction = mappedSpan === 0 ? 0 : (value - mappedValues[index]) / mappedSpan;
+            return sourceValues[index]
+                + fraction * (sourceValues[index + 1] - sourceValues[index]);
+        }
+        return sourceValues.at(-1);
+    };
+}
+
 export function getPhasedMapper(points, domain, milestones) {
     const chartPoints = points || [];
     const canonicalDomain = getFallbackDomain(chartPoints, domain);
@@ -250,6 +369,7 @@ export function getPhasedMapper(points, domain, milestones) {
             xValues: chartPoints.map(point => point.timestamp),
             domainXValues: domainTimes,
             mapTime: t => t,
+            unmapX: x => x,
         };
     }
 
@@ -259,6 +379,7 @@ export function getPhasedMapper(points, domain, milestones) {
             xValues: chartPoints.map(point => point.timestamp),
             domainXValues: domainTimes,
             mapTime: t => t,
+            unmapX: x => x,
         };
     }
 
@@ -273,24 +394,35 @@ export function getPhasedMapper(points, domain, milestones) {
             xValues: chartPoints.map(point => point.timestamp),
             domainXValues: domainTimes,
             mapTime: t => t,
+            unmapX: x => x,
         };
     }
 
-    const segWidth = 100;
+    const firstMilestone = mTimes[0];
+    const lastMilestone = mTimes.at(-1);
+    const segmentWidths = bounds.slice(0, -1).map((start, index) => {
+        const end = bounds[index + 1];
+        return end <= firstMilestone || start >= lastMilestone ? 35 : 100;
+    });
+    const mappedBounds = [0];
+    for (const width of segmentWidths) {
+        mappedBounds.push(mappedBounds.at(-1) + width);
+    }
     const mapTime = (t) => {
         for (let s = 0; s < segCount; s++) {
             if (t <= bounds[s + 1]) {
                 const frac = bounds[s + 1] === bounds[s] ? 0.5 : (t - bounds[s]) / (bounds[s + 1] - bounds[s]);
-                return s * segWidth + frac * segWidth;
+                return mappedBounds[s] + frac * segmentWidths[s];
             }
         }
-        return (segCount - 1) * segWidth + segWidth;
+        return mappedBounds.at(-1);
     };
 
     return {
         xValues: chartPoints.map(point => mapTime(point.timestamp)),
         domainXValues: domainTimes.map(mapTime),
         mapTime,
+        unmapX: createPiecewiseInverse(bounds, mappedBounds),
     };
 }
 
@@ -300,7 +432,7 @@ export function getTimelineMapper(points, domain) {
     const domainTimes = getDomainTimes(canonicalDomain);
 
     if (domainTimes.length === 0) {
-        return { xValues: [], domainXValues: [], mapTime: t => t };
+        return { xValues: [], domainXValues: [], mapTime: t => t, unmapX: x => x };
     }
 
     const maxGapMs = getAdaptiveTimelineGapCap(domainTimes, domainTimes);
@@ -327,10 +459,12 @@ export function getTimelineMapper(points, domain) {
         return timeMap.get(domainTimes[domainTimes.length - 1]);
     };
 
+    const mappedDomainTimes = domainTimes.map(time => timeMap.get(time));
     return {
         xValues: chartPoints.map(point => mapTime(point.timestamp)),
-        domainXValues: domainTimes.map(mapTime),
+        domainXValues: mappedDomainTimes,
         mapTime,
+        unmapX: createPiecewiseInverse(domainTimes, mappedDomainTimes),
     };
 }
 
@@ -362,6 +496,10 @@ export function getSnapshotsMapper(points, domain) {
         xValues: chartPoints.map(point => snapshotOrdinal.get(point.snapshotIdx) ?? mapTime(point.timestamp)),
         domainXValues: sortedDomain.map((_, index) => index),
         mapTime,
+        unmapX: createPiecewiseInverse(
+            domainTimes,
+            sortedDomain.map((_, index) => index),
+        ),
     };
 }
 

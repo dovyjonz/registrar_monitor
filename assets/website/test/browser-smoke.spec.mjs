@@ -239,7 +239,9 @@ test('course deep links open the modal after the verified summary loads', async 
     await page.goto(`/summer2026.html#${deepLink}`);
 
     await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
-    await expect(page.locator('#modalTitle')).toContainText(firstCode);
+    await expect(page.locator('#modalCourseCode')).toHaveText(firstCode);
+    await expect(page.locator('#modalCourseName')).not.toBeEmpty();
+    await expect(page.locator('#modalTitle')).toHaveAccessibleName(new RegExp(`^${firstCode}:`));
     await page.keyboard.press('Escape');
     await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
 });
@@ -270,12 +272,12 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
         if (pathname.endsWith('.json')) jsonRequests.push(pathname);
     });
 
-    const response = await page.goto('/fall2025.html');
+    const response = await page.goto('/fall2026.html');
     expect(response?.ok()).toBe(true);
     await expect(page.locator('.course-cell[data-course="MATH 161"]')).toBeVisible();
 
-    const historicalDepartmentPaths = readHistoricalDepartmentPaths('MATH', 'fall-2025');
-    expect(jsonRequests.some(pathname => /\/data\/(spring-2026|summer-2025)\//.test(pathname))).toBe(false);
+    const historicalDepartmentPaths = readHistoricalDepartmentPaths('MATH', 'fall-2026');
+    expect(jsonRequests.some(pathname => /\/data\/(spring-2026|summer-2026|summer-2025)\//.test(pathname))).toBe(false);
 
     await page.locator('.course-cell[data-course="MATH 161"]').click();
     await expect(page.locator('#enrollment-chart')).toBeVisible();
@@ -283,7 +285,7 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
         'data-state',
         'idle',
     );
-    expect(jsonRequests.some(pathname => /\/data\/(spring-2026|summer-2025)\//.test(pathname))).toBe(false);
+    expect(jsonRequests.some(pathname => /\/data\/(spring-2026|summer-2026|summer-2025)\//.test(pathname))).toBe(false);
     expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(0);
 
     const toggle = page.locator('#historicalComparisonToggle');
@@ -293,9 +295,10 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
         'data-state',
         'enabled',
     );
-    await expect(page.locator('#historicalLegendItem')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
-        .toBe('2');
+        .toBe('1');
+    expect(jsonRequests.some(pathname => /\/data\/(summer-2026|summer-2025)\//.test(pathname))).toBe(false);
     expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(1);
 
     await page.locator('.chart-mode-btn[data-mode="timeline"]').click();
@@ -303,7 +306,7 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
         'data-state',
         'enabled',
     );
-    await expect(page.locator('#historicalLegendItem')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
     await page.keyboard.press('Escape');
     await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
@@ -314,6 +317,34 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
     );
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
     expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(1);
+});
+
+test('continuous phased time works on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    const response = await page.goto('/fall2025.html#MATH-161');
+    expect(response?.ok()).toBe(true);
+    await expect(page.locator('#enrollment-chart')).toBeVisible();
+
+    const canvas = page.locator('#enrollment-chart');
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+    await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.5);
+    await expect(canvas).toHaveAttribute('data-hover-timestamp', /\d+/);
+    const firstTimestamp = Number(await canvas.getAttribute('data-hover-timestamp'));
+    await page.mouse.move(
+        box.x + box.width * 0.75,
+        box.y + box.height * 0.5,
+        { steps: 8 },
+    );
+    await expect.poll(async () => Number(await canvas.getAttribute('data-hover-timestamp')))
+        .toBeGreaterThan(firstTimestamp);
+
+    await expect(page.locator('#chartZoomReset')).toBeHidden();
+    await expect(page.locator('#chartLegend')).toBeHidden();
+    expect(await page.locator('#modalOverlay').evaluate(element => (
+        element.scrollWidth <= element.clientWidth
+    ))).toBe(true);
 });
 
 test('historical comparison prefers the prior year of the same semester', async ({ page }) => {
@@ -332,17 +363,18 @@ test('historical comparison prefers the prior year of the same semester', async 
         'data-state',
         'enabled',
     );
-    await expect(page.locator('#historicalLegendLabel')).toHaveText(
-        'Fall 2025 course aggregate',
+    await expect(page.locator('#historicalComparisonToggle')).toHaveAttribute(
+        'aria-pressed',
+        'true',
     );
     await expect(page.locator('#enrollment-chart')).toHaveAttribute(
         'data-historical-datasets',
-        '2',
+        '1',
     );
 });
 
 test('historical course comparison renders when the current course has no chart history', async ({ page }) => {
-    const current = readSemesterManifestFixture('fall-2025');
+    const current = readSemesterManifestFixture('fall-2026');
     const courseCode = 'MATH 161';
     const currentDepartmentUrl = new URL(
         current.manifest.departments.MATH.url,
@@ -383,7 +415,7 @@ test('historical course comparison renders when the current course has no chart 
         await route.continue();
     });
 
-    const response = await page.goto('/fall2025.html');
+    const response = await page.goto('/fall2026.html');
     expect(response?.ok()).toBe(true);
     await page.locator(`.course-cell[data-course="${courseCode}"]`).click();
     await expect(page.locator('#enrollment-chart')).toBeVisible();
@@ -393,7 +425,7 @@ test('historical course comparison renders when the current course has no chart 
     );
     await expect(page.locator('#enrollment-chart')).toHaveAttribute(
         'data-historical-datasets',
-        '1',
+        '0',
     );
 
     await page.locator('#historicalComparisonToggle').click();
@@ -401,14 +433,17 @@ test('historical course comparison renders when the current course has no chart 
         'data-state',
         'enabled',
     );
-    await expect(page.locator('#historicalLegendItem')).toBeVisible();
+    await expect(page.locator('#historicalComparisonToggle')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+    );
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
-        .toBe('2');
+        .toBe('1');
 });
 
 test('selecting a section switches to professor comparison and deselecting returns to course mode', async ({ page }) => {
-    const current = readSemesterManifestFixture('fall-2025');
-    const historical = readSemesterManifestFixture('summer-2025');
+    const current = readSemesterManifestFixture('fall-2026');
+    const historical = readSemesterManifestFixture('fall-2025');
     const courseCode = 'MATH 161';
 
     const currentDepartmentUrl = new URL(
@@ -477,7 +512,7 @@ test('selecting a section switches to professor comparison and deselecting retur
         await route.continue();
     });
 
-    const response = await page.goto('/fall2025.html');
+    const response = await page.goto('/fall2026.html');
     expect(response?.ok()).toBe(true);
     await page.locator(`.course-cell[data-course="${courseCode}"]`).click();
     await expect(page.locator('#section-1L')).toBeVisible();
@@ -491,9 +526,11 @@ test('selecting a section switches to professor comparison and deselecting retur
         'data-state',
         'enabled',
     );
-    await expect(page.locator('#historicalLegendLabel')).toHaveText('Summer 2025 · Jane Smith');
+    await expect(page.locator('#historicalComparisonToggle')).toHaveAccessibleName(
+        /Hide Fall 2025 · Jane Smith/,
+    );
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
-        .toBe('2');
+        .toBe('1');
 
     await page.locator('#section-1L').click();
     await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
