@@ -1147,15 +1147,21 @@ header p {
 }
 
 .chart-readout {
-    margin: 2px 0 8px;
-    padding: 8px 10px;
+    position: absolute;
+    z-index: 3;
+    top: 6px;
+    right: 6px;
+    left: 38px;
+    margin: 0;
+    padding: 6px 8px;
     border: 1px solid hsl(var(--border));
-    border-left: 3px solid hsl(var(--accent));
     border-radius: var(--radius-sm);
-    background: hsl(var(--background) / 0.78);
+    background: hsl(var(--background) / 0.94);
+    box-shadow: 0 3px 10px hsl(var(--background) / 0.24);
     color: hsl(var(--foreground));
     font-size: 0.68rem;
     line-height: 1.35;
+    pointer-events: none;
 }
 
 .chart-readout[hidden] {

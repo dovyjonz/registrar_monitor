@@ -108,8 +108,10 @@ async function loadChartJs() {
             const insideChart = event.type !== 'mouseout'
                 && event.x >= chartArea.left && event.x <= chartArea.right
                 && event.y >= chartArea.top && event.y <= chartArea.bottom;
-            const insideObservedX = event.x >= options.observedMinX
-                && event.x <= options.observedMaxX;
+            const domainX = chartInstance.scales.x.getValueForPixel(event.x);
+            const insideObservedX = Number.isFinite(domainX)
+                && domainX >= options.observedMinX
+                && domainX <= options.observedMaxX;
             let nextX = insideChart && insideObservedX ? event.x : null;
             if (isTouch) {
                 chartInstance.$lastInputWasTouch = true;

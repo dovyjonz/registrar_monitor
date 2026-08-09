@@ -531,9 +531,12 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     await page.goto('/fall2025.html#MATH-161');
 
     const canvas = page.locator('#enrollment-chart');
+    const chartWrapper = page.locator('.chart-wrapper');
+    const readout = page.locator('#chartReadout');
     await expect(canvas).toBeVisible();
     await canvas.scrollIntoViewIfNeeded();
     const box = await canvas.boundingBox();
+    const wrapperTopBeforeTouch = (await chartWrapper.boundingBox()).y;
     expect(box).toBeTruthy();
 
     const client = await context.newCDPSession(page);
@@ -557,14 +560,43 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
         touchPoints: [],
     });
 
-    await expect(page.locator('#chartReadout')).toBeVisible();
-    await expect(page.locator('#chartReadout')).toContainText(/Enrollment|Capacity/);
+    await expect(readout).toBeVisible();
+    await expect(readout).toContainText(/Enrollment|Capacity/);
+    await expect(readout).toHaveCSS('position', 'absolute');
+    await expect.poll(async () => (await chartWrapper.boundingBox()).y)
+        .toBeCloseTo(wrapperTopBeforeTouch, 0);
+    expect(await readout.evaluate(element => {
+        const style = getComputedStyle(element);
+        return style.borderLeftWidth === style.borderRightWidth;
+    })).toBe(true);
     await expect(canvas).toHaveAttribute('data-touch-mode', 'inspect');
 
     await expect(page.locator('.chart-wrapper')).toHaveCSS(
         'touch-action',
         'pan-y',
     );
+
+    for (const mode of ['snapshots', 'timeline']) {
+        await page.locator(`.chart-mode-btn[data-mode="${mode}"]`).click();
+        await expect(canvas).toHaveAttribute('data-touch-mode', 'inspect');
+        const modeBox = await canvas.boundingBox();
+        await canvas.evaluate(element => {
+            delete element.dataset.hoverTimestamp;
+        });
+        await client.send('Input.dispatchTouchEvent', {
+            type: 'touchStart',
+            touchPoints: [{
+                x: modeBox.x + modeBox.width * 0.5,
+                y: modeBox.y + modeBox.height * 0.5,
+            }],
+        });
+        await expect(canvas).toHaveAttribute('data-hover-timestamp', /\d+/);
+        await client.send('Input.dispatchTouchEvent', {
+            type: 'touchEnd',
+            touchPoints: [],
+        });
+        await expect(readout).toBeVisible();
+    }
     await context.close();
 });
 
