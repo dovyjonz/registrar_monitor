@@ -155,7 +155,9 @@ class TestPatchAssetHashes:
 
         html_file = public / "test.html"
         html_file.write_text(
-            '<script src="assets/main-old.js"></script><link href="assets/main-old.css">'
+            '<link rel="modulepreload" href="assets/main-preload-old.js">'
+            '<script src="assets/main-old.js"></script>'
+            '<link href="assets/main-old.css">'
         )
 
         service = WebsiteService()
@@ -166,6 +168,8 @@ class TestPatchAssetHashes:
         assert "main-abc.js" in html_file.read_text()
         assert "main-style.css" in html_file.read_text()
         assert "main-old.js" not in html_file.read_text()
+        assert "main-preload-old.js" not in html_file.read_text()
+        assert html_file.read_text().count("main-abc.js") == 2
 
 
 class TestValidateAssetReferences:

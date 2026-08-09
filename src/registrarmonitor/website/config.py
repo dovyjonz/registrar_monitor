@@ -95,8 +95,8 @@ def semester_to_filename(semester: str) -> str:
 # ---------------------------------------------------------------------------
 # Color palettes for auto-assignment
 # ---------------------------------------------------------------------------
-# Milestones on the same calendar day form one "priority group".
-# Groups are colored in this order:
+# Registration milestones are grouped by their explicit priority in settings.toml.
+# Priority waves are colored in this order:
 _PRIORITY_PALETTES: list[list[str]] = [
     # Group 1 — warm (reds / oranges)
     ["#FF1744", "#FF5722", "#FF9100", "#FFC400"],
@@ -146,7 +146,7 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
     """
     Load milestones + deadlines for a semester from settings.toml.
 
-    Returns a list of dicts with keys: time, label, color.
+    Returns a list of dicts with keys: time, label, color, and optional priority.
     Colors are auto-assigned based on explicit priority groups in TOML.
     """
     cfg = _load_settings()
@@ -160,8 +160,9 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
     # Parse priorities and apply colors
     priorities = sem_data.get("priorities", {})
     for p_level in sorted(priorities.keys(), key=int):
-        # p_level is "1", "2", etc.
-        palette_idx = max(0, int(p_level) - 1)
+        # priority is "1", "2", etc.
+        priority = str(p_level)
+        palette_idx = max(0, int(priority) - 1)
         palette = _PRIORITY_PALETTES[min(palette_idx, len(_PRIORITY_PALETTES) - 1)]
 
         for i, m_data in enumerate(priorities[p_level]):
@@ -176,7 +177,12 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
             color = palette[min(i, len(palette) - 1)]
 
             colored_milestones.append(
-                {"time": time_str, "label": label_str, "color": color}
+                {
+                    "time": time_str,
+                    "label": label_str,
+                    "color": color,
+                    "priority": priority,
+                }
             )
 
     # Parse deadlines and apply neutral colors

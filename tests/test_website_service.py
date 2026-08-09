@@ -365,6 +365,8 @@ def test_generate_headers_contains_security_headers(tmp_path):
     assert "X-Content-Type-Options: nosniff" in content
     assert "Referrer-Policy:" in content
     assert "Permissions-Policy:" in content
+    assert "Content-Security-Policy:" in content
+    assert "script-src 'self'" in content
     assert "X-Robots-Tag:" in content
 
 

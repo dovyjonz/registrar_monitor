@@ -59,6 +59,50 @@ test('generated production site serves a working semester dashboard', async ({ p
     await expect(page).toHaveURL(/\/summer2026\.html$/);
     await expect(page.locator('body')).not.toContainText('Loading enrollment data...');
     await expect(page.locator('#courseGrid')).toBeVisible();
+    await expect(page.locator('#toastContainer')).toHaveAttribute('role', 'status');
+    await expect(page.locator('#toastContainer')).toHaveAttribute('aria-live', 'polite');
+    await expect(page.locator('#courseSearch')).toHaveAccessibleName('Search courses');
+    await expect(page.locator('#sortSelect')).toHaveAccessibleName('Sort courses');
+    await expect(page.locator('.milestone-details')).not.toHaveAttribute('open', '');
+    await expect(page.locator('#milestoneSummaryValue')).not.toHaveText('View milestones');
+    await page.locator('.milestone-details summary').click();
+    await expect(page.locator('.milestone-details')).toHaveAttribute('open', '');
+    const milestoneLabels = await page.locator('.mp-dot-label').allTextContents();
+    expect(milestoneLabels).toContain('P1 · Y4+');
+    expect(milestoneLabels).toContain('P2 · Y3+');
+    expect(milestoneLabels).toContain('P3 · ALL');
+    const timelineColors = await page.locator('.mp-fill').evaluate(element => (
+        getComputedStyle(element).backgroundImage
+    ));
+    const timelineReveal = await page.locator('.mp-fill').evaluate(element => ({
+        clipPath: element.style.clipPath,
+        transform: getComputedStyle(element).transform,
+    }));
+    expect(timelineReveal.clipPath).toMatch(/^inset\(/);
+    expect(timelineReveal.transform).toBe('none');
+    const passedDotColors = await page.locator('.mp-dot.passed').evaluateAll(dots => (
+        dots.map(dot => getComputedStyle(dot).backgroundColor)
+    ));
+    for (const dotColor of passedDotColors) expect(timelineColors).toContain(dotColor);
+
+    const departmentToggle = page.locator('#departmentToggle');
+    await expect(departmentToggle).toBeVisible();
+    await expect(departmentToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#jumpToNav')).toBeHidden();
+    await departmentToggle.click();
+    await expect(departmentToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#jumpToNav')).toBeVisible();
+    expect(await page.locator('#jumpToNav a').count()).toBeGreaterThan(0);
+    await departmentToggle.click();
+    await expect(page.locator('#jumpToNav')).toBeHidden();
+
+    await page.keyboard.press('/');
+    await expect(page.locator('#courseSearch')).toBeFocused();
+    await page.locator('#courseSearch').fill('ANT');
+    await expect(page.locator('#clearSearch')).toBeVisible();
+    await page.locator('#clearSearch').click();
+    await expect(page.locator('#courseSearch')).toHaveValue('');
+    await expect(page.locator('#clearSearch')).toBeHidden();
 
     const manifestPointerUrl = await page.locator('body').getAttribute('data-manifest-url');
     expect(manifestPointerUrl).toBeTruthy();
@@ -79,6 +123,7 @@ test('generated production site serves a working semester dashboard', async ({ p
     expect(jsonRequests.some(url => /^\/[^/]+\.json$/.test(url))).toBe(false);
 
     const firstCourse = page.locator('.course-cell').first();
+    await expect(firstCourse).toHaveJSProperty('tagName', 'BUTTON');
     const firstCode = await firstCourse.getAttribute('data-course');
     const firstDepartment = firstCode.split(' ')[0];
     await firstCourse.focus();
@@ -113,6 +158,16 @@ test('generated production site serves a working semester dashboard', async ({ p
     expect(duplicateIds).toEqual([]);
     await expect(page.locator('#modalOverlay')).toHaveAttribute('role', 'dialog');
     await expect(page.locator('#modalCloseBtn')).toHaveAccessibleName(/close/i);
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'aria-describedby',
+        'chartSummary',
+    );
+    await expect(page.locator('#chartSummary')).toContainText(/observations\. Latest:/);
+
+    const firstSection = page.locator('.section-item').first();
+    await expect(firstSection).toHaveJSProperty('tagName', 'BUTTON');
+    await firstSection.click();
+    await expect(firstSection).toHaveAttribute('aria-pressed', 'true');
 
     await page.keyboard.press('Escape');
 
@@ -120,15 +175,91 @@ test('generated production site serves a working semester dashboard', async ({ p
     const openFilter = page.locator('.filter-btn[data-filter="open"]');
     await openFilter.click();
     await expect(openFilter).toHaveClass(/active/);
+    await expect(openFilter).toHaveAttribute('aria-pressed', 'true');
     await expect(allFilter).not.toHaveClass(/active/);
+    await expect(allFilter).toHaveAttribute('aria-pressed', 'false');
     await allFilter.click();
     await expect(allFilter).toHaveClass(/active/);
+    await expect(allFilter).toHaveAttribute('aria-pressed', 'true');
     await page.locator('#courseSearch').fill(firstCode);
     await expect(page.locator('.course-cell:not(.hidden)')).toHaveCount(1);
     await page.locator('#courseSearch').fill('');
 
+    await page.locator('.filter-btn[data-filter="starred"]').click();
+    await expect(page.locator('.empty-state')).toContainText('No bookmarked courses yet');
+    await expect(page.locator('#jumpToNav a')).toHaveCount(0);
+    await expect(departmentToggle).toBeHidden();
+
     expect(failedRequests).toEqual([]);
     expect(pageErrors).toEqual([]);
+});
+
+test('mobile dashboard keeps stats, timeline, and controls precisely aligned', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const response = await page.goto('/fall2026.html');
+    expect(response?.ok()).toBe(true);
+    await expect(page.locator('#courseGrid')).toBeVisible();
+    await page.locator('.milestone-details summary').click();
+
+    const layout = await page.evaluate(() => {
+        const centerX = element => {
+            const rect = element.getBoundingClientRect();
+            return rect.left + (rect.width / 2);
+        };
+        const detailsRect = document.querySelector('.milestone-details').getBoundingClientRect();
+        const labels = [...document.querySelectorAll('.mp-dot-label')]
+            .map(element => element.getBoundingClientRect());
+        const statsAligned = [...document.querySelectorAll('.stat')].every(stat => (
+            Math.abs(centerX(stat.querySelector('.stat-value'))
+                - centerX(stat.querySelector('.stat-label'))) < 1
+        ));
+        const timelineTitle = document.querySelector('.milestone-details summary > span');
+        const firstDot = document.querySelector('.mp-dot');
+        const departmentToggle = document.querySelector('#departmentToggle');
+        const departmentCount = document.querySelector('#departmentCount');
+        const toolbarControls = [
+            document.querySelector('#courseSearch'),
+            document.querySelector('.filter-btn'),
+            document.querySelector('#sortSelect'),
+            departmentToggle,
+        ];
+        const feedbackControls = [
+            document.querySelector('.filter-btn'),
+            document.querySelector('#sortSelect'),
+            departmentToggle,
+            document.querySelector('.course-cell'),
+            document.querySelector('.milestone-details summary'),
+        ];
+        return {
+            controlsAligned: toolbarControls.every(control => (
+                Math.abs(control.getBoundingClientRect().height - 44) < 1
+            )),
+            controlsMove: feedbackControls.every(control => (
+                getComputedStyle(control).transitionProperty.includes('transform')
+            )),
+            departmentFontMatches: getComputedStyle(departmentToggle).fontSize
+                === getComputedStyle(departmentCount).fontSize,
+            labelsContained: labels.every(rect => (
+                rect.left >= detailsRect.left
+                && rect.right <= detailsRect.right
+                && rect.top >= detailsRect.top
+                && rect.bottom <= detailsRect.bottom
+            )),
+            statsAligned,
+            timelineAligned: Math.abs(
+                timelineTitle.getBoundingClientRect().left - centerX(firstDot),
+            ) <= 4,
+        };
+    });
+
+    expect(layout).toEqual({
+        controlsAligned: true,
+        controlsMove: true,
+        departmentFontMatches: true,
+        labelsContained: true,
+        statsAligned: true,
+        timelineAligned: true,
+    });
 });
 
 test('department 404 keeps the modal open and retry loads the selected course', async ({ page }) => {
@@ -296,6 +427,7 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
         'enabled',
     );
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toContainText(/Fall 2025/);
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
         .toBe('1');
     expect(jsonRequests.some(pathname => /\/data\/(summer-2026|summer-2025)\//.test(pathname))).toBe(false);
@@ -340,8 +472,18 @@ test('continuous phased time works on mobile', async ({ page }) => {
     await expect.poll(async () => Number(await canvas.getAttribute('data-hover-timestamp')))
         .toBeGreaterThan(firstTimestamp);
 
+    await expect(canvas).toHaveAttribute('data-tooltip-density', 'compact');
+    await expect.poll(async () => Number(await canvas.getAttribute('data-tooltip-width')))
+        .toBeGreaterThan(0);
+    expect(Number(await canvas.getAttribute('data-tooltip-width'))).toBeLessThanOrEqual(260);
+
     await expect(page.locator('#chartZoomReset')).toBeHidden();
     await expect(page.locator('#chartLegend')).toBeHidden();
+    const chartControlHeights = await page.locator('.chart-mode-btn').evaluateAll(buttons => (
+        buttons.map(button => Math.round(button.getBoundingClientRect().height))
+    ));
+    expect(chartControlHeights).toEqual([44, 44, 44]);
+    await expect(page.locator('#modalCloseBtn')).toBeVisible();
     expect(await page.locator('#modalOverlay').evaluate(element => (
         element.scrollWidth <= element.clientWidth
     ))).toBe(true);

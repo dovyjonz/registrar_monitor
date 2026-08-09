@@ -13,51 +13,60 @@
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
     <header>
-        <h1>Enrollment Monitor</h1>
-        <nav class="semester-links" aria-label="Semester navigation">
-            {{ nav_html | safe }}
-        </nav>
-        <p id="lastUpdated">{{ last_updated }}</p>
-        <!-- Overall milestone progress bar -->
-        <div class="milestone-progress" id="milestoneProgress" aria-label="Registration progress"></div>
-        <section class="stats" aria-label="Statistics">
-            <div class="stat">
-                <div class="stat-value" id="totalCourses">0</div>
-                <div class="stat-label">Courses</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="totalSections">0</div>
-                <div class="stat-label">Sections</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="fullSections">0</div>
-                <div class="stat-label">Full</div>
-            </div>
-            <div class="stat" title="Number of data snapshots collected over time">
-                <div class="stat-value" id="snapshotCount">0</div>
-                <div class="stat-label">Snapshots</div>
-            </div>
-        </section>
-        <div class="color-legend" aria-label="Fill status legend">
-            <span class="legend-item legend-full"><span class="legend-dot" aria-hidden="true"></span><span>Full</span></span>
-            <span class="legend-item legend-near"><span class="legend-dot" aria-hidden="true"></span><span>Near Full</span></span>
-            <span class="legend-item legend-open"><span class="legend-dot" aria-hidden="true"></span><span>Open</span></span>
+        <div class="header-topline">
+            <h1>Enrollment Monitor</h1>
+            <nav class="semester-links" aria-label="Semester navigation">
+                {{ nav_html | safe }}
+            </nav>
         </div>
+        <div class="header-summary">
+            <p id="lastUpdated">{{ last_updated }}</p>
+            <section class="stats" aria-label="Statistics">
+                <div class="stat">
+                    <div class="stat-value" id="totalCourses">0</div>
+                    <div class="stat-label">Courses</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="totalSections">0</div>
+                    <div class="stat-label">Sections</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="fullSections">0</div>
+                    <div class="stat-label">Full</div>
+                </div>
+                <div class="stat" title="Number of data snapshots collected over time">
+                    <div class="stat-value" id="snapshotCount">0</div>
+                    <div class="stat-label">Snapshots</div>
+                </div>
+            </section>
+        </div>
+        <details class="milestone-details">
+            <summary>
+                <span>Registration timeline</span>
+                <span class="milestone-summary-value" id="milestoneSummaryValue">View milestones</span>
+            </summary>
+            <div class="milestone-progress" id="milestoneProgress" aria-label="Registration progress"></div>
+        </details>
     </header>
 
     <!-- Unified Controls Panel -->
     <div class="controls-panel">
         <div class="controls-row">
-            <input type="search" id="courseSearch" placeholder="Search courses..." aria-label="Filter courses"
-                class="search-input">
-            <span id="searchAnnouncement" aria-live="polite" class="visually-hidden" style="position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0;"></span>
+            <div class="search-field">
+                <label for="courseSearch" class="visually-hidden">Search courses</label>
+                <input type="search" id="courseSearch" placeholder="Search courses..."
+                    class="search-input">
+                <button type="button" class="search-clear" id="clearSearch" aria-label="Clear search" title="Clear search" hidden>×</button>
+                <span class="search-hint" aria-hidden="true"><kbd>/</kbd></span>
+            </div>
+            <span id="searchAnnouncement" aria-live="polite" class="visually-hidden"></span>
 
             <div class="filter-buttons" role="group" aria-label="Filter by status">
-                <button class="filter-btn active" data-filter="all" title="Show all courses">All</button>
-                <button class="filter-btn" data-filter="full" title="Show full courses only">Full</button>
-                <button class="filter-btn" data-filter="near" title="Show near-full courses">Near</button>
-                <button class="filter-btn" data-filter="open" title="Show open courses">Open</button>
-                <button class="filter-btn" data-filter="starred" title="Show bookmarked courses" aria-label="Show bookmarked courses">
+                <button type="button" class="filter-btn active" data-filter="all" title="Show all courses" aria-pressed="true">All</button>
+                <button type="button" class="filter-btn" data-filter="full" title="Show full courses only" aria-pressed="false">Full</button>
+                <button type="button" class="filter-btn" data-filter="near" title="Show near-full courses" aria-pressed="false">Near</button>
+                <button type="button" class="filter-btn" data-filter="open" title="Show open courses" aria-pressed="false">Open</button>
+                <button type="button" class="filter-btn" data-filter="starred" title="Show bookmarked courses" aria-label="Show bookmarked courses" aria-pressed="false">
                     <svg class="filter-bookmark-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                         <path d="M7.25 4.75A2.25 2.25 0 0 1 9.5 2.5h5A2.25 2.25 0 0 1 16.75 4.75V21L12 17.8 7.25 21V4.75Z"></path>
                     </svg>
@@ -65,46 +74,51 @@
                 </button>
             </div>
 
-            <select id="sortSelect" class="sort-select" aria-label="Sort courses" title="Sort courses by">
+            <label for="sortSelect" class="visually-hidden">Sort courses</label>
+            <select id="sortSelect" class="sort-select" title="Sort courses by">
                 <option value="department">By Department</option>
                 <option value="code">By Code</option>
                 <option value="fill-desc">Fill % (High→Low)</option>
                 <option value="fill-asc">Fill % (Low→High)</option>
             </select>
+            <button type="button" class="department-toggle" id="departmentToggle"
+                aria-controls="jumpToNav" aria-expanded="false" hidden>
+                Departments <span id="departmentCount"></span>
+                <span class="department-toggle-icon" aria-hidden="true">⌄</span>
+            </button>
         </div>
 
-        <nav class="jump-to-nav" id="jumpToNav" aria-label="Jump to department"></nav>
+        <nav class="jump-to-nav" id="jumpToNav" aria-label="Jump to department" hidden></nav>
     </div>
 
     <main id="main-content">
-        <div class="course-grid" id="courseGrid" role="list" aria-label="Course list">
-            <div id="loadingIndicator" style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--text-secondary);">
-                <div style="display: inline-block; width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top-color: #ffd700; animation: spin 1s ease-in-out infinite;"></div>
-                <p style="margin-top: 1rem; font-family: monospace;">Loading enrollment data...</p>
-                <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+        <div class="course-grid" id="courseGrid">
+            <div id="loadingIndicator" class="loading-indicator">
+                <div class="loading-spinner" aria-hidden="true"></div>
+                <p class="loading-message">Loading enrollment data...</p>
             </div>
         </div>
     </main>
 
     <!-- Toast notification container -->
-    <div id="toastContainer" class="toast-container"></div>
+    <div id="toastContainer" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal">
             <div class="modal-header">
                 <div class="modal-header-left">
-                    <button type="button" class="modal-icon-btn bookmark-btn" id="modalBookmark"
-                        aria-label="Bookmark course" aria-pressed="false" title="Bookmark this course">
-                        <svg class="modal-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path class="modal-icon-bookmark" d="M7.25 4.75A2.25 2.25 0 0 1 9.5 2.5h5A2.25 2.25 0 0 1 16.75 4.75V21L12 17.8 7.25 21V4.75Z"></path>
-                        </svg>
-                    </button>
                     <h2 id="modalTitle" class="modal-course-heading" aria-label="Course details">
                         <span class="modal-course-code" id="modalCourseCode">Course</span>
                         <span class="modal-course-name" id="modalCourseName">Details</span>
                     </h2>
                 </div>
                 <div class="modal-header-right">
+                    <button type="button" class="modal-icon-btn bookmark-btn" id="modalBookmark"
+                        aria-label="Bookmark course" aria-pressed="false" title="Bookmark this course">
+                        <svg class="modal-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path class="modal-icon-bookmark" d="M7.25 4.75A2.25 2.25 0 0 1 9.5 2.5h5A2.25 2.25 0 0 1 16.75 4.75V21L12 17.8 7.25 21V4.75Z"></path>
+                        </svg>
+                    </button>
                     <button type="button" class="modal-icon-btn share-btn" id="modalShareLink"
                         aria-label="Copy share link" title="Copy share link" style="display:none;">
                         <svg class="modal-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -141,7 +155,7 @@
                             <div class="historical-comparison-controls" id="historicalComparisonControls" hidden data-state="hidden">
                                 <button type="button" class="historical-comparison-toggle" id="historicalComparisonToggle"
                                     aria-pressed="false" aria-label="Show an earlier semester comparison" disabled>
-                                    Historical
+                                    Earlier semester
                                 </button>
                             </div>
                             <div class="chart-legend" id="chartLegend">
@@ -156,7 +170,8 @@
                         <div class="chart-placeholder" id="chartPlaceholder">
                             Click a section to view enrollment history
                         </div>
-                        <canvas id="enrollment-chart" class="chart-hidden" aria-label="Enrollment chart" role="img"></canvas>
+                        <canvas id="enrollment-chart" class="chart-hidden" aria-label="Enrollment chart" aria-describedby="chartSummary" role="img"></canvas>
+                        <p id="chartSummary" class="visually-hidden">Select a course to view its enrollment history.</p>
                     </div>
                 </div>
 

@@ -449,7 +449,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'Show an earlier semester comparison');
-        toggle.textContent = 'Historical';
+        toggle.textContent = 'Earlier semester';
         return;
     }
 
@@ -458,7 +458,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'Historical comparison is loading');
-        toggle.textContent = 'Loading earlier…';
+        toggle.textContent = 'Finding earlier…';
         return;
     }
 
@@ -467,7 +467,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = false;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'Find an earlier semester comparison');
-        toggle.textContent = 'Historical';
+        toggle.textContent = 'Compare semesters';
         return;
     }
 
@@ -475,7 +475,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'No qualifying earlier comparison is available');
-        toggle.textContent = 'Unavailable';
+        toggle.textContent = 'No comparison';
         return;
     }
 
@@ -483,7 +483,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = false;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', getHistoricalComparisonLabel(descriptor, 'Retry'));
-        toggle.textContent = 'Retry earlier';
+        toggle.textContent = 'Retry comparison';
         return;
     }
 
@@ -494,7 +494,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         'aria-label',
         getHistoricalComparisonLabel(descriptor, enabled ? 'Hide' : 'Show'),
     );
-    toggle.textContent = 'Historical';
+    toggle.textContent = descriptor?.semester || 'Earlier semester';
 }
 
 function resetHistoricalComparisonState() {
@@ -802,10 +802,18 @@ function addCurrentMilestoneAnnotations({
         ? fillData
         : historicalDataPoints.map(point => point.y);
 
+    const renderedPriorities = new Set();
     milestones.forEach((milestone, index) => {
         if (!shouldRenderMilestone(milestone, chartMode, dataTimestamps)) return;
         const xPos = mapTime(new Date(milestone.time).getTime());
         if (!Number.isFinite(xPos)) return;
+
+        const priority = milestone.priority ? String(milestone.priority) : '';
+        const startsPriority = priority && !renderedPriorities.has(priority);
+        if (startsPriority) renderedPriorities.add(priority);
+        const milestoneLabel = startsPriority
+            ? `P${priority} · ${milestone.label}`
+            : milestone.label;
 
         let closestDataIdx = 0;
         let minDiff2 = Infinity;
@@ -826,7 +834,7 @@ function addCurrentMilestoneAnnotations({
             drawTime: 'beforeDatasetsDraw',
             z: -1,
             label: {
-                display: true, content: milestone.label, position: labelPos,
+                display: true, content: milestoneLabel, position: labelPos,
                 backgroundColor: color, color: getContrastColor(color),
                 font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
                 // Keep the line behind the enrollment series, but draw the
@@ -1053,6 +1061,16 @@ function renderJumpToNavigation(sortedDepts) {
         a.textContent = dept;
         jumpNav.appendChild(a);
     }
+
+    const toggle = document.getElementById('departmentToggle');
+    const count = document.getElementById('departmentCount');
+    const hasDepartments = sortedDepts.length > 0;
+    if (count) count.textContent = hasDepartments ? String(sortedDepts.length) : '';
+    if (toggle) {
+        toggle.hidden = !hasDepartments;
+        if (!hasDepartments) toggle.setAttribute('aria-expanded', 'false');
+    }
+    jumpNav.hidden = !hasDepartments || toggle?.getAttribute('aria-expanded') !== 'true';
 }
 
 function renderCourseGrid() {
@@ -1091,7 +1109,7 @@ function renderCourseGrid() {
 
     for (const dept of sortedDepts) {
         // Department header
-        const header = document.createElement('div');
+        const header = document.createElement('h2');
         header.className = 'dept-header';
         header.id = `dept-${dept}`;
         header.textContent = '';
@@ -1125,13 +1143,12 @@ function renderCourseGrid() {
                 averageFill >= 0.8 ? 'near' : 'open';
             const isStarred = bookmarks.has(course.code);
 
-            const cell = document.createElement('div');
+            const cell = document.createElement('button');
+            cell.type = 'button';
             cell.className = `course-cell ${getStatusClass(averageFill, isFilled)}${isStarred ? ' starred' : ''}`;
             cell.setAttribute('data-course', course.code);
             cell.setAttribute('data-status', status);
             cell.setAttribute('data-fill', averageFill);
-            cell.setAttribute('tabindex', '0');
-            cell.setAttribute('role', 'listitem');
             cell.setAttribute('aria-label', `${formatCourseCode(course.code)} — ${Math.round(averageFill * 100)}% full`);
             cell.style.setProperty('--cell-index', totalCourses);
             const codeSpan = document.createElement('span');
@@ -1143,27 +1160,19 @@ function renderCourseGrid() {
             fillSpan.textContent = `${Math.round(averageFill * 100)}%`;
             cell.appendChild(fillSpan);
             cell.onclick = () => openCourse(course.code);
-            cell.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCourse(course.code); } };
             grid.appendChild(cell);
         }
     }
 
-    // Update stats with animation
-    animateCounter(document.getElementById('totalCourses'), totalCourses);
-    animateCounter(document.getElementById('totalSections'), totalSections);
-    animateCounter(document.getElementById('fullSections'), fullSections);
-    animateCounter(
-        document.getElementById('snapshotCount'),
-        data.snapshotCount ?? (Array.isArray(data.sn) ? data.sn.length : 0),
+    // Show complete totals immediately; intermediate animated values are misleading.
+    document.getElementById('totalCourses').textContent = totalCourses;
+    document.getElementById('totalSections').textContent = totalSections;
+    document.getElementById('fullSections').textContent = fullSections;
+    document.getElementById('snapshotCount').textContent = (
+        data.snapshotCount ?? (Array.isArray(data.sn) ? data.sn.length : 0)
     );
 
-    // Render jump-to navigation
-    renderJumpToNavigation(sortedDepts);
-
-    // Re-apply filters if any are active
-    if (typeof currentFilter !== 'undefined' && currentFilter !== 'all') {
-        applyFilters();
-    }
+    applyFilters();
     markPerformance('registrar:grid-dom-complete');
 }
 
@@ -1420,9 +1429,12 @@ function renderCourseDetails(courseCode, course, requestVersion) {
         groupList.style.marginBottom = '0';
 
         for (const section of typeSections) {
-            const item = document.createElement('div');
+            const item = document.createElement('button');
+            item.type = 'button';
             item.className = `section-item ${getStatusClass(section.cf)}`;
             item.id = `section-${section.code}`;
+            item.setAttribute('aria-pressed', 'false');
+            item.setAttribute('aria-label', `${section.code}${section.in ? `, ${section.in}` : ''}, ${Math.round(section.cf * 100)}% full`);
             const sectionId = document.createElement('div');
             sectionId.className = 'section-id';
             sectionId.textContent = section.code;
@@ -1531,15 +1543,57 @@ function resetChartZoom() {
 /**
  * Render milestone progress bar with equal-spaced dots.
  */
+function createMilestoneDot(milestone, index, count, now, renderedPriorities) {
+    const startsPriority = milestone.priority
+        && !renderedPriorities.has(milestone.priority);
+    if (startsPriority) renderedPriorities.add(milestone.priority);
+
+    const dot = document.createElement('div');
+    const passed = now >= milestone.time;
+    dot.className = `mp-dot${passed ? ' passed' : ''}${startsPriority ? ' priority-start' : ''}`;
+    dot.style.left = `${(index / (count - 1)) * 100}%`;
+    if (passed) dot.style.background = milestone.color;
+    dot.title = milestone.priority
+        ? `Priority ${milestone.priority}: ${milestone.label}`
+        : milestone.label;
+
+    const label = document.createElement('span');
+    label.className = 'mp-dot-label';
+    label.textContent = startsPriority
+        ? `P${milestone.priority} · ${milestone.label}`
+        : milestone.label;
+    dot.appendChild(label);
+    return dot;
+}
+
 function renderMilestoneProgress() {
     const container = document.getElementById('milestoneProgress');
     if (!container) return;
     const milestones = getMilestones();
-    if (!milestones || milestones.length < 2) { container.textContent = ''; return; }
+    const details = container.closest('.milestone-details');
+    const summary = document.getElementById('milestoneSummaryValue');
+    if (!milestones || milestones.length < 2) {
+        container.textContent = '';
+        if (details) details.hidden = true;
+        return;
+    }
+    if (details) details.hidden = false;
 
     const now = Date.now();
-    const mTimes = milestones.map(m => ({ time: new Date(m.time).getTime(), label: m.label, color: m.color })).sort((a, b) => a.time - b.time);
+    const mTimes = milestones.map(m => ({
+        time: new Date(m.time).getTime(),
+        label: m.label,
+        color: m.color,
+        priority: m.priority ? String(m.priority) : '',
+    })).sort((a, b) => a.time - b.time);
     const count = mTimes.length;
+    const nextMilestone = mTimes.find(milestone => now < milestone.time);
+    if (summary) {
+        const priorityPrefix = nextMilestone?.priority ? `P${nextMilestone.priority} · ` : '';
+        summary.textContent = nextMilestone
+            ? `${priorityPrefix}Next ${nextMilestone.label}`
+            : 'Registration complete';
+    }
 
     // Find how far along we are in terms of milestone segments passed
     let filledSegments = 0;
@@ -1565,23 +1619,22 @@ function renderMilestoneProgress() {
 
     const fill = document.createElement('div');
     fill.className = 'mp-fill';
-    fill.style.clipPath = `inset(0 calc(100% - ${fillPct}%) 0 0)`;
+    const gradientStops = mTimes.map((milestone, index) => {
+        const position = (index / (count - 1)) * 100;
+        return `${milestone.color || '#78909C'} ${position}%`;
+    });
+    fill.style.background = `linear-gradient(90deg, ${gradientStops.join(', ')})`;
+    // Reveal the full-width gradient instead of scaling it. Scaling compresses
+    // the color stops during active registration, so dots no longer match the
+    // line color at their physical timeline position.
+    fill.style.clipPath = `inset(0 ${100 - fillPct}% 0 0)`;
     track.appendChild(fill);
 
+    const renderedPriorities = new Set();
     for (let i = 0; i < count; i++) {
-        const m = mTimes[i];
-        const pos = (i / (count - 1)) * 100;
-        const passed = now >= m.time;
-        const dot = document.createElement('div');
-        dot.className = `mp-dot${passed ? ' passed' : ''}`;
-        dot.style.left = `${pos}%`;
-        if (passed) dot.style.background = m.color;
-        dot.title = m.label;
-        const label = document.createElement('span');
-        label.className = 'mp-dot-label';
-        label.textContent = m.label;
-        dot.appendChild(label);
-        track.appendChild(dot);
+        track.appendChild(createMilestoneDot(
+            mTimes[i], i, count, now, renderedPriorities,
+        ));
     }
 
     container.appendChild(track);
@@ -1779,6 +1832,35 @@ async function showAverageFillChart(
     await renderChart(courseCode, chartPoints, chartDomain, { requestVersion });
 }
 
+function updateChartAccessibilitySummary({
+    canvas,
+    chartLabel,
+    visibleChartPoints,
+    fillData,
+    historicalComparison,
+    hasHistoricalDataset,
+}) {
+    canvas.setAttribute('aria-label', `${chartLabel} enrollment history`);
+    const summary = document.getElementById('chartSummary');
+    if (!summary) return;
+
+    const latestPoint = visibleChartPoints.at(-1);
+    const latestFill = Number.isFinite(latestPoint?.fill)
+        ? Math.round(latestPoint.fill)
+        : Math.round(fillData.at(-1) || 0);
+    const countSummary = Number.isFinite(latestPoint?.enrollment)
+        && Number.isFinite(latestPoint?.capacity)
+        ? `, ${latestPoint.enrollment} of ${latestPoint.capacity} seats filled`
+        : '';
+    const professorSummary = historicalComparison?.mode === 'professor'
+        ? ` for ${historicalComparison.professorDisplayName}`
+        : '';
+    const comparisonSummary = hasHistoricalDataset
+        ? ` Compared with ${historicalComparison.semester}${professorSummary}.`
+        : '';
+    summary.textContent = `${chartLabel}. ${visibleChartPoints.length} enrollment observations. Latest: ${latestFill}% full${countSummary}.${comparisonSummary}`;
+}
+
 /**
  * Select a section and show its enrollment chart.
  */
@@ -1789,7 +1871,9 @@ async function selectSection(sectionCode) {
 
     // Toggle selection if clicking same section
     if (selectedSection === sectionCode) {
-        document.getElementById(`section-${sectionCode}`)?.classList.remove('selected');
+        const selectedItem = document.getElementById(`section-${sectionCode}`);
+        selectedItem?.classList.remove('selected');
+        selectedItem?.setAttribute('aria-pressed', 'false');
         selectedSection = null;
         resetHistoricalComparisonState();
         initializeHistoricalComparisonControl(course);
@@ -1801,11 +1885,15 @@ async function selectSection(sectionCode) {
 
     // Update selection styling
     if (selectedSection) {
-        document.getElementById(`section-${selectedSection}`)?.classList.remove('selected');
+        const previousItem = document.getElementById(`section-${selectedSection}`);
+        previousItem?.classList.remove('selected');
+        previousItem?.setAttribute('aria-pressed', 'false');
     }
     selectedSection = sectionCode;
     resetHistoricalComparisonState();
-    document.getElementById(`section-${sectionCode}`)?.classList.add('selected');
+    const selectedItem = document.getElementById(`section-${sectionCode}`);
+    selectedItem?.classList.add('selected');
+    selectedItem?.setAttribute('aria-pressed', 'true');
 
     const section = getCourseSections(course)[sectionCode];
     if (!section) return;
@@ -1902,6 +1990,14 @@ async function renderChart(
     document.getElementById('chartPlaceholder').style.display = 'none';
     const canvas = document.getElementById('enrollment-chart');
     canvas.classList.remove('chart-hidden');
+    updateChartAccessibilitySummary({
+        canvas,
+        chartLabel,
+        visibleChartPoints,
+        fillData,
+        historicalComparison,
+        hasHistoricalDataset,
+    });
     canvas.offsetHeight;
 
     if (chart) { chart.destroy(); chart = null; }
@@ -1977,9 +2073,21 @@ async function renderChart(
         order: 1,
     } : null;
     canvas.dataset.historicalDatasets = historicalDataset ? '1' : '0';
+    const compactTooltip = window.matchMedia('(max-width: 768px)').matches;
+    canvas.dataset.tooltipDensity = compactTooltip ? 'compact' : 'regular';
+    const tooltipMetrics = {
+        id: 'tooltipMetrics',
+        afterDraw(chartInstance) {
+            const width = chartInstance.tooltip?.opacity > 0
+                ? Math.round(chartInstance.tooltip.width)
+                : 0;
+            canvas.dataset.tooltipWidth = String(width);
+        },
+    };
 
     chart = new Chart(canvas, {
         type: 'line',
+        plugins: [tooltipMetrics],
         data: {
             datasets: [historicalDataset, capacityDataset, currentDataset].filter(Boolean),
         },
@@ -2025,6 +2133,17 @@ async function renderChart(
                     position: 'glide',
                     backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
                     borderColor: '#3a3a5e', borderWidth: 1,
+                    ...(compactTooltip ? {
+                        padding: 7,
+                        cornerRadius: 6,
+                        titleFont: { size: 11, weight: 'bold' },
+                        titleMarginBottom: 4,
+                        bodyFont: { size: 11 },
+                        bodySpacing: 2,
+                        boxWidth: 8,
+                        boxHeight: 8,
+                        boxPadding: 3,
+                    } : {}),
                     callbacks: {
                         title: (items) => {
                             if (!items.length) return '';
@@ -2050,6 +2169,12 @@ async function renderChart(
                                 const openingLevel = Math.round(ctx.parsed.y);
                                 const fillLevel = historicalPoint.fill;
                                 if (Math.abs(openingLevel - fillLevel) > 1) {
+                                    if (compactTooltip) {
+                                        return [
+                                            `${historicalComparison.semester}: ${openingLevel}% of opening`,
+                                            `Same enrollment: ${fillLevel}% of capacity`,
+                                        ];
+                                    }
                                     return [
                                         `${historicalComparison.semester} line: ${openingLevel}% of opening capacity`,
                                         `Same enrollment: ${fillLevel}% of capacity on this date`,
@@ -2065,7 +2190,8 @@ async function renderChart(
                                 const amount = Number.isFinite(enrollInfo?.capacity)
                                     ? ` ${enrollInfo.capacity}`
                                     : '';
-                                return `Capacity${amount} · ${Math.round(ctx.parsed.y)}% of opening`;
+                                const openingCopy = compactTooltip ? 'opening' : 'of opening';
+                                return `Capacity${amount} · ${Math.round(ctx.parsed.y)}% ${openingCopy}`;
                             }
                             let lbl = 'Enrollment';
                             if (enrollInfo && enrollInfo.enrollment !== null) {
@@ -2265,6 +2391,16 @@ document.querySelector('.modal-body').addEventListener('click', (e) => {
 // ============================================
 
 const searchInput = document.getElementById('courseSearch');
+const clearSearchButton = document.getElementById('clearSearch');
+const departmentToggle = document.getElementById('departmentToggle');
+
+departmentToggle?.addEventListener('click', () => {
+    const jumpNav = document.getElementById('jumpToNav');
+    if (!jumpNav) return;
+    const expanded = departmentToggle.getAttribute('aria-expanded') !== 'true';
+    departmentToggle.setAttribute('aria-expanded', String(expanded));
+    jumpNav.hidden = !expanded;
+});
 
 // Keyboard shortcut: "/" to focus search
 document.addEventListener('keydown', (e) => {
@@ -2305,8 +2441,12 @@ let currentFilter = 'all';
 
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.filter-btn').forEach(b => {
+            b.classList.remove('active');
+            b.setAttribute('aria-pressed', 'false');
+        });
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
         currentFilter = btn.dataset.filter;
         applyFilters();
     });
@@ -2321,7 +2461,16 @@ function showEmptyState(query) {
     if (!grid) return;
     const div = document.createElement('div');
     div.className = 'empty-state';
-    div.textContent = `No courses match '${query}'. Try a different search term.`;
+    if (currentFilter === 'starred' && !query) {
+        div.textContent = 'No bookmarked courses yet. Bookmark a course from its details to see it here.';
+    } else if (currentFilter === 'starred') {
+        div.textContent = `No bookmarked courses match '${query}'.`;
+    } else if (query) {
+        div.textContent = `No courses match '${query}'. Try a different search term.`;
+    } else {
+        const labels = { full: 'full', near: 'near-full', open: 'open' };
+        div.textContent = `No ${labels[currentFilter] || currentFilter} courses are available.`;
+    }
     grid.appendChild(div);
 }
 
@@ -2419,6 +2568,13 @@ function applyFilters() {
         header.style.display = nextCells.some(c => !c.classList.contains('hidden')) ? '' : 'none';
     });
 
+    const sortBy = document.getElementById('sortSelect')?.value;
+    const visibleDepartments = [...new Set([...cells]
+        .filter(cell => !cell.classList.contains('hidden'))
+        .map(cell => cell.dataset.course.split(' ')[0]))]
+        .sort();
+    renderJumpToNavigation(sortBy === 'department' ? visibleDepartments : []);
+
     // Show empty state if no courses are visible (and we have cells to filter)
     if (cells.length > 0 && visibleCount === 0) {
         showEmptyState(searchInput?.value || '');
@@ -2427,7 +2583,30 @@ function applyFilters() {
     }
 }
 
-searchInput?.addEventListener('input', () => applyFilters());
+function updateSearchControls() {
+    if (clearSearchButton) clearSearchButton.hidden = !searchInput?.value;
+}
+
+searchInput?.addEventListener('input', () => {
+    updateSearchControls();
+    applyFilters();
+});
+
+searchInput?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !searchInput.value) return;
+    event.stopPropagation();
+    searchInput.value = '';
+    updateSearchControls();
+    applyFilters();
+});
+
+clearSearchButton?.addEventListener('click', () => {
+    if (!searchInput) return;
+    searchInput.value = '';
+    updateSearchControls();
+    applyFilters();
+    searchInput.focus();
+});
 
 // ============================================
 // Sort Functionality (UX Enhancement)
@@ -2467,7 +2646,7 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
             const dept = cell.dataset.course.split(' ')[0];
             if (dept !== currentDept) {
                 currentDept = dept;
-                const header = document.createElement('div');
+                const header = document.createElement('h2');
                 header.className = 'dept-header';
                 header.id = `dept-${dept}`;
                 const sortDeptSpan = document.createElement('span');
@@ -2487,21 +2666,12 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
             }
             grid.appendChild(cell);
         });
-        // Rebuild jump nav
-        const jumpNav = document.getElementById('jumpToNav');
-        const depts = [...new Set(cells.map(c => c.dataset.course.split(' ')[0]))];
-        jumpNav.textContent = '';
-        for (const d of depts) {
-            const a = document.createElement('a');
-            a.href = `#dept-${d}`;
-            a.textContent = d;
-            jumpNav.appendChild(a);
-        }
     } else {
         // No headers for other sorts
         cells.forEach(c => grid.appendChild(c));
         document.getElementById('jumpToNav').textContent = '';
     }
+    applyFilters();
 });
 
 // ============================================
@@ -2510,29 +2680,6 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
 
 function saveBookmarks() {
     localStorage.setItem('courseBookmarks', JSON.stringify([...bookmarks]));
-}
-
-// ============================================
-// Animated Stat Counters (Visual Polish)
-// ============================================
-
-function animateCounter(el, target, duration = 800) {
-    if (!el) return;
-    const start = 0;
-    const startTime = performance.now();
-
-    function update(currentTime) {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
-        const current = Math.round(start + (target - start) * eased);
-        el.textContent = current;
-
-        if (progress < 1) {
-            requestAnimationFrame(update);
-        }
-    }
-    requestAnimationFrame(update);
 }
 
 // ============================================

@@ -272,9 +272,9 @@ class WebsiteService:
         change on every rebuild.  Rather than regenerating every HTML page from
         scratch (which requires DB queries for each semester), this method reads
         the new manifest and performs a targeted in-place regex substitution on
-        the already-deployed HTML files — updating only the ``<script src>`` and
-        ``<link href>`` lines that reference versioned assets.  Checksums are
-        left intact so incremental logic still skips semesters with no new data.
+        the already-deployed HTML files — updating the script, module-preload,
+        and stylesheet references to versioned assets. Checksums are left intact
+        so incremental logic still skips semesters with no new data.
 
         Returns:
             True if the patch was applied successfully, False otherwise.
@@ -310,9 +310,9 @@ class WebsiteService:
             text = html_file.read_text(encoding="utf-8")
             original = text
 
-            # Replace any existing hashed JS reference (assets/main-*.js)
+            # Replace executable and module-preload JS references.
             text = re.sub(
-                r'(src="assets/)main-[^"]+\.js(")',
+                r'((?:src|href)="assets/)main-[^"]+\.js(")',
                 rf"\g<1>{new_js}\2",
                 text,
             )
@@ -494,6 +494,7 @@ class WebsiteService:
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
 {robots_header}
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

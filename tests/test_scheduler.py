@@ -217,9 +217,9 @@ class TestGetCurrentZoneType:
                 "registrarmonitor.website.config._load_settings",
                 return_value=mock_get_config.return_value,
             ):
-                assert get_milestones("Fall 2026")[0]["time"] == (
-                    "2026-08-05T09:00:00+05:00"
-                )
+                milestone = get_milestones("Fall 2026")[0]
+                assert milestone["time"] == ("2026-08-05T09:00:00+05:00")
+                assert milestone["priority"] == "1"
         finally:
             monkeypatch.undo()
             time.tzset()
