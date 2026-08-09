@@ -1616,6 +1616,7 @@ function renderTouchReadout({ chart: chartInstance, tooltip }, canvas, coarsePoi
             readout.appendChild(line);
         }
     }
+    readout.dataset.side = tooltip.caretX < canvas.clientWidth / 2 ? 'right' : 'left';
     readout.hidden = false;
     canvas.dataset.tooltipWidth = String(Math.round(readout.getBoundingClientRect().width));
 }

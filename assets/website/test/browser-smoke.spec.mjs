@@ -570,7 +570,14 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
         .toBeCloseTo(canvasTopBeforeTouch, 0);
     const readoutBox = await readout.boundingBox();
     const canvasBox = await canvas.boundingBox();
-    expect(readoutBox.y + readoutBox.height).toBeLessThanOrEqual(canvasBox.y);
+    const wrapperBox = await chartWrapper.boundingBox();
+    expect(canvasBox.y).toBeCloseTo(wrapperBox.y, 0);
+    expect(canvasBox.y + canvasBox.height)
+        .toBeLessThanOrEqual(wrapperBox.y + wrapperBox.height);
+    expect(readoutBox.width).toBeLessThanOrEqual(170);
+    await expect(readout).toHaveAttribute('data-side', 'left');
+    expect(readoutBox.x + readoutBox.width)
+        .toBeLessThan(canvasBox.x + canvasBox.width * 0.65);
     expect(await readout.evaluate(element => {
         const style = getComputedStyle(element);
         return style.borderLeftWidth === style.borderRightWidth;

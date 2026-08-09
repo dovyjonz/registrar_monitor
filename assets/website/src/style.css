@@ -1150,8 +1150,10 @@ header p {
     position: absolute;
     z-index: 3;
     top: 6px;
-    right: 6px;
-    left: 38px;
+    right: auto;
+    left: 6px;
+    width: max-content;
+    max-width: min(170px, calc(100% - 12px));
     margin: 0;
     padding: 6px 8px;
     border: 1px solid hsl(var(--border));
@@ -1162,6 +1164,11 @@ header p {
     font-size: 0.68rem;
     line-height: 1.35;
     pointer-events: none;
+}
+
+.chart-readout[data-side="right"] {
+    right: 6px;
+    left: auto;
 }
 
 .chart-readout[hidden] {
@@ -1184,36 +1191,6 @@ header p {
     inset: 0;
     width: 100% !important;
     height: 100% !important;
-}
-
-@media (pointer: coarse) {
-    /* Keep a stable readout lane above the plot: no reflow and no chart occlusion. */
-    .chart-wrapper {
-        height: 324px;
-    }
-
-    .chart-wrapper canvas {
-        top: 64px;
-        height: 260px !important;
-    }
-
-    .chart-readout {
-        top: 0;
-        right: 0;
-        left: 0;
-        min-height: 54px;
-        max-height: 58px;
-        padding: 5px 7px;
-        overflow: hidden;
-        border-color: transparent;
-        background: hsl(var(--muted) / 0.46);
-        box-shadow: none;
-    }
-
-    .chart-readout[hidden] {
-        display: block;
-        visibility: hidden;
-    }
 }
 
 .chart-placeholder {
