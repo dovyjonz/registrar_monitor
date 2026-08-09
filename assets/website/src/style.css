@@ -554,26 +554,54 @@ header p {
     display: none;
 }
 
-/* Jump nav inside controls panel - completely hidden when empty */
-.controls-panel .jump-to-nav {
+/* Searchable department jump panel */
+.department-panel {
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid hsl(var(--border));
-    /* Override standalone jump-nav styles */
-    padding-bottom: 0;
-    margin-bottom: 0;
-    background: none;
+    display: grid;
+    grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+    gap: 8px 12px;
+    align-items: start;
 }
 
-.controls-panel .jump-to-nav[hidden] {
+.department-panel[hidden] {
     display: none;
 }
 
-.controls-panel .jump-to-nav:empty {
-    display: none;
+.department-search {
+    width: 100%;
+    height: 40px;
+    padding: 7px 10px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-sm);
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground));
+    font: inherit;
+    font-size: 0.75rem;
+}
+
+.department-search:focus {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
+}
+
+.controls-panel .jump-to-nav {
     margin: 0;
     padding: 0;
-    border: none;
+    background: none;
+    justify-content: flex-start;
+}
+
+.controls-panel .jump-to-nav a[hidden] {
+    display: none;
+}
+
+.department-empty {
+    grid-column: 2;
+    margin: 8px 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.72rem;
 }
 
 /* Modal icon buttons: one consistent control shape for bookmark, share, and close. */
@@ -1115,7 +1143,34 @@ header p {
     position: relative;
     height: 260px;
     /* Horizontal moves inspect the graph; vertical moves keep scrolling the modal. */
-    touch-action: pan-y pinch-zoom;
+    touch-action: pan-y;
+}
+
+.chart-readout {
+    margin: 2px 0 8px;
+    padding: 8px 10px;
+    border: 1px solid hsl(var(--border));
+    border-left: 3px solid hsl(var(--accent));
+    border-radius: var(--radius-sm);
+    background: hsl(var(--background) / 0.78);
+    color: hsl(var(--foreground));
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
+.chart-readout[hidden] {
+    display: none;
+}
+
+.chart-readout-title {
+    color: hsl(var(--accent));
+    font-weight: 700;
+    margin-right: 8px;
+}
+
+.chart-readout-line + .chart-readout-line::before {
+    content: ' · ';
+    color: hsl(var(--muted-foreground));
 }
 
 .chart-wrapper canvas {
@@ -2011,15 +2066,44 @@ html.modal-open body {
     }
 
     .controls-panel .jump-to-nav {
-        flex-wrap: nowrap;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 5px;
         justify-content: flex-start;
-        overflow-x: auto;
-        overscroll-behavior-inline: contain;
-        scrollbar-width: thin;
+        overflow: visible;
     }
 
     .controls-panel .jump-to-nav a {
-        flex: 0 0 auto;
+        min-width: 0;
+        justify-content: center;
+        text-align: center;
+        padding-inline: 6px;
+    }
+
+    .department-panel {
+        grid-template-columns: 1fr;
+        max-height: min(50vh, 330px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .department-empty {
+        grid-column: 1;
+    }
+
+    .mp-dot:not(.priority-start):not(.deadline) .mp-dot-label {
+        display: none;
+    }
+
+    .mp-dot.priority-start .mp-dot-label,
+    .mp-dot.deadline .mp-dot-label {
+        font-size: 0;
+    }
+
+    .mp-dot.priority-start .mp-dot-label::after,
+    .mp-dot.deadline .mp-dot-label::after {
+        content: attr(data-compact-label);
+        font-size: 0.625rem;
     }
 }
 

@@ -41,6 +41,19 @@ export function getSortedUniqueNumbers(values) {
     return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);
 }
 
+export function findSteppedPointIndexAtX(xValues, pixelX) {
+    const values = (xValues || []).filter(Number.isFinite);
+    if (!Number.isFinite(pixelX) || values.length === 0) return null;
+    if (pixelX < values[0] || pixelX > values.at(-1)) return null;
+
+    let selectedIndex = 0;
+    for (let index = 1; index < values.length; index++) {
+        if (values[index] > pixelX) break;
+        selectedIndex = index;
+    }
+    return selectedIndex;
+}
+
 export function getMedianPositiveGap(values) {
     const sorted = getSortedUniqueNumbers(values);
     const gaps = [];
@@ -118,7 +131,10 @@ export function buildCourseChartDomain(course, snapshots) {
     if (indices.length === 0) return [];
 
     const minIdx = Math.min(...indices);
-    const maxIdx = Math.max(...indices);
+    // Registrar snapshots are complete observations. An unchanged course is
+    // still observed through the latest snapshot even when its compact history
+    // contains no new value-change record.
+    const maxIdx = snapshots.length - 1;
     const domain = [];
     for (let snapshotIdx = minIdx; snapshotIdx <= maxIdx; snapshotIdx++) {
         const timestamp = toTimestamp(snapshots[snapshotIdx]);

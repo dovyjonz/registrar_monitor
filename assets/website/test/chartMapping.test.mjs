@@ -10,11 +10,22 @@ import {
     buildObservedCapacityPoints,
     buildSectionChartPoints,
     extendSteppedSeriesToDomainEnd,
+    findSteppedPointIndexAtX,
     getChartMapper,
     getEnrollmentScaleMax,
     getPhasedMapper,
     limitPointsBeforeFirstMilestone,
 } from '../src/chartMapping.mjs';
+
+test('stepped interactions stop outside the recorded observation range', () => {
+    const xValues = [10, 20, 40];
+
+    assert.equal(findSteppedPointIndexAtX(xValues, 9), null);
+    assert.equal(findSteppedPointIndexAtX(xValues, 10), 0);
+    assert.equal(findSteppedPointIndexAtX(xValues, 35), 1);
+    assert.equal(findSteppedPointIndexAtX(xValues, 40), 2);
+    assert.equal(findSteppedPointIndexAtX(xValues, 41), null);
+});
 
 test('enrollment step transitions occur at the observation timestamp', () => {
     const calls = [];
@@ -77,6 +88,18 @@ test('course chart domain is the canonical snapshot range for all course histori
 
     assert.deepEqual(domain.map(point => point.snapshotIdx), [0, 1, 2, 3, 4]);
     assert.equal(domain[3].timestamp, Date.parse('2026-01-21T10:00:00Z'));
+});
+
+test('unchanged enrollment remains observed through the latest real snapshot', () => {
+    const sparseCourse = {
+        ah: [{ i: 1, f: 0.5 }],
+        s: { A: { h: [{ i: 1, f: 0.5, e: 10, c: 20 }] } },
+    };
+
+    assert.deepEqual(
+        buildCourseChartDomain(sparseCourse, snapshots).map(point => point.snapshotIdx),
+        [1, 2, 3, 4],
+    );
 });
 
 test('shared snapshots map to the same x value across sparse average and section series', () => {

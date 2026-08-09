@@ -16,6 +16,7 @@ import {
     getEnrollmentScaleMax,
     getXScaleBounds,
     extendSteppedSeriesToDomainEnd,
+    findSteppedPointIndexAtX,
     limitPointsBeforeFirstMilestone,
     normalizeInstructorName,
 } from './chartMapping.mjs';
@@ -76,15 +77,11 @@ async function loadChartJs() {
         };
     };
     const getSteppedElementAtX = (meta, pixelX, useFinalPosition = false) => {
-        let selected = null;
-        for (let index = 0; index < meta.data.length; index++) {
-            const element = meta.data[index];
-            const properties = element.getProps(['x'], useFinalPosition);
-            if (!selected) selected = { element, index };
-            if (properties.x <= pixelX) selected = { element, index };
-            if (properties.x > pixelX) break;
-        }
-        return selected;
+        const xValues = meta.data.map(element => (
+            element.getProps(['x'], useFinalPosition).x
+        ));
+        const index = findSteppedPointIndexAtX(xValues, pixelX);
+        return index === null ? null : { element: meta.data[index], index };
     };
     chartModule.Interaction.modes.glideStepped = (chartInstance, event, options, useFinalPosition) => {
         const position = chartHelpers.getRelativePosition(event, chartInstance);
@@ -104,10 +101,27 @@ async function loadChartJs() {
         afterEvent(chartInstance, args, options) {
             const { chartArea } = chartInstance;
             const { event } = args;
-            const inside = event.type !== 'mouseout'
+            const nativeEvent = event.native;
+            const isTouch = nativeEvent?.pointerType === 'touch'
+                || nativeEvent?.touches !== undefined
+                || nativeEvent?.changedTouches !== undefined;
+            const insideChart = event.type !== 'mouseout'
                 && event.x >= chartArea.left && event.x <= chartArea.right
                 && event.y >= chartArea.top && event.y <= chartArea.bottom;
-            const nextX = inside ? event.x : null;
+            const insideObservedX = event.x >= options.observedMinX
+                && event.x <= options.observedMaxX;
+            let nextX = insideChart && insideObservedX ? event.x : null;
+            if (isTouch) {
+                chartInstance.$lastInputWasTouch = true;
+                if (insideObservedX) {
+                    nextX = event.x;
+                    chartInstance.$tooltipPinned = true;
+                } else {
+                    nextX = chartInstance.$hoverPixelX ?? null;
+                }
+            } else {
+                chartInstance.$lastInputWasTouch = false;
+            }
             if (chartInstance.$hoverPixelX !== nextX) {
                 chartInstance.$hoverPixelX = nextX;
                 if (Number.isFinite(nextX) && typeof options.unmapX === 'function') {
@@ -795,6 +809,7 @@ function addCurrentMilestoneAnnotations({
     xValues,
     fillData,
     historicalDataPoints,
+    compactLabels,
 }) {
     const labelXValues = xValues.length > 0
         ? xValues
@@ -813,8 +828,10 @@ function addCurrentMilestoneAnnotations({
         const startsPriority = priority && !renderedPriorities.has(priority);
         if (startsPriority) renderedPriorities.add(priority);
         const milestoneLabel = startsPriority
-            ? `P${priority} · ${milestone.label}`
+            ? compactLabels ? `P${priority}` : `P${priority} · ${milestone.label}`
             : milestone.label;
+        const displayLabel = !compactLabels || startsPriority
+            || DEADLINE_LABELS.has(milestone.label);
 
         let closestDataIdx = 0;
         let minDiff2 = Infinity;
@@ -835,7 +852,7 @@ function addCurrentMilestoneAnnotations({
             drawTime: 'beforeDatasetsDraw',
             z: -1,
             label: {
-                display: true, content: milestoneLabel, position: labelPos,
+                display: displayLabel, content: milestoneLabel, position: labelPos,
                 backgroundColor: color, color: getContrastColor(color),
                 font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
                 // Keep the line behind the enrollment series, but draw the
@@ -909,6 +926,7 @@ function buildMilestoneRenderState({
     xValues,
     fillData,
     historicalDataPoints,
+    compactLabels,
 }) {
     const currentMilestoneXValues = getCurrentMilestoneXValues(
         milestones,
@@ -929,6 +947,7 @@ function buildMilestoneRenderState({
             xValues,
             fillData,
             historicalDataPoints,
+            compactLabels,
         });
     }
     return { annotations, annotationXValues };
@@ -1060,6 +1079,14 @@ function renderJumpToNavigation(sortedDepts) {
         const a = document.createElement('a');
         a.href = `#dept-${dept}`;
         a.textContent = dept;
+        a.addEventListener('click', event => {
+            event.preventDefault();
+            document.getElementById(`dept-${dept}`)?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+            });
+            setDepartmentPanelOpen(false);
+        });
         jumpNav.appendChild(a);
     }
 
@@ -1071,7 +1098,8 @@ function renderJumpToNavigation(sortedDepts) {
         toggle.hidden = !hasDepartments;
         if (!hasDepartments) toggle.setAttribute('aria-expanded', 'false');
     }
-    jumpNav.hidden = !hasDepartments || toggle?.getAttribute('aria-expanded') !== 'true';
+    const panel = document.getElementById('departmentPanel');
+    if (panel) panel.hidden = !hasDepartments || toggle?.getAttribute('aria-expanded') !== 'true';
 }
 
 function renderCourseGrid() {
@@ -1246,6 +1274,11 @@ function resetCourseDetailView() {
     currentEnrollmentData = [];
     lastRenderArgs = null;
     document.getElementById('chartLegend')?.classList.remove('visible');
+    const readout = document.getElementById('chartReadout');
+    if (readout) {
+        readout.hidden = true;
+        readout.textContent = '';
+    }
     const placeholder = document.getElementById('chartPlaceholder');
     if (placeholder) placeholder.style.display = '';
     document.getElementById('enrollment-chart')?.classList.add('chart-hidden');
@@ -1541,6 +1574,62 @@ function resetChartZoom() {
     updateZoomControls();
 }
 
+function syncChartViewportState(chartInstance, canvas, coarsePointer) {
+    const isZoomed = Boolean(chartInstance?.isZoomedOrPanned?.());
+    canvas.dataset.touchMode = coarsePointer && isZoomed
+        ? 'pan'
+        : coarsePointer ? 'inspect' : 'hover';
+    canvas.dataset.viewportMin = String(chartInstance?.scales?.x?.min ?? '');
+    updateZoomControls();
+    if (!coarsePointer) return;
+
+    const shouldPan = isZoomed;
+    if (chartInstance.options.plugins.zoom.pan.enabled !== shouldPan) {
+        chartInstance.options.plugins.zoom.pan.enabled = shouldPan;
+        queueMicrotask(() => {
+            if (chartInstance.canvas?.isConnected) chartInstance.update('none');
+        });
+    }
+}
+
+function renderTouchReadout({ chart: chartInstance, tooltip }, canvas, coarsePointer) {
+    if (!coarsePointer) return;
+    const readout = document.getElementById('chartReadout');
+    if (!readout) return;
+    if (tooltip.opacity === 0) {
+        if (!chartInstance.$tooltipPinned) readout.hidden = true;
+        return;
+    }
+
+    readout.textContent = '';
+    const title = document.createElement('span');
+    title.className = 'chart-readout-title';
+    title.textContent = tooltip.title?.[0] || '';
+    readout.appendChild(title);
+    for (const item of tooltip.body || []) {
+        for (const lineText of item.lines || []) {
+            const line = document.createElement('span');
+            line.className = 'chart-readout-line';
+            line.textContent = lineText;
+            readout.appendChild(line);
+        }
+    }
+    readout.hidden = false;
+    canvas.dataset.tooltipWidth = String(Math.round(readout.getBoundingClientRect().width));
+}
+
+function selectChartScaleDomain(currentDomain, historicalDomain) {
+    if (currentDomain.length > 1) return currentDomain;
+    if (historicalDomain.length > 1) return historicalDomain;
+    return currentDomain;
+}
+
+function replaceActiveChart() {
+    if (!chart) return;
+    chart.destroy();
+    chart = null;
+}
+
 /**
  * Render milestone progress bar with equal-spaced dots.
  */
@@ -1551,7 +1640,8 @@ function createMilestoneDot(milestone, index, count, now, renderedPriorities) {
 
     const dot = document.createElement('div');
     const passed = now >= milestone.time;
-    dot.className = `mp-dot${passed ? ' passed' : ''}${startsPriority ? ' priority-start' : ''}`;
+    const deadline = DEADLINE_LABELS.has(milestone.label);
+    dot.className = `mp-dot${passed ? ' passed' : ''}${startsPriority ? ' priority-start' : ''}${deadline ? ' deadline' : ''}`;
     dot.style.left = `${(index / (count - 1)) * 100}%`;
     if (passed) dot.style.background = milestone.color;
     dot.title = milestone.priority
@@ -1563,6 +1653,7 @@ function createMilestoneDot(milestone, index, count, now, renderedPriorities) {
     label.textContent = startsPriority
         ? `P${milestone.priority} · ${milestone.label}`
         : milestone.label;
+    label.dataset.compactLabel = startsPriority ? `P${milestone.priority}` : milestone.label;
     dot.appendChild(label);
     return dot;
 }
@@ -1950,6 +2041,7 @@ async function renderChart(
     );
     const { xValues, domainXValues, mapTime, unmapX } = currentMapper;
     const currentComparisonDomain = domainXValues.length > 0 ? domainXValues : xValues;
+    const recordedDomainEnd = currentComparisonDomain.at(-1);
     const historicalChartState = buildHistoricalChartState({
         historicalComparison,
         chartMode,
@@ -1964,6 +2056,8 @@ async function renderChart(
         ...capacityData,
         ...historicalDataPoints.map(point => point.y),
     ]);
+    const canvas = document.getElementById('enrollment-chart');
+    const compactMilestoneLabels = canvas.parentElement.clientWidth < 520;
     const { annotations, annotationXValues } = buildMilestoneRenderState({
         chartMode,
         milestones,
@@ -1972,13 +2066,10 @@ async function renderChart(
         xValues,
         fillData,
         historicalDataPoints,
+        compactLabels: compactMilestoneLabels,
     });
     const historicalXValues = historicalDataPoints.map(point => point.x);
-    const xScaleDomain = currentComparisonDomain.length > 1
-        ? currentComparisonDomain
-        : historicalXValues.length > 1
-            ? historicalXValues
-            : currentComparisonDomain;
+    const xScaleDomain = selectChartScaleDomain(currentComparisonDomain, historicalXValues);
     const xBounds = getXScaleBounds([
         ...xScaleDomain,
         ...annotationXValues,
@@ -1989,8 +2080,9 @@ async function renderChart(
 
     // Show chart canvas
     document.getElementById('chartPlaceholder').style.display = 'none';
-    const canvas = document.getElementById('enrollment-chart');
     canvas.classList.remove('chart-hidden');
+    canvas.dataset.milestoneLabels = String(Object.values(annotations)
+        .filter(annotation => annotation.label?.display).length);
     updateChartAccessibilitySummary({
         canvas,
         chartLabel,
@@ -2001,31 +2093,36 @@ async function renderChart(
     });
     canvas.offsetHeight;
 
-    if (chart) { chart.destroy(); chart = null; }
+    replaceActiveChart();
     setZoomControlsState(false);
 
     // Build dataset with {x, y} pairs
-    const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y }));
+    const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y, sourceIndex: i }));
     const capacityDataPoints = buildObservedCapacityPoints(capacityData, xValues);
+    const displayDataPoints = extendSteppedSeriesToDomainEnd(dataPoints, recordedDomainEnd);
+    const displayCapacityDataPoints = extendSteppedSeriesToDomainEnd(
+        capacityDataPoints,
+        recordedDomainEnd,
+    );
 
     const currentDataset = {
         id: 'enrollment',
         label: chartLabel,
-        data: dataPoints,
+        data: displayDataPoints,
         borderColor: '#ffd700',
         backgroundColor: 'rgba(255, 215, 0, 0.1)',
         fill: true,
         tension: 0,
         stepped: OBSERVATION_STEP_MODE,
         borderWidth: 3,
-        pointRadius: 0,
+        pointRadius: context => context.raw?.synthetic ? 3 : 0,
         pointHoverRadius: 0,
         order: 0,
     };
     const capacityDataset = capacityDataPoints.length > 0 ? {
         id: 'capacity',
         label: 'Capacity',
-        data: capacityDataPoints,
+        data: displayCapacityDataPoints,
         borderColor: 'rgba(78, 205, 196, 0.84)',
         backgroundColor: 'transparent',
         fill: false,
@@ -2060,12 +2157,19 @@ async function renderChart(
     const compactTooltip = window.matchMedia('(max-width: 768px)').matches;
     const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
     canvas.dataset.tooltipDensity = compactTooltip ? 'compact' : 'regular';
+    canvas.dataset.touchMode = coarsePointer ? 'inspect' : 'hover';
+    const observedXValues = displayDataPoints.map(point => point.x).filter(Number.isFinite);
+    const observedMinX = observedXValues[0] ?? xBounds.min;
+    const observedMaxX = observedXValues.at(-1) ?? xBounds.max;
     const tooltipMetrics = {
         id: 'tooltipMetrics',
         afterDraw(chartInstance) {
-            const width = chartInstance.tooltip?.opacity > 0
-                ? Math.round(chartInstance.tooltip.width)
-                : 0;
+            const readout = document.getElementById('chartReadout');
+            const width = coarsePointer && readout && !readout.hidden
+                ? Math.round(readout.getBoundingClientRect().width)
+                : chartInstance.tooltip?.opacity > 0
+                    ? Math.round(chartInstance.tooltip.width)
+                    : 0;
             canvas.dataset.tooltipWidth = String(width);
         },
     };
@@ -2081,7 +2185,7 @@ async function renderChart(
             layout: { padding: { left: 0, right: 0, top: 4, bottom: 4 } },
             plugins: {
                 annotation: { annotations },
-                hoverIndicator: { unmapX },
+                hoverIndicator: { unmapX, observedMinX, observedMaxX },
                 legend: { display: false },
                 zoom: {
                     limits: {
@@ -2089,12 +2193,11 @@ async function renderChart(
                         y: { min: 0, max: enrollmentScaleMax }
                     },
                     pan: {
-                        // A one-finger drag on touch screens is for inspecting the
-                        // tooltip. Pinch remains available for deliberate zooming.
                         enabled: !coarsePointer,
                         mode: 'x',
                         threshold: 8,
-                        onPanComplete: updateZoomControls
+                        onPan: ({ chart: chartInstance }) => syncChartViewportState(chartInstance, canvas, coarsePointer),
+                        onPanComplete: ({ chart: chartInstance }) => syncChartViewportState(chartInstance, canvas, coarsePointer),
                     },
                     zoom: {
                         mode: 'x',
@@ -2113,10 +2216,14 @@ async function renderChart(
                             borderColor: '#ffd700',
                             borderWidth: 1
                         },
-                        onZoomComplete: updateZoomControls
+                        onZoomComplete: ({ chart: chartInstance }) => syncChartViewportState(chartInstance, canvas, coarsePointer),
                     }
                 },
                 tooltip: {
+                    enabled: !coarsePointer,
+                    external: coarsePointer
+                        ? context => renderTouchReadout(context, canvas, coarsePointer)
+                        : undefined,
                     position: 'glide',
                     backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
                     borderColor: '#3a3a5e', borderWidth: 1,
@@ -2169,9 +2276,7 @@ async function renderChart(
                                 }
                                 return `${historicalComparison.semester}: ${fillLevel}% full`;
                             }
-                            const idx = ctx.dataset.id === 'capacity'
-                                ? capacityDataPoints[ctx.dataIndex]?.sourceIndex
-                                : ctx.dataIndex;
+                            const idx = ctx.raw?.sourceIndex ?? ctx.dataIndex;
                             const enrollInfo = visibleChartPoints[idx];
                             if (ctx.dataset.id === 'capacity') {
                                 const amount = Number.isFinite(enrollInfo?.capacity)
@@ -2225,7 +2330,7 @@ async function renderChart(
         }
     });
     updateHistoricalLegend();
-    updateZoomControls();
+    syncChartViewportState(chart, canvas, coarsePointer);
 }
 
 /**
@@ -2267,12 +2372,19 @@ function closeModal() {
  */
 function clearChartActiveElements() {
     if (chart) {
+        chart.$tooltipPinned = false;
+        chart.$hoverPixelX = null;
         chart.setActiveElements([]);
         if (chart.tooltip) {
             chart.tooltip.setActiveElements([], { x: 0, y: 0 });
             chart.tooltip.opacity = 0;
         }
         chart.update('none');
+    }
+    const readout = document.getElementById('chartReadout');
+    if (readout) {
+        readout.hidden = true;
+        readout.textContent = '';
     }
 }
 
@@ -2355,10 +2467,6 @@ window.addEventListener('keydown', (e) => {
     }
 }, true);
 
-document.getElementById('chartContainer').addEventListener('touchend', () => {
-    setTimeout(clearChartActiveElements, 100);
-});
-
 document.getElementById('chartContainer').addEventListener('wheel', (e) => {
     if (chart) {
         e.preventDefault();
@@ -2372,6 +2480,10 @@ document.querySelector('.modal-body').addEventListener('click', (e) => {
     }
 });
 
+document.querySelector('.modal-body').addEventListener('touchstart', (e) => {
+    if (!e.target.closest('#chartContainer')) clearChartActiveElements();
+}, { passive: true });
+
 
 // ============================================
 // Search Functionality (Phase 4)
@@ -2380,13 +2492,50 @@ document.querySelector('.modal-body').addEventListener('click', (e) => {
 const searchInput = document.getElementById('courseSearch');
 const clearSearchButton = document.getElementById('clearSearch');
 const departmentToggle = document.getElementById('departmentToggle');
+const departmentPanel = document.getElementById('departmentPanel');
+const departmentSearch = document.getElementById('departmentSearch');
+
+function setDepartmentPanelOpen(expanded) {
+    if (!departmentToggle || !departmentPanel) return;
+    departmentToggle.setAttribute('aria-expanded', String(expanded));
+    departmentPanel.hidden = !expanded;
+    if (!expanded) return;
+
+    departmentSearch.value = '';
+    for (const link of document.querySelectorAll('#jumpToNav a')) link.hidden = false;
+    document.getElementById('departmentEmpty').hidden = true;
+    departmentSearch.focus();
+}
 
 departmentToggle?.addEventListener('click', () => {
-    const jumpNav = document.getElementById('jumpToNav');
-    if (!jumpNav) return;
     const expanded = departmentToggle.getAttribute('aria-expanded') !== 'true';
-    departmentToggle.setAttribute('aria-expanded', String(expanded));
-    jumpNav.hidden = !expanded;
+    setDepartmentPanelOpen(expanded);
+});
+
+departmentSearch?.addEventListener('input', () => {
+    const query = departmentSearch.value.trim().toUpperCase();
+    let visible = 0;
+    for (const link of document.querySelectorAll('#jumpToNav a')) {
+        link.hidden = query !== '' && !link.textContent.toUpperCase().includes(query);
+        if (!link.hidden) visible += 1;
+    }
+    document.getElementById('departmentEmpty').hidden = visible > 0;
+});
+
+departmentSearch?.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        setDepartmentPanelOpen(false);
+        departmentToggle.focus();
+        return;
+    }
+    if (event.key === 'Enter') {
+        const firstMatch = document.querySelector('#jumpToNav a:not([hidden])');
+        if (firstMatch) {
+            event.preventDefault();
+            firstMatch.click();
+        }
+    }
 });
 
 // Keyboard shortcut: "/" to focus search

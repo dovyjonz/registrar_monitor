@@ -93,8 +93,15 @@ test('generated production site serves a working semester dashboard', async ({ p
     await expect(departmentToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#jumpToNav')).toBeVisible();
     expect(await page.locator('#jumpToNav a').count()).toBeGreaterThan(0);
-    await departmentToggle.click();
-    await expect(page.locator('#jumpToNav')).toBeHidden();
+    const departmentSearch = page.locator('#departmentSearch');
+    await expect(departmentSearch).toBeVisible();
+    await expect(departmentSearch).toBeFocused();
+    await departmentSearch.fill('math');
+    await expect(page.locator('#jumpToNav a:visible')).toHaveCount(1);
+    await expect(page.locator('#jumpToNav a:visible')).toHaveText('MATH');
+    await page.locator('#jumpToNav a:visible').click();
+    await expect(page.locator('#departmentPanel')).toBeHidden();
+    await expect(page.locator('#dept-MATH')).toBeInViewport();
 
     await page.keyboard.press('/');
     await expect(page.locator('#courseSearch')).toBeFocused();
@@ -228,6 +235,7 @@ test('mobile dashboard keeps stats, timeline, and controls precisely aligned', a
         };
         const detailsRect = document.querySelector('.milestone-details').getBoundingClientRect();
         const labels = [...document.querySelectorAll('.mp-dot-label')]
+            .filter(element => getComputedStyle(element).display !== 'none')
             .map(element => element.getBoundingClientRect());
         const statsAligned = [...document.querySelectorAll('.stat')].every(stat => (
             Math.abs(centerX(stat.querySelector('.stat-value'))
@@ -481,7 +489,7 @@ test('continuous phased time works on mobile', async ({ page }) => {
     await canvas.scrollIntoViewIfNeeded();
     await expect(page.locator('.chart-wrapper')).toHaveCSS(
         'touch-action',
-        'pan-y pinch-zoom',
+        'pan-y',
     );
     const box = await canvas.boundingBox();
     expect(box).toBeTruthy();
@@ -540,7 +548,7 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     const firstTimestamp = Number(await canvas.getAttribute('data-hover-timestamp'));
     await client.send('Input.dispatchTouchEvent', {
         type: 'touchMove',
-        touchPoints: [{ x: endX, y }],
+        touchPoints: [{ x: endX, y: box.y - 20 }],
     });
     await expect.poll(async () => Number(await canvas.getAttribute('data-hover-timestamp')))
         .toBeGreaterThan(firstTimestamp);
@@ -549,10 +557,67 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
         touchPoints: [],
     });
 
+    await expect(page.locator('#chartReadout')).toBeVisible();
+    await expect(page.locator('#chartReadout')).toContainText(/Enrollment|Capacity/);
+    await expect(canvas).toHaveAttribute('data-touch-mode', 'inspect');
+
     await expect(page.locator('.chart-wrapper')).toHaveCSS(
         'touch-action',
-        'pan-y pinch-zoom',
+        'pan-y',
     );
+    await context.close();
+});
+
+test('pinch zoom enables one-finger chart panning on mobile', async ({ browser }) => {
+    const context = await browser.newContext({
+        viewport: { width: 360, height: 740 },
+        hasTouch: true,
+        isMobile: true,
+    });
+    const page = await context.newPage();
+    await page.goto('/fall2025.html#MATH-161');
+
+    const canvas = page.locator('#enrollment-chart');
+    await expect(canvas).toBeVisible();
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+    const client = await context.newCDPSession(page);
+    const centerX = box.x + box.width / 2;
+    const centerY = box.y + box.height / 2;
+
+    await client.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [
+            { x: centerX - 20, y: centerY },
+            { x: centerX + 20, y: centerY },
+        ],
+    });
+    await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [
+            { x: centerX - 80, y: centerY },
+            { x: centerX + 80, y: centerY },
+        ],
+    });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+    await expect(canvas).toHaveAttribute('data-touch-mode', 'pan');
+    await expect(page.locator('#chartZoomReset')).toBeVisible();
+    const beforePan = Number(await canvas.getAttribute('data-viewport-min'));
+
+    await client.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: centerX, y: centerY }],
+    });
+    await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: centerX - 70, y: centerY }],
+    });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(async () => Number(await canvas.getAttribute('data-viewport-min')))
+        .not.toBe(beforePan);
+
     await context.close();
 });
 

@@ -82,13 +82,19 @@
                 <option value="fill-asc">Fill % (Low→High)</option>
             </select>
             <button type="button" class="department-toggle" id="departmentToggle"
-                aria-controls="jumpToNav" aria-expanded="false" hidden>
+                aria-controls="departmentPanel" aria-expanded="false" hidden>
                 Departments <span id="departmentCount"></span>
                 <span class="department-toggle-icon" aria-hidden="true">⌄</span>
             </button>
         </div>
 
-        <nav class="jump-to-nav" id="jumpToNav" aria-label="Jump to department" hidden></nav>
+        <div class="department-panel" id="departmentPanel" hidden>
+            <label for="departmentSearch" class="visually-hidden">Find department</label>
+            <input type="search" id="departmentSearch" class="department-search"
+                placeholder="Find department…" autocomplete="off" spellcheck="false">
+            <nav class="jump-to-nav" id="jumpToNav" aria-label="Jump to department"></nav>
+            <p class="department-empty" id="departmentEmpty" hidden>No matching department</p>
+        </div>
     </div>
 
     <main id="main-content">
@@ -166,6 +172,7 @@
                             </div>
                         </div>
                     </div>
+                    <div class="chart-readout" id="chartReadout" aria-live="polite" hidden></div>
                     <div class="chart-wrapper">
                         <div class="chart-placeholder" id="chartPlaceholder">
                             Click a section to view enrollment history
