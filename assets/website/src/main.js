@@ -96,6 +96,11 @@ async function loadChartJs() {
             }] : [];
         });
     };
+    const getPinnedHoverPixel = chartInstance => (
+        chartInstance.$tooltipPinned && Number.isFinite(chartInstance.$pinnedPixelX)
+            ? chartInstance.$pinnedPixelX
+            : null
+    );
     const resolveHoverPixel = (chartInstance, event, options) => {
         const nativeEvent = event.native;
         const isTouch = nativeEvent?.pointerType === 'touch'
@@ -111,6 +116,8 @@ async function loadChartJs() {
             && domainX <= options.observedMaxX;
         if (!isTouch) {
             chartInstance.$lastInputWasTouch = false;
+            const pinnedPixel = getPinnedHoverPixel(chartInstance);
+            if (Number.isFinite(pinnedPixel)) return pinnedPixel;
             return insideChart && insideObservedX ? event.x : null;
         }
 
@@ -120,7 +127,6 @@ async function loadChartJs() {
             return chartInstance.$hoverPixelX;
         }
         if (insideObservedX) {
-            chartInstance.$tooltipPinned = true;
             return event.x;
         }
         return chartInstance.$hoverPixelX ?? null;
@@ -130,6 +136,12 @@ async function loadChartJs() {
         afterEvent(chartInstance, args, options) {
             const { event } = args;
             const nextX = resolveHoverPixel(chartInstance, event, options);
+            if (chartInstance.$tooltipPinned && Number.isFinite(chartInstance.$pinnedPixelX)) {
+                chartInstance.$hoverPixelX = chartInstance.$pinnedPixelX;
+                refreshPinnedChartTooltip(chartInstance);
+                args.changed = true;
+                return;
+            }
             if (chartInstance.$hoverPixelX !== nextX) {
                 chartInstance.$hoverPixelX = nextX;
                 if (Number.isFinite(nextX) && typeof options.unmapX === 'function') {
@@ -468,11 +480,11 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
 
     controls.dataset.state = status;
     if (status === 'hidden') {
-        controls.hidden = true;
+        controls.hidden = false;
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
-        toggle.setAttribute('aria-label', 'Show an earlier semester comparison');
-        toggle.textContent = 'Earlier semester';
+        toggle.setAttribute('aria-label', 'Checking for an earlier semester comparison');
+        toggle.textContent = 'Checking history…';
         return;
     }
 
@@ -1617,20 +1629,94 @@ function refreshPinnedChartTooltip(chartInstance) {
     });
 }
 
-function renderTouchReadout({ chart: chartInstance, tooltip }, canvas, coarsePointer) {
-    if (!coarsePointer) return;
+function getMilestoneReference(timestamp, milestones) {
+    if (!Number.isFinite(timestamp)) return '';
+    const ordered = milestones
+        .map(milestone => ({
+            label: formatMilestoneReference(milestone),
+            time: new Date(milestone.time).getTime(),
+        }))
+        .filter(milestone => Number.isFinite(milestone.time))
+        .sort((first, second) => first.time - second.time);
+    const previous = ordered.filter(milestone => milestone.time <= timestamp).at(-1);
+    const next = ordered.find(milestone => milestone.time > timestamp);
+    if (previous && next) return `${previous.label} → ${next.label}`;
+    if (next) return `Until ${next.label}`;
+    if (previous) return `Since ${previous.label}`;
+    return '';
+}
+
+function formatMilestoneReference(milestone) {
+    if (DEADLINE_LABELS.has(milestone.label)) return `${milestone.label} deadline`;
+    const yearMatch = /^Y(.+)$/u.exec(milestone.label);
+    const label = yearMatch ? `Year ${yearMatch[1]}` : milestone.label;
+    return milestone.priority ? `${label} [P${milestone.priority}]` : label;
+}
+
+function setChartTooltipPinned(chartInstance, pixelX) {
+    if (!chartInstance || !Number.isFinite(pixelX)) return;
+    const wasPinnedHere = chartInstance.$tooltipPinned
+        && Number.isFinite(chartInstance.$pinnedPixelX)
+        && Math.abs(chartInstance.$pinnedPixelX - pixelX) < 8;
+    if (wasPinnedHere) {
+        chartInstance.canvas.dataset.tooltipPinned = 'false';
+        queueMicrotask(clearChartActiveElements);
+        return;
+    }
+    chartInstance.$tooltipPinned = true;
+    chartInstance.$pinnedPixelX = pixelX;
+    chartInstance.$hoverPixelX = pixelX;
+    chartInstance.canvas.dataset.tooltipPinned = 'true';
+    refreshPinnedChartTooltip(chartInstance);
+    showPinnedReadoutBadge();
+    chartInstance.draw();
+}
+
+function showPinnedReadoutBadge() {
+    const header = document.querySelector('#chartReadout .chart-readout-header');
+    if (!header || header.querySelector('.chart-readout-pinned')) return;
+    const pinned = document.createElement('span');
+    pinned.className = 'chart-readout-pinned';
+    pinned.textContent = 'Pinned';
+    header.appendChild(pinned);
+}
+
+function renderChartReadout({ chart: chartInstance, tooltip }, canvas, milestones) {
     const readout = document.getElementById('chartReadout');
     if (!readout) return;
+    const freezePinnedReadout = chartInstance.$tooltipPinned
+        && canvas.dataset.touchMode !== 'pan'
+        && !readout.hidden
+        && readout.childElementCount > 0;
+    if (freezePinnedReadout) return;
     if (tooltip.opacity === 0) {
         if (!chartInstance.$tooltipPinned) readout.hidden = true;
         return;
     }
 
     readout.textContent = '';
+    const header = document.createElement('span');
+    header.className = 'chart-readout-header';
     const title = document.createElement('span');
     title.className = 'chart-readout-title';
     title.textContent = tooltip.title?.[0] || '';
-    readout.appendChild(title);
+    header.appendChild(title);
+    const context = getMilestoneReference(Number(canvas.dataset.hoverTimestamp), milestones);
+    if (context) {
+        const contextElement = document.createElement('span');
+        contextElement.className = 'chart-readout-context';
+        contextElement.textContent = context;
+        header.appendChild(contextElement);
+    }
+    if (chartInstance.$tooltipPinned) {
+        const pinned = document.createElement('span');
+        pinned.className = 'chart-readout-pinned';
+        pinned.textContent = 'Pinned';
+        header.appendChild(pinned);
+    }
+    readout.appendChild(header);
+    const values = document.createElement('span');
+    values.className = 'chart-readout-values';
     for (const item of tooltip.body || []) {
         for (const lineText of item.lines || []) {
             const line = document.createElement('span');
@@ -1643,10 +1729,10 @@ function renderTouchReadout({ chart: chartInstance, tooltip }, canvas, coarsePoi
             value.className = 'chart-readout-value';
             value.textContent = separator >= 0 ? lineText.slice(separator + 1).trim() : '';
             line.append(label, value);
-            readout.appendChild(line);
+            values.appendChild(line);
         }
     }
-    readout.dataset.side = tooltip.caretX < canvas.clientWidth / 2 ? 'right' : 'left';
+    readout.appendChild(values);
     readout.hidden = false;
     canvas.dataset.tooltipWidth = String(Math.round(readout.getBoundingClientRect().width));
 }
@@ -2200,6 +2286,10 @@ async function renderChart(
     const tooltipMetrics = {
         id: 'tooltipMetrics',
         afterDraw(chartInstance) {
+            const { left, top, right, bottom } = chartInstance.chartArea;
+            canvas.dataset.chartArea = [left, top, right, bottom]
+                .map(value => value.toFixed(2))
+                .join(',');
             const readout = document.getElementById('chartReadout');
             const width = coarsePointer && readout && !readout.hidden
                 ? Math.round(readout.getBoundingClientRect().width)
@@ -2218,7 +2308,13 @@ async function renderChart(
         },
         options: {
             responsive: true, maintainAspectRatio: false, animation: false,
-            layout: { padding: { left: 0, right: 0, top: 4, bottom: 4 } },
+            onClick: (event, _elements, chartInstance) => (
+                setChartTooltipPinned(chartInstance, event.x)
+            ),
+            layout: {
+                autoPadding: false,
+                padding: { left: 4, right: 4, top: 4, bottom: 4 },
+            },
             plugins: {
                 annotation: { annotations },
                 hoverIndicator: { unmapX, observedMinX, observedMaxX },
@@ -2256,10 +2352,8 @@ async function renderChart(
                     }
                 },
                 tooltip: {
-                    enabled: !coarsePointer,
-                    external: coarsePointer
-                        ? context => renderTouchReadout(context, canvas, coarsePointer)
-                        : undefined,
+                    enabled: false,
+                    external: context => renderChartReadout(context, canvas, milestones),
                     position: 'glide',
                     backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
                     borderColor: '#3a3a5e', borderWidth: 1,
@@ -2300,7 +2394,7 @@ async function renderChart(
                                 const fillLevel = historicalPoint.fill;
                                 if (Math.abs(openingLevel - fillLevel) > 1) {
                                     if (compactTooltip) {
-                                        return `${historicalComparison.semester}: ${openingLevel}% opening · ${fillLevel}% current cap`;
+                                        return `${historicalComparison.semester}: ${openingLevel}% opening → ${fillLevel}% now`;
                                     }
                                     return [
                                         `${historicalComparison.semester}: ${openingLevel}% of opening capacity`,
@@ -2316,18 +2410,17 @@ async function renderChart(
                                     ? ` ${enrollInfo.capacity}`
                                     : '';
                                 const openingCopy = compactTooltip ? 'opening' : 'of opening';
-                                return `Capacity: ${amount.trim() || '—'} · ${Math.round(ctx.parsed.y)}% ${openingCopy}`;
+                                return `Capacity: ${amount.trim() || '—'} (${Math.round(ctx.parsed.y)}% ${openingCopy})`;
                             }
-                            let lbl = 'Enrollment';
-                            if (enrollInfo && enrollInfo.enrollment !== null) {
-                                lbl += ` ${enrollInfo.enrollment}/${enrollInfo.capacity}`;
-                            }
+                            const count = enrollInfo && enrollInfo.enrollment !== null
+                                ? `${enrollInfo.enrollment}/${enrollInfo.capacity}`
+                                : '—';
                             const openingLevel = Math.round(ctx.parsed.y);
                             const fillLevel = enrollInfo?.fill ?? openingLevel;
                             const details = Math.abs(openingLevel - fillLevel) > 1
-                                ? `${openingLevel}% of opening · ${fillLevel}% full`
+                                ? `${openingLevel}% → ${fillLevel}% full`
                                 : `${fillLevel}% full`;
-                            return `${lbl}: ${details}`;
+                            return `Enrollment: ${count} (${details})`;
                         }
                     }
                 }
@@ -2406,13 +2499,15 @@ function closeModal() {
 function clearChartActiveElements() {
     if (chart) {
         chart.$tooltipPinned = false;
+        chart.$pinnedPixelX = null;
         chart.$hoverPixelX = null;
+        chart.canvas.dataset.tooltipPinned = 'false';
         chart.setActiveElements([]);
         if (chart.tooltip) {
             chart.tooltip.setActiveElements([], { x: 0, y: 0 });
             chart.tooltip.opacity = 0;
         }
-        chart.update('none');
+        chart.draw();
     }
     const readout = document.getElementById('chartReadout');
     if (readout) {

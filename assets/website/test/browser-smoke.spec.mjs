@@ -455,6 +455,10 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
         'data-state',
         'idle',
     );
+    await expect(page.locator('#historicalComparisonControls')).toBeVisible();
+    const chartWrapperBeforeComparison = await page.locator('.chart-wrapper').boundingBox();
+    const chartAreaBeforeComparison = await page.locator('#enrollment-chart')
+        .getAttribute('data-chart-area');
     expect(jsonRequests.some(pathname => /\/data\/(spring-2026|summer-2026|summer-2025)\//.test(pathname))).toBe(false);
     expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(0);
 
@@ -469,6 +473,16 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
     await expect(toggle).toContainText(/Fall 2025/);
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
         .toBe('1');
+    await expect.poll(async () => {
+        const current = await page.locator('.chart-wrapper').boundingBox();
+        return Object.fromEntries(Object.entries(current)
+            .map(([key, value]) => [key, Math.round(value)]));
+    }).toEqual(Object.fromEntries(Object.entries(chartWrapperBeforeComparison)
+        .map(([key, value]) => [key, Math.round(value)])));
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-chart-area',
+        chartAreaBeforeComparison,
+    );
     expect(jsonRequests.some(pathname => /\/data\/(summer-2026|summer-2025)\//.test(pathname))).toBe(false);
     expect(jsonRequests.filter(pathname => historicalDepartmentPaths.includes(pathname))).toHaveLength(1);
 
@@ -520,7 +534,36 @@ test('continuous phased time works on mobile', async ({ page }) => {
         .toBeGreaterThan(0);
     expect(Number(await canvas.getAttribute('data-tooltip-width'))).toBeLessThanOrEqual(260);
 
-    await expect(page.locator('#chartZoomReset')).toBeHidden();
+    const pinnedX = box.x + box.width * 0.75;
+    const pinnedY = box.y + box.height * 0.5;
+    const chartAreaBeforePin = await canvas.getAttribute('data-chart-area');
+    const canvasBeforePin = await canvas.boundingBox();
+    await page.mouse.click(pinnedX, pinnedY);
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'true');
+    await expect(page.locator('.chart-readout-pinned')).toHaveText('Pinned');
+    await expect(page.locator('.chart-readout-context')).toContainText(/Year|deadline/);
+    await expect(page.locator('.chart-readout-context')).not.toContainText('·');
+    expect(await page.locator('.chart-readout-pinned').evaluate(element => (
+        element.getBoundingClientRect().right
+            <= element.parentElement.getBoundingClientRect().right
+            && element.parentElement.getBoundingClientRect().right
+                - element.getBoundingClientRect().right < 1
+    ))).toBe(true);
+    await expect(canvas).toHaveAttribute('data-chart-area', chartAreaBeforePin);
+    expect(await canvas.boundingBox()).toEqual(canvasBeforePin);
+    const pinnedReadout = await page.locator('#chartReadout').innerText();
+    const pinnedTimestamp = await canvas.getAttribute('data-hover-timestamp');
+    await page.mouse.move(box.x + box.width * 0.2, pinnedY);
+    await expect.poll(() => page.locator('#chartReadout').innerText()).toBe(pinnedReadout);
+    await expect(canvas).toHaveAttribute('data-hover-timestamp', pinnedTimestamp);
+    await page.mouse.move(box.x, box.y - 10);
+    await expect(page.locator('#chartReadout')).not.toHaveAttribute('hidden', '');
+    await page.mouse.click(pinnedX, pinnedY);
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'false');
+    await expect(page.locator('#chartReadout')).toHaveAttribute('hidden', '');
+
+    await expect(page.locator('#chartZoomReset')).toBeVisible();
+    await expect(page.locator('#chartZoomReset')).toBeDisabled();
     await expect(page.locator('#chartLegend')).toBeHidden();
     const chartControlHeights = await page.locator('.chart-mode-btn').evaluateAll(buttons => (
         buttons.map(button => Math.round(button.getBoundingClientRect().height))
@@ -574,7 +617,8 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
 
     await expect(readout).toBeVisible();
     await expect(readout).toContainText(/Enrollment|Capacity/);
-    await expect(readout).toHaveCSS('position', 'absolute');
+    await expect(readout.locator('.chart-readout-context')).toContainText(/→|Until|Since/);
+    await expect(readout).toHaveCSS('position', 'static');
     await expect.poll(async () => (await chartWrapper.boundingBox()).y)
         .toBeCloseTo(wrapperTopBeforeTouch, 0);
     await expect.poll(async () => (await canvas.boundingBox()).y)
@@ -585,10 +629,13 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     expect(canvasBox.y).toBeCloseTo(wrapperBox.y, 0);
     expect(canvasBox.y + canvasBox.height)
         .toBeLessThanOrEqual(wrapperBox.y + wrapperBox.height);
-    expect(readoutBox.width).toBeLessThanOrEqual(170);
-    await expect(readout).toHaveAttribute('data-side', 'left');
-    expect(readoutBox.x + readoutBox.width)
-        .toBeLessThan(canvasBox.x + canvasBox.width * 0.65);
+    expect(readoutBox.width).toBeLessThanOrEqual(canvasBox.width);
+    expect(readoutBox.y + readoutBox.height).toBeLessThanOrEqual(canvasBox.y);
+    expect((await readout.locator('.chart-readout-label').allTextContents())
+        .every(text => !text.includes('…'))).toBe(true);
+    const enrollmentRow = readout.locator('.chart-readout-line').filter({ hasText: 'Enrollment' });
+    await expect(enrollmentRow.locator('.chart-readout-label')).toHaveText('Enrollment');
+    await expect(enrollmentRow.locator('.chart-readout-value')).toContainText(/\d+\/\d+/);
     expect(await readout.evaluate(element => {
         const style = getComputedStyle(element);
         return style.borderLeftWidth === style.borderRightWidth;
@@ -596,7 +643,7 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     await expect(canvas).toHaveAttribute('data-touch-mode', 'inspect');
 
     await page.locator('.modal-course-name').tap();
-    await expect(readout).toBeHidden();
+    await expect(readout).toHaveAttribute('hidden', '');
 
     await expect(page.locator('.chart-wrapper')).toHaveCSS(
         'touch-action',
@@ -644,6 +691,7 @@ test('pinch zoom enables one-finger chart panning on mobile', async ({ browser }
     const client = await context.newCDPSession(page);
     const centerX = box.x + box.width / 2;
     const centerY = box.y + box.height / 2;
+    const wrapperTopBeforeZoom = (await page.locator('.chart-wrapper').boundingBox()).y;
 
     await client.send('Input.dispatchTouchEvent', {
         type: 'touchStart',
@@ -663,6 +711,11 @@ test('pinch zoom enables one-finger chart panning on mobile', async ({ browser }
 
     await expect(canvas).toHaveAttribute('data-touch-mode', 'pan');
     await expect(page.locator('#chartZoomReset')).toBeVisible();
+    await expect(page.locator('#chartZoomReset')).toBeEnabled();
+    await expect.poll(async () => (await page.locator('.chart-wrapper').boundingBox()).y)
+        .toBeCloseTo(wrapperTopBeforeZoom, 0);
+    const readout = page.locator('#chartReadout');
+    const readoutBeforePan = await readout.boundingBox();
     const beforePan = Number(await canvas.getAttribute('data-viewport-min'));
 
     await client.send('Input.dispatchTouchEvent', {
@@ -676,6 +729,11 @@ test('pinch zoom enables one-finger chart panning on mobile', async ({ browser }
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await expect.poll(async () => Number(await canvas.getAttribute('data-viewport-min')))
         .not.toBe(beforePan);
+    const readoutAfterPan = await readout.boundingBox();
+    expect(readoutAfterPan.x).toBeCloseTo(readoutBeforePan.x, 0);
+    expect(readoutAfterPan.y).toBeCloseTo(readoutBeforePan.y, 0);
+    await expect.poll(async () => (await page.locator('.chart-wrapper').boundingBox()).y)
+        .toBeCloseTo(wrapperTopBeforeZoom, 0);
 
     await context.close();
 });
