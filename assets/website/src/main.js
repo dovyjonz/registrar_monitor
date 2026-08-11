@@ -96,34 +96,40 @@ async function loadChartJs() {
             }] : [];
         });
     };
+    const resolveHoverPixel = (chartInstance, event, options) => {
+        const nativeEvent = event.native;
+        const isTouch = nativeEvent?.pointerType === 'touch'
+            || nativeEvent?.touches !== undefined
+            || nativeEvent?.changedTouches !== undefined;
+        const { chartArea } = chartInstance;
+        const insideChart = event.type !== 'mouseout'
+            && event.x >= chartArea.left && event.x <= chartArea.right
+            && event.y >= chartArea.top && event.y <= chartArea.bottom;
+        const domainX = chartInstance.scales.x.getValueForPixel(event.x);
+        const insideObservedX = Number.isFinite(domainX)
+            && domainX >= options.observedMinX
+            && domainX <= options.observedMaxX;
+        if (!isTouch) {
+            chartInstance.$lastInputWasTouch = false;
+            return insideChart && insideObservedX ? event.x : null;
+        }
+
+        chartInstance.$lastInputWasTouch = true;
+        if (chartInstance.canvas.dataset.touchMode === 'pan'
+            && Number.isFinite(chartInstance.$hoverPixelX)) {
+            return chartInstance.$hoverPixelX;
+        }
+        if (insideObservedX) {
+            chartInstance.$tooltipPinned = true;
+            return event.x;
+        }
+        return chartInstance.$hoverPixelX ?? null;
+    };
     const hoverIndicator = {
         id: 'hoverIndicator',
         afterEvent(chartInstance, args, options) {
-            const { chartArea } = chartInstance;
             const { event } = args;
-            const nativeEvent = event.native;
-            const isTouch = nativeEvent?.pointerType === 'touch'
-                || nativeEvent?.touches !== undefined
-                || nativeEvent?.changedTouches !== undefined;
-            const insideChart = event.type !== 'mouseout'
-                && event.x >= chartArea.left && event.x <= chartArea.right
-                && event.y >= chartArea.top && event.y <= chartArea.bottom;
-            const domainX = chartInstance.scales.x.getValueForPixel(event.x);
-            const insideObservedX = Number.isFinite(domainX)
-                && domainX >= options.observedMinX
-                && domainX <= options.observedMaxX;
-            let nextX = insideChart && insideObservedX ? event.x : null;
-            if (isTouch) {
-                chartInstance.$lastInputWasTouch = true;
-                if (insideObservedX) {
-                    nextX = event.x;
-                    chartInstance.$tooltipPinned = true;
-                } else {
-                    nextX = chartInstance.$hoverPixelX ?? null;
-                }
-            } else {
-                chartInstance.$lastInputWasTouch = false;
-            }
+            const nextX = resolveHoverPixel(chartInstance, event, options);
             if (chartInstance.$hoverPixelX !== nextX) {
                 chartInstance.$hoverPixelX = nextX;
                 if (Number.isFinite(nextX) && typeof options.unmapX === 'function') {
@@ -1582,6 +1588,7 @@ function syncChartViewportState(chartInstance, canvas, coarsePointer) {
         ? 'pan'
         : coarsePointer ? 'inspect' : 'hover';
     canvas.dataset.viewportMin = String(chartInstance?.scales?.x?.min ?? '');
+    refreshPinnedChartTooltip(chartInstance);
     updateZoomControls();
     if (!coarsePointer) return;
 
@@ -1592,6 +1599,22 @@ function syncChartViewportState(chartInstance, canvas, coarsePointer) {
             if (chartInstance.canvas?.isConnected) chartInstance.update('none');
         });
     }
+}
+
+function refreshPinnedChartTooltip(chartInstance) {
+    const pixelX = chartInstance?.$hoverPixelX;
+    if (!Number.isFinite(pixelX) || !chartInstance.tooltip) return;
+    const active = chartInstance.data.datasets.flatMap((_, datasetIndex) => {
+        const meta = chartInstance.getDatasetMeta(datasetIndex);
+        if (!meta.visible) return [];
+        const xValues = meta.data.map(element => element.getProps(['x'], false).x);
+        const index = findSteppedPointIndexAtX(xValues, pixelX);
+        return index === null ? [] : [{ datasetIndex, index }];
+    });
+    chartInstance.tooltip.setActiveElements(active, {
+        x: pixelX,
+        y: chartInstance.chartArea.top + chartInstance.chartArea.height / 2,
+    });
 }
 
 function renderTouchReadout({ chart: chartInstance, tooltip }, canvas, coarsePointer) {
@@ -1612,7 +1635,14 @@ function renderTouchReadout({ chart: chartInstance, tooltip }, canvas, coarsePoi
         for (const lineText of item.lines || []) {
             const line = document.createElement('span');
             line.className = 'chart-readout-line';
-            line.textContent = lineText;
+            const separator = lineText.indexOf(':');
+            const label = document.createElement('span');
+            label.className = 'chart-readout-label';
+            label.textContent = separator >= 0 ? lineText.slice(0, separator) : lineText;
+            const value = document.createElement('span');
+            value.className = 'chart-readout-value';
+            value.textContent = separator >= 0 ? lineText.slice(separator + 1).trim() : '';
+            line.append(label, value);
             readout.appendChild(line);
         }
     }
@@ -2161,7 +2191,10 @@ async function renderChart(
     const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
     canvas.dataset.tooltipDensity = compactTooltip ? 'compact' : 'regular';
     canvas.dataset.touchMode = coarsePointer ? 'inspect' : 'hover';
-    const observedXValues = displayDataPoints.map(point => point.x).filter(Number.isFinite);
+    const observedXValues = [...displayDataPoints, ...displayHistoricalDataPoints]
+        .map(point => point.x)
+        .filter(Number.isFinite)
+        .sort((first, second) => first - second);
     const observedMinX = observedXValues[0] ?? xBounds.min;
     const observedMaxX = observedXValues.at(-1) ?? xBounds.max;
     const tooltipMetrics = {
@@ -2267,14 +2300,11 @@ async function renderChart(
                                 const fillLevel = historicalPoint.fill;
                                 if (Math.abs(openingLevel - fillLevel) > 1) {
                                     if (compactTooltip) {
-                                        return [
-                                            `${historicalComparison.semester}: ${openingLevel}% of opening`,
-                                            `Same enrollment: ${fillLevel}% of capacity`,
-                                        ];
+                                        return `${historicalComparison.semester}: ${openingLevel}% opening · ${fillLevel}% current cap`;
                                     }
                                     return [
-                                        `${historicalComparison.semester} line: ${openingLevel}% of opening capacity`,
-                                        `Same enrollment: ${fillLevel}% of capacity on this date`,
+                                        `${historicalComparison.semester}: ${openingLevel}% of opening capacity`,
+                                        `Current capacity: same enrollment would be ${fillLevel}% full`,
                                     ];
                                 }
                                 return `${historicalComparison.semester}: ${fillLevel}% full`;
@@ -2286,7 +2316,7 @@ async function renderChart(
                                     ? ` ${enrollInfo.capacity}`
                                     : '';
                                 const openingCopy = compactTooltip ? 'opening' : 'of opening';
-                                return `Capacity${amount} · ${Math.round(ctx.parsed.y)}% ${openingCopy}`;
+                                return `Capacity: ${amount.trim() || '—'} · ${Math.round(ctx.parsed.y)}% ${openingCopy}`;
                             }
                             let lbl = 'Enrollment';
                             if (enrollInfo && enrollInfo.enrollment !== null) {
@@ -2297,7 +2327,7 @@ async function renderChart(
                             const details = Math.abs(openingLevel - fillLevel) > 1
                                 ? `${openingLevel}% of opening · ${fillLevel}% full`
                                 : `${fillLevel}% full`;
-                            return `${lbl} · ${details}`;
+                            return `${lbl}: ${details}`;
                         }
                     }
                 }
@@ -2477,14 +2507,14 @@ document.getElementById('chartContainer').addEventListener('wheel', (e) => {
     }
 }, { passive: false });
 
-document.querySelector('.modal-body').addEventListener('click', (e) => {
-    if (!e.target.closest('#chartContainer')) {
+document.querySelector('.modal').addEventListener('click', (e) => {
+    if (!e.target.closest('.chart-wrapper')) {
         clearChartActiveElements();
     }
 });
 
-document.querySelector('.modal-body').addEventListener('touchstart', (e) => {
-    if (!e.target.closest('#chartContainer')) clearChartActiveElements();
+document.querySelector('.modal').addEventListener('touchstart', (e) => {
+    if (!e.target.closest('.chart-wrapper')) clearChartActiveElements();
 }, { passive: true });
 
 

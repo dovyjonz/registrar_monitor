@@ -288,6 +288,17 @@ test('mobile dashboard keeps stats, timeline, and controls precisely aligned', a
         statsAligned: true,
         timelineAligned: true,
     });
+
+    await expect(page.locator('.course-cell').first()).toBeVisible();
+    for (const filter of ['full', 'near', 'open']) {
+        const button = page.locator(`.filter-btn[data-filter="${filter}"]`);
+        await button.click();
+        await expect.poll(() => button.evaluate(element => (
+            getComputedStyle(element, '::before').backgroundColor
+                === getComputedStyle(element).color
+        ))).toBe(true);
+        await expect(button).toHaveAttribute('aria-pressed', 'true');
+    }
 });
 
 test('department 404 keeps the modal open and retry loads the selected course', async ({ page }) => {
@@ -584,6 +595,9 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     })).toBe(true);
     await expect(canvas).toHaveAttribute('data-touch-mode', 'inspect');
 
+    await page.locator('.modal-course-name').tap();
+    await expect(readout).toBeHidden();
+
     await expect(page.locator('.chart-wrapper')).toHaveCSS(
         'touch-action',
         'pan-y',
@@ -690,6 +704,7 @@ test('historical comparison prefers the prior year of the same semester', async 
         'data-historical-datasets',
         '1',
     );
+    await expect(page.locator('#historicalAlignmentNote')).toHaveCount(0);
 });
 
 test('historical course comparison renders when the current course has no chart history', async ({ page }) => {
