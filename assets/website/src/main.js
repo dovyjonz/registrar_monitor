@@ -1590,6 +1590,11 @@ function updateZoomControls() {
 function resetChartZoom() {
     if (chart && typeof chart.resetZoom === 'function') {
         chart.resetZoom('none');
+        syncChartViewportState(
+            chart,
+            chart.canvas,
+            window.matchMedia('(pointer: coarse)').matches,
+        );
     }
     updateZoomControls();
 }
@@ -1599,8 +1604,17 @@ function syncChartViewportState(chartInstance, canvas, coarsePointer) {
     canvas.dataset.touchMode = coarsePointer && isZoomed
         ? 'pan'
         : coarsePointer ? 'inspect' : 'hover';
+    canvas.parentElement.dataset.gestureMode = canvas.dataset.touchMode;
     canvas.dataset.viewportMin = String(chartInstance?.scales?.x?.min ?? '');
+    if (chartInstance.$tooltipPinned
+        && Number.isFinite(chartInstance.$hoverPixelX)
+        && typeof chartInstance.$unmapHoverX === 'function') {
+        const mappedX = chartInstance.scales.x.getValueForPixel(chartInstance.$hoverPixelX);
+        canvas.dataset.hoverTimestamp = String(chartInstance.$unmapHoverX(mappedX));
+        chartInstance.$refreshPinnedReadout = true;
+    }
     refreshPinnedChartTooltip(chartInstance);
+    if (chartInstance.$tooltipPinned) chartInstance.draw();
     updateZoomControls();
     if (!coarsePointer) return;
 
@@ -1616,6 +1630,7 @@ function syncChartViewportState(chartInstance, canvas, coarsePointer) {
 function refreshPinnedChartTooltip(chartInstance) {
     const pixelX = chartInstance?.$hoverPixelX;
     if (!Number.isFinite(pixelX) || !chartInstance.tooltip) return;
+    const forceReadoutRefresh = Boolean(chartInstance.$refreshPinnedReadout);
     const active = chartInstance.data.datasets.flatMap((_, datasetIndex) => {
         const meta = chartInstance.getDatasetMeta(datasetIndex);
         if (!meta.visible) return [];
@@ -1627,6 +1642,9 @@ function refreshPinnedChartTooltip(chartInstance) {
         x: pixelX,
         y: chartInstance.chartArea.top + chartInstance.chartArea.height / 2,
     });
+    if (forceReadoutRefresh && chartInstance.$refreshPinnedReadout) {
+        chartInstance.tooltip.update(true);
+    }
 }
 
 function getMilestoneReference(timestamp, milestones) {
@@ -1666,6 +1684,7 @@ function setChartTooltipPinned(chartInstance, pixelX) {
     chartInstance.$tooltipPinned = true;
     chartInstance.$pinnedPixelX = pixelX;
     chartInstance.$hoverPixelX = pixelX;
+    chartInstance.$pinnedViewportMin = chartInstance.scales.x.min;
     chartInstance.canvas.dataset.tooltipPinned = 'true';
     refreshPinnedChartTooltip(chartInstance);
     showPinnedReadoutBadge();
@@ -1681,14 +1700,27 @@ function showPinnedReadoutBadge() {
     header.appendChild(pinned);
 }
 
+function hasPinnedViewportMoved(chartInstance, viewportMin) {
+    return chartInstance.$tooltipPinned
+        && Number.isFinite(viewportMin)
+        && viewportMin !== chartInstance.$pinnedViewportMin;
+}
+
+function shouldFreezePinnedReadout(chartInstance, viewportMin, readout) {
+    return chartInstance.$tooltipPinned
+        && !hasPinnedViewportMoved(chartInstance, viewportMin)
+        && !chartInstance.$refreshPinnedReadout
+        && !readout.hidden
+        && readout.childElementCount > 0;
+}
+
 function renderChartReadout({ chart: chartInstance, tooltip }, canvas, milestones) {
     const readout = document.getElementById('chartReadout');
     if (!readout) return;
-    const freezePinnedReadout = chartInstance.$tooltipPinned
-        && canvas.dataset.touchMode !== 'pan'
-        && !readout.hidden
-        && readout.childElementCount > 0;
+    const viewportMin = chartInstance.scales.x?.min;
+    const freezePinnedReadout = shouldFreezePinnedReadout(chartInstance, viewportMin, readout);
     if (freezePinnedReadout) return;
+    chartInstance.$refreshPinnedReadout = false;
     if (tooltip.opacity === 0) {
         if (!chartInstance.$tooltipPinned) readout.hidden = true;
         return;
@@ -1734,6 +1766,7 @@ function renderChartReadout({ chart: chartInstance, tooltip }, canvas, milestone
     }
     readout.appendChild(values);
     readout.hidden = false;
+    if (chartInstance.$tooltipPinned) chartInstance.$pinnedViewportMin = viewportMin;
     canvas.dataset.tooltipWidth = String(Math.round(readout.getBoundingClientRect().width));
 }
 
@@ -2277,6 +2310,7 @@ async function renderChart(
     const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
     canvas.dataset.tooltipDensity = compactTooltip ? 'compact' : 'regular';
     canvas.dataset.touchMode = coarsePointer ? 'inspect' : 'hover';
+    canvas.dataset.tooltipPinned = 'false';
     const observedXValues = [...displayDataPoints, ...displayHistoricalDataPoints]
         .map(point => point.x)
         .filter(Number.isFinite)
@@ -2308,9 +2342,11 @@ async function renderChart(
         },
         options: {
             responsive: true, maintainAspectRatio: false, animation: false,
-            onClick: (event, _elements, chartInstance) => (
-                setChartTooltipPinned(chartInstance, event.x)
-            ),
+            onClick: coarsePointer
+                ? undefined
+                : (event, _elements, chartInstance) => (
+                    setChartTooltipPinned(chartInstance, event.x)
+                ),
             layout: {
                 autoPadding: false,
                 padding: { left: 4, right: 4, top: 4, bottom: 4 },
@@ -2455,6 +2491,7 @@ async function renderChart(
             interaction: { intersect: false, mode: 'glideStepped', axis: 'x' }
         }
     });
+    chart.$unmapHoverX = unmapX;
     updateHistoricalLegend();
     syncChartViewportState(chart, canvas, coarsePointer);
 }

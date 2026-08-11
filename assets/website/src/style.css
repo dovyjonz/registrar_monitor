@@ -1142,6 +1142,8 @@ header p {
     border-radius: var(--radius-lg);
     padding: 16px;
     margin-top: 16px;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 /*
@@ -1155,6 +1157,10 @@ header p {
     height: 260px;
     /* Horizontal moves inspect the graph; vertical moves keep scrolling the modal. */
     touch-action: pan-y;
+}
+
+.chart-wrapper[data-gesture-mode="pan"] {
+    touch-action: none;
 }
 
 .chart-readout {
@@ -2045,11 +2051,20 @@ html.modal-open body {
     }
 
     .chart-readout {
-        height: 64px;
+        height: auto;
+        min-height: 92px;
+        padding: 10px 12px;
+        row-gap: 6px;
     }
 
     .chart-readout[hidden]::after {
-        min-height: 48px;
+        min-height: 70px;
+    }
+
+    .chart-readout-values {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        row-gap: 4px;
     }
 
     .chart-toolbar {

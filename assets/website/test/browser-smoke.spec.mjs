@@ -615,6 +615,8 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
         touchPoints: [],
     });
 
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'false');
+    await expect(page.locator('.chart-readout-pinned')).toHaveCount(0);
     await expect(readout).toBeVisible();
     await expect(readout).toContainText(/Enrollment|Capacity/);
     await expect(readout.locator('.chart-readout-context')).toContainText(/→|Until|Since/);
@@ -630,6 +632,7 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     expect(canvasBox.y + canvasBox.height)
         .toBeLessThanOrEqual(wrapperBox.y + wrapperBox.height);
     expect(readoutBox.width).toBeLessThanOrEqual(canvasBox.width);
+    expect(readoutBox.height).toBeGreaterThanOrEqual(80);
     expect(readoutBox.y + readoutBox.height).toBeLessThanOrEqual(canvasBox.y);
     expect((await readout.locator('.chart-readout-label').allTextContents())
         .every(text => !text.includes('…'))).toBe(true);
@@ -641,6 +644,8 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
         return style.borderLeftWidth === style.borderRightWidth;
     })).toBe(true);
     await expect(canvas).toHaveAttribute('data-touch-mode', 'inspect');
+    await expect(page.locator('.chart-container')).toHaveCSS('user-select', 'none');
+    expect(await page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
 
     await page.locator('.modal-course-name').tap();
     await expect(readout).toHaveAttribute('hidden', '');
@@ -710,6 +715,8 @@ test('pinch zoom enables one-finger chart panning on mobile', async ({ browser }
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 
     await expect(canvas).toHaveAttribute('data-touch-mode', 'pan');
+    await expect(page.locator('.chart-wrapper')).toHaveCSS('touch-action', 'none');
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'false');
     await expect(page.locator('#chartZoomReset')).toBeVisible();
     await expect(page.locator('#chartZoomReset')).toBeEnabled();
     await expect.poll(async () => (await page.locator('.chart-wrapper').boundingBox()).y)
@@ -729,6 +736,8 @@ test('pinch zoom enables one-finger chart panning on mobile', async ({ browser }
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await expect.poll(async () => Number(await canvas.getAttribute('data-viewport-min')))
         .not.toBe(beforePan);
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'false');
+    expect(await page.evaluate(() => window.getSelection()?.toString() || '')).toBe('');
     const readoutAfterPan = await readout.boundingBox();
     expect(readoutAfterPan.x).toBeCloseTo(readoutBeforePan.x, 0);
     expect(readoutAfterPan.y).toBeCloseTo(readoutBeforePan.y, 0);
@@ -736,6 +745,36 @@ test('pinch zoom enables one-finger chart panning on mobile', async ({ browser }
         .toBeCloseTo(wrapperTopBeforeZoom, 0);
 
     await context.close();
+});
+
+test('desktop pinned readout follows the data beneath its fixed cursor while panning', async ({ page }) => {
+    await page.goto('/fall2025.html#MATH-161');
+    const canvas = page.locator('#enrollment-chart');
+    await expect(canvas).toBeVisible();
+    await canvas.scrollIntoViewIfNeeded();
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+    const cursorX = box.x + box.width * 0.6;
+    const cursorY = box.y + box.height * 0.5;
+
+    await page.mouse.click(cursorX, cursorY);
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'true');
+    await page.mouse.move(cursorX, cursorY);
+    await page.mouse.wheel(0, -500);
+    await expect(page.locator('#chartZoomReset')).toBeEnabled();
+    const beforePan = Number(await canvas.getAttribute('data-viewport-min'));
+    const readoutBeforePan = await page.locator('#chartReadout').innerText();
+
+    await page.mouse.move(cursorX, cursorY);
+    await page.mouse.down();
+    await page.mouse.move(cursorX - 100, cursorY, { steps: 8 });
+    await page.mouse.up();
+
+    await expect.poll(async () => Number(await canvas.getAttribute('data-viewport-min')))
+        .not.toBe(beforePan);
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'true');
+    await expect.poll(() => page.locator('#chartReadout').innerText())
+        .not.toBe(readoutBeforePan);
 });
 
 test('historical comparison prefers the prior year of the same semester', async ({ page }) => {
