@@ -43,6 +43,7 @@ class TestColoredFormatter:
         # Should contain ANSI color code for INFO (green)
         assert "\033[32m" in formatted
         assert "\033[0m" in formatted
+        assert record.levelname == "INFO"
 
     def test_does_not_color_unknown_level(self):
         formatter = ColoredFormatter("%(levelname)s")
@@ -95,6 +96,27 @@ class TestSetupLogging:
             setup_logging(enable_console=False, enable_file=False)
             mock_rfh.assert_not_called()
 
+    def test_log_directory_not_created_when_file_logging_is_disabled(self, tmp_path):
+        log_dir = tmp_path / "unused"
+
+        setup_logging(
+            log_dir=str(log_dir),
+            enable_console=False,
+            enable_file=False,
+            force_setup=True,
+        )
+
+        assert not log_dir.exists()
+
+    def test_console_colors_do_not_leak_into_file_log(self, tmp_path):
+        setup_logging(log_dir=str(tmp_path), force_setup=True)
+
+        logging.getLogger("test").info("hello")
+        contents = (tmp_path / "registrar_monitor.log").read_text()
+
+        assert "hello" in contents
+        assert "\033[" not in contents
+
 
 class TestGetLogger:
     def test_get_logger_with_name(self):
@@ -130,6 +152,17 @@ def test_log_performance_reraises():
 
     with pytest.raises(ValueError, match="boom"):
         failing_func()
+
+
+def test_log_performance_records_traceback(caplog):
+    @log_performance
+    def failing_func():
+        raise ValueError("boom")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(ValueError, match="boom"):
+        failing_func()
+
+    assert caplog.records[-1].exc_info is not None
 
 
 def test_log_method_calls():

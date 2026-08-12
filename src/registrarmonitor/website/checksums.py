@@ -6,7 +6,7 @@ from pathlib import Path
 
 from registrarmonitor.data.database_manager import DatabaseManager
 
-from .config import ALL_SEMESTERS, OUTPUT_DIR
+from .config import OUTPUT_DIR, get_configured_semesters
 
 CHECKSUMS_FILE = OUTPUT_DIR / ".checksums.json"
 
@@ -61,7 +61,10 @@ def save_checksums(
 
 
 def get_semesters_needing_update(
-    force: bool = False, checksums_file: Path | None = None
+    force: bool = False,
+    checksums_file: Path | None = None,
+    *,
+    semesters: list[str] | None = None,
 ) -> list[str]:
     """
     Determine which semesters need their pages regenerated.
@@ -72,13 +75,14 @@ def get_semesters_needing_update(
     Returns:
         List of semester names needing update
     """
+    candidates = semesters if semesters is not None else get_configured_semesters()
     if force:
-        return list(ALL_SEMESTERS)
+        return list(candidates)
 
     stored = load_checksums(checksums_file or CHECKSUMS_FILE)
     needs_update = []
 
-    for semester in ALL_SEMESTERS:
+    for semester in candidates:
         current_hash = compute_semester_hash(semester)
         stored_hash = stored.get(semester)
 

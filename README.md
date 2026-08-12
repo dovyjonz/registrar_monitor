@@ -100,11 +100,13 @@ Key decisions:
 - Automated reports are compact text; PDF generation is an opt-in library
   capability, not part of the default pipeline.
 - Stateful reporting records the last reported snapshot in SQLite.
-- Schema v2 uses checkpointed state plus contiguous event sequences while
-  retaining and atomically dual-writing the legacy tables for one compatibility
-  release.
+- Schema v2 uses checkpointed state plus contiguous event sequences. Production
+  semesters are finalized, so retired legacy compatibility tables are absent from
+  the normal read and write paths.
 - Static v3 data is published as a no-cache semester pointer to immutable,
   content-addressed manifests and summary/department blobs.
+- Clean semester and course routes share one dashboard shell; course routes open
+  the existing modal and use immutable preview-state JSON.
 - Scheduler decisions and dashboard milestone rendering use the registrar
   timezone and milestones from `settings.toml`.
 - Direct Pages upload through `WebsiteService` is the supported production
@@ -191,7 +193,9 @@ the installed unit file as the only copy.
 - [`docs/operations/reproducible-baseline.md`](docs/operations/reproducible-baseline.md):
   reproducibility contract and latest verification evidence
 - [`docs/operations/tooling.md`](docs/operations/tooling.md): unit, browser,
-  generated-output, doctor, baseline, CI, and dependency-update tooling
+  generated-output, doctor, logging, baseline, CI, and dependency-update tooling
+- [`docs/operations/website-publication.md`](docs/operations/website-publication.md):
+  publication catalog, clean routes, immutable previews, and Worker boundary
 - [`AGENTS.md`](AGENTS.md): repository constraints for coding agents
 
 ## Troubleshooting
@@ -199,7 +203,9 @@ the installed unit file as the only copy.
 - Run `make doctor` locally, or `scripts/runtime_doctor.sh` on a runtime host,
   for toolchain, path, and optional-secret checks.
 - Use `monitor db stats` for database visibility.
-- Check `logs/` for application diagnostics.
+- Check the configured log directory and, on the production host, the canonical
+  systemd journal. See the logging section in
+  [`docs/operations/tooling.md`](docs/operations/tooling.md#runtime-logging-and-scheduler-decisions).
 - For generated dashboard failures, follow the local serving and asset-hash notes
   in `AGENTS.md`.
 

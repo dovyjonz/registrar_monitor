@@ -8,6 +8,8 @@ configurable levels, formatters, and handlers.
 import logging
 import logging.handlers
 import sys
+import time
+from copy import copy
 from pathlib import Path
 
 from ..config import get_config
@@ -30,13 +32,13 @@ class ColoredFormatter(logging.Formatter):
     RESET = "\033[0m"
 
     def format(self, record):
-        # Add color to levelname
-        if record.levelname in self.COLORS:
-            record.levelname = (
-                f"{self.COLORS[record.levelname]}{record.levelname}{self.RESET}"
-            )
+        color = self.COLORS.get(record.levelname)
+        if color is None:
+            return super().format(record)
 
-        return super().format(record)
+        colored_record = copy(record)
+        colored_record.levelname = f"{color}{record.levelname}{self.RESET}"
+        return super().format(colored_record)
 
 
 def setup_logging(
@@ -76,9 +78,7 @@ def setup_logging(
         except Exception:
             log_dir = "./logs"
 
-    # Ensure log directory exists
     log_path = Path(log_dir)
-    log_path.mkdir(parents=True, exist_ok=True)
 
     # Clear any existing handlers
     root_logger = logging.getLogger()
@@ -107,6 +107,7 @@ def setup_logging(
 
     # File handlers
     if enable_file:
+        log_path.mkdir(parents=True, exist_ok=True)
         # Main application log (rotating)
         main_log_file = log_path / "registrar_monitor.log"
         file_handler = logging.handlers.RotatingFileHandler(
@@ -137,10 +138,13 @@ def setup_logging(
     # Log the logging setup
     logger = logging.getLogger(__name__)
     logger.info(
-        f"Logging initialized - Level: {level}, Console: {enable_console}, File: {enable_file}"
+        "Logging initialized - Level: %s, Console: %s, File: %s",
+        level,
+        enable_console,
+        enable_file,
     )
     if enable_file:
-        logger.info(f"Log files location: {log_path}")
+        logger.info("Log files location: %s", log_path)
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
@@ -174,22 +178,21 @@ def log_performance(func):
             pass
     """
     import functools
-    import time
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         logger = get_logger(func.__module__)
-        start_time = time.time()
+        start_time = time.monotonic()
 
         try:
-            logger.debug(f"Starting {func.__name__}")
+            logger.debug("Starting %s", func.__name__)
             result = func(*args, **kwargs)
-            duration = time.time() - start_time
-            logger.debug(f"Completed {func.__name__} in {duration:.3f}s")
+            duration = time.monotonic() - start_time
+            logger.debug("Completed %s in %.3fs", func.__name__, duration)
             return result
-        except Exception as e:
-            duration = time.time() - start_time
-            logger.error(f"Failed {func.__name__} after {duration:.3f}s: {e}")
+        except Exception:
+            duration = time.monotonic() - start_time
+            logger.exception("Failed %s after %.3fs", func.__name__, duration)
             raise
 
     return wrapper
@@ -211,5 +214,5 @@ def log_method_calls(cls):
         if callable(attr) and not attr_name.startswith("_"):
             setattr(cls, attr_name, log_performance(attr))
 
-    logger.debug(f"Added logging to all methods in {cls.__name__}")
+    logger.debug("Added logging to all methods in %s", cls.__name__)
     return cls

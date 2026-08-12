@@ -95,14 +95,10 @@ class TestSaveChecksums:
 
 class TestGetSemestersNeedingUpdate:
     def test_force_returns_all(self):
-        with (
-            patch("registrarmonitor.website.checksums.compute_semester_hash"),
-            patch(
-                "registrarmonitor.website.checksums.ALL_SEMESTERS",
-                ["Spring 2024", "Fall 2024"],
-            ),
-        ):
-            result = get_semesters_needing_update(force=True)
+        with patch("registrarmonitor.website.checksums.compute_semester_hash"):
+            result = get_semesters_needing_update(
+                force=True, semesters=["Spring 2024", "Fall 2024"]
+            )
 
         assert result == ["Spring 2024", "Fall 2024"]
 
@@ -116,12 +112,10 @@ class TestGetSemestersNeedingUpdate:
                 "registrarmonitor.website.checksums.load_checksums",
                 return_value={"Spring 2024": "oldhash", "Fall 2024": "samehash"},
             ),
-            patch(
-                "registrarmonitor.website.checksums.ALL_SEMESTERS",
-                ["Spring 2024", "Fall 2024"],
-            ),
         ):
-            result = get_semesters_needing_update(force=False)
+            result = get_semesters_needing_update(
+                force=False, semesters=["Spring 2024", "Fall 2024"]
+            )
 
         assert result == ["Spring 2024"]
 
@@ -135,9 +129,10 @@ class TestGetSemestersNeedingUpdate:
                 "registrarmonitor.website.checksums.load_checksums",
                 return_value={"Spring 2024": "samehash"},
             ),
-            patch("registrarmonitor.website.checksums.ALL_SEMESTERS", ["Spring 2024"]),
         ):
-            result = get_semesters_needing_update(force=False)
+            result = get_semesters_needing_update(
+                force=False, semesters=["Spring 2024"]
+            )
 
         assert result == []
 

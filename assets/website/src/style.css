@@ -378,6 +378,13 @@ header p {
     gap: 8px;
 }
 
+.elective-disclaimer {
+    margin: 7px 2px 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
 /* Filter buttons */
 .filter-buttons {
     display: flex;
@@ -464,7 +471,8 @@ header p {
 }
 
 /* Sort dropdown */
-.sort-select {
+.sort-select,
+.elective-select {
     padding: 6px 24px 6px 12px;
     border: 1px solid hsl(var(--border));
     background: hsl(var(--muted));
@@ -489,14 +497,16 @@ header p {
         box-shadow var(--transition-fast);
 }
 
-.sort-select:hover {
+.sort-select:hover,
+.elective-select:hover {
     background-color: hsl(var(--card));
     border-color: hsl(var(--accent) / 0.5);
     transform: translateY(-1px);
     box-shadow: 0 4px 10px hsl(0 0% 0% / 0.16);
 }
 
-.sort-select:active {
+.sort-select:active,
+.elective-select:active {
     transform: translateY(1px) scale(0.985);
     box-shadow: none;
 }
@@ -1051,6 +1061,40 @@ header p {
     -webkit-overflow-scrolling: touch;
     flex: 1;
     min-height: 0;            /* required: allows flex child to shrink below content size */
+}
+
+.course-state,
+.course-availability {
+    display: flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.025);
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.course-state[hidden],
+.course-availability[hidden] {
+    display: none;
+}
+
+.course-availability {
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.course-availability strong {
+    color: var(--text-primary);
+}
+
+.removed-badge {
+    padding: 0.15rem 0.38rem;
+    background: #ff5722;
+    color: #111827;
+    letter-spacing: 0.08em;
 }
 
 /* --- Sections --- */
@@ -2156,7 +2200,8 @@ html.modal-open body {
         display: none;
     }
 
-    .sort-select {
+    .sort-select,
+    .elective-select {
         flex: 1 1 calc(50% - 4px);
         min-height: 44px;
     }
@@ -2226,6 +2271,7 @@ html.modal-open body {
     .search-input,
     .department-search,
     .sort-select,
+    .elective-select,
     .ef-select {
         font-size: 16px;
     }
@@ -2253,6 +2299,10 @@ html.modal-open body {
     }
 
     .sort-select {
+        min-height: 44px;
+    }
+
+    .elective-select {
         min-height: 44px;
     }
 

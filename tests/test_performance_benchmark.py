@@ -103,7 +103,8 @@ def test_website_adapter_generates_expected_artifacts(tmp_path):
     assert artifacts["snapshots"] == 3
     assert artifacts["query_count"] > 0
     assert artifacts["slowest_sql"]
-    assert (output / "summer2026.html").is_file()
+    assert (output / "semesters" / "summer-2026" / "index.html").is_file()
+    assert len(list((output / "courses" / "summer-2026").glob("*/index.html"))) == 3
     assert not (output / "summer2026.json").exists()
     pointer_path = output / "data" / "summer-2026" / "manifest.json"
     pointer = json.loads(pointer_path.read_text())

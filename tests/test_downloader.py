@@ -17,8 +17,11 @@ def mock_config(tmp_path):
     download_dir.mkdir()
     with patch("registrarmonitor.automation.downloader.get_config") as mock:
         mock.return_value = {
-            "data_source": {"url": "http://test.url"},
+            "data_source": {},
             "directories": {"raw_downloads": str(download_dir)},
+            "semesters": {
+                "Fall 2026": {"registrar_url": "http://test.url"},
+            },
         }
         yield mock
 

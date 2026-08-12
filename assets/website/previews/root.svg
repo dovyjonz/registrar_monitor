@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="hsl(220 45% 16%)"/>
+      <stop offset="0.72" stop-color="hsl(234 45% 13%)"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#background)"/>
+  <rect x="1106" y="60" width="30" height="30" fill="#ff5722"/>
+  <text x="64" y="96" fill="hsl(48 100% 50%)" font-family="JetBrains Mono, Fira Code, SF Mono, monospace" font-size="22" letter-spacing="2">UNOFFICIAL COURSE DATA</text>
+  <text x="64" y="205" fill="hsl(0 0% 92%)" font-family="JetBrains Mono, Fira Code, SF Mono, monospace" font-size="68" font-weight="700">Enrollment Monitor</text>
+  <text x="64" y="262" fill="hsl(0 0% 70%)" font-family="JetBrains Mono, Fira Code, SF Mono, monospace" font-size="27">Historical and frequently updated undergraduate course data</text>
+  <line x1="64" y1="355" x2="1136" y2="355" stroke="hsl(240 4% 37%)"/>
+  <polyline points="64,492 210,476 356,448 502,454 648,395 794,373 940,301 1136,274" fill="none" stroke="hsl(48 100% 50%)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

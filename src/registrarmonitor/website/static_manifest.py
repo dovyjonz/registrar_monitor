@@ -12,6 +12,8 @@ from numbers import Real
 from pathlib import Path
 from typing import Any
 
+from .availability import calculate_availability
+
 PublicationHook = Callable[[str, str], None]
 
 MANIFEST_VERSION = 1
@@ -500,6 +502,7 @@ def _normalise_course(
         "averageHistory": average_history,
         "sectionHistory": section_histories,
         "events": events,
+        "availability": calculate_availability(current_sections),
     }
     return course_payload, timestamps
 
@@ -805,6 +808,7 @@ def build_frontend_payloads_v3(
             "fullSectionCount": sum(
                 1 for section in sections.values() if section["currentFill"] >= 1.0
             ),
+            "availability": course_payload["availability"],
         }
 
     for department_payload in departments.values():

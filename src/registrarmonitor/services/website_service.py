@@ -1,22 +1,28 @@
 """Service for generating and deploying the website."""
 
+import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
+from ..website.catalog import build_publication_catalog
 from ..website.checksums import get_semesters_needing_update, update_checksum
 from ..website.config import (
-    MILESTONES_MAP,
     OUTPUT_DIR,
-    SEMESTER_MAP,
-    _get_indexing,
-    course_to_slug,
-    semester_to_filename,
+    get_configured_semesters,
+    get_milestones,
+    semester_key_map,
     semester_to_slug,
 )
 from ..website.data import get_prototype_payloads, get_semester_data
+from ..website.preview import (
+    build_course_preview_state,
+    build_semester_preview_state,
+    publish_preview_state,
+)
 from ..website.static_manifest import build_frontend_payloads_v3, publish_semester
 from ..website.templates import (
     build_prototype_page,
@@ -72,6 +78,7 @@ class WebsiteService:
         *,
         minify_assets: bool = False,
         database: DatabaseManager | None = None,
+        publication_semesters: list[str] | None = None,
     ) -> tuple[Path | None, float]:
         """
         Generate a single semester page.
@@ -87,7 +94,7 @@ class WebsiteService:
             if database is not None
             else self._get_semester_data(semester)
         )
-        milestones = MILESTONES_MAP.get(semester, [])
+        milestones = get_milestones(semester)
 
         # Check if we have data
         if not data.get("cr"):
@@ -95,22 +102,8 @@ class WebsiteService:
                 f"    Warning: No courses found for {semester}; generating empty page"
             )
 
-        # Build HTML
-        html = build_semester_page(
-            data,
-            milestones,
-            semester,
-            minify_assets=minify_assets,
-            manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
-        )
-
-        # Write output HTML
-        filename = semester_to_filename(semester)
-        output_path = self.output_dir / filename
-        output_path.write_text(html)
-
         # Publish the v3 read model consumed by the generated frontend. The
-        # stable pointer is the only JSON URL embedded in the HTML above.
+        # stable pointer is the only mutable JSON URL embedded in the HTML.
         summary_payload, departments = build_frontend_payloads_v3(
             data=data,
             milestones=milestones,
@@ -125,22 +118,164 @@ class WebsiteService:
             departments=departments,
         )
 
+        semesters = publication_semesters or [
+            entry.label for entry in build_publication_catalog()
+        ]
+        archived = bool(semesters and semester != semesters[0])
+        semester_preview = build_semester_preview_state(
+            summary=summary_payload,
+            departments=departments,
+            milestones=milestones,
+            archived=archived,
+        )
+        publish_preview_state(self.output_dir, semester_preview)
+
+        html = build_semester_page(
+            data,
+            milestones,
+            semester,
+            minify_assets=minify_assets,
+            manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
+            semesters=semesters,
+            preview_state=semester_preview,
+        )
+        output_path = (
+            self.output_dir / "semesters" / semester_to_slug(semester) / "index.html"
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(html, encoding="utf-8")
+        course_count = self._publish_course_routes(
+            semester=semester,
+            data=data,
+            milestones=milestones,
+            departments=departments,
+            semesters=semesters,
+            archived_semester=archived,
+            published_at=(summary_payload.get("currentSnapshot") or {}).get(
+                "observedAt"
+            ),
+            minify_assets=minify_assets,
+        )
+
         # Remove a stale pre-v3 root payload when regenerating an existing
         # public directory. The v3 manifest pointer is the only data entrypoint.
-        root_payload_path = self.output_dir / filename.replace(".html", ".json")
-        root_payload_path.unlink(missing_ok=True)
-
         # Update checksum
         update_checksum(semester, self.checksums_file, database=database)
 
         file_size_kb = output_path.stat().st_size / 1024
-        course_count = len(data.get("cr", {}))
         snapshot_count = len(data.get("sn", []))
         print(
             f"    {course_count} courses, {snapshot_count} snapshots ({file_size_kb:.1f} KB)"
         )
 
         return output_path, file_size_kb
+
+    def _published_course_state(self, page: Path) -> dict | None:
+        """Read the exact preview state referenced by an existing course route."""
+        if not page.is_file():
+            return None
+        match = re.search(
+            r'data-preview-state-url="([^"]+)"',
+            page.read_text(encoding="utf-8"),
+        )
+        if match is None:
+            return None
+        state_path = self.output_dir / match.group(1).lstrip("/")
+        try:
+            value = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def _write_course_route(
+        self,
+        *,
+        state: dict,
+        data: dict,
+        milestones: list[dict[str, str]],
+        semesters: list[str],
+        minify_assets: bool,
+    ) -> Path:
+        route = (
+            self.output_dir
+            / "courses"
+            / state["semesterSlug"]
+            / state["slug"]
+            / "index.html"
+        )
+        route.parent.mkdir(parents=True, exist_ok=True)
+        html = build_semester_page(
+            data,
+            milestones,
+            state["semester"],
+            minify_assets=minify_assets,
+            manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
+            semesters=semesters,
+            course_state=state,
+        )
+        route.write_text(html, encoding="utf-8")
+        return route
+
+    def _publish_course_routes(
+        self,
+        *,
+        semester: str,
+        data: dict,
+        milestones: list[dict[str, str]],
+        departments: dict[str, dict],
+        semesters: list[str],
+        archived_semester: bool,
+        published_at: str | None,
+        minify_assets: bool,
+    ) -> int:
+        """Publish current routes and archive previously published removals."""
+        states: dict[str, dict] = {}
+        for department in departments.values():
+            timestamps = department["timestamps"]
+            for course in department["courses"].values():
+                state = build_course_preview_state(
+                    semester=semester,
+                    course=course,
+                    timestamps=timestamps,
+                    milestones=milestones,
+                    published_at=published_at,
+                    archived=archived_semester,
+                )
+                states[state["slug"]] = state
+
+        semester_course_root = self.output_dir / "courses" / semester_to_slug(semester)
+        for page in semester_course_root.glob("*/index.html"):
+            if page.parent.name in states:
+                continue
+            previous = self._published_course_state(page)
+            if (
+                previous is None
+                or previous.get("kind") != "course"
+                or previous.get("semester") != semester
+            ):
+                continue
+            if previous.get("archived"):
+                continue
+            states[page.parent.name] = build_course_preview_state(
+                semester=semester,
+                course=previous["course"],
+                timestamps=previous["timestamps"],
+                milestones=milestones,
+                published_at=published_at,
+                removed=True,
+            )
+
+        for state in states.values():
+            publish_preview_state(self.output_dir, state)
+            self._write_course_route(
+                state=state,
+                data=data,
+                milestones=milestones,
+                semesters=semesters,
+                minify_assets=minify_assets,
+            )
+        print(f"  Published {len(states)} clean course routes", flush=True)
+        return len(states)
 
     def generate_prototype(self, semester_key: str | None = None) -> bool:
         """Generate the local-only dashboard redesign prototype."""
@@ -150,10 +285,9 @@ class WebsiteService:
             )
             return False
         try:
+            key_map = semester_key_map()
             target_semester = (
-                SEMESTER_MAP[semester_key]
-                if semester_key
-                else SEMESTER_MAP["summer2026"]
+                key_map[semester_key] if semester_key else key_map["summer2026"]
             )
         except KeyError:
             print(f"Error: Unknown semester key '{semester_key}'")
@@ -180,7 +314,7 @@ class WebsiteService:
                     target_semester,
                     *[
                         semester
-                        for semester in SEMESTER_MAP.values()
+                        for semester in get_configured_semesters()
                         if semester != target_semester
                     ],
                 ]
@@ -321,13 +455,13 @@ class WebsiteService:
 
         output_dir = self.output_dir
         patched = 0
-        for html_file in output_dir.glob("*.html"):
+        for html_file in output_dir.rglob("*.html"):
             text = html_file.read_text(encoding="utf-8")
             original = text
 
             # Replace executable and module-preload JS references.
             text = re.sub(
-                r'((?:src|href)="assets/)main-[^"]+\.js(")',
+                r'((?:src|href)="/assets/)main-[^"]+\.js(")',
                 rf"\g<1>{new_js}\2",
                 text,
             )
@@ -335,7 +469,7 @@ class WebsiteService:
             # Replace any existing hashed CSS reference (assets/main-*.css)
             if new_css:
                 text = re.sub(
-                    r'(href="assets/)main-[^"]+\.css(")',
+                    r'(href="/assets/)main-[^"]+\.css(")',
                     rf"\g<1>{new_css}\2",
                     text,
                 )
@@ -393,14 +527,14 @@ class WebsiteService:
 
         output_dir = self.output_dir
         valid = True
-        for html_file in output_dir.glob("*.html"):
+        for html_file in output_dir.rglob("*.html"):
             text = html_file.read_text(encoding="utf-8")
             asset_urls = re.findall(
-                r'(?:src|href)="(assets/main-[^"]+\.(?:js|css))"',
+                r'(?:src|href)="(/assets/main-[^"]+\.(?:js|css))"',
                 text,
             )
             for asset_url in asset_urls:
-                if not (output_dir / asset_url).is_file():
+                if not (output_dir / asset_url.lstrip("/")).is_file():
                     message = (
                         f"Missing frontend asset referenced by "
                         f"{html_file.name}: {asset_url}"
@@ -458,60 +592,50 @@ class WebsiteService:
             print("Error: npm not found. Is Node.js installed?")
             return False
 
-    def _generate_course_share_pages(self, semesters: list[str]) -> None:
-        """Regenerate share pages only for semesters whose data changed."""
-        from ..website.templates import build_course_share_page
+    def _remove_obsolete_html(self) -> None:
+        """Remove generated legacy files now represented by exact redirects."""
+        for semester in get_configured_semesters():
+            legacy = self.output_dir / f"{semester.replace(' ', '').lower()}.html"
+            legacy.unlink(missing_ok=True)
+        courses = self.output_dir / "courses"
+        if courses.exists():
+            for legacy in courses.glob("*/*.html"):
+                legacy.unlink()
 
-        share_dir = self.output_dir / "courses"
-        share_dir.mkdir(parents=True, exist_ok=True)
-
-        generated = 0
-
-        for semester in semesters:
+    def _build_redirects(self) -> str:
+        """Build exact legacy redirects only for clean targets that exist."""
+        redirects: list[str] = []
+        for semester in get_configured_semesters():
             sem_slug = semester_to_slug(semester)
-            sem_dir = share_dir / sem_slug
-            if sem_dir.exists():
-                shutil.rmtree(sem_dir)
-            sem_dir.mkdir(parents=True, exist_ok=True)
-
-            print(f"  Generating {semester} course share pages...", flush=True)
-            data = self._get_semester_data(semester)
-            courses = data.get("cr", {})
-            if not courses:
-                continue
-
-            for code, course in courses.items():
-                title = course.get("ti", "")
-                fill = course.get("af", 0)
-                section_count = len(course.get("s", {}))
-
-                html = build_course_share_page(
-                    semester=semester,
-                    course_code=code,
-                    course_title=title,
-                    course_fill=fill,
-                    section_count=section_count,
+            target = self.output_dir / "semesters" / sem_slug / "index.html"
+            if target.is_file():
+                legacy = f"/{semester.replace(' ', '').lower()}.html"
+                redirects.append(f"{legacy} /semesters/{sem_slug}/ 301")
+        courses = self.output_dir / "courses"
+        if courses.exists():
+            for target in sorted(courses.glob("*/*/index.html")):
+                sem_slug = target.parents[1].name
+                course_slug = target.parent.name
+                redirects.append(
+                    f"/courses/{sem_slug}/{course_slug}.html "
+                    f"/courses/{sem_slug}/{course_slug}/ 301"
                 )
-
-                course_slug = course_to_slug(code)
-                out_path = sem_dir / f"{course_slug}.html"
-                out_path.write_text(html)
-                generated += 1
-
-        print(f"Generated {generated} course share pages", flush=True)
+        if len(redirects) > 2_000:
+            raise ValueError(
+                f"generated redirect count {len(redirects)} exceeds Pages limit"
+            )
+        return "\n".join(redirects) + ("\n" if redirects else "")
 
     def _build_headers_content(self) -> str:
         """Build Cloudflare Pages headers for generated public output."""
-        indexing = _get_indexing().strip()
-        robots_header = f"  X-Robots-Tag: {indexing}\n" if indexing else ""
-        return f"""/*
+        return """/*
   Cache-Control: public, max-age=0, must-revalidate
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
-{robots_header}
+  X-Robots-Tag: noindex, nofollow
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
@@ -524,16 +648,16 @@ class WebsiteService:
 /data/blobs/*
   Cache-Control: public, max-age=31536000, immutable
 
+/data/previews/*
+  Cache-Control: public, max-age=31536000, immutable
+
 /courses/*
   Cache-Control: public, max-age=300, stale-while-revalidate=600
 """
 
     def _build_robots_content(self) -> str:
         """Build robots.txt from the configured indexing directive."""
-        indexing = _get_indexing().strip().lower()
-        blocks_indexing = "noindex" in indexing or "none" in indexing
-        directive = "Disallow: /" if blocks_indexing else "Allow: /"
-        return f"User-agent: *\n{directive}\n"
+        return "User-agent: *\nAllow: /\n"
 
     def validate_public_output(self) -> list[str]:
         """Validate that the public output directory contains only allowed files.
@@ -544,8 +668,13 @@ class WebsiteService:
         """
         errors = []
         allowed_extensions = {".html", ".json"}
-        allowed_names = {"_headers", "robots.txt", ".checksums.json"}
-        allowed_dirs = {"assets", "courses", "data"}
+        allowed_names = {
+            "_headers",
+            "_redirects",
+            "robots.txt",
+            ".checksums.json",
+        }
+        allowed_dirs = {"assets", "courses", "data", "previews", "semesters"}
         private_names = {".DS_Store", ".env"}
         private_suffixes = {".db", ".key", ".log", ".pem", ".sqlite", ".sqlite3"}
 
@@ -562,6 +691,10 @@ class WebsiteService:
                 or item.suffix.lower() in private_suffixes
             ):
                 errors.append(f"Private artifact: {item.relative_to(self.output_dir)}")
+            if item.suffix == ".html" and name != "index.html":
+                errors.append(
+                    f"Obsolete HTML route: {item.relative_to(self.output_dir)}"
+                )
 
         for item in self.output_dir.iterdir():
             name = item.name
@@ -590,12 +723,12 @@ class WebsiteService:
         import datetime
 
         from ..config import get_timezone
-        from ..website.config import ALL_SEMESTERS, get_milestones
+        from ..website.config import get_configured_semesters, get_milestones
 
         registrar_timezone = get_timezone()
         now = datetime.datetime.now(registrar_timezone)
 
-        for semester in ALL_SEMESTERS:
+        for semester in get_configured_semesters():
             try:
                 milestones = get_milestones(semester)
                 if not milestones:
@@ -648,24 +781,47 @@ class WebsiteService:
             # Ensure output directory exists
             self.output_dir.mkdir(exist_ok=True, parents=True)
 
+            catalog = build_publication_catalog()
+            publishable_semesters = [entry.label for entry in catalog]
+            if not publishable_semesters:
+                print("No configured semesters have a matching stored snapshot.")
+                return False
+
             # Build frontend assets first
             if not self.build_frontend_assets():
                 print("❌ Frontend build failed. Aborting website generation.")
                 return False
 
+            root_preview = self.website_assets_dir / "previews" / "root.png"
+            if not root_preview.is_file():
+                print(f"Error: Missing evergreen preview image: {root_preview}")
+                return False
+            preview_output = self.output_dir / "previews"
+            preview_output.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root_preview, preview_output / "root.png")
+
             if semester_key:
                 # Generate only the specified semester
-                if semester_key not in SEMESTER_MAP:
+                key_map = semester_key_map()
+                if semester_key not in key_map:
                     print(f"Error: Unknown semester key '{semester_key}'")
                     return False
-                semester = SEMESTER_MAP[semester_key]
+                semester = key_map[semester_key]
+                if semester not in publishable_semesters:
+                    print(f"Error: Semester '{semester}' is not publishable")
+                    return False
                 print(f"Generating website for {semester}...")
-                self.generate_semester_page(semester, minify_assets=minify)
-                self._generate_course_share_pages([semester])
+                self.generate_semester_page(
+                    semester,
+                    minify_assets=minify,
+                    publication_semesters=publishable_semesters,
+                )
             else:
                 # Generate all semesters (incremental by default)
                 semesters_to_update = get_semesters_needing_update(
-                    force=force, checksums_file=self.checksums_file
+                    force=force,
+                    checksums_file=self.checksums_file,
+                    semesters=publishable_semesters,
                 )
 
                 if not semesters_to_update:
@@ -675,7 +831,9 @@ class WebsiteService:
                     total_size = 0.0
                     for semester in semesters_to_update:
                         _, size_kb = self.generate_semester_page(
-                            semester, minify_assets=minify
+                            semester,
+                            minify_assets=minify,
+                            publication_semesters=publishable_semesters,
                         )
                         total_size += size_kb
 
@@ -683,12 +841,8 @@ class WebsiteService:
                         f"\nGenerated {len(semesters_to_update)} pages ({total_size:.1f} KB total)"
                     )
 
-                # Reuse the already-loaded payloads and touch only changed semesters.
-                if semesters_to_update:
-                    self._generate_course_share_pages(semesters_to_update)
-
                 # Always regenerate index.html (redirect page)
-                index_html = build_redirect_index()
+                index_html = build_redirect_index(publishable_semesters[0])
                 index_path = self.output_dir / "index.html"
                 index_path.write_text(index_html)
                 print("Updated index.html (redirect)")
@@ -702,6 +856,11 @@ class WebsiteService:
                 robots_path = self.output_dir / "robots.txt"
                 robots_path.write_text(self._build_robots_content())
                 print("Generated robots.txt")
+
+                self._remove_obsolete_html()
+                redirects_path = self.output_dir / "_redirects"
+                redirects_path.write_text(self._build_redirects(), encoding="utf-8")
+                print("Generated narrow legacy redirects")
 
             # Validate public output before any deploy can publish private artifacts.
             issues = self.validate_public_output()

@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.models import EnrollmentSnapshot
 from registrarmonitor.services.website_service import WebsiteService
-from registrarmonitor.website.config import semester_to_filename, semester_to_slug
+from registrarmonitor.website.config import semester_to_slug
 from registrarmonitor.website.templates import build_redirect_index
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -513,8 +513,8 @@ def generate_website_once(
         _BenchmarkDatabaseManager.query_tracker = None
 
     index_path = output / "index.html"
-    index_path.write_text(build_redirect_index(), encoding="utf-8")
-    html_path = output / semester_to_filename(semester)
+    index_path.write_text(build_redirect_index(semester), encoding="utf-8")
+    html_path = output / "semesters" / semester_to_slug(semester) / "index.html"
 
     pointer_path = output / "data" / semester_to_slug(semester) / "manifest.json"
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))

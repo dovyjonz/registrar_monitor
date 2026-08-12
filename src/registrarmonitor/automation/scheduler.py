@@ -310,41 +310,59 @@ class SchedulingDecision:
 
 
 class DecisionLogger:
-    """Logs scheduling decisions for later inspection."""
+    """Persist scheduler decisions as newline-delimited JSON for inspection."""
 
-    def __init__(self, log_file: str = "scheduler_decisions.log"):
+    def __init__(self, log_file: str | Path | None = None):
+        if log_file is None:
+            log_dir = get_config().get("directories", {}).get("logs", "logs")
+            log_file = Path(log_dir) / "scheduler_decisions.jsonl"
         self.log_file = Path(log_file)
+        self.logger = get_logger(__name__)
         self.ensure_log_file_exists()
 
     def ensure_log_file_exists(self):
         """Create log file if it doesn't exist."""
-        if not self.log_file.exists():
-            self.log_file.touch()
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        self.log_file.touch(exist_ok=True)
 
     def log_decision(self, decision: "SchedulingDecision | TwoPhaseDecision"):
         """Log a scheduling decision."""
         try:
-            with open(self.log_file, "a") as f:
+            with self.log_file.open("a", encoding="utf-8") as f:
                 json.dump(decision.to_dict(), f)
                 f.write("\n")
-        except Exception as e:
-            print(f"WARNING: Failed to log decision: {e}")
+        except OSError:
+            self.logger.warning(
+                "Failed to write scheduler decision log %s",
+                self.log_file,
+                exc_info=True,
+            )
 
     def get_recent_decisions(self, count: int = 10) -> list[dict]:
         """Get the most recent scheduling decisions."""
         decisions = []
         try:
-            with open(self.log_file) as f:
+            with self.log_file.open(encoding="utf-8") as f:
                 # Use deque to only keep the last `count` lines in memory
                 last_lines = deque(f, maxlen=count)
 
             for line in last_lines:
                 line = line.strip()
                 if line:
-                    decisions.append(json.loads(line))
+                    try:
+                        decisions.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        self.logger.warning(
+                            "Skipping malformed scheduler decision in %s",
+                            self.log_file,
+                        )
             return decisions
-        except Exception as e:
-            print(f"WARNING: Failed to read decisions: {e}")
+        except OSError:
+            self.logger.warning(
+                "Failed to read scheduler decision log %s",
+                self.log_file,
+                exc_info=True,
+            )
             return []
 
 
@@ -421,7 +439,7 @@ class TwoPhaseScheduler:
     def __init__(
         self,
         schedule_file: str = "schedule.txt",
-        log_file: str = "scheduler_decisions.log",
+        log_file: str | Path | None = None,
         no_telegram: bool = False,
     ):
         self.schedule_file = schedule_file

@@ -35,7 +35,7 @@ class MonitoringService:
         self.logger = get_logger(__name__)
 
         # Initialize components
-        self.downloader = DataDownloader()
+        self.downloader = DataDownloader(semester=semester)
         self.excel_reader = ExcelReader()
         self.snapshot_processor = SnapshotProcessor()
         self.db_manager = DatabaseManager(semester=semester)
@@ -259,6 +259,11 @@ class MonitoringService:
 
             # Read Excel file
             semester, timestamp, data = self.excel_reader.read_excel_data(file_path)
+            if self.semester is not None and semester.strip() != self.semester:
+                raise FileProcessingError(
+                    f"registrar response semester {semester!r} does not match "
+                    f"configured source semester {self.semester!r}"
+                )
             if not data:
                 raise FileProcessingError("Excel file is empty or invalid")
 

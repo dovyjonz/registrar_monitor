@@ -11,7 +11,7 @@ from registrarmonitor.data.migration import (
     transition_storage_mode,
 )
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
-from registrarmonitor.website.config import ALL_SEMESTERS
+from registrarmonitor.website.config import get_configured_semesters
 
 
 def _configured_storage(semester: str) -> tuple[str, MetadataMode]:
@@ -142,7 +142,7 @@ def main(
     if report_dir is None:
         report_dir = Path("output/generated-site-smoke")
 
-    for semester in ALL_SEMESTERS:
+    for semester in get_configured_semesters():
         snapshot = EnrollmentSnapshot(
             timestamp="2026-07-29 00:00:00",
             semester=semester,

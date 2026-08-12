@@ -9,7 +9,7 @@ from registrarmonitor.data.checkpointed_state import CheckpointedStateStore
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.data.instructor_normalization import instructor_identity
 
-from .config import KEY_MAP, MILESTONES_MAP, course_to_slug
+from .config import KEY_MAP, course_to_slug, get_milestones
 
 WEBSITE_HISTORY_BUFFER_HOURS = 24
 
@@ -839,7 +839,7 @@ def _checkpointed_semester_data(
                         },
                     )
 
-    milestones = MILESTONES_MAP.get(semester, [])
+    milestones = get_milestones(semester)
     if milestones:
         keep_indices = _history_indices_for_website(
             data["snapshots"],
@@ -1048,7 +1048,7 @@ def get_semester_data(
 
     # Apply milestone-based filtering with a 24-hour buffer on both sides.
     # The snapshots array stays intact so counts and snapshotIdx references remain stable.
-    milestones = MILESTONES_MAP.get(semester, [])
+    milestones = get_milestones(semester)
     if milestones and data["snapshots"]:
         keep_indices = _history_indices_for_website(
             data["snapshots"],

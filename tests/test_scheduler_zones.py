@@ -186,6 +186,16 @@ class TestTwoPhaseDecision:
 
 
 class TestDecisionLogger:
+    def test_default_log_uses_configured_log_directory(self, tmp_path):
+        with patch(
+            "registrarmonitor.automation.scheduler.get_config",
+            return_value={"directories": {"logs": str(tmp_path / "logs")}},
+        ):
+            logger = DecisionLogger()
+
+        assert logger.log_file == tmp_path / "logs" / "scheduler_decisions.jsonl"
+        assert logger.log_file.exists()
+
     def test_init_creates_log_file(self, tmp_path):
         log_file = str(tmp_path / "decisions.log")
         with patch(
@@ -258,3 +268,10 @@ class TestDecisionLogger:
         ):
             logger = DecisionLogger(log_file)
         assert logger.get_recent_decisions() == []
+
+    def test_get_recent_skips_malformed_lines(self, tmp_path):
+        log_file = tmp_path / "decisions.jsonl"
+        log_file.write_text('{"change_score": 3}\nnot-json\n', encoding="utf-8")
+        logger = DecisionLogger(log_file)
+
+        assert logger.get_recent_decisions() == [{"change_score": 3}]

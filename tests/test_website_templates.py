@@ -1,301 +1,133 @@
-"""Tests for the website template module."""
-
-import pytest
-
-pytestmark = pytest.mark.unit
-
-
-from unittest.mock import patch
+import json
 
 from registrarmonitor.website.templates import (
     _build_nav_html,
-    _get_asset_info,
-    build_prototype_page,
     build_redirect_index,
     build_semester_page,
 )
 
 
-class TestGetAssetInfo:
-    def test_returns_none_when_manifest_missing(self, tmp_path):
-        fake_manifest = tmp_path / "assets" / ".vite" / "manifest.json"
-        with patch("registrarmonitor.website.templates.MANIFEST_PATH", fake_manifest):
-            js, css = _get_asset_info()
-        assert js is None
-        assert css is None
-
-    def test_returns_assets_from_manifest(self, tmp_path):
-        manifest_dir = tmp_path / "assets" / ".vite"
-        manifest_dir.mkdir(parents=True)
-        manifest_path = manifest_dir / "manifest.json"
-        manifest_path.write_text(
-            '{"src/main.js": {"file": "assets/main-abc123.js", "css": ["assets/style-xyz789.css"]}}'
-        )
-
-        with patch("registrarmonitor.website.templates.MANIFEST_PATH", manifest_path):
-            js, css = _get_asset_info()
-
-        assert js == "assets/main-abc123.js"
-        assert css == "assets/style-xyz789.css"
-
-    def test_handles_broken_manifest(self, tmp_path):
-        manifest_dir = tmp_path / "assets" / ".vite"
-        manifest_dir.mkdir(parents=True)
-        manifest_path = manifest_dir / "manifest.json"
-        manifest_path.write_text("not valid json")
-
-        with patch("registrarmonitor.website.templates.MANIFEST_PATH", manifest_path):
-            js, css = _get_asset_info()
-
-        assert js is None
-        assert css is None
-
-    def test_handles_entry_not_in_manifest(self, tmp_path):
-        manifest_dir = tmp_path / "assets" / ".vite"
-        manifest_dir.mkdir(parents=True)
-        manifest_path = manifest_dir / "manifest.json"
-        manifest_path.write_text("{}")
-
-        with patch("registrarmonitor.website.templates.MANIFEST_PATH", manifest_path):
-            js, css = _get_asset_info()
-
-        assert js is None
-        assert css is None
-
-    def test_handles_no_css(self, tmp_path):
-        manifest_dir = tmp_path / "assets" / ".vite"
-        manifest_dir.mkdir(parents=True)
-        manifest_path = manifest_dir / "manifest.json"
-        manifest_path.write_text('{"src/main.js": {"file": "assets/main.js"}}')
-
-        with patch("registrarmonitor.website.templates.MANIFEST_PATH", manifest_path):
-            js, css = _get_asset_info()
-
-        assert js == "assets/main.js"
-        assert css is None
+def manifest(tmp_path):
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps({"src/main.js": {"file": "main-test.js", "css": ["main-test.css"]}})
+    )
+    return path
 
 
-class TestBuildNavHtml:
-    def test_includes_all_semesters(self):
-        from registrarmonitor.website.config import ALL_SEMESTERS
-
-        html = _build_nav_html(ALL_SEMESTERS[0])
-        for sem in ALL_SEMESTERS:
-            assert sem in html
-
-    def test_active_semester_has_active_class(self):
-        html = _build_nav_html("Summer 2026")
-        assert 'class="semester-nav-link active"' in html
-        assert "Summer 2026" in html
-
-    def test_non_active_semester_no_active_class(self):
-        html = _build_nav_html("Spring 2026")
-        assert html.count("active") == 1  # only the active semester
-
-
-class TestBuildSemesterPage:
-    def test_builds_html_with_minimal_data(self):
-        with (
-            patch(
-                "registrarmonitor.website.templates._get_asset_info",
-                return_value=(None, None),
-            ),
-            patch(
-                "registrarmonitor.website.templates.env.get_template"
-            ) as mock_template,
-        ):
-            mock_template.return_value.render.return_value = "<html>test</html>"
-
-            html = build_semester_page(
-                data={},
-                milestones=[],
-                semester="Spring 2024",
-                minify_assets=False,
-            )
-
-        assert html == "<html>test</html>"
-        mock_template.return_value.render.assert_called_once()
-        kwargs = mock_template.return_value.render.call_args.kwargs
-        assert kwargs["manifest_filename"] == "data/spring-2024/manifest.json"
-
-    def test_formats_last_updated_from_lrt(self):
-        with (
-            patch(
-                "registrarmonitor.website.templates._get_asset_info",
-                return_value=(None, None),
-            ),
-            patch(
-                "registrarmonitor.website.templates.env.get_template"
-            ) as mock_template,
-        ):
-            mock_template.return_value.render.return_value = "<html>test</html>"
-
-            build_semester_page(
-                data={"lrt": "2024-01-15T10:30:00"},
-                milestones=[],
-                semester="Spring 2024",
-            )
-
-            kwargs = mock_template.return_value.render.call_args[1]
-            assert (
-                "2024-01-15 10:30" in kwargs["last_updated"]
-                or kwargs["last_updated"] != "Last updated N/A"
-            )
+def course_state(*, archived=False):
+    return {
+        "hash": "a1b2c3d4e5f6",
+        "kind": "course",
+        "semester": "Fall 2026",
+        "semesterSlug": "fall-2026",
+        "slug": "ant-140",
+        "code": "ANT 140",
+        "title": "Introduction to Anthropology",
+        "status": "removed" if archived else "current",
+        "archived": archived,
+        "availability": {
+            "sentence": "1 registration place available — Limited by labs.",
+        },
+    }
 
 
-class TestBuildRedirectIndex:
-    def test_contains_redirect(self):
-        html = build_redirect_index()
-        assert 'http-equiv="refresh"' in html
-        assert "html" in html.lower()
+def test_navigation_uses_publishable_clean_semester_routes():
+    html = _build_nav_html("Fall 2026", ["Fall 2026", "Summer 2026", "Spring 2026"])
 
-    def test_links_to_latest_semester(self):
-        from registrarmonitor.website.config import (
-            LATEST_SEMESTER,
-            semester_to_filename,
-        )
-
-        html = build_redirect_index()
-        latest_file = semester_to_filename(LATEST_SEMESTER)
-        assert latest_file in html
+    assert 'href="/semesters/fall-2026/"' in html
+    assert 'href="/semesters/summer-2026/"' in html
+    assert html.count('aria-current="page"') == 1
 
 
-class TestBuildPrototypePage:
-    def test_uses_prototype_asset_entry_and_index_payload(self):
-        with (
-            patch(
-                "registrarmonitor.website.templates._get_asset_info",
-                return_value=("assets/prototype-abc.js", "assets/prototype-def.css"),
-            ) as asset_info,
-            patch(
-                "registrarmonitor.website.templates.env.get_template"
-            ) as mock_template,
-        ):
-            mock_template.return_value.render.return_value = "<html>prototype</html>"
+def test_semester_shell_uses_root_absolute_assets_and_versioned_metadata(tmp_path):
+    html = build_semester_page(
+        {"cr": {"ANT 140": {}}, "lrt": "2026-08-12T10:00:00+05:00"},
+        [],
+        "Fall 2026",
+        manifest_path=manifest(tmp_path),
+        semesters=["Fall 2026"],
+        preview_state={"hash": "a1b2c3d4e5f6"},
+    )
 
-            html = build_prototype_page(
-                semester="Summer 2026",
-                index_json="prototype-data/index.json",
-            )
-
-        assert html == "<html>prototype</html>"
-        asset_info.assert_called_once_with("src/prototype.js")
-        kwargs = mock_template.return_value.render.call_args[1]
-        assert kwargs["index_json"] == "prototype-data/index.json"
-        assert kwargs["indexing"] == "noindex"
+    assert 'href="/assets/main-test.css"' in html
+    assert 'src="/assets/main-test.js"' in html
+    assert 'data-manifest-url="/data/fall-2026/manifest.json"' in html
+    assert "/semesters/fall-2026/?v=a1b2c3d4e5f6" in html
+    assert '<meta name="robots" content="noindex, nofollow">' in html
 
 
-class TestBuildSemesterPageNewParams:
-    """Tests for the new template parameters added to build_semester_page."""
+def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
+    html = build_semester_page(
+        {"cr": {}, "lrt": "2026-08-12T10:00:00+05:00"},
+        [],
+        "Fall 2026",
+        manifest_path=manifest(tmp_path),
+        semesters=["Fall 2026"],
+        course_state=course_state(),
+    )
 
-    def test_passes_canonical_url(self):
-        with (
-            patch(
-                "registrarmonitor.website.templates._get_asset_info",
-                return_value=(None, None),
-            ),
-            patch(
-                "registrarmonitor.website.templates.env.get_template"
-            ) as mock_template,
-            patch(
-                "registrarmonitor.website.templates.BASE_URL",
-                "https://registrar-monitor.pages.dev",
-            ),
-        ):
-            mock_template.return_value.render.return_value = "<html>test</html>"
-            build_semester_page(
-                data={},
-                milestones=[],
-                semester="Summer 2026",
-            )
-            kwargs = mock_template.return_value.render.call_args[1]
-            assert (
-                kwargs["canonical_url"]
-                == "https://registrar-monitor.pages.dev/summer2026.html"
-            )
-
-    def test_passes_indexing(self):
-        with (
-            patch(
-                "registrarmonitor.website.templates._get_asset_info",
-                return_value=(None, None),
-            ),
-            patch(
-                "registrarmonitor.website.templates.env.get_template"
-            ) as mock_template,
-            patch(
-                "registrarmonitor.website.templates.INDEXING",
-                "noindex",
-            ),
-        ):
-            mock_template.return_value.render.return_value = "<html>test</html>"
-            build_semester_page(
-                data={},
-                milestones=[],
-                semester="Summer 2026",
-            )
-            kwargs = mock_template.return_value.render.call_args[1]
-            assert kwargs["indexing"] == "noindex"
+    assert 'data-initial-course="ANT 140"' in html
+    assert 'data-preview-state-url="/data/previews/course/a1b2c3d4e5f6.json"' in html
+    assert (
+        '<link rel="canonical" href="https://registrar-monitor.pages.dev/courses/fall-2026/ant-140/">'
+        in html
+    )
+    assert "/courses/fall-2026/ant-140/?v=a1b2c3d4e5f6" in html
+    assert (
+        "https://registrar-monitor-preview-images.spooktaken.workers.dev/"
+        "preview/course/fall-2026/ant-140/a1b2c3d4e5f6.png"
+    ) in html
 
 
-class TestBuildCourseSharePage:
-    """Tests for the new build_course_share_page function."""
+def test_archived_course_uses_unversioned_og_url(tmp_path):
+    html = build_semester_page(
+        {"cr": {}, "lrt": None},
+        [],
+        "Fall 2026",
+        manifest_path=manifest(tmp_path),
+        semesters=["Fall 2026"],
+        course_state=course_state(archived=True),
+    )
 
-    def test_generates_share_page_with_metadata(self):
-        from registrarmonitor.website.templates import build_course_share_page
+    assert 'data-page-archived="true"' in html
+    assert (
+        'content="https://registrar-monitor.pages.dev/courses/fall-2026/ant-140/"'
+        in html
+    )
+    assert "/courses/fall-2026/ant-140/?v=" not in html
 
-        with (
-            patch(
-                "registrarmonitor.website.templates.env.get_template"
-            ) as mock_template,
-            patch(
-                "registrarmonitor.website.templates.BASE_URL",
-                "https://registrar-monitor.pages.dev",
-            ),
-            patch(
-                "registrarmonitor.website.templates.INDEXING",
-                "noindex",
-            ),
-        ):
-            mock_template.return_value.render.return_value = "<html>share</html>"
-            build_course_share_page(
-                semester="Summer 2026",
-                course_code="CSCI 101",
-                course_title="Intro to CS",
-                course_fill=0.85,
-                section_count=3,
-            )
-            kwargs = mock_template.return_value.render.call_args[1]
-            assert kwargs["course_code"] == "CSCI 101"
-            assert kwargs["semester"] == "Summer 2026"
-            assert kwargs["fill_pct"] == 85
-            assert "csci-101" in kwargs["share_url"]
-            assert "summer-2026" in kwargs["share_url"]
-            assert kwargs["indexing"] == "noindex"
 
-    def test_redirect_url_contains_course_hash(self):
-        from registrarmonitor.website.templates import build_course_share_page
+def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
+    html = build_semester_page(
+        {"cr": {}, "lrt": None},
+        [],
+        "Spring 2026",
+        manifest_path=manifest(tmp_path),
+        semesters=["Fall 2026", "Spring 2026"],
+        preview_state={
+            "hash": "a1b2c3d4e5f6",
+            "archived": True,
+            "courseCount": 391,
+            "sectionCount": 846,
+            "fullSectionCount": 142,
+        },
+    )
 
-        with (
-            patch(
-                "registrarmonitor.website.templates.env.get_template"
-            ) as mock_template,
-            patch(
-                "registrarmonitor.website.templates.BASE_URL",
-                "https://registrar-monitor.pages.dev",
-            ),
-        ):
-            mock_template.return_value.render.return_value = "<html>share</html>"
-            build_course_share_page(
-                semester="Summer 2026",
-                course_code="CSCI 101",
-                course_title="Intro to CS",
-                course_fill=0.5,
-                section_count=1,
-            )
-            kwargs = mock_template.return_value.render.call_args[1]
-            assert (
-                "CSCI-101" in kwargs["redirect_url"]
-                or "CSCI 101" in kwargs["redirect_url"]
-            )
-            assert "summer2026.html" in kwargs["redirect_url"]
+    assert 'data-page-archived="true"' in html
+    assert (
+        'content="https://registrar-monitor.pages.dev/semesters/spring-2026/"' in html
+    )
+    assert "/semesters/spring-2026/?v=" not in html
+    assert "142 sections were full at the final update" in html
+
+
+def test_root_has_evergreen_metadata_and_visible_fallback():
+    html = build_redirect_index("Fall 2026")
+
+    assert "<title>Enrollment Monitor</title>" in html
+    assert "See historical and frequently updated undergraduate course data" in html
+    assert "Nazarbayev" not in html
+    assert 'content="noindex, nofollow"' in html
+    assert 'href="/semesters/fall-2026/"' in html
+    assert "/previews/root.png" in html

@@ -9,9 +9,11 @@ notifications via Telegram.
 Usage:
     monitor [--debug] poll [--file PATH]
     monitor [--debug] report [--no-telegram]
-  monitor [--debug] run [--no-telegram] [--deploy]
+    monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
-    monitor [--debug] db {stats,cleanup,dedupe-instructor-changes} [--keep COUNT]
+    monitor [--debug] deploy [--deploy]
+    monitor [--debug] doctor [--json]
+    monitor [--debug] db <command>
 """
 
 import argparse
@@ -570,7 +572,7 @@ async def async_main() -> int:
     )
 
     logger = get_logger(__name__)
-    logger.info(f"Starting Registrar Monitor CLI with command: {args.command}")
+    logger.info("Starting Registrar Monitor CLI with command: %s", args.command)
 
     if args.debug:
         print(f"🔍 DEBUG MODE ENABLED - Log level: {log_level}")
@@ -604,7 +606,7 @@ async def async_main() -> int:
         return 130  # Standard exit code for Ctrl+C
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
-        logger.error(f"Unexpected error in CLI: {e}")
+        logger.exception("Unexpected error in CLI")
         if args.debug:
             import traceback
 
@@ -624,11 +626,6 @@ def cli_main() -> None:
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         sys.exit(1)
-
-
-def main() -> None:
-    """Backward compatibility entry point."""
-    cli_main()
 
 
 if __name__ == "__main__":

@@ -138,6 +138,24 @@ class TestProcessSpecificFile:
         service = MonitoringService()
         success, snapshot = service.process_specific_file("/nonexistent/file.xls")
 
+    def test_rejects_mismatched_registrar_semester_before_saving(
+        self, mock_deps, tmp_path
+    ):
+        file_path = tmp_path / "data.xls"
+        file_path.write_bytes(b"")
+        mock_deps["excel_reader"].read_excel_data.return_value = (
+            "Summer 2026",
+            "2026-08-12 10:00:00",
+            [{"Course Abbr": "ANT 140"}],
+        )
+
+        service = MonitoringService(semester="Fall 2026")
+        success, snapshot = service.process_specific_file(str(file_path))
+
+        assert success is False
+        assert snapshot is None
+        mock_deps["processor"].save_snapshot.assert_not_called()
+
         assert success is False
         assert snapshot is None
 

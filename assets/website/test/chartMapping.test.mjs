@@ -13,8 +13,8 @@ import {
     findSteppedPointIndexAtX,
     getChartMapper,
     getEnrollmentScaleMax,
-    getPhasedMapper,
-    limitPointsBeforeFirstMilestone,
+    getSectionTypeName,
+    limitPointsAroundMilestones,
 } from '../src/chartMapping.mjs';
 
 test('stepped interactions stop outside the recorded observation range', () => {
@@ -44,6 +44,12 @@ test('full enrollment markers have headroom above the chart boundary', () => {
     assert.equal(getEnrollmentScaleMax([100]), ENROLLMENT_SCALE_MAX);
     assert.equal(getEnrollmentScaleMax([132]), 140);
     assert.equal(getEnrollmentScaleMax([]), ENROLLMENT_SCALE_MAX);
+});
+
+test('section type names are shared by browser and preview renderers', () => {
+    assert.equal(getSectionTypeName('  B  '), 'Lab');
+    assert.equal(getSectionTypeName('PLB'), 'PLB');
+    assert.equal(getSectionTypeName(''), 'Other');
 });
 
 const snapshots = [
@@ -161,16 +167,29 @@ test('section chart points keep tooltip and capacity marker metadata on the sour
     });
 });
 
-test('phased mapping gives edge history less space than registration phases', () => {
-    const mapper = getPhasedMapper(
-        [{ timestamp: 0 }, { timestamp: 400 }],
-        [{ timestamp: 0 }, { timestamp: 400 }],
-        [100, 200, 300].map(time => ({ time: new Date(time).toISOString() })),
+test('the shared phased mapping keeps edge observations in compact gutters', () => {
+    const majorMilestones = [100, 200, 300].map((time, index) => ({
+        time: new Date(time).toISOString(),
+        label: `Phase ${index + 1}`,
+    }));
+    const domain = [
+        { timestamp: 0 },
+        { timestamp: 100 },
+        { timestamp: 200 },
+        { timestamp: 300 },
+        { timestamp: 400 },
+    ];
+    const mapper = getChartMapper(
+        'phased',
+        domain,
+        domain,
+        majorMilestones,
     );
 
-    assert.equal(mapper.mapTime(100) - mapper.mapTime(0), 35);
+    assert.equal(mapper.mapTime(100) - mapper.mapTime(0), 2);
     assert.equal(mapper.mapTime(200) - mapper.mapTime(100), 100);
-    assert.equal(mapper.mapTime(400) - mapper.mapTime(300), 35);
+    assert.equal(mapper.mapTime(300) - mapper.mapTime(200), 100);
+    assert.equal(mapper.mapTime(400) - mapper.mapTime(300), 2);
 });
 
 test('capacity changes move the capacity line without moving unchanged enrollment', () => {
@@ -270,17 +289,25 @@ test('synthetic capacity-change points average only active sections', () => {
     assert.equal(synthetic.fill, 200);
 });
 
-test('phased charts retain only the last two observations before opening', () => {
-    const firstMilestone = { time: '2026-01-21T10:00:00Z', label: 'Open' };
+test('phased charts retain two observations around each registration boundary', () => {
+    const milestones = [
+        { time: '2026-01-21T10:00:00Z', label: 'Open' },
+        { time: '2026-01-23T10:00:00Z', label: 'Close' },
+    ];
     const points = snapshots.map((snapshot, snapshotIdx) => ({
         snapshotIdx,
         timestamp: Date.parse(snapshot.ts),
     }));
+    points.push(
+        { snapshotIdx: 5, timestamp: Date.parse('2026-01-24T10:00:00Z') },
+        { snapshotIdx: 6, timestamp: Date.parse('2026-01-25T10:00:00Z') },
+        { snapshotIdx: 7, timestamp: Date.parse('2026-01-26T10:00:00Z') },
+    );
 
     assert.deepEqual(
-        limitPointsBeforeFirstMilestone(points, [firstMilestone], 2)
+        limitPointsAroundMilestones(points, milestones, 2)
             .map(point => point.snapshotIdx),
-        [1, 2, 3, 4],
+        [1, 2, 3, 4, 5, 6],
     );
 });
 

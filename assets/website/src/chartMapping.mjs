@@ -29,6 +29,34 @@ export const OBSERVATION_STEP_MODE = 'before';
 // with over-capacity sections expand beyond it.
 export const ENROLLMENT_SCALE_MAX = 105;
 
+const SECTION_TYPE_NAMES = {
+    L: 'Lecture',
+    S: 'Seminar',
+    R: 'Recitation',
+    D: 'Discussion',
+    B: 'Lab',
+    Lb: 'Lab',
+    Int: 'Internship',
+    P: 'Project',
+    IS: 'Independent Study',
+    T: 'Tutorial',
+};
+
+export function getSectionTypeName(value, fallback = 'Other') {
+    const compact = String(value ?? fallback).replace(/\s+/g, ' ').trim() || fallback;
+    return SECTION_TYPE_NAMES[compact] ?? compact;
+}
+
+export function getMajorMilestones(milestones = []) {
+    const seenPriorities = new Set();
+    return milestones.filter(milestone => {
+        if (!milestone.priority) return true;
+        if (seenPriorities.has(milestone.priority)) return false;
+        seenPriorities.add(milestone.priority);
+        return true;
+    });
+}
+
 export function getEnrollmentScaleMax(values = []) {
     const maxValue = values
         .filter(Number.isFinite)
@@ -231,15 +259,24 @@ function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
     const average = key => levels.reduce((total, value) => total + value[key], 0) / levels.length;
     const totalsByType = new Map();
     for (const level of levels) {
-        const totals = totalsByType.get(level.sectionType) || { enrollment: 0, capacity: 0 };
+        const totals = totalsByType.get(level.sectionType) || {
+            sectionType: level.sectionType,
+            enrollment: 0,
+            capacity: 0,
+        };
         totals.enrollment += level.enrollment;
         totals.capacity += level.capacity;
         totalsByType.set(level.sectionType, totals);
     }
-    const typeTotals = [...totalsByType.values()];
+    const limitingType = [...totalsByType.values()].sort((first, second) => {
+        const firstAvailable = Math.max(first.capacity - first.enrollment, 0);
+        const secondAvailable = Math.max(second.capacity - second.enrollment, 0);
+        return firstAvailable - secondAvailable
+            || first.sectionType.localeCompare(second.sectionType);
+    })[0];
     return {
-        enrollment: Math.min(...typeTotals.map(value => value.enrollment)),
-        capacity: Math.min(...typeTotals.map(value => value.capacity)),
+        enrollment: limitingType.enrollment,
+        capacity: limitingType.capacity,
         enrollmentLevel: average('enrollmentLevel'),
         capacityLevel: average('capacityLevel'),
     };
@@ -319,15 +356,20 @@ export function buildSectionChartPoints(section, snapshots) {
     });
 }
 
-export function limitPointsBeforeFirstMilestone(points, milestones, maximum = 2) {
-    const firstMilestone = (milestones || [])
+export function limitPointsAroundMilestones(points, milestones, maximum = 2) {
+    const milestoneTimes = (milestones || [])
         .map(milestone => new Date(milestone?.time).getTime())
         .filter(Number.isFinite)
-        .sort((first, second) => first - second)[0];
-    if (!Number.isFinite(firstMilestone) || maximum < 0) return [...(points || [])];
+        .sort((first, second) => first - second);
+    if (milestoneTimes.length === 0 || maximum < 0) return [...(points || [])];
+    const firstMilestone = milestoneTimes[0];
+    const lastMilestone = milestoneTimes.at(-1);
     const before = (points || []).filter(point => point.timestamp < firstMilestone);
-    const after = (points || []).filter(point => point.timestamp >= firstMilestone);
-    return [...before.slice(-maximum), ...after];
+    const during = (points || []).filter(point => (
+        point.timestamp >= firstMilestone && point.timestamp <= lastMilestone
+    ));
+    const after = (points || []).filter(point => point.timestamp > lastMilestone);
+    return [...before.slice(-maximum), ...during, ...after.slice(0, maximum)];
 }
 
 export function extendSteppedSeriesToDomainEnd(points, domainEnd) {
@@ -383,70 +425,62 @@ function createPiecewiseInverse(sourceValues, mappedValues) {
     };
 }
 
-export function getPhasedMapper(points, domain, milestones) {
+/**
+ * Keep major registration phases equal while distributing intermediate
+ * eligibility milestones evenly inside each phase.
+ */
+export function getHierarchicalPhasedMapper(points, domain, milestones, majorMilestones) {
     const chartPoints = points || [];
     const canonicalDomain = getFallbackDomain(chartPoints, domain);
     const domainTimes = getDomainTimes(canonicalDomain);
+    const allTimes = getSortedUniqueNumbers(
+        (milestones || []).map(milestone => new Date(milestone.time).getTime()),
+    );
+    const majorTimes = getSortedUniqueNumbers(
+        (majorMilestones || []).map(milestone => new Date(milestone.time).getTime()),
+    );
+    if (majorTimes.length < 2) return getTimelineMapper(points, domain);
 
-    if (!milestones || milestones.length < 2) {
-        return {
-            xValues: chartPoints.map(point => point.timestamp),
-            domainXValues: domainTimes,
-            mapTime: t => t,
-            unmapX: x => x,
-        };
+    const sourceValues = [];
+    const mappedValues = [];
+    const firstData = domainTimes[0] ?? majorTimes[0];
+    if (firstData < majorTimes[0]) {
+        sourceValues.push(firstData);
+        mappedValues.push(-2);
     }
-
-    const mTimes = milestones.map(m => new Date(m.time).getTime()).filter(Number.isFinite).sort((a, b) => a - b);
-    if (mTimes.length < 2) {
-        return {
-            xValues: chartPoints.map(point => point.timestamp),
-            domainXValues: domainTimes,
-            mapTime: t => t,
-            unmapX: x => x,
-        };
+    for (let majorIndex = 0; majorIndex < majorTimes.length - 1; majorIndex++) {
+        const start = majorTimes[majorIndex];
+        const end = majorTimes[majorIndex + 1];
+        const intermediate = allTimes.filter(time => time > start && time < end);
+        const phaseTimes = [start, ...intermediate, end];
+        const phaseWidth = 100 / (phaseTimes.length - 1);
+        phaseTimes.forEach((time, index) => {
+            if (sourceValues.at(-1) === time) return;
+            sourceValues.push(time);
+            mappedValues.push((majorIndex * 100) + (index * phaseWidth));
+        });
     }
-
-    const firstData = domainTimes.length ? domainTimes[0] : mTimes[0];
-    const lastData = domainTimes.length ? domainTimes[domainTimes.length - 1] : mTimes[mTimes.length - 1];
-
-    const allBounds = [Math.min(firstData, mTimes[0]), ...mTimes, Math.max(lastData, mTimes[mTimes.length - 1])];
-    const bounds = getSortedUniqueNumbers(allBounds);
-    const segCount = bounds.length - 1;
-    if (segCount <= 0) {
-        return {
-            xValues: chartPoints.map(point => point.timestamp),
-            domainXValues: domainTimes,
-            mapTime: t => t,
-            unmapX: x => x,
-        };
+    const lastData = domainTimes.at(-1) ?? majorTimes.at(-1);
+    if (lastData > majorTimes.at(-1)) {
+        sourceValues.push(lastData);
+        mappedValues.push(((majorTimes.length - 1) * 100) + 2);
     }
-
-    const firstMilestone = mTimes[0];
-    const lastMilestone = mTimes.at(-1);
-    const segmentWidths = bounds.slice(0, -1).map((start, index) => {
-        const end = bounds[index + 1];
-        return end <= firstMilestone || start >= lastMilestone ? 35 : 100;
-    });
-    const mappedBounds = [0];
-    for (const width of segmentWidths) {
-        mappedBounds.push(mappedBounds.at(-1) + width);
-    }
-    const mapTime = (t) => {
-        for (let s = 0; s < segCount; s++) {
-            if (t <= bounds[s + 1]) {
-                const frac = bounds[s + 1] === bounds[s] ? 0.5 : (t - bounds[s]) / (bounds[s + 1] - bounds[s]);
-                return mappedBounds[s] + frac * segmentWidths[s];
-            }
+    const mapTime = (time) => {
+        if (time <= sourceValues[0]) return mappedValues[0];
+        for (let index = 0; index < sourceValues.length - 1; index++) {
+            if (time > sourceValues[index + 1]) continue;
+            const span = sourceValues[index + 1] - sourceValues[index];
+            const fraction = span === 0 ? 0 : (time - sourceValues[index]) / span;
+            return mappedValues[index]
+                + fraction * (mappedValues[index + 1] - mappedValues[index]);
         }
-        return mappedBounds.at(-1);
+        return mappedValues.at(-1);
     };
-
     return {
         xValues: chartPoints.map(point => mapTime(point.timestamp)),
         domainXValues: domainTimes.map(mapTime),
         mapTime,
-        unmapX: createPiecewiseInverse(bounds, mappedBounds),
+        unmapX: createPiecewiseInverse(sourceValues, mappedValues),
     };
 }
 
@@ -527,8 +561,44 @@ export function getSnapshotsMapper(points, domain) {
     };
 }
 
-export function getChartMapper(mode, points, domain, milestones) {
-    if (mode === 'phased') return getPhasedMapper(points, domain, milestones);
+export function getChartMapper(mode, points, domain, milestones, majorMilestones = null) {
+    if (mode === 'phased') {
+        return getHierarchicalPhasedMapper(
+            points,
+            domain,
+            milestones,
+            majorMilestones ?? getMajorMilestones(milestones),
+        );
+    }
     if (mode === 'snapshots') return getSnapshotsMapper(points, domain);
     return getTimelineMapper(points, domain);
+}
+
+/**
+ * Final renderer-neutral chart values shared by the dashboard and preview card.
+ */
+export function buildChartPresentation({
+    points,
+    domain,
+    milestones = [],
+    phaseMilestones = milestones,
+    majorMilestones = null,
+    mode = 'phased',
+}) {
+    const visiblePoints = limitPointsAroundMilestones(points, milestones);
+    const visibleDomain = limitPointsAroundMilestones(domain, milestones);
+    const mapper = getChartMapper(
+        mode,
+        visiblePoints,
+        visibleDomain,
+        phaseMilestones,
+        majorMilestones,
+    );
+    return {
+        visiblePoints,
+        visibleDomain,
+        enrollmentValues: visiblePoints.map(point => point.enrollmentLevel ?? point.fill),
+        capacityValues: visiblePoints.map(point => point.capacityLevel),
+        ...mapper,
+    };
 }

@@ -9,15 +9,35 @@ from ..config import get_config
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError
 from ..validation import validate_directory_exists
+from ..website.config import semester_sort_key
 
 
 class DataDownloader:
     """Downloads enrollment data from the university registrar."""
 
-    def __init__(self):
+    def __init__(self, semester: str | None = None):
         self.config = get_config()
         self.logger = get_logger(__name__)
-        self.url = self.config["data_source"]["url"]
+        semester_configs = self.config.get("semesters", {})
+        if semester is None:
+            candidates = [
+                label
+                for label, value in semester_configs.items()
+                if isinstance(value, dict) and value.get("registrar_url")
+            ]
+            if not candidates:
+                raise ValueError("no semester registrar source is configured")
+            semester = max(candidates, key=semester_sort_key)
+        semester_config = semester_configs.get(semester, {})
+        registrar_url = (
+            semester_config.get("registrar_url")
+            if isinstance(semester_config, dict)
+            else None
+        )
+        if not isinstance(registrar_url, str) or not registrar_url.strip():
+            raise ValueError(f"no registrar source configured for {semester!r}")
+        self.semester = semester
+        self.url = registrar_url.strip()
         self.raw_xls_directory = self.config["directories"]["raw_downloads"]
 
     @staticmethod

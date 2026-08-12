@@ -5,6 +5,7 @@
 import './style.css';
 import {
     OBSERVATION_STEP_MODE,
+    buildChartPresentation,
     buildObservedCapacityPoints,
     buildAverageChartPoints,
     buildCourseChartDomain,
@@ -14,10 +15,11 @@ import {
     createHistoricalCoordinateMapper,
     getChartMapper,
     getEnrollmentScaleMax,
+    getSectionTypeName,
     getXScaleBounds,
     extendSteppedSeriesToDomainEnd,
     findSteppedPointIndexAtX,
-    limitPointsBeforeFirstMilestone,
+    limitPointsAroundMilestones,
     normalizeInstructorName,
 } from './chartMapping.mjs';
 import {
@@ -27,11 +29,13 @@ import {
     semesterToSlug,
 } from './urlSlugs.mjs';
 import {
+    adaptPreviewCourseState,
     IntegrityError,
     loadDepartmentPayload,
     loadSemesterManifest,
     UnsupportedSchemaError,
 } from './manifestData.mjs';
+import { courseMatchesElective, getElectiveCategories } from './electiveFilters.mjs';
 
 function markPerformance(name) {
     if (typeof performance?.mark === 'function') performance.mark(name);
@@ -138,7 +142,7 @@ async function loadChartJs() {
             const nextX = resolveHoverPixel(chartInstance, event, options);
             if (chartInstance.$tooltipPinned && Number.isFinite(chartInstance.$pinnedPixelX)) {
                 chartInstance.$hoverPixelX = chartInstance.$pinnedPixelX;
-                refreshPinnedChartTooltip(chartInstance);
+                refreshChartTooltip(chartInstance);
                 args.changed = true;
                 return;
             }
@@ -150,6 +154,7 @@ async function loadChartJs() {
                 } else {
                     delete chartInstance.canvas.dataset.hoverTimestamp;
                 }
+                if (Number.isFinite(nextX)) refreshChartTooltip(chartInstance);
                 args.changed = true;
             }
         },
@@ -360,7 +365,7 @@ function loadHistoricalSemester(candidate) {
 
     const request = Promise.resolve().then(async () => {
         const pointerUrl = new URL(
-            `data/${candidate.slug}/manifest.json`,
+            `/data/${candidate.slug}/manifest.json`,
             window.location.href,
         ).href;
         const loaded = await loadSemesterManifest(pointerUrl, {
@@ -826,18 +831,8 @@ function addCurrentMilestoneAnnotations({
     chartMode,
     dataTimestamps,
     mapTime,
-    xValues,
-    fillData,
-    historicalDataPoints,
     compactLabels,
 }) {
-    const labelXValues = xValues.length > 0
-        ? xValues
-        : historicalDataPoints.map(point => point.x);
-    const labelFillData = fillData.length > 0
-        ? fillData
-        : historicalDataPoints.map(point => point.y);
-
     const renderedPriorities = new Set();
     milestones.forEach((milestone, index) => {
         if (!shouldRenderMilestone(milestone, chartMode, dataTimestamps)) return;
@@ -853,17 +848,6 @@ function addCurrentMilestoneAnnotations({
         const displayLabel = !compactLabels || startsPriority
             || DEADLINE_LABELS.has(milestone.label);
 
-        let closestDataIdx = 0;
-        let minDiff2 = Infinity;
-        labelXValues.forEach((x, dataIndex) => {
-            const difference = Math.abs(x - xPos);
-            if (difference < minDiff2) {
-                minDiff2 = difference;
-                closestDataIdx = dataIndex;
-            }
-        });
-        const fillAtPoint = labelFillData[closestDataIdx] || 0;
-        const labelPos = fillAtPoint > 50 ? 'start' : 'end';
         const color = milestone.color || '#78909C';
 
         annotations[`line${index}`] = {
@@ -872,7 +856,7 @@ function addCurrentMilestoneAnnotations({
             drawTime: 'beforeDatasetsDraw',
             z: -1,
             label: {
-                display: displayLabel, content: milestoneLabel, position: labelPos,
+                display: displayLabel, content: milestoneLabel, position: 'end',
                 backgroundColor: color, color: getContrastColor(color),
                 font: { size: 9, weight: 'bold' }, padding: 3, borderRadius: 3,
                 // Keep the line behind the enrollment series, but draw the
@@ -894,14 +878,14 @@ function buildHistoricalChartState({
         return { historicalDataPoints: [] };
     }
 
-    const historicalChartPoints = limitPointsBeforeFirstMilestone(
+    const historicalChartPoints = limitPointsAroundMilestones(
         historicalComparison.chartPoints.map((point, sourceIndex) => ({
             ...point,
             sourceIndex,
         })),
         historicalComparison.milestones,
     );
-    const historicalChartDomain = limitPointsBeforeFirstMilestone(
+    const historicalChartDomain = limitPointsAroundMilestones(
         historicalComparison.chartDomain,
         historicalComparison.milestones,
     );
@@ -1001,25 +985,6 @@ function getStatusClass(fill, isFilled = false) {
     if (isFilled || fill >= 1.0) return 'full';
     if (fill >= 0.75) return 'near';
     return '';
-}
-
-/**
- * Get human-readable section type name.
- */
-function getSectionTypeName(type) {
-    const names = {
-        'L': 'Lecture',
-        'S': 'Seminar',
-        'R': 'Recitation',
-        'D': 'Discussion',
-        'B': 'Lab',
-        'Lb': 'Lab',
-        'Int': 'Internship',
-        'P': 'Project',
-        'IS': 'Independent Study',
-        'T': 'Tutorial',
-    };
-    return names[type] || type || 'Section';
 }
 
 /**
@@ -1198,6 +1163,7 @@ function renderCourseGrid() {
             cell.setAttribute('data-course', course.code);
             cell.setAttribute('data-status', status);
             cell.setAttribute('data-fill', averageFill);
+            cell.setAttribute('data-electives', getElectiveCategories(course.code).join(' '));
             cell.setAttribute('aria-label', `${formatCourseCode(course.code)} — ${Math.round(averageFill * 100)}% full`);
             cell.style.setProperty('--cell-index', totalCourses);
             const codeSpan = document.createElement('span');
@@ -1405,6 +1371,52 @@ function updateModalCourseTitle(courseCode, title) {
     heading.setAttribute('aria-label', title ? `${courseCode}: ${title}` : courseCode);
 }
 
+function renderCoursePublicationState(course) {
+    const availability = document.getElementById('courseAvailability');
+    const availabilityState = course?.availability;
+    if (availability) {
+        availability.textContent = '';
+        if (availabilityState?.sentence) {
+            const sentence = document.createElement('strong');
+            sentence.textContent = availabilityState.sentence;
+            availability.appendChild(sentence);
+            if (availabilityState.breakdown) {
+                const breakdown = document.createElement('span');
+                breakdown.textContent = availabilityState.breakdown;
+                availability.appendChild(breakdown);
+            }
+            availability.hidden = false;
+        } else {
+            availability.hidden = true;
+        }
+    }
+
+    const state = document.getElementById('courseState');
+    if (!state) return;
+    const preview = course?.previewState;
+    if (preview?.status !== 'removed') {
+        state.hidden = true;
+        state.textContent = '';
+        return;
+    }
+    state.textContent = '';
+    const badge = document.createElement('strong');
+    badge.className = 'removed-badge';
+    badge.textContent = 'REMOVED';
+    state.appendChild(badge);
+    const copy = document.createElement('span');
+    const changed = preview.lastChanged
+        ? new Date(preview.lastChanged).toLocaleString('en-US', {
+            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        })
+        : null;
+    copy.textContent = changed
+        ? `Removed from the registrar listing · Final state ${changed}`
+        : 'Removed from the registrar listing';
+    state.appendChild(copy);
+    state.hidden = false;
+}
+
 function openCourseModal(courseCode, summaryCourse) {
     const overlay = document.getElementById('modalOverlay');
     if (!overlay?.classList.contains('active')) {
@@ -1435,7 +1447,9 @@ function openCourseModal(courseCode, summaryCourse) {
 
     const shareBtn = document.getElementById('modalShareLink');
     if (shareBtn) shareBtn.style.display = '';
-    history.replaceState(null, '', `#${courseCode.replace(/\s+/g, '-')}`);
+    if (document.body.dataset.initialCourse !== courseCode) {
+        history.replaceState(null, '', `#${courseCode.replace(/\s+/g, '-')}`);
+    }
     showModalDetailLoading();
     focusModal();
 }
@@ -1448,6 +1462,7 @@ function renderCourseDetails(courseCode, course, requestVersion) {
     const title = getCourseTitle(course);
     updateModalCourseTitle(courseCode, title);
     updateModalBookmark(courseCode);
+    renderCoursePublicationState(course);
 
     const sectionList = document.getElementById('sectionList');
     const sections = Object.entries(getCourseSections(course)).sort((a, b) => {
@@ -1613,7 +1628,7 @@ function syncChartViewportState(chartInstance, canvas, coarsePointer) {
         canvas.dataset.hoverTimestamp = String(chartInstance.$unmapHoverX(mappedX));
         chartInstance.$refreshPinnedReadout = true;
     }
-    refreshPinnedChartTooltip(chartInstance);
+    refreshChartTooltip(chartInstance);
     if (chartInstance.$tooltipPinned) chartInstance.draw();
     updateZoomControls();
     if (!coarsePointer) return;
@@ -1627,7 +1642,7 @@ function syncChartViewportState(chartInstance, canvas, coarsePointer) {
     }
 }
 
-function refreshPinnedChartTooltip(chartInstance) {
+function refreshChartTooltip(chartInstance) {
     const pixelX = chartInstance?.$hoverPixelX;
     if (!Number.isFinite(pixelX) || !chartInstance.tooltip) return;
     const forceReadoutRefresh = Boolean(chartInstance.$refreshPinnedReadout);
@@ -1686,7 +1701,7 @@ function setChartTooltipPinned(chartInstance, pixelX) {
     chartInstance.$hoverPixelX = pixelX;
     chartInstance.$pinnedViewportMin = chartInstance.scales.x.min;
     chartInstance.canvas.dataset.tooltipPinned = 'true';
-    refreshPinnedChartTooltip(chartInstance);
+    refreshChartTooltip(chartInstance);
     showPinnedReadoutBadge();
     chartInstance.draw();
 }
@@ -2180,18 +2195,24 @@ async function renderChart(
     };
 
     const milestones = getMilestones();
-    const visibleChartPoints = limitPointsBeforeFirstMilestone(chartPoints, milestones);
-    const visibleChartDomain = limitPointsBeforeFirstMilestone(chartDomain, milestones);
-    const fillData = visibleChartPoints.map(point => point.enrollmentLevel ?? point.fill);
-    const capacityData = visibleChartPoints.map(point => point.capacityLevel);
-    const domainTimestamps = visibleChartDomain.map(point => point.timestamp);
-    const currentMapper = getChartMapper(
-        chartMode,
-        visibleChartPoints,
-        visibleChartDomain,
+    const presentation = buildChartPresentation({
+        points: chartPoints,
+        domain: chartDomain,
         milestones,
-    );
-    const { xValues, domainXValues, mapTime, unmapX } = currentMapper;
+        mode: chartMode,
+    });
+    const {
+        visiblePoints: visibleChartPoints,
+        visibleDomain: visibleChartDomain,
+        enrollmentValues: fillData,
+        capacityValues: capacityData,
+        xValues,
+        domainXValues,
+        mapTime,
+        unmapX,
+    } = presentation;
+    const domainTimestamps = visibleChartDomain.map(point => point.timestamp);
+    const currentMapper = { xValues, domainXValues, mapTime, unmapX };
     const currentComparisonDomain = domainXValues.length > 0 ? domainXValues : xValues;
     const recordedDomainEnd = currentComparisonDomain.at(-1);
     const historicalChartState = buildHistoricalChartState({
@@ -2527,7 +2548,8 @@ function closeModal() {
     resetHistoricalComparisonState();
     resetCourseDetailView();
     // Clear URL hash
-    history.replaceState(null, '', window.location.pathname);
+    const suffix = document.body.dataset.initialCourse ? window.location.search : '';
+    history.replaceState(null, '', `${window.location.pathname}${suffix}`);
 }
 
 /**
@@ -2607,7 +2629,10 @@ document.getElementById('modalShareLink')?.addEventListener('click', async () =>
     if (!selectedCourse) return;
     const semSlug = semesterToSlug(IS_COMBINED ? activeSemester : getData().sem || '');
     const courseSlug = courseToSlug(selectedCourse);
-    const shareUrl = `${window.location.origin}/courses/${semSlug}/${courseSlug}.html`;
+    const cleanUrl = `${window.location.origin}/courses/${semSlug}/${courseSlug}/`;
+    const archived = document.body.dataset.courseArchived === 'true';
+    const hash = document.body.dataset.previewHash;
+    const shareUrl = !archived && hash ? `${cleanUrl}?v=${hash}` : cleanUrl;
 
     try {
         await navigator.clipboard.writeText(shareUrl);
@@ -2659,6 +2684,7 @@ const clearSearchButton = document.getElementById('clearSearch');
 const departmentToggle = document.getElementById('departmentToggle');
 const departmentPanel = document.getElementById('departmentPanel');
 const departmentSearch = document.getElementById('departmentSearch');
+const electiveFilter = document.getElementById('electiveFilter');
 
 function setDepartmentPanelOpen(expanded) {
     if (!departmentToggle || !departmentPanel) return;
@@ -2768,6 +2794,9 @@ function showEmptyState(query) {
         div.textContent = `No bookmarked courses match '${query}'.`;
     } else if (query) {
         div.textContent = `No courses match '${query}'. Try a different search term.`;
+    } else if (electiveFilter?.value !== 'all') {
+        const label = electiveFilter.selectedOptions[0]?.textContent || 'selected';
+        div.textContent = `No ${label.toLowerCase()} courses are available.`;
     } else {
         const labels = { full: 'full', near: 'near-full', open: 'open' };
         div.textContent = `No ${labels[currentFilter] || currentFilter} courses are available.`;
@@ -2833,6 +2862,7 @@ function hideTimeoutWarning() {
 
 function applyFilters() {
     const searchQuery = searchInput?.value.toLowerCase().trim() || '';
+    const electiveCategory = electiveFilter?.value || 'all';
     const cells = document.querySelectorAll('.course-cell');
 
     let visibleCount = 0;
@@ -2845,8 +2875,9 @@ function applyFilters() {
         const matchesFilter = currentFilter === 'all' ||
             (currentFilter === 'starred' && isStarred) ||
             status === currentFilter;
+        const matchesElective = courseMatchesElective(cell.dataset.course, electiveCategory);
 
-        const isVisible = matchesSearch && matchesFilter;
+        const isVisible = matchesSearch && matchesFilter && matchesElective;
         cell.classList.toggle('hidden', !isVisible);
         if (isVisible) visibleCount++;
     });
@@ -2908,6 +2939,8 @@ clearSearchButton?.addEventListener('click', () => {
     applyFilters();
     searchInput.focus();
 });
+
+electiveFilter?.addEventListener('change', applyFilters);
 
 // ============================================
 // Sort Functionality (UX Enhancement)
@@ -3087,12 +3120,53 @@ document.getElementById('chartZoomReset')?.addEventListener('click', resetChartZ
 // ============================================
 
 function handleHashNavigation() {
+    if (document.body.dataset.initialCourse) return;
     const hash = window.location.hash.slice(1); // Remove '#'
     if (!hash) return;
     const courseCode = hash.replace(/-/g, ' '); // 'CSCI-101' -> 'CSCI 101'
     refreshCourseMaps();
     if (summaryCourses.has(courseCode)) {
         openCourse(courseCode);
+    }
+}
+
+function replaceDisplayedVersion() {
+    const hash = document.body.dataset.previewHash;
+    if (!hash || document.body.dataset.pageArchived === 'true') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('v') === hash) return;
+    url.searchParams.set('v', hash);
+    history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+async function handleInitialCourseNavigation() {
+    const courseCode = document.body.dataset.initialCourse;
+    if (!courseCode) return false;
+    replaceDisplayedVersion();
+    refreshCourseMaps();
+    if (summaryCourses.has(courseCode)) {
+        await openCourse(courseCode);
+        return true;
+    }
+
+    const stateUrl = document.body.dataset.previewStateUrl;
+    if (!stateUrl) return false;
+    try {
+        const response = await fetch(stateUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const state = await response.json();
+        if (state.hash !== document.body.dataset.previewHash || state.code !== courseCode) {
+            throw new Error('Preview state identity mismatch');
+        }
+        const course = adaptPreviewCourseState(state);
+        course.previewState = state;
+        const requestVersion = ++courseRequestVersion;
+        openCourseModal(courseCode, course);
+        renderCourseDetails(courseCode, course, requestVersion);
+        return true;
+    } catch (error) {
+        console.error(`Failed to open archived course ${courseCode}:`, error);
+        return false;
     }
 }
 
@@ -3160,8 +3234,8 @@ async function initApp() {
     renderCourseGrid();
     markAfterAnimationFrames('registrar:grid-rendered');
 
-    // Handle deep link on initial load
-    handleHashNavigation();
+    replaceDisplayedVersion();
+    if (!await handleInitialCourseNavigation()) handleHashNavigation();
 
     // Show "last updated" toast on load
     setTimeout(() => {

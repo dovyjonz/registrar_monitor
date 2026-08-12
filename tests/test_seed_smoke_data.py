@@ -7,7 +7,7 @@ import pytest
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.data.migration import MetadataMode
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
-from registrarmonitor.website.config import ALL_SEMESTERS
+from registrarmonitor.website.config import get_configured_semesters
 
 SEED_SMOKE_DATA_PATH = Path(__file__).parent.parent / "scripts" / "seed_smoke_data.py"
 SPEC = spec_from_file_location("seed_smoke_data", SEED_SMOKE_DATA_PATH)
@@ -27,14 +27,14 @@ def test_main_seeds_every_configured_semester():
     with patch.object(seed_smoke_data, "_seed_semester", fake_seed_semester):
         seed_smoke_data.main(data_dir=Path("data"), report_dir=Path("output"))
 
-    assert seeded_semesters == ALL_SEMESTERS
+    assert seeded_semesters == get_configured_semesters()
 
 
 def test_main_builds_fixture_for_configured_storage_modes(tmp_path: Path):
     data_dir = tmp_path / "data"
     seed_smoke_data.main(data_dir=data_dir, report_dir=tmp_path / "reports")
 
-    for semester in ALL_SEMESTERS:
+    for semester in get_configured_semesters():
         database = data_dir / (
             f"enrollment_{DatabaseManager._sanitize_semester_name_static(semester)}.db"
         )

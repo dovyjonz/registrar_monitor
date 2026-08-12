@@ -1,0 +1,17 @@
+{
+  "name": "registrar-monitor-preview-images",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npm run types && npm test && npx tsc --noEmit && npx wrangler deploy --dry-run",
+    "test": "vitest run",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.21.2",
+    "@types/node": "26.2.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.122.0"
+  }
+}

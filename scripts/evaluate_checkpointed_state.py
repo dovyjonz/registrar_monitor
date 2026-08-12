@@ -965,7 +965,7 @@ def build_graph(
             "isFilled": course.is_filled,
         }
 
-    milestones = website_data.MILESTONES_MAP.get(latest.semester, [])
+    milestones = website_data.get_milestones(latest.semester)
     if milestones:
         keep = website_data._history_indices_in_milestone_window(
             data["snapshots"], milestones, buffer_hours=1
@@ -1124,7 +1124,7 @@ def build_graph_from_store(
                 int(event["new_capacity_count"]),
             )
 
-    milestones = website_data.MILESTONES_MAP.get(semester, [])
+    milestones = website_data.get_milestones(semester)
     keep = (
         website_data._history_indices_in_milestone_window(
             data["snapshots"], milestones, buffer_hours=1

@@ -93,9 +93,40 @@ sudo -u spook -H prlimit --nofile=65536:65536 -- \
   make -C /home/dmitry_s_ivanenko/registrar_monitor check-fast
 ```
 
-The 2026-08-04 local verification returned `765 passed` in the full `make check`
-gate with 80.95% coverage; the live VM service is documented in
-`production-topology.md`.
+The full `make check` gate and its configured coverage threshold are authoritative;
+do not copy test counts into operator documentation because the suite changes.
+The live VM service is documented in `production-topology.md`.
+
+## Runtime logging and scheduler decisions
+
+Normal CLI commands write human-readable logs to stdout and rotating files in the
+`directories.logs` path from `settings.toml` (normally `logs/`). The main stream is
+`registrar_monitor.log`; `errors.log` contains only `ERROR` and `CRITICAL` records.
+Each file rotates at 10 MB and retains five backups. `monitor doctor` is the
+exception: its stdout remains machine-readable or operator-focused and it does not
+initialize file logging.
+
+The scheduler also appends one structured record per scheduling decision to
+`logs/scheduler_decisions.jsonl`. Each line is independent JSON, so operators can
+inspect recent decisions without parsing the human-readable application log:
+
+```bash
+tail -n 20 logs/scheduler_decisions.jsonl | jq .
+```
+
+On the production host, systemd captures the same stdout stream. Prefer a bounded
+journal query for incident review and follow the redaction rules in
+`production-topology.md`; do not collect an unrestricted journal:
+
+```bash
+sudo journalctl -u registrarmonitor.service --since "30 minutes ago" --no-pager
+```
+
+Application logs must contain operational context, not secrets, environment dumps,
+Telegram identifiers, or full registrar payloads. Exceptions at workflow boundaries
+should retain tracebacks in the file and journal streams; expected no-op outcomes
+belong at `INFO`, retryable degradation at `WARNING`, and failed operations at
+`ERROR`.
 
 ## Baselines and benchmarks
 
@@ -114,8 +145,8 @@ nearest-rank p95. It covers SQLite allocation and poll deltas, latest-state and
 course-history reads, SQL activity and website generation, generated file
 inventory, initial browser transfer/request counts, validated-summary bytes,
 mark-derived grid rendering, course-card readiness, and opening one course.
-Website generation runs through `WebsiteService` and reports the legacy root
-payload versus the new summary bytes. Focused `benchmark-database`, `benchmark-website`, and
+Website generation runs through `WebsiteService` and reports payload and generated
+file sizes. Focused `benchmark-database`, `benchmark-website`, and
 `benchmark-browser` targets accept the same `DATABASE`, `PERF_COLD`, and
 `PERF_WARM` inputs.
 

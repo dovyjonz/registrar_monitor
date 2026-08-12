@@ -1,13 +1,6 @@
 {% extends "base.html.jinja" %}
 
-{% block title %}{{ title }}{% endblock %}
-{% block description %}{{ title }} enrollment dashboard — track course fill percentages, section availability, and registration trends at Nazarbayev University.{% endblock %}
-{% block og_title %}{{ title }}{% endblock %}
-{% block og_description %}Real-time enrollment tracking for {{ title }} at Nazarbayev University. View course availability, capacity changes, and registration trends.{% endblock %}
-{% block twitter_title %}{{ title }}{% endblock %}
-{% block twitter_description %}Real-time enrollment tracking for {{ title }} at Nazarbayev University.{% endblock %}
-
-{% block body_attrs %} data-manifest-url="{{ manifest_filename }}"{% endblock %}
+{% block body_attrs %} data-manifest-url="{{ manifest_filename }}"{% if preview_hash %} data-preview-hash="{{ preview_hash }}"{% endif %} data-page-archived="{{ 'true' if archived else 'false' }}"{% if initial_course %} data-initial-course="{{ initial_course }}" data-preview-state-url="{{ preview_state_url }}"{% endif %}{% endblock %}
 
 {% block content %}
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -74,6 +67,14 @@
                 </button>
             </div>
 
+            <label for="electiveFilter" class="visually-hidden">Filter by elective requirement</label>
+            <select id="electiveFilter" class="elective-select" title="Filter by elective requirement">
+                <option value="all">All courses</option>
+                <option value="social-science">Social Science electives</option>
+                <option value="natural-science">Natural Science electives</option>
+                <option value="humanities">Humanities electives</option>
+            </select>
+
             <label for="sortSelect" class="visually-hidden">Sort courses</label>
             <select id="sortSelect" class="sort-select" title="Sort courses by">
                 <option value="department">By Department</option>
@@ -89,6 +90,10 @@
                 </svg>
             </button>
         </div>
+
+        <p class="elective-disclaimer">
+            Double-check the electives against your degree requirements (handbooks).
+        </p>
 
         <div class="department-panel" id="departmentPanel" hidden>
             <label for="departmentSearch" class="visually-hidden">Find department</label>
@@ -145,6 +150,8 @@
                 </div>
             </div>
             <div class="modal-body">
+                <div class="course-state" id="courseState" hidden></div>
+                <div class="course-availability" id="courseAvailability" hidden></div>
                 <div class="section-type-selector" id="sectionTypeSelector"></div>
                 <div class="section-list" id="sectionList" role="list"></div>
 
@@ -197,4 +204,5 @@
             </div>
         </div>
     </div>
+
 {% endblock %}

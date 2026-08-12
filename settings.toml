@@ -9,8 +9,6 @@ input_files = "assets/input"
 logs = "logs"
 
 [data_source]
-# University registrar data URL
-url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=825"
 # Compatibility exception for the registrar's currently unverifiable TLS chain.
 # Remove this after configuring and proving a working ca_bundle path.
 allow_insecure_tls = true
@@ -28,8 +26,8 @@ update_interval = 30
 pages_project_name = "registrar-monitor"
 # Base URL for canonical links and social sharing (default: https://{pages_project_name}.pages.dev)
 base_url = ""
-# Indexing directive: "noindex" prevents search engines while allowing social unfurls
-indexing = "noindex"
+# Separate Worker origin for state-addressed social preview images.
+preview_base_url = "https://registrar-monitor-preview-images.spooktaken.workers.dev"
 
 # Production checkpointed-state rollout control. Change one semester only
 # after its migration/shadow gate is approved; DatabaseManager rejects a
@@ -86,6 +84,7 @@ chat_id = ""
 
 # Fall 2026 undergraduate registration key dates.
 [semesters."Fall 2026"]
+registrar_url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=825"
 deadlines = [
     ["2026-08-26T12:00:00", "Drop"],
     ["2026-08-28T17:30:00", "Close"],
@@ -108,6 +107,7 @@ deadlines = [
 ]
 
 [semesters."Summer 2026"]
+registrar_url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=824"
 deadlines = [
     ["2026-06-03T12:00:00", "Drop"],
     ["2026-06-05T17:30:00", "Close"]
@@ -132,6 +132,7 @@ deadlines = [
 
 
 [semesters."Spring 2026"]
+registrar_url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=823"
 [semesters."Spring 2026".priorities]
 "1" = [
     ["2025-12-17T09:00:00", "Y4+"],
@@ -151,6 +152,7 @@ deadlines = [
 
 
 [semesters."Fall 2025"]
+registrar_url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=822"
 [semesters."Fall 2025".priorities]
 "1" = [
     ["2025-08-06T09:00:00", "Y4+"],
@@ -170,6 +172,7 @@ deadlines = [
 
 
 [semesters."Summer 2025"]
+registrar_url = "https://registrar.nu.edu.kz/registrar_downloads/json?method=printDocument&name=xls_school_schedule_by_term&termid=805"
 [semesters."Summer 2025".priorities]
 "1" = [
     ["2025-05-12T10:00:00", "Y4+"],

@@ -6,9 +6,19 @@ pytestmark = pytest.mark.unit
 
 
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from registrarmonitor.services.website_service import WebsiteService
+
+
+@pytest.fixture(autouse=True)
+def publishable_catalog():
+    with patch(
+        "registrarmonitor.services.website_service.build_publication_catalog",
+        return_value=[SimpleNamespace(label="Spring 2024")],
+    ):
+        yield
 
 
 class TestGenerateSemesterPage:
@@ -19,8 +29,8 @@ class TestGenerateSemesterPage:
                 return_value={"cr": {}},
             ),
             patch(
-                "registrarmonitor.services.website_service.MILESTONES_MAP",
-                {},
+                "registrarmonitor.services.website_service.get_milestones",
+                return_value=[],
             ),
             patch(
                 "registrarmonitor.services.website_service.build_semester_page",
@@ -28,9 +38,11 @@ class TestGenerateSemesterPage:
             ),
         ):
             service = WebsiteService(output_dir=tmp_path)
-            result = service.generate_semester_page("Spring 2024")
+            result = service.generate_semester_page(
+                "Spring 2024", publication_semesters=["Spring 2024"]
+            )
             output_path = result[0]
-            assert output_path == tmp_path / "spring2024.html"
+            assert output_path == tmp_path / "semesters" / "spring-2024" / "index.html"
             assert output_path is not None
             assert output_path.read_text() == "<html>empty semester</html>"
 
@@ -44,23 +56,24 @@ class TestGenerateSemesterPage:
                 "registrarmonitor.services.website_service.get_semester_data",
                 return_value=data,
             ),
-            patch("registrarmonitor.services.website_service.MILESTONES_MAP", {}),
+            patch(
+                "registrarmonitor.services.website_service.get_milestones",
+                return_value=[],
+            ),
             patch(
                 "registrarmonitor.services.website_service.build_semester_page",
                 return_value="<html>test</html>",
-            ),
-            patch(
-                "registrarmonitor.services.website_service.semester_to_filename",
-                return_value="spring2024.html",
             ),
             patch("registrarmonitor.services.website_service.update_checksum"),
             patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
         ):
             service = WebsiteService()
-            out_path, size = service.generate_semester_page("Spring 2024")
+            out_path, size = service.generate_semester_page(
+                "Spring 2024", publication_semesters=["Spring 2024"]
+            )
 
         assert out_path is not None
-        assert (tmp_path / "spring2024.html").exists()
+        assert (tmp_path / "semesters" / "spring-2024" / "index.html").exists()
         assert (tmp_path / "data" / "spring-2024" / "manifest.json").exists()
         assert not (tmp_path / "spring2024.json").exists()
 
@@ -74,7 +87,10 @@ class TestGenerateSemesterPage:
                 "registrarmonitor.services.website_service.get_semester_data",
                 return_value=data,
             ),
-            patch("registrarmonitor.services.website_service.MILESTONES_MAP", {}),
+            patch(
+                "registrarmonitor.services.website_service.get_milestones",
+                return_value=[],
+            ),
             patch(
                 "registrarmonitor.website.templates._get_asset_info",
                 return_value=(None, None),
@@ -82,11 +98,13 @@ class TestGenerateSemesterPage:
             patch("registrarmonitor.services.website_service.update_checksum"),
         ):
             service = WebsiteService(output_dir=tmp_path)
-            out_path, _ = service.generate_semester_page("Spring 2024")
+            out_path, _ = service.generate_semester_page(
+                "Spring 2024", publication_semesters=["Spring 2024"]
+            )
 
         assert out_path is not None
         html = out_path.read_text()
-        assert 'data-manifest-url="data/spring-2024/manifest.json"' in html
+        assert 'data-manifest-url="/data/spring-2024/manifest.json"' in html
         assert "spring2024.json" not in html
         assert not (tmp_path / "spring2024.json").exists()
 
@@ -112,28 +130,6 @@ class TestGenerateSemesterPage:
         )
         assert department["kind"] == "department-detail"
 
-    def test_v3_generation_removes_a_stale_root_payload(self, tmp_path):
-        data = {"cr": {}, "sn": []}
-        legacy_path = tmp_path / "spring2024.json"
-        legacy_path.write_text("stale compatibility payload")
-        with (
-            patch(
-                "registrarmonitor.services.website_service.get_semester_data",
-                return_value=data,
-            ),
-            patch("registrarmonitor.services.website_service.MILESTONES_MAP", {}),
-            patch(
-                "registrarmonitor.services.website_service.build_semester_page",
-                return_value="<html>manifest-only</html>",
-            ),
-            patch("registrarmonitor.services.website_service.update_checksum"),
-        ):
-            service = WebsiteService(output_dir=tmp_path)
-            service.generate_semester_page("Spring 2024")
-
-        assert not legacy_path.exists()
-        assert (tmp_path / "data" / "spring-2024" / "manifest.json").exists()
-
 
 class TestPatchAssetHashes:
     def test_returns_false_when_manifest_missing(self, tmp_path):
@@ -155,9 +151,9 @@ class TestPatchAssetHashes:
 
         html_file = public / "test.html"
         html_file.write_text(
-            '<link rel="modulepreload" href="assets/main-preload-old.js">'
-            '<script src="assets/main-old.js"></script>'
-            '<link href="assets/main-old.css">'
+            '<link rel="modulepreload" href="/assets/main-preload-old.js">'
+            '<script src="/assets/main-old.js"></script>'
+            '<link href="/assets/main-old.css">'
         )
 
         service = WebsiteService()
@@ -180,8 +176,8 @@ class TestValidateAssetReferences:
         (assets / "main-current.js").write_text("")
         (assets / "main-current.css").write_text("")
         (public / "fall2026.html").write_text(
-            '<script src="assets/main-current.js"></script>'
-            '<link href="assets/main-current.css">'
+            '<script src="/assets/main-current.js"></script>'
+            '<link href="/assets/main-current.css">'
         )
 
         service = WebsiteService()
@@ -192,7 +188,7 @@ class TestValidateAssetReferences:
         public = tmp_path / "public"
         public.mkdir(parents=True)
         (public / "fall2026.html").write_text(
-            '<script src="assets/main-stale.js"></script>'
+            '<script src="/assets/main-stale.js"></script>'
         )
 
         service = WebsiteService()
@@ -223,7 +219,6 @@ class TestGenerate:
                 return_value=[],
             ),
             patch.object(service, "generate_semester_page", return_value=(None, 0.0)),
-            patch.object(service, "_generate_course_share_pages"),
             patch(
                 "registrarmonitor.website.templates.build_redirect_index",
                 return_value="<html>redirect</html>",
@@ -235,44 +230,6 @@ class TestGenerate:
 
         assert result is True
         assert service.last_generation_skipped is False
-
-
-class TestGenerateCourseSharePages:
-    def test_removes_stale_share_pages_before_regenerating(self, tmp_path):
-        stale_dir = tmp_path / "courses" / "summer-2026"
-        stale_dir.mkdir(parents=True)
-        stale_page = stale_dir / "old-course.html"
-        stale_page.write_text("<html>stale</html>")
-
-        def semester_data(semester, minify=True):
-            if semester == "Summer 2026":
-                return {
-                    "cr": {
-                        "CSCI 101": {
-                            "ti": "Intro to CS",
-                            "af": 0.5,
-                            "s": {"001": {}},
-                        }
-                    }
-                }
-            return {"cr": {}}
-
-        service = WebsiteService()
-        with (
-            patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
-            patch(
-                "registrarmonitor.services.website_service.get_semester_data",
-                side_effect=semester_data,
-            ),
-            patch(
-                "registrarmonitor.website.templates.build_course_share_page",
-                return_value="<html>current</html>",
-            ),
-        ):
-            service._generate_course_share_pages(["Summer 2026"])
-
-        assert not stale_page.exists()
-        assert (tmp_path / "courses" / "summer-2026" / "csci-101.html").exists()
 
 
 class TestIsAnySemesterActive:
@@ -293,7 +250,10 @@ class TestIsAnySemesterActive:
                 "registrarmonitor.website.config.get_milestones",
                 return_value=[{"time": past}, {"time": future}],
             ),
-            patch("registrarmonitor.website.config.ALL_SEMESTERS", ["Spring 2024"]),
+            patch(
+                "registrarmonitor.website.config.get_configured_semesters",
+                return_value=["Spring 2024"],
+            ),
         ):
             service = WebsiteService()
             assert service.is_any_semester_active() is True
@@ -309,7 +269,10 @@ class TestIsAnySemesterActive:
                 "registrarmonitor.website.config.get_milestones",
                 return_value=[{"time": now.isoformat()}],
             ),
-            patch("registrarmonitor.website.config.ALL_SEMESTERS", ["Fall 2026"]),
+            patch(
+                "registrarmonitor.website.config.get_configured_semesters",
+                return_value=["Fall 2026"],
+            ),
         ):
             service = WebsiteService()
             assert service.is_any_semester_active() is True
@@ -321,7 +284,7 @@ class TestValidatePublicOutput:
     def test_returns_empty_for_clean_output(self, tmp_path):
         service = WebsiteService()
         # Create allowed files
-        (tmp_path / "summer2026.html").write_text("<html>")
+        (tmp_path / "index.html").write_text("<html>")
         (tmp_path / "_headers").write_text("/*")
         (tmp_path / "robots.txt").write_text("User-agent: *")
         (tmp_path / ".checksums.json").write_text("{}")
@@ -380,16 +343,24 @@ class TestValidatePublicOutput:
 
         assert any(".DS_Store" in e for e in errors)
 
-    def test_allows_courses_directory(self, tmp_path):
+    def test_allows_clean_course_directory(self, tmp_path):
         service = WebsiteService()
-        (tmp_path / "courses").mkdir()
-        (tmp_path / "courses" / "summer-2026").mkdir()
-        (tmp_path / "courses" / "summer-2026" / "csci-101.html").write_text("")
+        route = tmp_path / "courses" / "summer-2026" / "csci-101"
+        route.mkdir(parents=True)
+        (route / "index.html").write_text("")
 
         with patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path):
             errors = service.validate_public_output()
 
         assert errors == []
+
+    def test_rejects_obsolete_html_routes(self, tmp_path):
+        service = WebsiteService(output_dir=tmp_path)
+        (tmp_path / "summer2026.html").write_text("<html>")
+
+        assert any(
+            "Obsolete HTML route" in error for error in service.validate_public_output()
+        )
 
     def test_detects_unexpected_directory(self, tmp_path):
         service = WebsiteService()

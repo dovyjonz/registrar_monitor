@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "target": "ES2023",
+    "strict": true,
+    "types": []
+  },
+  "include": ["src", "worker-configuration.d.ts"]
+}

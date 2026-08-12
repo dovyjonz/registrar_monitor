@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -12,6 +13,15 @@ import pytest
 pytestmark = pytest.mark.unit
 
 from registrarmonitor.services.website_service import WebsiteService
+
+
+@pytest.fixture(autouse=True)
+def publishable_catalog():
+    with patch(
+        "registrarmonitor.services.website_service.build_publication_catalog",
+        return_value=[SimpleNamespace(label="Summer 2026")],
+    ):
+        yield
 
 
 def test_isolated_generation_leaves_default_private_artifacts_untouched(
@@ -35,7 +45,6 @@ def test_isolated_generation_leaves_default_private_artifacts_untouched(
         patch.object(service, "is_any_semester_active", return_value=True),
         patch.object(service, "build_frontend_assets", return_value=True),
         patch.object(service, "generate_semester_page", side_effect=generate_semester),
-        patch.object(service, "_generate_course_share_pages"),
         patch(
             "registrarmonitor.services.website_service.get_semesters_needing_update",
             return_value=["Summer 2025"],
@@ -346,7 +355,6 @@ def test_generate_headers_contains_security_headers(tmp_path):
             "registrarmonitor.services.website_service.get_semesters_needing_update",
             return_value=[],
         ),
-        patch.object(service, "_generate_course_share_pages"),
         patch(
             "registrarmonitor.website.templates.build_redirect_index",
             return_value="<html>redirect</html>",
@@ -370,7 +378,7 @@ def test_generate_headers_contains_security_headers(tmp_path):
 
 
 def test_generate_creates_robots_txt(tmp_path):
-    """generate() should create robots.txt that disallows all."""
+    """generate() should let crawlers retrieve the noindexed pages."""
     service = WebsiteService()
     with (
         patch.object(service, "is_any_semester_active", return_value=True),
@@ -379,7 +387,6 @@ def test_generate_creates_robots_txt(tmp_path):
             "registrarmonitor.services.website_service.get_semesters_needing_update",
             return_value=[],
         ),
-        patch.object(service, "_generate_course_share_pages"),
         patch(
             "registrarmonitor.website.templates.build_redirect_index",
             return_value="<html>redirect</html>",
@@ -393,17 +400,13 @@ def test_generate_creates_robots_txt(tmp_path):
     robots_path = tmp_path / "robots.txt"
     assert robots_path.exists()
     content = robots_path.read_text()
-    assert "Disallow: /" in content
+    assert "Allow: /" in content
 
 
-def test_generate_allows_indexing_when_configured():
+def test_generate_always_excludes_pages_from_search_results():
     service = WebsiteService()
-
-    with patch(
-        "registrarmonitor.services.website_service._get_indexing", return_value=""
-    ):
-        assert "X-Robots-Tag" not in service._build_headers_content()
-        assert "Allow: /" in service._build_robots_content()
+    assert "X-Robots-Tag: noindex, nofollow" in service._build_headers_content()
+    assert "Allow: /" in service._build_robots_content()
 
 
 def test_generate_fails_when_public_validation_has_issues(tmp_path):
@@ -416,7 +419,6 @@ def test_generate_fails_when_public_validation_has_issues(tmp_path):
             "registrarmonitor.services.website_service.get_semesters_needing_update",
             return_value=[],
         ),
-        patch.object(service, "_generate_course_share_pages"),
         patch(
             "registrarmonitor.website.templates.build_redirect_index",
             return_value="<html>redirect</html>",
@@ -432,7 +434,7 @@ def test_generate_fails_when_public_validation_has_issues(tmp_path):
         assert service.generate(force=True) is False
 
 
-def test_generation_reuses_semester_data_and_limits_share_rebuild(tmp_path):
+def test_generation_reuses_semester_data_while_publishing_clean_routes(tmp_path):
     service = WebsiteService(output_dir=tmp_path)
     semester_data = {"cr": {}, "sn": []}
 
@@ -452,11 +454,6 @@ def test_generation_reuses_semester_data_and_limits_share_rebuild(tmp_path):
             "generate_semester_page",
             wraps=service.generate_semester_page,
         ),
-        patch.object(
-            service,
-            "_generate_course_share_pages",
-            wraps=service._generate_course_share_pages,
-        ) as shares,
         patch("registrarmonitor.services.website_service.update_checksum"),
         patch(
             "registrarmonitor.services.website_service.build_semester_page",
@@ -467,4 +464,4 @@ def test_generation_reuses_semester_data_and_limits_share_rebuild(tmp_path):
         assert service.generate(force=True) is True
 
     get_data.assert_called_once_with("Summer 2026", minify=True)
-    shares.assert_called_once_with(["Summer 2026"])
+    assert (tmp_path / "semesters" / "summer-2026" / "index.html").is_file()

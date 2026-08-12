@@ -394,6 +394,7 @@ function adaptV3Summary(payload, semester) {
                 s: {},
                 sectionCount: course.sectionCount,
                 fullSectionCount: course.fullSectionCount,
+                ...(course.availability ? { availability: course.availability } : {}),
             },
         ]),
     );
@@ -465,11 +466,39 @@ function adaptV3Department(payload, semester, department) {
                         )),
                         ev: events,
                         sn: snapshots,
+                        ...(course.availability ? { availability: course.availability } : {}),
                     },
                 ];
             }),
         ),
     };
+}
+
+export function adaptPreviewCourseState(state) {
+    const value = requireRecord(state, 'course preview state');
+    if (value.kind !== 'course') throw new Error('preview state kind is unsupported');
+    const timestamps = requireArray(value.timestamps, 'preview state timestamps');
+    const course = requireRecord(value.course, 'preview state course');
+    const department = requireString(course.department, 'preview course department');
+    validateV3DepartmentCourse(
+        course.code,
+        course,
+        department,
+        timestamps.length,
+    );
+    const payload = adaptV3Department(
+        {
+            schemaVersion: DEPARTMENT_SCHEMA_VERSION,
+            kind: 'department-detail',
+            semester: value.semester,
+            department,
+            timestamps,
+            courses: { [course.code]: course },
+        },
+        value.semester,
+        department,
+    );
+    return payload.courses[course.code];
 }
 
 async function loadManifestVersion(reference, pointerUrl, options) {

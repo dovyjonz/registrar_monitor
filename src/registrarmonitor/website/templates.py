@@ -4,16 +4,14 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader
 
 from .config import (
-    ALL_SEMESTERS,
     BASE_URL,
-    INDEXING,
-    LATEST_SEMESTER,
-    course_to_slug,
-    semester_to_filename,
+    PREVIEW_BASE_URL,
+    get_configured_semesters,
     semester_to_slug,
 )
 
@@ -23,6 +21,7 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 REPO_ROOT = Path(__file__).parent.parent.parent.parent
 ASSETS_DIR = REPO_ROOT / "assets" / "website" / "public" / "assets"
 MANIFEST_PATH = ASSETS_DIR / ".vite" / "manifest.json"
+ASTANA_TIMEZONE = ZoneInfo("Asia/Almaty")
 
 # Initialize Jinja2 environment
 env = Environment(
@@ -31,6 +30,15 @@ env = Environment(
     trim_blocks=True,
     lstrip_blocks=True,
 )
+
+
+def _format_astana_timestamp(value: str | None) -> str | None:
+    if not value:
+        return None
+    timestamp = datetime.fromisoformat(value.replace(" ", "T"))
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(ASTANA_TIMEZONE)
+    return f"{timestamp.day} {timestamp.strftime('%b')}, {timestamp.strftime('%H:%M')} Astana time"
 
 
 def _get_asset_info(
@@ -63,17 +71,17 @@ def _get_asset_info(
         return None, None
 
 
-def _build_nav_html(current_semester: str) -> str:
+def _build_nav_html(current_semester: str, semesters: list[str] | None = None) -> str:
     """Build semester navigation HTML."""
     nav_items = []
-    for sem in ALL_SEMESTERS:
-        filename = semester_to_filename(sem)
+    for sem in semesters if semesters is not None else get_configured_semesters():
+        url = f"/semesters/{semester_to_slug(sem)}/"
         active = (
             ' class="semester-nav-link active" aria-current="page"'
             if sem == current_semester
             else ' class="semester-nav-link"'
         )
-        nav_items.append(f'<a href="{filename}"{active}>{sem}</a>')
+        nav_items.append(f'<a href="{url}"{active}>{sem}</a>')
     return "\n            ".join(nav_items)
 
 
@@ -84,6 +92,9 @@ def build_semester_page(
     *,
     minify_assets: bool = False,
     manifest_path: Path | None = None,
+    semesters: list[str] | None = None,
+    preview_state: dict[str, Any] | None = None,
+    course_state: dict[str, Any] | None = None,
 ) -> str:
     """
     Build HTML for a single semester page using Jinja2 templates.
@@ -92,7 +103,7 @@ def build_semester_page(
     js_file, css_file = _get_asset_info(manifest_path=manifest_path)
 
     # Build navigation
-    nav_html = _build_nav_html(semester)
+    nav_html = _build_nav_html(semester, semesters)
 
     # Format last updated text
     last_report_time = data.get("lrt")
@@ -103,70 +114,87 @@ def build_semester_page(
         last_updated = "Last updated N/A"
 
     # The deployed frontend starts from the stable semester manifest pointer.
-    manifest_filename = f"data/{semester_to_slug(semester)}/manifest.json"
+    manifest_filename = f"/data/{semester_to_slug(semester)}/manifest.json"
 
-    canonical_url = f"{BASE_URL}/{semester_to_filename(semester)}"
+    sem_slug = semester_to_slug(semester)
+    canonical_url = f"{BASE_URL}/semesters/{sem_slug}/"
+    if course_state:
+        course_slug = course_state["slug"]
+        canonical_url = f"{BASE_URL}/courses/{sem_slug}/{course_slug}/"
+        archived = bool(course_state.get("archived"))
+        og_url = (
+            canonical_url if archived else f"{canonical_url}?v={course_state['hash']}"
+        )
+        title = f"{course_state['code']} — {semester} Enrollment Monitor"
+        course_title = course_state.get("title", "")
+        availability = course_state["availability"]["sentence"]
+        priority = (course_state.get("priority") or {}).get("label")
+        description = " — ".join(
+            value for value in (course_title, availability, priority, semester) if value
+        )
+        image_url = (
+            f"{PREVIEW_BASE_URL}/preview/course/{sem_slug}/{course_slug}/"
+            f"{course_state['hash']}.png"
+        )
+        image_alt = f"{course_state['code']} enrollment preview for {semester}"
+        state = course_state
+    else:
+        state = preview_state or {}
+        title = f"{semester} — Enrollment Monitor"
+        if state.get("archived"):
+            description = (
+                f"Registration closed. Historical data for {state.get('courseCount', 0)} "
+                f"courses and {state.get('sectionCount', 0)} sections. "
+                f"{state.get('fullSectionCount', 0)} sections were full at the final update."
+            )
+        else:
+            updated = _format_astana_timestamp(state.get("updated"))
+            description = (
+                f"{state.get('courseCount', len(data.get('cr', {})))} courses, "
+                f"{state.get('sectionCount', 0)} sections, "
+                f"{state.get('fullSectionCount', 0)} full sections — "
+                f"{state.get('openSeats', 0)} seats open"
+                f"{', updated ' + updated if updated else ''}."
+            )
+        og_url = (
+            canonical_url
+            if state.get("archived")
+            else f"{canonical_url}?v={state['hash']}"
+            if state.get("hash")
+            else canonical_url
+        )
+        image_url = (
+            f"{PREVIEW_BASE_URL}/preview/semester/{sem_slug}/{state['hash']}.png"
+            if state.get("hash")
+            else f"{BASE_URL}/previews/root.png"
+        )
+        image_alt = f"Enrollment Monitor overview for {semester}"
 
     # Render template
     template = env.get_template("semester.html.jinja")
     return template.render(
-        title=f"Enrollment Monitor - {semester}",
+        page_title=title,
+        page_description=description,
         nav_html=nav_html,
         last_updated=last_updated,
         manifest_filename=manifest_filename,
         js_file=js_file,
         css_file=css_file,
-        asset_base_url="assets/",
+        asset_base_url="/assets/",
         canonical_url=canonical_url,
-        indexing=INDEXING,
-    )
-
-
-def build_course_share_page(
-    semester: str,
-    course_code: str,
-    course_title: str,
-    course_fill: float,
-    section_count: int,
-) -> str:
-    """Build a course-specific share page with OG/Twitter metadata.
-
-    The page includes:
-    - Course-specific title and description meta tags
-    - OG and Twitter Card metadata for social unfurls
-    - robots noindex directive
-    - JavaScript redirect to the semester page with course hash
-    - Fallback link for users with JS disabled
-    """
-    sem_slug = semester_to_slug(semester)
-    course_slug = course_to_slug(course_code)
-
-    semester_url = f"{BASE_URL}/{semester_to_filename(semester)}"
-    share_url = f"{BASE_URL}/courses/{sem_slug}/{course_slug}.html"
-
-    fill_pct = round(course_fill * 100)
-    title = f"{course_code}" + (f" - {course_title}" if course_title else "")
-    description = (
-        f"{course_code} enrollment at {fill_pct}% "
-        f"({section_count} section{'s' if section_count != 1 else ''}) "
-        f"for {semester} at Nazarbayev University."
-    )
-
-    redirect_url = f"{semester_url}#{course_code.replace(' ', '-')}"
-
-    template = env.get_template("course-share.html.jinja")
-    return template.render(
-        title=title,
-        description=description,
-        share_url=share_url,
-        redirect_url=redirect_url,
-        course_code=course_code,
-        semester=semester,
-        fill_pct=fill_pct,
-        indexing=INDEXING,
-        js_file=None,
-        css_file=None,
-        asset_base_url="assets/",
+        og_url=og_url,
+        image_url=image_url,
+        image_alt=image_alt,
+        initial_course=course_state.get("code") if course_state else None,
+        preview_state_url=(
+            f"/data/previews/course/{course_state['hash']}.json"
+            if course_state
+            else None
+        ),
+        preview_hash=(course_state.get("hash") if course_state else state.get("hash")),
+        archived=bool(
+            course_state.get("archived") if course_state else state.get("archived")
+        ),
     )
 
 
@@ -190,21 +218,37 @@ def build_prototype_page(
     )
 
 
-def build_redirect_index() -> str:
+def build_redirect_index(latest_semester: str) -> str:
     """
     Build index.html that redirects to the latest semester.
     """
-    latest_file = semester_to_filename(LATEST_SEMESTER)
+    latest_url = f"/semesters/{semester_to_slug(latest_semester)}/"
+    canonical_url = f"{BASE_URL}/"
+    description = "See historical and frequently updated undergraduate course data."
+    image_url = f"{BASE_URL}/previews/root.png"
     return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="0; url={latest_file}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta http-equiv="refresh" content="0; url={latest_url}">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='8' fill='%23ff9100'/></svg>">
-    <title>Redirecting...</title>
+    <title>Enrollment Monitor</title>
+    <meta name="description" content="{description}">
+    <link rel="canonical" href="{canonical_url}">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Enrollment Monitor">
+    <meta property="og:description" content="{description}">
+    <meta property="og:url" content="{canonical_url}">
+    <meta property="og:image" content="{image_url}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Enrollment Monitor">
+    <meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
-    <p>Redirecting to <a href="{latest_file}">{LATEST_SEMESTER}</a>...</p>
+    <p>Redirecting to <a href="{latest_url}">{latest_semester}</a>...</p>
 </body>
 </html>
 '''
