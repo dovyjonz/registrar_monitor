@@ -41,8 +41,9 @@ export type PreviewState = {
   archived?: boolean;
   priority?: {
     label: string;
+    current?: { label: string; time: string; priority?: string } | null;
     eligible?: string[];
-    next?: { label: string; time: string } | null;
+    next?: { label: string; time: string; priority?: string } | null;
   } | null;
   milestones?: Array<{
     time: string;

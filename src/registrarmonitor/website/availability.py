@@ -87,7 +87,7 @@ def calculate_availability(sections: dict[str, dict[str, Any]]) -> dict[str, Any
         item = ordered[0]
         noun = "seat" if available == 1 else "seats"
         sentence = (
-            f"{available} {noun} open — "
+            f"{available} {noun} open; "
             f"{item['enrollment']}/{item['capacity']} enrolled."
         )
         kind = "seats"
@@ -95,7 +95,7 @@ def calculate_availability(sections: dict[str, dict[str, Any]]) -> dict[str, Any
         noun = "place" if available == 1 else "places"
         limiting_text = " and ".join(value.lower() for value in limiting)
         sentence = (
-            f"{available} registration {noun} available — Limited by {limiting_text}."
+            f"{available} registration {noun} available. Limited by {limiting_text}."
         )
         kind = "registration-places"
 

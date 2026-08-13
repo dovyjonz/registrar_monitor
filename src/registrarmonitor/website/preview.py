@@ -10,10 +10,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from registrarmonitor.config import get_timezone
+
 from .availability import calculate_availability
 from .config import course_to_slug, semester_to_slug
 
 PREVIEW_SCHEMA_VERSION = 1
+
+
+def _registrar_timestamp(value: str | None) -> str | None:
+    """Serialize observations with the same timezone carried by milestones."""
+    if not value:
+        return None
+    timestamp = datetime.fromisoformat(value.replace(" ", "T"))
+    timezone = get_timezone()
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone)
+    else:
+        timestamp = timestamp.astimezone(timezone)
+    return timestamp.isoformat()
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -63,13 +78,22 @@ def derive_priority_state(
     )
     label = f"PRIORITY {priority}"
     if current and current.get("label") == "ALL":
-        label += " — ALL"
+        label += " · ALL"
     return {
         "label": label,
+        "current": (
+            {
+                key: current[key]
+                for key in ("label", "time", "priority")
+                if key in current
+            }
+            if current
+            else None
+        ),
         "eligible": eligible,
         "next": next(
             (
-                {"label": item["label"], "time": item["time"]}
+                {key: item[key] for key in ("label", "time", "priority") if key in item}
                 for item in ordered
                 if milestone_time(item) > now and item.get("label")
             ),
@@ -137,8 +161,13 @@ def build_course_preview_state(
 ) -> dict[str, Any]:
     """Build a content-addressed state for metadata, modal fallback, and image."""
     code = course["code"]
-    last_changed = _course_last_changed(course, timestamps)
+    last_changed = _registrar_timestamp(_course_last_changed(course, timestamps))
     compact_course, compact_timestamps = _compact_course_timestamps(course, timestamps)
+    compact_timestamps = [
+        normalized
+        for value in compact_timestamps
+        if (normalized := _registrar_timestamp(value)) is not None
+    ]
     state = {
         "schemaVersion": PREVIEW_SCHEMA_VERSION,
         "kind": "course",
@@ -150,7 +179,10 @@ def build_course_preview_state(
         "status": "removed" if removed else "archived" if archived else "current",
         "archived": archived or removed,
         "availability": calculate_availability(course.get("sections", {})),
-        "priority": derive_priority_state(milestones, at=published_at or last_changed),
+        "priority": derive_priority_state(
+            milestones,
+            at=_registrar_timestamp(published_at) or last_changed,
+        ),
         "milestones": [
             {
                 key: item[key]
@@ -177,6 +209,7 @@ def build_semester_preview_state(
     """Build the state used by semester metadata and preview cards."""
     courses = summary.get("courses", {})
     current_snapshot = summary.get("currentSnapshot") or {}
+    updated = _registrar_timestamp(current_snapshot.get("observedAt"))
     open_seats = sum(
         section_type["available"]
         for department in departments.values()
@@ -196,10 +229,8 @@ def build_semester_preview_state(
             item.get("fullSectionCount", 0) for item in courses.values()
         ),
         "openSeats": open_seats,
-        "updated": current_snapshot.get("observedAt"),
-        "priority": derive_priority_state(
-            milestones, at=current_snapshot.get("observedAt")
-        ),
+        "updated": updated,
+        "priority": derive_priority_state(milestones, at=updated),
     }
     digest = _short_hash(state)
     return {"hash": digest, **state}

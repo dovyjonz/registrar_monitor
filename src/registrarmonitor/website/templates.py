@@ -125,13 +125,34 @@ def build_semester_page(
         og_url = (
             canonical_url if archived else f"{canonical_url}?v={course_state['hash']}"
         )
-        title = f"{course_state['code']} — {semester} Enrollment Monitor"
+        title = f"{course_state['code']} | {semester} Enrollment Monitor"
         course_title = course_state.get("title", "")
         availability = course_state["availability"]["sentence"]
-        priority = (course_state.get("priority") or {}).get("label")
-        description = " — ".join(
-            value for value in (course_title, availability, priority, semester) if value
+        priority_state = course_state.get("priority") or {}
+        current = priority_state.get("current") or {}
+        next_milestone = priority_state.get("next") or {}
+        current_copy = (
+            f"Open now: Priority {current.get('priority')}, {current['label']}"
+            if current.get("priority") and current.get("label")
+            else None
         )
+        next_time = _format_astana_timestamp(next_milestone.get("time"))
+        next_prefix = (
+            f"Priority {next_milestone['priority']}, "
+            if next_milestone.get("priority")
+            else ""
+        )
+        next_copy = (
+            f"Next: {next_prefix}{next_milestone['label']} on {next_time}"
+            if next_milestone.get("label") and next_time
+            else None
+        )
+        description_parts = [
+            value.rstrip(".")
+            for value in (course_title, availability, current_copy, next_copy, semester)
+            if value
+        ]
+        description = ". ".join(description_parts) + "."
         image_url = (
             f"{PREVIEW_BASE_URL}/preview/course/{sem_slug}/{course_slug}/"
             f"{course_state['hash']}.png"
@@ -140,7 +161,7 @@ def build_semester_page(
         state = course_state
     else:
         state = preview_state or {}
-        title = f"{semester} — Enrollment Monitor"
+        title = f"{semester} | Enrollment Monitor"
         if state.get("archived"):
             description = (
                 f"Registration closed. Historical data for {state.get('courseCount', 0)} "
@@ -152,7 +173,7 @@ def build_semester_page(
             description = (
                 f"{state.get('courseCount', len(data.get('cr', {})))} courses, "
                 f"{state.get('sectionCount', 0)} sections, "
-                f"{state.get('fullSectionCount', 0)} full sections — "
+                f"{state.get('fullSectionCount', 0)} full sections; "
                 f"{state.get('openSeats', 0)} seats open"
                 f"{', updated ' + updated if updated else ''}."
             )

@@ -27,7 +27,20 @@ def course_state(*, archived=False):
         "status": "removed" if archived else "current",
         "archived": archived,
         "availability": {
-            "sentence": "1 registration place available — Limited by labs.",
+            "sentence": "1 registration place available. Limited by labs.",
+        },
+        "priority": {
+            "label": "PRIORITY 2",
+            "current": {
+                "label": "Y4+",
+                "time": "2026-08-13T09:00:00+05:00",
+                "priority": "2",
+            },
+            "next": {
+                "label": "Y3",
+                "time": "2026-08-13T11:00:00+05:00",
+                "priority": "2",
+            },
         },
     }
 
@@ -78,6 +91,11 @@ def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
         "https://registrar-monitor-preview-images.spooktaken.workers.dev/"
         "preview/course/fall-2026/ant-140/a1b2c3d4e5f6.png"
     ) in html
+    assert (
+        'content="Introduction to Anthropology. 1 registration place available. '
+        "Limited by labs. Open now: Priority 2, Y4+. Next: Priority 2, Y3 on "
+        '13 Aug, 11:00 Astana time. Fall 2026."' in html
+    )
 
 
 def test_archived_course_uses_unversioned_og_url(tmp_path):

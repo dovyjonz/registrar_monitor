@@ -1164,7 +1164,7 @@ function renderCourseGrid() {
             cell.setAttribute('data-status', status);
             cell.setAttribute('data-fill', averageFill);
             cell.setAttribute('data-electives', getElectiveCategories(course.code).join(' '));
-            cell.setAttribute('aria-label', `${formatCourseCode(course.code)} — ${Math.round(averageFill * 100)}% full`);
+            cell.setAttribute('aria-label', `${formatCourseCode(course.code)}: ${Math.round(averageFill * 100)}% full`);
             cell.style.setProperty('--cell-index', totalCourses);
             const codeSpan = document.createElement('span');
             codeSpan.className = 'course-code';
@@ -1372,25 +1372,6 @@ function updateModalCourseTitle(courseCode, title) {
 }
 
 function renderCoursePublicationState(course) {
-    const availability = document.getElementById('courseAvailability');
-    const availabilityState = course?.availability;
-    if (availability) {
-        availability.textContent = '';
-        if (availabilityState?.sentence) {
-            const sentence = document.createElement('strong');
-            sentence.textContent = availabilityState.sentence;
-            availability.appendChild(sentence);
-            if (availabilityState.breakdown) {
-                const breakdown = document.createElement('span');
-                breakdown.textContent = availabilityState.breakdown;
-                availability.appendChild(breakdown);
-            }
-            availability.hidden = false;
-        } else {
-            availability.hidden = true;
-        }
-    }
-
     const state = document.getElementById('courseState');
     if (!state) return;
     const preview = course?.previewState;

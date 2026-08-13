@@ -168,9 +168,9 @@ test('section chart points keep tooltip and capacity marker metadata on the sour
 });
 
 test('the shared phased mapping keeps edge observations in compact gutters', () => {
-    const majorMilestones = [100, 200, 300].map((time, index) => ({
+    const milestones = [100, 150, 200, 300].map((time, index) => ({
         time: new Date(time).toISOString(),
-        label: `Phase ${index + 1}`,
+        label: `Milestone ${index + 1}`,
     }));
     const domain = [
         { timestamp: 0 },
@@ -183,13 +183,28 @@ test('the shared phased mapping keeps edge observations in compact gutters', () 
         'phased',
         domain,
         domain,
-        majorMilestones,
+        milestones,
     );
 
     assert.equal(mapper.mapTime(100) - mapper.mapTime(0), 2);
-    assert.equal(mapper.mapTime(200) - mapper.mapTime(100), 100);
+    assert.equal(mapper.mapTime(150) - mapper.mapTime(100), 100);
+    assert.equal(mapper.mapTime(200) - mapper.mapTime(150), 100);
     assert.equal(mapper.mapTime(300) - mapper.mapTime(200), 100);
     assert.equal(mapper.mapTime(400) - mapper.mapTime(300), 2);
+});
+
+test('the shared phased mapping leaves an observation before its future milestone', () => {
+    const latest = Date.parse('2026-08-13T10:55:00+05:00');
+    const next = Date.parse('2026-08-13T11:00:00+05:00');
+    const milestones = [
+        '2026-08-13T09:00:00+05:00',
+        '2026-08-13T11:00:00+05:00',
+        '2026-08-13T13:00:00+05:00',
+    ].map((time, index) => ({ time, label: `M${index + 1}` }));
+    const points = [{ timestamp: latest }];
+    const mapper = getChartMapper('phased', points, points, milestones);
+
+    assert.ok(mapper.mapTime(latest) < mapper.mapTime(next));
 });
 
 test('capacity changes move the capacity line without moving unchanged enrollment', () => {

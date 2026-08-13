@@ -18,7 +18,7 @@ def test_one_type_uses_seats_and_preserves_actual_totals():
     )
 
     assert result["available"] == 4
-    assert result["sentence"] == "4 seats open — 58/60 enrolled."
+    assert result["sentence"] == "4 seats open; 58/60 enrolled."
 
 
 def test_multi_type_uses_minimum_available_places_and_reports_breakdown():
@@ -35,7 +35,7 @@ def test_multi_type_uses_minimum_available_places_and_reports_breakdown():
 
     assert result["available"] == 1
     assert result["limitingTypes"] == ["Lab"]
-    assert result["sentence"] == "1 registration place available — Limited by lab."
+    assert result["sentence"] == "1 registration place available. Limited by lab."
     assert "Labs 1/4 open" in result["breakdown"]
 
 
@@ -61,7 +61,7 @@ def test_registrar_section_codes_use_the_dashboard_display_names():
 
     assert result["limitingTypes"] == ["Lab", "Lecture"]
     assert result["sentence"] == (
-        "5 registration places available — Limited by lab and lecture."
+        "5 registration places available. Limited by lab and lecture."
     )
     assert result["breakdown"] == "Lab 1/1 open, Lecture 1/1 open."
 
@@ -70,4 +70,4 @@ def test_over_capacity_contributes_zero_without_rewriting_totals():
     result = calculate_availability({"L": section("Lecture", 32, 30)})
 
     assert result["available"] == 0
-    assert result["sentence"] == "0 seats open — 32/30 enrolled."
+    assert result["sentence"] == "0 seats open; 32/30 enrolled."

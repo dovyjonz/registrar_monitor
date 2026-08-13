@@ -62,8 +62,8 @@ describe('preview card', () => {
       archived: true,
     });
 
-    expect(current).toContain('Fall 2026 — REGISTRATION OPEN');
-    expect(archived).toContain('Spring 2026 — REGISTRATION CLOSED');
+    expect(current).toContain('Fall 2026 · REGISTRATION OPEN');
+    expect(archived).toContain('Spring 2026 · REGISTRATION CLOSED');
     expect(archived).not.toContain('ARCHIVED');
   });
 
@@ -75,7 +75,7 @@ describe('preview card', () => {
       semester: 'Spring 2026',
       semesterSlug: 'spring-2026',
       availability: {
-        sentence: '7 registration places available — Limited by lab and lecture.',
+        sentence: '7 registration places available. Limited by lab and lecture.',
         breakdown: 'Labs 1/2 open, Lecture 1/1 open.',
         available: 7,
         kind: 'registration-places',
@@ -85,14 +85,14 @@ describe('preview card', () => {
           { type: 'Lab', enrollment: 45, capacity: 50, available: 5 },
         ],
       },
-      priority: { label: 'PRIORITY 3 — ALL' },
+      priority: { label: 'PRIORITY 3 · ALL' },
     });
 
     expect(html).toContain('<span class="course-readout-label">Availability</span><span class="course-readout-value">7 places open</span>');
     expect(html).not.toContain('course-readout-label">Limit');
     expect(html).not.toContain('Lab + Lecture');
     expect(html).toContain('<span class="course-readout-label">Lab</span><span class="course-readout-value">45/50 · 90% full</span>');
-    expect(html).toContain('<span class="priority">PRIORITY 3 — ALL</span>');
+    expect(html).toContain('<span class="priority">PRIORITY 3 · ALL</span>');
     expect(html).not.toContain('7 registration places available');
   });
 
@@ -104,7 +104,7 @@ describe('preview card', () => {
       semester: 'Summer 2026',
       semesterSlug: 'summer-2026',
       availability: {
-        sentence: '16 seats open — 34/50 enrolled.',
+        sentence: '16 seats open; 34/50 enrolled.',
         breakdown: 'Lecture 1/1 open.',
         available: 16,
         kind: 'seats',
@@ -118,7 +118,8 @@ describe('preview card', () => {
       },
       priority: {
         label: 'PRIORITY 1',
-        next: { label: 'Y1', time: '2026-05-12T13:00:00+05:00' },
+        current: { label: 'Y2', priority: '1', time: '2026-05-12T11:00:00+05:00' },
+        next: { label: 'Y1', priority: '1', time: '2026-05-12T13:00:00+05:00' },
       },
       course: {
         sections: { '1L': { type: 'L' } },
@@ -126,13 +127,14 @@ describe('preview card', () => {
       },
     });
 
-    expect(html).toContain('Next: Y1 — 12 May 13:00');
+    expect(html).toContain('Open now: P1 · Y2');
+    expect(html).toContain('Next: P1 · Y1 · 12 May 13:00');
     expect(html).toContain('.course-readout{width:100%');
     expect(html).toContain('justify-content:space-between;gap:5px 28px');
     expect(html).toContain('flex-wrap:wrap');
-    expect(html).toContain('class="course-readout-registration"><span class="priority">PRIORITY 1</span><span class="course-readout-context">Next: Y1 — 12 May 13:00</span>');
-    expect(html).toContain('<span class="course-readout-sections">1 Lecture section — open</span>');
-    expect(html).toContain('.course-readout-context{color:hsl(48 100% 50%);font-size:17px;font-weight:700');
+    expect(html).toContain('class="course-readout-registration"><span class="priority">Open now: P1 · Y2</span><span class="course-readout-context">Next: P1 · Y1 · 12 May 13:00</span>');
+    expect(html).toContain('<span class="course-readout-sections">1 Lecture section · open</span>');
+    expect(html).toContain('.course-readout-context{color:hsl(48 100% 55%);font-size:17px;font-weight:700');
   });
 
   it('summarizes mixed open and full sections', () => {
@@ -162,11 +164,11 @@ describe('preview card', () => {
       },
     });
 
-    expect(html).toContain('8 sections — 5 open / 3 full');
+    expect(html).toContain('8 sections · 5 open / 3 full');
     expect(html).toContain('<span class="course-readout-label">Lecture</span><span class="course-readout-value">50/60 · 83% full · 2/3 sections open</span>');
   });
 
-  it('renders compact historical milestone guides on the enrollment chart', () => {
+  it('renders every historical milestone guide with equal importance and spacing', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
@@ -193,30 +195,56 @@ describe('preview card', () => {
       ], sections: {}, sectionHistory: {} },
     });
 
-    expect(html).toContain('Milestone-phased enrollment and capacity history');
+    expect(html).toContain('Equally spaced milestone enrollment and capacity history');
     expect(html).toContain('class="milestone"');
-    expect(html).toContain('Priority 1');
-    expect(html).toContain('Priority 2');
-    expect(html).toContain('Priority 3');
+    expect(html).toContain('P1 · Y4+');
+    expect(html).toContain('P2 · Y2');
+    expect(html).toContain('P3 · ALL');
+    expect(html).toContain('>Y3</text>');
+    expect(html).toContain('>Drop</text>');
+    expect(html).toContain('>Close</text>');
     expect(html).toContain('milestone view');
     const positions = [...html.matchAll(/class="milestone"><line x1="([\d.]+)"/g)]
       .map((match) => Number(match[1]));
-    expect(positions).toHaveLength(5);
+    expect(positions).toHaveLength(8);
     const gaps = positions.slice(1).map((position, index) => position - positions[index]);
     expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThan(0.2);
-    expect(html.match(/class="minor-milestone"/g)).toHaveLength(3);
-    expect(html).toContain('<title>Priority 1, Y3</title>');
+    expect(html).not.toContain('minor-milestone');
     const labelBaselines = [...html.matchAll(/<text x="[\d.]+" y="([\d.]+)" text-anchor=/g)]
       .map((match) => Number(match[1]));
     expect(new Set(labelBaselines)).toEqual(new Set([22]));
     expect(html).toContain('style="stroke:#94A3B8"');
-    const minorPositions = [...html.matchAll(
-      /class="minor-milestone">.*?<line x1="([\d.]+)"/g,
-    )].map((match) => Number(match[1]));
-    const firstPhase = [positions[0], ...minorPositions, positions[1]];
-    const firstPhaseGaps = firstPhase.slice(1)
-      .map((position, index) => position - firstPhase[index]);
-    expect(Math.max(...firstPhaseGaps) - Math.min(...firstPhaseGaps)).toBeLessThan(0.2);
+    expect(html).toContain('class="latest-marker"');
+  });
+
+  it('ends the observed line before the next future milestone', () => {
+    const html = renderCard({
+      schemaVersion: 1,
+      kind: 'course',
+      hash: 'a1b2c3d4e5f6',
+      semester: 'Fall 2026',
+      semesterSlug: 'fall-2026',
+      timestamps: ['2026-08-13T09:00:00+05:00', '2026-08-13T10:55:00+05:00'],
+      milestones: [
+        { time: '2026-08-13T09:00:00+05:00', label: 'Y4+', color: '#00BCD4', priority: '2' },
+        { time: '2026-08-13T11:00:00+05:00', label: 'Y3', color: '#00BCD4', priority: '2' },
+        { time: '2026-08-13T13:00:00+05:00', label: 'Y2', color: '#00BCD4', priority: '2' },
+      ],
+      course: {
+        averageHistory: [
+          { timestampIdx: 0, fill: 0.5 },
+          { timestampIdx: 1, fill: 0.75 },
+        ],
+        sections: {},
+        sectionHistory: {},
+      },
+    });
+
+    const path = html.match(/class="enrollment-series" d="([^"]+)"/)?.[1] ?? '';
+    const lineEnd = Number([...path.matchAll(/H ([\d.]+)/g)].at(-1)?.[1]);
+    const milestonePositions = [...html.matchAll(/class="milestone"><line x1="([\d.]+)"/g)]
+      .map((match) => Number(match[1]));
+    expect(lineEnd).toBeLessThan(milestonePositions[1]);
   });
 
   it('renders observed capacity as a dashed step series with one change annotation', () => {
@@ -307,7 +335,7 @@ describe('preview card', () => {
     expect(html).toContain('course-card no-graph');
     expect(html).toContain('.no-graph.course-card .course-readout{margin-top:25px;min-height:230px');
     expect(html).not.toContain('<svg class="graph"');
-    expect(html).toContain('2 sections — 1 open / 1 full');
+    expect(html).toContain('2 sections · 1 open / 1 full');
     expect(html).toContain('<span class="course-readout-label">Enrollment</span><span class="course-readout-value">58/60 (97% full)</span>');
     expect(html).toContain('.no-graph.course-card .course-readout-value{text-align:right}');
   });
@@ -355,6 +383,6 @@ describe('preview card', () => {
     expect(html).toContain('font-variant-numeric:tabular-nums');
     expect(html).toContain('.semester-stats div{padding:34px 22px;text-align:right}');
     expect(html).toContain('Eligible: Y4+, Y3');
-    expect(html).toContain('Next: Y2 — 4 Aug 13:00');
+    expect(html).toContain('Next: Y2 · 4 Aug 13:00');
   });
 });

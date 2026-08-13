@@ -68,6 +68,26 @@ def test_unrelated_department_timestamp_does_not_change_course_hash():
     assert first["hash"] == second["hash"]
 
 
+def test_naive_course_observations_are_published_in_the_registrar_timezone():
+    state = build_course_preview_state(
+        semester="Fall 2026",
+        course={
+            "code": "ANT 140",
+            "sections": {},
+            "averageHistory": [{"timestampIdx": 0, "fill": 0.5}],
+            "sectionHistory": {},
+            "events": [],
+        },
+        timestamps=["2026-08-13 10:55:00"],
+        milestones=[
+            {"time": "2026-08-13T11:00:00+05:00", "label": "Y3", "priority": "2"}
+        ],
+    )
+
+    assert state["timestamps"] == ["2026-08-13T10:55:00+05:00"]
+    assert state["lastChanged"] == "2026-08-13T10:55:00+05:00"
+
+
 def test_priority_transition_changes_course_hash_without_course_change():
     course = {
         "code": "ANT 140",
@@ -98,7 +118,9 @@ def test_priority_transition_changes_course_hash_without_course_change():
     )
 
     assert first["priority"]["label"] == "PRIORITY 1"
+    assert first["priority"]["current"]["label"] == "Y4+"
     assert second["priority"]["label"] == "PRIORITY 2"
+    assert second["priority"]["current"]["label"] == "Y3"
     assert first["hash"] != second["hash"]
 
 
@@ -143,6 +165,7 @@ def test_priority_state_is_cumulative_and_uses_deadline_as_next_item():
 
     assert state["priority"]["eligible"] == ["Y4+", "Y3"]
     assert state["priority"]["next"]["label"] == "Drop"
+    assert state["priority"]["next"].get("priority") is None
 
 
 def test_course_state_carries_existing_milestones_into_the_content_hash():

@@ -228,7 +228,7 @@ test('clean live course route opens the existing modal on a narrow viewport', as
     await expect(page).toHaveURL(/\/courses\/fall-2026\/ant-101\/\?v=[a-f0-9]{12}$/);
     await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
     await expect(page.locator('#modalCourseCode')).toHaveText('ANT 101');
-    await expect(page.locator('#courseAvailability')).toBeVisible();
+    await expect(page.locator('#courseAvailability')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Nazarbayev University');
 });
 

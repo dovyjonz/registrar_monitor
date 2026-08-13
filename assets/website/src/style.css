@@ -1063,8 +1063,7 @@ header p {
     min-height: 0;            /* required: allows flex child to shrink below content size */
 }
 
-.course-state,
-.course-availability {
+.course-state {
     display: flex;
     align-items: baseline;
     gap: 0.65rem;
@@ -1076,18 +1075,8 @@ header p {
     line-height: 1.45;
 }
 
-.course-state[hidden],
-.course-availability[hidden] {
+.course-state[hidden] {
     display: none;
-}
-
-.course-availability {
-    flex-direction: column;
-    gap: 0.15rem;
-}
-
-.course-availability strong {
-    color: var(--text-primary);
 }
 
 .removed-badge {

@@ -47,16 +47,6 @@ export function getSectionTypeName(value, fallback = 'Other') {
     return SECTION_TYPE_NAMES[compact] ?? compact;
 }
 
-export function getMajorMilestones(milestones = []) {
-    const seenPriorities = new Set();
-    return milestones.filter(milestone => {
-        if (!milestone.priority) return true;
-        if (seenPriorities.has(milestone.priority)) return false;
-        seenPriorities.add(milestone.priority);
-        return true;
-    });
-}
-
 export function getEnrollmentScaleMax(values = []) {
     const maxValue = values
         .filter(Number.isFinite)
@@ -426,44 +416,32 @@ function createPiecewiseInverse(sourceValues, mappedValues) {
 }
 
 /**
- * Keep major registration phases equal while distributing intermediate
- * eligibility milestones evenly inside each phase.
+ * Give every registration and deadline milestone one equal-width interval.
  */
-export function getHierarchicalPhasedMapper(points, domain, milestones, majorMilestones) {
+export function getPhasedMapper(points, domain, milestones) {
     const chartPoints = points || [];
     const canonicalDomain = getFallbackDomain(chartPoints, domain);
     const domainTimes = getDomainTimes(canonicalDomain);
     const allTimes = getSortedUniqueNumbers(
         (milestones || []).map(milestone => new Date(milestone.time).getTime()),
     );
-    const majorTimes = getSortedUniqueNumbers(
-        (majorMilestones || []).map(milestone => new Date(milestone.time).getTime()),
-    );
-    if (majorTimes.length < 2) return getTimelineMapper(points, domain);
+    if (allTimes.length < 2) return getTimelineMapper(points, domain);
 
     const sourceValues = [];
     const mappedValues = [];
-    const firstData = domainTimes[0] ?? majorTimes[0];
-    if (firstData < majorTimes[0]) {
+    const firstData = domainTimes[0] ?? allTimes[0];
+    if (firstData < allTimes[0]) {
         sourceValues.push(firstData);
         mappedValues.push(-2);
     }
-    for (let majorIndex = 0; majorIndex < majorTimes.length - 1; majorIndex++) {
-        const start = majorTimes[majorIndex];
-        const end = majorTimes[majorIndex + 1];
-        const intermediate = allTimes.filter(time => time > start && time < end);
-        const phaseTimes = [start, ...intermediate, end];
-        const phaseWidth = 100 / (phaseTimes.length - 1);
-        phaseTimes.forEach((time, index) => {
-            if (sourceValues.at(-1) === time) return;
-            sourceValues.push(time);
-            mappedValues.push((majorIndex * 100) + (index * phaseWidth));
-        });
-    }
-    const lastData = domainTimes.at(-1) ?? majorTimes.at(-1);
-    if (lastData > majorTimes.at(-1)) {
+    allTimes.forEach((time, index) => {
+        sourceValues.push(time);
+        mappedValues.push(index * 100);
+    });
+    const lastData = domainTimes.at(-1) ?? allTimes.at(-1);
+    if (lastData > allTimes.at(-1)) {
         sourceValues.push(lastData);
-        mappedValues.push(((majorTimes.length - 1) * 100) + 2);
+        mappedValues.push(((allTimes.length - 1) * 100) + 2);
     }
     const mapTime = (time) => {
         if (time <= sourceValues[0]) return mappedValues[0];
@@ -561,14 +539,9 @@ export function getSnapshotsMapper(points, domain) {
     };
 }
 
-export function getChartMapper(mode, points, domain, milestones, majorMilestones = null) {
+export function getChartMapper(mode, points, domain, milestones) {
     if (mode === 'phased') {
-        return getHierarchicalPhasedMapper(
-            points,
-            domain,
-            milestones,
-            majorMilestones ?? getMajorMilestones(milestones),
-        );
+        return getPhasedMapper(points, domain, milestones);
     }
     if (mode === 'snapshots') return getSnapshotsMapper(points, domain);
     return getTimelineMapper(points, domain);
@@ -582,7 +555,6 @@ export function buildChartPresentation({
     domain,
     milestones = [],
     phaseMilestones = milestones,
-    majorMilestones = null,
     mode = 'phased',
 }) {
     const visiblePoints = limitPointsAroundMilestones(points, milestones);
@@ -592,7 +564,6 @@ export function buildChartPresentation({
         visiblePoints,
         visibleDomain,
         phaseMilestones,
-        majorMilestones,
     );
     return {
         visiblePoints,
