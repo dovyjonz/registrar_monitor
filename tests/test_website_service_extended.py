@@ -392,3 +392,79 @@ class TestValidatePublicOutput:
             errors = service.validate_public_output()
 
         assert any("courses/summer-2026/enrollment.sqlite3" in e for e in errors)
+
+
+def test_prunes_unreferenced_immutable_publication_files(tmp_path):
+    service = WebsiteService(output_dir=tmp_path)
+    course_hash = "111111111111"
+    semester_hash = "222222222222"
+    pages = [
+        tmp_path / "courses" / "fall-2026" / "ant-140" / "index.html",
+        tmp_path / "semesters" / "fall-2026" / "index.html",
+    ]
+    pages[0].parent.mkdir(parents=True)
+    pages[0].write_text(
+        f'data-preview-state-url="/data/previews/course/{course_hash}.json"'
+    )
+    pages[1].parent.mkdir(parents=True)
+    pages[1].write_text(
+        f'<meta property="og:image" content="/preview/semester/fall-2026/{semester_hash}.png">'
+    )
+
+    for kind, hashes in {
+        "course": [course_hash, "aaaaaaaaaaaa"],
+        "semester": [semester_hash, "bbbbbbbbbbbb"],
+    }.items():
+        root = tmp_path / "data" / "previews" / kind
+        root.mkdir(parents=True)
+        for digest in hashes:
+            (root / f"{digest}.json").write_text("{}")
+
+    semester_root = tmp_path / "data" / "fall-2026"
+    manifests_root = semester_root / "manifests"
+    blobs_root = tmp_path / "data" / "blobs"
+    manifests_root.mkdir(parents=True)
+    blobs_root.mkdir(parents=True)
+    for digest in ("current", "previous", "obsolete"):
+        (blobs_root / f"{digest}.json").write_text("{}")
+        (manifests_root / f"{digest}.json").write_text(
+            json.dumps(
+                {
+                    "summary": {"url": f"../../blobs/{digest}.json"},
+                    "departments": {},
+                }
+            )
+        )
+    (semester_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "current": "manifests/current.json",
+                "previous": "manifests/previous.json",
+            }
+        )
+    )
+
+    assets = tmp_path / "assets"
+    (assets / ".vite").mkdir(parents=True)
+    (assets / "current.js").write_text("")
+    (assets / "obsolete.js").write_text("")
+    (assets / ".vite" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "src/main.js": {"file": "assets/current.js"},
+            }
+        )
+    )
+
+    removed = service._prune_unreferenced_publication_files()
+
+    assert removed == {"assets": 1, "blobs": 1, "manifests": 1, "previews": 2}
+    assert (tmp_path / "data" / "previews" / "course" / f"{course_hash}.json").exists()
+    assert (
+        tmp_path / "data" / "previews" / "semester" / f"{semester_hash}.json"
+    ).exists()
+    assert (manifests_root / "current.json").exists()
+    assert (manifests_root / "previous.json").exists()
+    assert (blobs_root / "current.json").exists()
+    assert (blobs_root / "previous.json").exists()
+    assert (assets / "current.js").exists()

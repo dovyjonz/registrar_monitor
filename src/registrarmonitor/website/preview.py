@@ -250,7 +250,5 @@ def publish_preview_state(output_root: Path, state: dict[str, Any]) -> Path:
     temporary = path.with_name(f".{path.name}.tmp")
     with temporary.open("wb") as output:
         output.write(payload)
-        output.flush()
-        os.fsync(output.fileno())
     os.replace(temporary, path)
     return path

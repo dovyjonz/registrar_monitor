@@ -659,6 +659,91 @@ class WebsiteService:
         """Build robots.txt from the configured indexing directive."""
         return "User-agent: *\nAllow: /\n"
 
+    def _prune_unreferenced_publication_files(self) -> dict[str, int]:
+        """Remove immutable files that no current page or rollback pointer uses."""
+        removed = {"assets": 0, "blobs": 0, "manifests": 0, "previews": 0}
+
+        html = "\n".join(
+            page.read_text(encoding="utf-8") for page in self.output_dir.rglob("*.html")
+        )
+
+        preview_root = self.output_dir / "data" / "previews"
+        referenced_preview_hashes = set(
+            re.findall(r"(?:/|&quot;)([0-9a-f]{12})(?:\.json|\.png)", html)
+        )
+        if preview_root.is_dir():
+            for path in preview_root.rglob("*.json"):
+                if path.stem not in referenced_preview_hashes:
+                    path.unlink()
+                    removed["previews"] += 1
+
+        retained_manifests: set[Path] = set()
+        retained_blobs: set[Path] = set()
+        data_root = self.output_dir / "data"
+        for pointer_path in data_root.glob("*/manifest.json"):
+            pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+            for key in ("current", "previous"):
+                reference = pointer.get(key)
+                if not isinstance(reference, str) or not reference:
+                    continue
+                manifest_path = (pointer_path.parent / reference).resolve()
+                if not manifest_path.is_relative_to(data_root.resolve()):
+                    raise ValueError(
+                        f"manifest reference escapes data root: {reference}"
+                    )
+                retained_manifests.add(manifest_path)
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                references = [
+                    manifest.get("summary"),
+                    *manifest.get("departments", {}).values(),
+                ]
+                for item in references:
+                    if not isinstance(item, dict) or not isinstance(
+                        item.get("url"), str
+                    ):
+                        continue
+                    blob_path = (manifest_path.parent / item["url"]).resolve()
+                    if not blob_path.is_relative_to(data_root.resolve()):
+                        raise ValueError(
+                            f"blob reference escapes data root: {item['url']}"
+                        )
+                    retained_blobs.add(blob_path)
+
+        for manifests_root in data_root.glob("*/manifests"):
+            for path in manifests_root.glob("*.json"):
+                if path.resolve() not in retained_manifests:
+                    path.unlink()
+                    removed["manifests"] += 1
+        blobs_root = data_root / "blobs"
+        if blobs_root.is_dir():
+            for path in blobs_root.glob("*.json"):
+                if path.resolve() not in retained_blobs:
+                    path.unlink()
+                    removed["blobs"] += 1
+
+        asset_root = self.output_dir / "assets"
+        vite_manifest = asset_root / ".vite" / "manifest.json"
+        if vite_manifest.is_file():
+            manifest = json.loads(vite_manifest.read_text(encoding="utf-8"))
+            retained_assets = {vite_manifest.resolve()}
+            for entry in manifest.values():
+                if not isinstance(entry, dict):
+                    continue
+                references = [
+                    entry.get("file"),
+                    *entry.get("css", []),
+                    *entry.get("assets", []),
+                ]
+                for reference in references:
+                    if isinstance(reference, str):
+                        retained_assets.add((self.output_dir / reference).resolve())
+            for path in asset_root.rglob("*"):
+                if path.is_file() and path.resolve() not in retained_assets:
+                    path.unlink()
+                    removed["assets"] += 1
+
+        return removed
+
     def validate_public_output(self) -> list[str]:
         """Validate that the public output directory contains only allowed files.
 
@@ -861,6 +946,12 @@ class WebsiteService:
                 redirects_path = self.output_dir / "_redirects"
                 redirects_path.write_text(self._build_redirects(), encoding="utf-8")
                 print("Generated narrow legacy redirects")
+
+            removed = self._prune_unreferenced_publication_files()
+            print(
+                "Pruned obsolete immutable files: "
+                + ", ".join(f"{count} {kind}" for kind, count in removed.items())
+            )
 
             # Validate public output before any deploy can publish private artifacts.
             issues = self.validate_public_output()
