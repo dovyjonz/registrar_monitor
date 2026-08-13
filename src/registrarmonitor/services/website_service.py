@@ -736,7 +736,7 @@ class WebsiteService:
                 ]
                 for reference in references:
                     if isinstance(reference, str):
-                        retained_assets.add((self.output_dir / reference).resolve())
+                        retained_assets.add((asset_root / reference).resolve())
             for path in asset_root.rglob("*"):
                 if path.is_file() and path.resolve() not in retained_assets:
                     path.unlink()

@@ -451,7 +451,7 @@ def test_prunes_unreferenced_immutable_publication_files(tmp_path):
     (assets / ".vite" / "manifest.json").write_text(
         json.dumps(
             {
-                "src/main.js": {"file": "assets/current.js"},
+                "src/main.js": {"file": "current.js"},
             }
         )
     )
