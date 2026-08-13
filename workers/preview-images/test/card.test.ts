@@ -40,7 +40,7 @@ describe('preview card', () => {
     });
 
     expect(html).toContain('<div class="eyebrow">Spring 2026<span class="removed">REMOVED</span>');
-    expect(html).not.toContain('Spring 2026 — removed');
+    expect(html).not.toContain(`Spring 2026 ${'\u2014'} removed`);
   });
 
   it('labels current and archived courses by registration state', () => {
@@ -62,8 +62,8 @@ describe('preview card', () => {
       archived: true,
     });
 
-    expect(current).toContain('Fall 2026 · REGISTRATION OPEN');
-    expect(archived).toContain('Spring 2026 · REGISTRATION CLOSED');
+    expect(current).toContain('Fall 2026: REGISTRATION OPEN');
+    expect(archived).toContain('Spring 2026: REGISTRATION CLOSED');
     expect(archived).not.toContain('ARCHIVED');
   });
 
@@ -85,14 +85,14 @@ describe('preview card', () => {
           { type: 'Lab', enrollment: 45, capacity: 50, available: 5 },
         ],
       },
-      priority: { label: 'PRIORITY 3 · ALL' },
+      priority: { label: 'PRIORITY 3: ALL' },
     });
 
     expect(html).toContain('<span class="course-readout-label">Availability</span><span class="course-readout-value">7 places open</span>');
     expect(html).not.toContain('course-readout-label">Limit');
     expect(html).not.toContain('Lab + Lecture');
-    expect(html).toContain('<span class="course-readout-label">Lab</span><span class="course-readout-value">45/50 · 90% full</span>');
-    expect(html).toContain('<span class="priority">PRIORITY 3 · ALL</span>');
+    expect(html).toContain('<span class="course-readout-label">Lab</span><span class="course-readout-value">45/50, 90% full</span>');
+    expect(html).toContain('<span class="priority">PRIORITY 3: ALL</span>');
     expect(html).not.toContain('7 registration places available');
   });
 
@@ -127,13 +127,13 @@ describe('preview card', () => {
       },
     });
 
-    expect(html).toContain('Open now: P1 · Y2');
-    expect(html).toContain('Next: P1 · Y1 · 12 May 13:00');
+    expect(html).toContain('Open now: P1: Y2');
+    expect(html).toContain('Next: P1: Y1 at 12 May 13:00');
     expect(html).toContain('.course-readout{width:100%');
     expect(html).toContain('justify-content:space-between;gap:5px 28px');
     expect(html).toContain('flex-wrap:wrap');
-    expect(html).toContain('class="course-readout-registration"><span class="priority">Open now: P1 · Y2</span><span class="course-readout-context">Next: P1 · Y1 · 12 May 13:00</span>');
-    expect(html).toContain('<span class="course-readout-sections">1 Lecture section · open</span>');
+    expect(html).toContain('class="course-readout-registration"><span class="priority">Open now: P1: Y2</span><span class="course-readout-context">Next: P1: Y1 at 12 May 13:00</span>');
+    expect(html).toContain('<span class="course-readout-sections">1 Lecture section: open</span>');
     expect(html).toContain('.course-readout-context{color:hsl(48 100% 55%);font-size:17px;font-weight:700');
   });
 
@@ -164,8 +164,8 @@ describe('preview card', () => {
       },
     });
 
-    expect(html).toContain('8 sections · 5 open / 3 full');
-    expect(html).toContain('<span class="course-readout-label">Lecture</span><span class="course-readout-value">50/60 · 83% full · 2/3 sections open</span>');
+    expect(html).toContain('8 sections: 5 open, 3 full');
+    expect(html).toContain('<span class="course-readout-label">Lecture</span><span class="course-readout-value">50/60, 83% full, 2/3 sections open</span>');
   });
 
   it('renders every historical milestone guide with equal importance and spacing', () => {
@@ -197,9 +197,9 @@ describe('preview card', () => {
 
     expect(html).toContain('Equally spaced milestone enrollment and capacity history');
     expect(html).toContain('class="milestone"');
-    expect(html).toContain('P1 · Y4+');
-    expect(html).toContain('P2 · Y2');
-    expect(html).toContain('P3 · ALL');
+    expect(html).toContain('P1: Y4+');
+    expect(html).toContain('P2: Y2');
+    expect(html).toContain('P3: ALL');
     expect(html).toContain('>Y3</text>');
     expect(html).toContain('>Drop</text>');
     expect(html).toContain('>Close</text>');
@@ -335,7 +335,7 @@ describe('preview card', () => {
     expect(html).toContain('course-card no-graph');
     expect(html).toContain('.no-graph.course-card .course-readout{margin-top:25px;min-height:230px');
     expect(html).not.toContain('<svg class="graph"');
-    expect(html).toContain('2 sections · 1 open / 1 full');
+    expect(html).toContain('2 sections: 1 open, 1 full');
     expect(html).toContain('<span class="course-readout-label">Enrollment</span><span class="course-readout-value">58/60 (97% full)</span>');
     expect(html).toContain('.no-graph.course-card .course-readout-value{text-align:right}');
   });
@@ -383,6 +383,6 @@ describe('preview card', () => {
     expect(html).toContain('font-variant-numeric:tabular-nums');
     expect(html).toContain('.semester-stats div{padding:34px 22px;text-align:right}');
     expect(html).toContain('Eligible: Y4+, Y3');
-    expect(html).toContain('Next: Y2 · 4 Aug 13:00');
+    expect(html).toContain('Next: Y2 at 4 Aug 13:00');
   });
 });

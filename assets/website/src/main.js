@@ -465,7 +465,7 @@ function displayInstructorName(value) {
 function getHistoricalComparisonLabel(descriptor, action = 'Show') {
     if (!descriptor) return `${action} an earlier semester comparison`;
     if (descriptor.mode === 'professor') {
-        return `${action} ${descriptor.semester} · ${descriptor.professorDisplayName}`;
+        return `${action} ${descriptor.semester}: ${descriptor.professorDisplayName}`;
     }
     return `${action} ${descriptor.semester} course aggregate`;
 }
@@ -515,7 +515,7 @@ function setHistoricalComparisonState(status, descriptor = historicalComparisonD
         toggle.disabled = true;
         toggle.setAttribute('aria-pressed', 'false');
         toggle.setAttribute('aria-label', 'No qualifying earlier comparison is available');
-        toggle.textContent = 'No comparison';
+        toggle.textContent = 'No history';
         return;
     }
 
@@ -651,8 +651,8 @@ async function resolveCourseAvailability(courseCode, requestVersion, token) {
         if (result?.candidate === null) {
             if (result.error) resolvedCourseComparisons.delete(cacheKey);
             setHistoricalComparisonState(
-                result.error ? 'failed' : 'hidden',
-                result.error ? { mode: 'course' } : null,
+                result.error ? 'failed' : 'unavailable',
+                { mode: 'course' },
             );
             return;
         }
@@ -843,7 +843,7 @@ function addCurrentMilestoneAnnotations({
         const startsPriority = priority && !renderedPriorities.has(priority);
         if (startsPriority) renderedPriorities.add(priority);
         const milestoneLabel = startsPriority
-            ? compactLabels ? `P${priority}` : `P${priority} · ${milestone.label}`
+            ? compactLabels ? `P${priority}` : `P${priority}: ${milestone.label}`
             : milestone.label;
         const displayLabel = !compactLabels || startsPriority
             || DEADLINE_LABELS.has(milestone.label);
@@ -1392,7 +1392,7 @@ function renderCoursePublicationState(course) {
         })
         : null;
     copy.textContent = changed
-        ? `Removed from the registrar listing · Final state ${changed}`
+        ? `Removed from the registrar listing. Final state: ${changed}`
         : 'Removed from the registrar listing';
     state.appendChild(copy);
     state.hidden = false;
@@ -1799,7 +1799,7 @@ function createMilestoneDot(milestone, index, count, now, renderedPriorities) {
     const label = document.createElement('span');
     label.className = 'mp-dot-label';
     label.textContent = startsPriority
-        ? `P${milestone.priority} · ${milestone.label}`
+        ? `P${milestone.priority}: ${milestone.label}`
         : milestone.label;
     label.dataset.compactLabel = startsPriority ? `P${milestone.priority}` : milestone.label;
     dot.appendChild(label);
@@ -1829,7 +1829,7 @@ function renderMilestoneProgress() {
     const count = mTimes.length;
     const nextMilestone = mTimes.find(milestone => now < milestone.time);
     if (summary) {
-        const priorityPrefix = nextMilestone?.priority ? `P${nextMilestone.priority} · ` : '';
+        const priorityPrefix = nextMilestone?.priority ? `P${nextMilestone.priority}: ` : '';
         summary.textContent = nextMilestone
             ? `${priorityPrefix}Next ${nextMilestone.label}`
             : 'Registration complete';
@@ -2292,7 +2292,7 @@ async function renderChart(
     const historicalDataset = hasHistoricalDataset ? {
         id: 'historical',
         label: historicalComparison.mode === 'professor'
-            ? `${historicalComparison.semester} · ${historicalComparison.professorDisplayName}`
+            ? `${historicalComparison.semester}: ${historicalComparison.professorDisplayName}`
             : `${historicalComparison.semester} course aggregate`,
         data: displayHistoricalDataPoints,
         borderColor: 'rgba(247, 249, 252, 0.9)',
@@ -2448,11 +2448,11 @@ async function renderChart(
                                     ? ` ${enrollInfo.capacity}`
                                     : '';
                                 const openingCopy = compactTooltip ? 'opening' : 'of opening';
-                                return `Capacity: ${amount.trim() || '—'} (${Math.round(ctx.parsed.y)}% ${openingCopy})`;
+                                return `Capacity: ${amount.trim() || 'N/A'} (${Math.round(ctx.parsed.y)}% ${openingCopy})`;
                             }
                             const count = enrollInfo && enrollInfo.enrollment !== null
                                 ? `${enrollInfo.enrollment}/${enrollInfo.capacity}`
-                                : '—';
+                                : 'N/A';
                             const openingLevel = Math.round(ctx.parsed.y);
                             const fillLevel = enrollInfo?.fill ?? openingLevel;
                             const details = Math.abs(openingLevel - fillLevel) > 1

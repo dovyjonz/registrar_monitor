@@ -68,9 +68,9 @@ test('generated production site serves a working semester dashboard', async ({ p
     await page.locator('.milestone-details summary').click();
     await expect(page.locator('.milestone-details')).toHaveAttribute('open', '');
     const milestoneLabels = await page.locator('.mp-dot-label').allTextContents();
-    expect(milestoneLabels).toContain('P1 · Y4+');
-    expect(milestoneLabels).toContain('P2 · Y3+');
-    expect(milestoneLabels).toContain('P3 · ALL');
+    expect(milestoneLabels).toContain('P1: Y4+');
+    expect(milestoneLabels).toContain('P2: Y3+');
+    expect(milestoneLabels).toContain('P3: ALL');
     const timelineColors = await page.locator('.mp-fill').evaluate(element => (
         getComputedStyle(element).backgroundImage
     ));
@@ -592,7 +592,7 @@ test('continuous phased time works on mobile', async ({ page }) => {
     await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'true');
     await expect(page.locator('.chart-readout-pinned')).toHaveText('Pinned');
     await expect(page.locator('.chart-readout-context')).toContainText(/Year|deadline/);
-    await expect(page.locator('.chart-readout-context')).not.toContainText('·');
+    await expect(page.locator('.chart-readout-context')).not.toContainText('\u00b7');
     expect(await page.locator('.chart-readout-pinned').evaluate(element => (
         element.getBoundingClientRect().right
             <= element.parentElement.getBoundingClientRect().right
@@ -941,6 +941,22 @@ test('historical course comparison renders when the current course has no chart 
         .toBe('1');
 });
 
+test('historical comparison reports no history instead of remaining in a fetching state', async ({ page }) => {
+    const response = await page.goto('/semesters/fall-2026/');
+    expect(response?.ok()).toBe(true);
+
+    await page.locator('.course-cell[data-course="ANT 233"]').click();
+    const controls = page.locator('#historicalComparisonControls');
+    const toggle = page.locator('#historicalComparisonToggle');
+    await expect(controls).toHaveAttribute('data-state', 'idle');
+
+    await toggle.click();
+
+    await expect(controls).toHaveAttribute('data-state', 'unavailable');
+    await expect(toggle).toHaveText('No history');
+    await expect(toggle).toBeDisabled();
+});
+
 test('selecting a section switches to professor comparison and deselecting returns to course mode', async ({ page }) => {
     const current = readSemesterManifestFixture('fall-2026');
     const historical = readSemesterManifestFixture('fall-2025');
@@ -1027,7 +1043,7 @@ test('selecting a section switches to professor comparison and deselecting retur
         'enabled',
     );
     await expect(page.locator('#historicalComparisonToggle')).toHaveAccessibleName(
-        /Hide Fall 2025 · Jane Smith/,
+        /Hide Fall 2025: Jane Smith/,
     );
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
         .toBe('1');

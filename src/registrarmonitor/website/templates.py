@@ -125,7 +125,7 @@ def build_semester_page(
         og_url = (
             canonical_url if archived else f"{canonical_url}?v={course_state['hash']}"
         )
-        title = f"{course_state['code']} | {semester} Enrollment Monitor"
+        title = f"{course_state['code']}: {semester} Enrollment Monitor"
         course_title = course_state.get("title", "")
         availability = course_state["availability"]["sentence"]
         priority_state = course_state.get("priority") or {}
@@ -161,7 +161,7 @@ def build_semester_page(
         state = course_state
     else:
         state = preview_state or {}
-        title = f"{semester} | Enrollment Monitor"
+        title = f"{semester}: Enrollment Monitor"
         if state.get("archived"):
             description = (
                 f"Registration closed. Historical data for {state.get('courseCount', 0)} "

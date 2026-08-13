@@ -78,7 +78,7 @@ def derive_priority_state(
     )
     label = f"PRIORITY {priority}"
     if current and current.get("label") == "ALL":
-        label += " · ALL"
+        label += ": ALL"
     return {
         "label": label,
         "current": (

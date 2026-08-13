@@ -127,13 +127,13 @@ OUTPUT_DIR = (
 # Registration milestones are grouped by their explicit priority in settings.toml.
 # Priority waves are colored in this order:
 _PRIORITY_PALETTES: list[list[str]] = [
-    # Group 1 — warm (reds / oranges)
+    # Group 1: warm (reds / oranges)
     ["#FF1744", "#FF5722", "#FF9100", "#FFC400"],
-    # Group 2 — cool (cyan / blue)
+    # Group 2: cool (cyan / blue)
     ["#00E5FF", "#00B0FF", "#2979FF", "#651FFF"],
-    # Group 3 — magenta
+    # Group 3: magenta
     ["#D500F9", "#E040FB", "#EA80FC", "#CE93D8"],
-    # Group 4+ — fallback neutral
+    # Group 4+: fallback neutral
     ["#78909C", "#546E7A", "#455A64", "#37474F"],
 ]
 

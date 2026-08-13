@@ -17,7 +17,7 @@ const PLACEHOLDER_INSTRUCTOR_NAMES = new Set([
     'to be announced',
     '-',
     '–',
-    '—',
+    '\u2014',
 ]);
 
 export function normalizeInstructorName(value) {
