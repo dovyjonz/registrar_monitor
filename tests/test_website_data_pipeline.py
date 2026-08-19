@@ -139,7 +139,7 @@ class TestHistoryIndicesInMilestoneWindow:
         assert result == {0, 1}
 
 
-def test_history_indices_for_website_keeps_terminal_snapshot_outside_window():
+def test_history_indices_for_website_rejects_terminal_snapshot_outside_window():
     snapshots = [
         {"timestamp": "2024-01-15T11:00:00"},
         {"timestamp": "2024-01-15T12:00:00"},
@@ -153,7 +153,7 @@ def test_history_indices_for_website_keeps_terminal_snapshot_outside_window():
         buffer_hours=1,
     )
 
-    assert result == {0, 1, 2}
+    assert result == {0, 1}
 
 
 def test_history_indices_for_website_keeps_a_24_hour_milestone_buffer():

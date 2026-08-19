@@ -22,6 +22,8 @@ export type PreviewState = {
     breakdown: string;
     available: number;
     kind?: 'seats' | 'registration-places';
+    status?: 'empty' | 'open' | 'full' | 'required-type-full';
+    compact?: string;
     limitingTypes?: string[];
     types?: Array<{
       type: string;
@@ -40,10 +42,11 @@ export type PreviewState = {
   lastChanged?: string;
   archived?: boolean;
   priority?: {
-    label: string;
-    current?: { label: string; time: string; priority?: string } | null;
+    compact?: string | null;
+    full?: string | null;
+    current?: { label: string; time: string; priority?: string; compact?: string; full?: string } | null;
     eligible?: string[];
-    next?: { label: string; time: string; priority?: string } | null;
+    next?: { label: string; time: string; priority?: string; compact?: string; full?: string } | null;
   } | null;
   milestones?: Array<{
     time: string;
@@ -71,7 +74,7 @@ export type PreviewState = {
 
 const SEMESTER = /^(fall|spring|summer)-\d{4}$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const HASH = /^[a-f0-9]{12}$/;
+const HASH = /^[A-Za-z0-9_-]{8}$/;
 
 export function parsePreviewRoute(pathname: string): RouteIdentity | null {
   const parts = pathname.split('/').filter(Boolean);

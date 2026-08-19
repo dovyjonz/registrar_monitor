@@ -17,7 +17,7 @@ def manifest(tmp_path):
 
 def course_state(*, archived=False):
     return {
-        "hash": "a1b2c3d4e5f6",
+        "hash": "obLD1OX2",
         "kind": "course",
         "semester": "Fall 2026",
         "semesterSlug": "fall-2026",
@@ -30,7 +30,8 @@ def course_state(*, archived=False):
             "sentence": "1 registration place available. Limited by labs.",
         },
         "priority": {
-            "label": "PRIORITY 2",
+            "compact": "P2 · Y4+",
+            "full": "Priority 2 — Year 4+",
             "current": {
                 "label": "Y4+",
                 "time": "2026-08-13T09:00:00+05:00",
@@ -60,13 +61,17 @@ def test_semester_shell_uses_root_absolute_assets_and_versioned_metadata(tmp_pat
         "Fall 2026",
         manifest_path=manifest(tmp_path),
         semesters=["Fall 2026"],
-        preview_state={"hash": "a1b2c3d4e5f6"},
+        preview_state={"hash": "obLD1OX2"},
     )
 
     assert 'href="/assets/main-test.css"' in html
     assert 'src="/assets/main-test.js"' in html
     assert 'data-manifest-url="/data/fall-2026/manifest.json"' in html
-    assert "/semesters/fall-2026/?v=a1b2c3d4e5f6" in html
+    assert 'title="Literal elapsed time"' in html
+    assert 'id="registrationUnavailableGuide"' in html
+    assert "Required sections full" in html
+    assert "long gaps shortened" not in html
+    assert "/semesters/fall-2026/?v=" not in html
     assert '<meta name="robots" content="noindex, nofollow">' in html
 
 
@@ -81,20 +86,19 @@ def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
     )
 
     assert 'data-initial-course="ANT 140"' in html
-    assert 'data-preview-state-url="/data/previews/course/a1b2c3d4e5f6.json"' in html
+    assert 'data-preview-state-url="/data/previews/course/obLD1OX2.json"' in html
     assert (
         '<link rel="canonical" href="https://registrar-monitor.pages.dev/courses/fall-2026/ant-140/">'
         in html
     )
-    assert "/courses/fall-2026/ant-140/?v=a1b2c3d4e5f6" in html
+    assert "/courses/fall-2026/ant-140/?v=obLD1OX2" in html
     assert (
         "https://registrar-monitor-preview-images.spooktaken.workers.dev/"
-        "preview/course/fall-2026/ant-140/a1b2c3d4e5f6.png"
+        "preview/course/fall-2026/ant-140/obLD1OX2.png"
     ) in html
     assert (
         'content="Introduction to Anthropology. 1 registration place available. '
-        "Limited by labs. Open now: Priority 2, Y4+. Next: Priority 2, Y3 on "
-        '13 Aug, 11:00 Astana time. Fall 2026."' in html
+        'Limited by labs."' in html
     )
 
 
@@ -124,7 +128,7 @@ def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
         manifest_path=manifest(tmp_path),
         semesters=["Fall 2026", "Spring 2026"],
         preview_state={
-            "hash": "a1b2c3d4e5f6",
+            "hash": "obLD1OX2",
             "archived": True,
             "courseCount": 391,
             "sectionCount": 846,

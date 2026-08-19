@@ -24,6 +24,16 @@ updates:
         dependency-type: development
     open-pull-requests-limit: 5
 
+  - package-ecosystem: npm
+    directory: /workers/preview-images
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      preview-worker-development:
+        dependency-type: development
+    open-pull-requests-limit: 5
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

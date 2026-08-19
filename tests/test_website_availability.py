@@ -1,4 +1,4 @@
-from registrarmonitor.website.availability import calculate_availability
+from registrarmonitor.availability import calculate_availability
 
 
 def section(section_type, enrollment, capacity):
@@ -71,3 +71,52 @@ def test_over_capacity_contributes_zero_without_rewriting_totals():
 
     assert result["available"] == 0
     assert result["sentence"] == "0 seats open; 32/30 enrolled."
+
+
+def test_required_type_full_is_a_first_class_course_state():
+    result = calculate_availability(
+        {
+            "L1": section("L", 10, 20),
+            "B1": section("B", 15, 15),
+        }
+    )
+
+    assert result["status"] == "required-type-full"
+    assert result["compact"] == "LAB FULL"
+    assert result["sentence"] == "No registration places — all Lab sections are full."
+
+
+def test_two_required_types_full_are_named_together():
+    result = calculate_availability(
+        {
+            "L1": section("L", 20, 20),
+            "B1": section("B", 15, 15),
+        }
+    )
+
+    assert result["compact"] == "LAB + LECTURE FULL"
+    assert result["sentence"] == (
+        "No registration places — all Lab and Lecture sections are full."
+    )
+
+
+def test_three_required_types_full_use_compact_summary_and_full_enumeration():
+    result = calculate_availability(
+        {
+            "L1": section("L", 20, 20),
+            "B1": section("B", 15, 15),
+            "R1": section("R", 10, 10),
+        }
+    )
+
+    assert result["compact"] == "MULTIPLE TYPES FULL"
+    assert result["sentence"] == (
+        "No registration places — all required Lab/Lecture/Recitation sections are full."
+    )
+
+
+def test_single_type_full_remains_ordinary_full():
+    result = calculate_availability({"L1": section("L", 20, 20)})
+
+    assert result["status"] == "full"
+    assert result["compact"] == "FULL"

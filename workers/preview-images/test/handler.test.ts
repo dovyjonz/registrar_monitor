@@ -36,7 +36,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('preview request handling', () => {
   it('caches a successful PNG under the immutable request URL', async () => {
-    const hash = 'a1b2c3d4e5f6';
+    const hash = 'obLD1OX2';
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json(state(hash)));
     const { cache, env, quickAction } = runtime();
     const request = new Request(`https://example.test/preview/course/fall-2026/ant-140/${hash}.png`);
@@ -53,11 +53,11 @@ describe('preview request handling', () => {
 
   it('uses a distinct cache identity for a new hash', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const hash = /([a-f0-9]{12})\.json$/.exec(String(input))?.[1] ?? '';
+      const hash = /([A-Za-z0-9_-]{8})\.json$/.exec(String(input))?.[1] ?? '';
       return Response.json(state(hash));
     });
     const { cache, env, quickAction } = runtime();
-    for (const hash of ['a1b2c3d4e5f6', 'b1b2c3d4e5f6']) {
+    for (const hash of ['obLD1OX2', 'ubLD1OX2']) {
       const context = createExecutionContext();
       await handlePreviewRequest(
         new Request(`https://example.test/preview/course/fall-2026/ant-140/${hash}.png`),
@@ -71,7 +71,7 @@ describe('preview request handling', () => {
   });
 
   it('keeps missing state and renderer failures non-cacheable', async () => {
-    const hash = 'a1b2c3d4e5f6';
+    const hash = 'obLD1OX2';
     const request = new Request(`https://example.test/preview/course/fall-2026/ant-140/${hash}.png`);
     const missingRuntime = runtime();
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('', { status: 404 }));
@@ -91,7 +91,7 @@ describe('preview request handling', () => {
   });
 
   it('rejects an oversized streamed state without relying on Content-Length', async () => {
-    const hash = 'a1b2c3d4e5f6';
+    const hash = 'obLD1OX2';
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
       new ReadableStream({
         start(controller) {
@@ -114,7 +114,7 @@ describe('preview request handling', () => {
   });
 
   it('serves HEAD from the same immutable cache identity as GET', async () => {
-    const hash = 'a1b2c3d4e5f6';
+    const hash = 'obLD1OX2';
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json(state(hash)));
     const { cache, env, quickAction } = runtime();
     const url = `https://example.test/preview/course/fall-2026/ant-140/${hash}.png`;

@@ -18,16 +18,57 @@ SPEC.loader.exec_module(seed_smoke_data)
 
 
 def test_main_seeds_every_configured_semester():
-    seeded_semesters = []
+    seeded_snapshots = []
 
     def fake_seed_semester(**kwargs):
         assert kwargs["snapshot"].semester == kwargs["semester"]
-        seeded_semesters.append(kwargs["semester"])
+        seeded_snapshots.append(kwargs["snapshot"])
 
     with patch.object(seed_smoke_data, "_seed_semester", fake_seed_semester):
         seed_smoke_data.main(data_dir=Path("data"), report_dir=Path("output"))
 
-    assert seeded_semesters == get_configured_semesters()
+    assert {snapshot.semester for snapshot in seeded_snapshots} == set(
+        get_configured_semesters()
+    )
+    assert all(
+        len(
+            [snapshot for snapshot in seeded_snapshots if snapshot.semester == semester]
+        )
+        >= 4
+        for semester in get_configured_semesters()
+    )
+
+    latest_fall = next(
+        snapshot
+        for snapshot in reversed(seeded_snapshots)
+        if snapshot.semester == "Fall 2026"
+    )
+    assert {
+        "ANT 101",
+        "ANT 233",
+        "BIOL 101",
+        "HST 100",
+        "HST 104",
+        "KAZ 368",
+        "LING 131",
+        "MATH 161",
+    } <= set(latest_fall.courses)
+    assert set(latest_fall.courses["MATH 161"].sections) == {"1L", "1R", "3L"}
+
+    latest_summer = next(
+        snapshot
+        for snapshot in reversed(seeded_snapshots)
+        if snapshot.semester == "Summer 2026"
+    )
+    assert {"ANT 110", "BUS 101", "CHME 403"} <= set(latest_summer.courses)
+    assert latest_summer.courses["CHME 403"].is_filled
+
+    historical_codes = {
+        snapshot.semester: set(snapshot.courses)
+        for snapshot in seeded_snapshots
+        if snapshot.semester != "Fall 2026"
+    }
+    assert all("ANT 233" not in codes for codes in historical_codes.values())
 
 
 def test_main_builds_fixture_for_configured_storage_modes(tmp_path: Path):
@@ -41,8 +82,10 @@ def test_main_builds_fixture_for_configured_storage_modes(tmp_path: Path):
         manager = DatabaseManager(db_path=str(database), semester=semester)
         configured_mode, _ = seed_smoke_data._configured_storage(semester)
         assert manager.storage_mode == configured_mode
-        assert manager.get_latest_snapshot_id() == 1
-        snapshot = manager.get_snapshot_data(1)
+        latest_snapshot_id = manager.get_latest_snapshot_id()
+        assert latest_snapshot_id is not None
+        assert latest_snapshot_id >= 4
+        snapshot = manager.get_snapshot_data(latest_snapshot_id)
         assert snapshot is not None
         assert {"MATH 161", "KAZ 368"} <= set(snapshot.courses)
 

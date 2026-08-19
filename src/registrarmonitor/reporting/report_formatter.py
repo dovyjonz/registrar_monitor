@@ -1,16 +1,17 @@
 """Formats enrollment data into human-readable reports."""
 
+from ..availability import calculate_availability
 from ..models import (
     Course,
     CourseChangeDetail,
     EnrollmentComparison,
     EnrollmentSnapshot,
 )
+from ..registration import derive_priority_state, get_priority_milestones
 from ..utils import get_section_sort_key
 
 # Status thresholds
 NEAR_THRESHOLD = 0.75  # 75%
-SIGNIFICANT_CHANGE_THRESHOLD = 0.15  # 15%
 
 
 class ReportFormatter:
@@ -62,12 +63,6 @@ class ReportFormatter:
             return "🟠"
         return "🟢"
 
-    def _format_change_delta(self, delta: float) -> str:
-        """Format change delta with optional significant change indicator."""
-        if abs(delta) > SIGNIFICANT_CHANGE_THRESHOLD:
-            return f"🔺{delta:+.0%}"
-        return f"{delta:+.0%}"
-
     def _modified_section_sort_key(self, sec_mod, current_course_obj) -> tuple:
         """Sort modified sections using shared sort logic."""
         section_type = None
@@ -75,6 +70,32 @@ class ReportFormatter:
             section_type = current_course_obj.sections[sec_mod.section_id].section_type
 
         return get_section_sort_key(sec_mod.section_id, section_type)
+
+    @staticmethod
+    def _course_availability(course: Course) -> dict:
+        return calculate_availability(
+            {
+                code: {
+                    "type": section.section_type,
+                    "currentEnrollment": section.enrollment,
+                    "currentCapacity": section.capacity,
+                }
+                for code, section in course.sections.items()
+            }
+        )
+
+    def _course_heading(self, course: Course) -> str:
+        availability = self._course_availability(course)
+        if availability["status"] == "required-type-full":
+            limiting_types = availability["limitingTypes"]
+            all_types = availability["types"]
+            state = (
+                availability["compact"]
+                if len(limiting_types) < len(all_types)
+                else "100%"
+            )
+            return f"{course.course_code} - {state}"
+        return course.course_code
 
     def format_changes_report(
         self,
@@ -86,13 +107,15 @@ class ReportFormatter:
 
         report_lines = []
 
-        # Header with date/time and overall fill
         timestamp = comparison.current_snapshot_timestamp
-        overall_fill_change = current.overall_fill - previous.overall_fill
-        change_str = self._format_change_delta(overall_fill_change)
-        report_lines.append(
-            f"📅 {timestamp} | 📈 {current.overall_fill:.0%} ({change_str})"
+        priority = derive_priority_state(
+            get_priority_milestones(current.semester),
+            at=timestamp,
         )
+        priority_copy = (
+            f" · {priority['compact']}" if priority and priority.get("compact") else ""
+        )
+        report_lines.append(f"📅 {timestamp}{priority_copy}")
         report_lines.append("")
 
         # Pre-compute lookups for O(1) access
@@ -125,36 +148,14 @@ class ReportFormatter:
 
             # Format course header line
             if is_new_course and current_course:
-                emoji = self._get_status_emoji(
-                    current_course.average_fill, is_course=True, course=current_course
-                )
-                report_lines.append(
-                    f"✨ {course_code} {current_course.average_fill:.0%} (NEW)"
-                )
-                # Show all sections for new courses
-                for sec in sorted(
-                    current_course.sections.values(),
-                    key=lambda s: get_section_sort_key(s.section_id, s.section_type),
-                ):
-                    sec_emoji = self._get_status_emoji(sec.fill)
-                    report_lines.append(
-                        f"  {sec_emoji} {sec.section_id:<4}: {sec.enrollment:>3}/{sec.capacity}"
-                    )
+                heading = self._course_heading(current_course)
+                report_lines.append(f"+ {heading} - COURSE ADDED")
 
             elif is_removed_course and prev_course:
-                report_lines.append(
-                    f"❌ {course_code} (REMOVED) was {prev_course.average_fill:.0%}"
-                )
+                report_lines.append(f"− {course_code} - COURSE REMOVED")
 
             elif course_change_detail and current_course and prev_course:
-                emoji = self._get_status_emoji(
-                    current_course.average_fill, is_course=True, course=current_course
-                )
-                avg_fill_delta = current_course.average_fill - prev_course.average_fill
-                change_str = self._format_change_delta(avg_fill_delta)
-                report_lines.append(
-                    f"{emoji} {course_code} {current_course.average_fill:.0%} ({change_str})"
-                )
+                report_lines.append(self._course_heading(current_course))
 
                 # Format sections with changes
                 section_lines = []
@@ -164,9 +165,8 @@ class ReportFormatter:
                     course_change_detail.added_sections,
                     key=lambda s: get_section_sort_key(s.section_id, s.section_type),
                 ):
-                    sec_emoji = self._get_status_emoji(section.fill)
                     section_lines.append(
-                        f"  {sec_emoji} {section.section_id:<4}: {section.enrollment:>3}/{section.capacity} (NEW)"
+                        f"  + {section.section_id:<4} {section.enrollment:>3}/{section.capacity} - SECTION ADDED"
                     )
 
                 # Removed sections
@@ -174,7 +174,9 @@ class ReportFormatter:
                     course_change_detail.removed_sections,
                     key=lambda s: get_section_sort_key(s.section_id, s.section_type),
                 ):
-                    section_lines.append(f"  ❌ {section.section_id:<4}: (REMOVED)")
+                    section_lines.append(
+                        f"  − {section.section_id:<4}                 - SECTION REMOVED"
+                    )
 
                 # Modified sections
                 reportable_modified_sections = [
@@ -192,11 +194,17 @@ class ReportFormatter:
                         enrollment_delta = (sec_mod.current_enrollment or 0) - (
                             sec_mod.previous_enrollment or 0
                         )
-                        change_details = [f"{enrollment_delta:+d}"]
+                        delta_text = (
+                            f"+{enrollment_delta}"
+                            if enrollment_delta > 0
+                            else f"−{abs(enrollment_delta)}"
+                            if enrollment_delta < 0
+                            else "0"
+                        )
                         section_lines.append(
                             f"  {sec_emoji} {sec_mod.section_id:<4}: "
                             f"{sec_mod.current_enrollment:>3}/{sec_mod.current_capacity} "
-                            f"({'; '.join(change_details)})"
+                            f"({delta_text})"
                         )
 
                 if section_lines:

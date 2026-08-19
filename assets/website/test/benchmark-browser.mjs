@@ -1,6 +1,13 @@
 import { chromium } from '@playwright/test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
-const [url, coldText = '10', warmText = '20'] = process.argv.slice(2);
+const [
+    url,
+    coldText = '10',
+    warmText = '20',
+    artifactDirectory = 'output/benchmark-browser',
+] = process.argv.slice(2);
 if (!url) {
     throw new Error('usage: node test/benchmark-browser.mjs URL [COLD] [WARM]');
 }
@@ -25,135 +32,190 @@ const summarize = (samples, unit = 'ns') => {
     };
 };
 
+const readNavigationMetrics = () => {
+    const entry = performance.getEntriesByType('navigation')[0];
+    const resources = performance.getEntriesByType('resource');
+    const allEntries = [entry, ...resources].filter(Boolean);
+    return {
+        domContentLoadedNs: Math.round(entry.domContentLoadedEventEnd * 1e6),
+        loadNs: Math.round(entry.loadEventEnd * 1e6),
+        transferredBytes: Math.round(
+            allEntries.reduce((total, resource) => total + resource.transferSize, 0),
+        ),
+        encodedBytes: Math.round(
+            allEntries.reduce((total, resource) => total + resource.encodedBodySize, 0),
+        ),
+    };
+};
+
+const readBenchmarkMetrics = () => {
+    const latestMark = name => {
+        const marks = performance.getEntriesByName(name);
+        return marks[marks.length - 1] || null;
+    };
+    const navigationEntry = performance.getEntriesByType('navigation')[0];
+    const resourceEntries = [
+        navigationEntry,
+        ...performance.getEntriesByType('resource'),
+    ].filter(Boolean);
+    const pathname = name => {
+        try {
+            return new URL(name, window.location.href).pathname;
+        } catch {
+            return name;
+        }
+    };
+    const isJson = entry => pathname(entry.name).endsWith('.json');
+    const isDataBlob = entry => (
+        isJson(entry) && pathname(entry.name).includes('/data/blobs/')
+    );
+    const responseEnd = entry => entry.responseEnd || entry.startTime + entry.duration;
+    const completedBetween = (startTime, endTime) => resourceEntries.filter(entry => (
+        entry.startTime >= startTime
+        && responseEnd(entry) > 0
+        && responseEnd(entry) <= endTime
+    ));
+    const sum = (entries, field) => Math.round(
+        entries.reduce((total, entry) => total + (entry[field] || 0), 0),
+    );
+
+    const summaryReady = latestMark('registrar:summary-ready');
+    const gridDomComplete = latestMark('registrar:grid-dom-complete');
+    const gridRendered = latestMark('registrar:grid-rendered');
+    const courseClick = latestMark('benchmark:course-click');
+    const courseDetailReady = latestMark('registrar:course-detail-ready');
+    const courseRendered = latestMark('registrar:course-rendered');
+    if (!summaryReady || !gridDomComplete || !gridRendered || !courseClick
+        || !courseDetailReady || !courseRendered) {
+        throw new Error('benchmark performance marks are incomplete');
+    }
+
+    const initialEntries = completedBetween(0, gridRendered.startTime);
+    const courseEntries = completedBetween(
+        courseClick.startTime,
+        courseRendered.startTime,
+    );
+    const summaryEntry = initialEntries.find(isDataBlob);
+
+    return {
+        initialTransferBytes: sum(initialEntries, 'transferSize'),
+        initialRequestCount: initialEntries.length,
+        initialJsonRequestCount: initialEntries.filter(isJson).length,
+        summaryBytes: summaryEntry ? Math.round(summaryEntry.encodedBodySize) : 0,
+        gridRenderTimeNs: Math.round((gridRendered.startTime - summaryReady.startTime) * 1e6),
+        navigationToGridReadyNs: Math.round(gridRendered.startTime * 1e6),
+        courseOpenBytes: sum(courseEntries, 'encodedBodySize'),
+        courseOpenDataBytes: sum(
+            courseEntries.filter(isDataBlob),
+            'encodedBodySize',
+        ),
+        courseOpenRequestCount: courseEntries.length,
+    };
+};
+
 const browser = await chromium.launch({ headless: true });
 const browserVersion = browser.version();
 
-async function measure(context) {
+async function retainFailureArtifacts(page, label, phase, error, messages) {
+    await mkdir(artifactDirectory, { recursive: true });
+    const base = path.join(artifactDirectory, label);
+    const state = await page.evaluate(() => ({
+        url: window.location.href,
+        title: document.title,
+        bodyDataset: { ...document.body?.dataset },
+        bodyText: document.body?.innerText.slice(0, 4000) || '',
+        marks: performance.getEntriesByType('mark').map(mark => mark.name),
+    })).catch(evaluationError => ({
+        evaluationError: String(evaluationError),
+    }));
+    const writes = [
+        page.screenshot({ path: `${base}.png`, fullPage: true }),
+        page.content().then(html => writeFile(`${base}.html`, html)),
+        writeFile(`${base}.json`, `${JSON.stringify({
+            phase,
+            error: String(error),
+            messages,
+            state,
+        }, null, 2)}\n`),
+    ];
+    await Promise.allSettled(writes);
+}
+
+async function measure(context, label) {
     const page = await context.newPage();
-    const start = process.hrtime.bigint();
-    await page.goto(url, { waitUntil: 'load' });
-    await page.locator('body').waitFor({ state: 'visible' });
-    await page.waitForFunction(() => (
-        performance.getEntriesByName('registrar:summary-ready').length > 0
-        && performance.getEntriesByName('registrar:grid-dom-complete').length > 0
-        && performance.getEntriesByName('registrar:grid-rendered').length > 0
+    const messages = [];
+    page.on('console', message => messages.push(`console:${message.type()}: ${message.text()}`));
+    page.on('pageerror', error => messages.push(`pageerror: ${error}`));
+    page.on('requestfailed', request => messages.push(
+        `requestfailed: ${request.url()} (${request.failure()?.errorText || 'unknown'})`,
     ));
-    const readyNs = Number(process.hrtime.bigint() - start);
-    const navigation = await page.evaluate(() => {
-        const entry = performance.getEntriesByType('navigation')[0];
-        const resources = performance.getEntriesByType('resource');
-        const allEntries = [entry, ...resources].filter(Boolean);
-        return {
-            domContentLoadedNs: Math.round(entry.domContentLoadedEventEnd * 1e6),
-            loadNs: Math.round(entry.loadEventEnd * 1e6),
-            transferredBytes: Math.round(
-                allEntries.reduce((total, resource) => total + resource.transferSize, 0),
-            ),
-            encodedBytes: Math.round(
-                allEntries.reduce((total, resource) => total + resource.encodedBodySize, 0),
-            ),
-        };
-    });
-
-    const courseStart = process.hrtime.bigint();
-    await page.evaluate(() => performance.mark('benchmark:course-click'));
-    await page.locator('.course-cell').first().click();
-    await page.locator('#modalOverlay.active').waitFor({ state: 'visible' });
-    await page.waitForFunction(() => (
-        performance.getEntriesByName('registrar:course-detail-ready').length > 0
-        && performance.getEntriesByName('registrar:course-rendered').length > 0
-    ));
-    const courseReadyNs = Number(process.hrtime.bigint() - courseStart);
-    const measured = await page.evaluate(() => {
-        const latestMark = name => {
-            const marks = performance.getEntriesByName(name);
-            return marks[marks.length - 1] || null;
-        };
-        const navigationEntry = performance.getEntriesByType('navigation')[0];
-        const resourceEntries = [
-            navigationEntry,
-            ...performance.getEntriesByType('resource'),
-        ].filter(Boolean);
-        const pathname = name => {
-            try {
-                return new URL(name, window.location.href).pathname;
-            } catch {
-                return name;
-            }
-        };
-        const isJson = entry => pathname(entry.name).endsWith('.json');
-        const isDataBlob = entry => (
-            isJson(entry) && pathname(entry.name).includes('/data/blobs/')
-        );
-        const responseEnd = entry => entry.responseEnd || entry.startTime + entry.duration;
-        const completedBetween = (startTime, endTime) => resourceEntries.filter(entry => (
-            entry.startTime >= startTime
-            && responseEnd(entry) > 0
-            && responseEnd(entry) <= endTime
+    let phase = 'initial-grid';
+    try {
+        const start = process.hrtime.bigint();
+        await page.goto(url, { waitUntil: 'load' });
+        await page.locator('body').waitFor({ state: 'visible' });
+        await page.waitForFunction(() => (
+            performance.getEntriesByName('registrar:summary-ready').length > 0
+            && performance.getEntriesByName('registrar:grid-dom-complete').length > 0
+            && performance.getEntriesByName('registrar:grid-rendered').length > 0
         ));
-        const sum = (entries, field) => Math.round(
-            entries.reduce((total, entry) => total + (entry[field] || 0), 0),
-        );
+        const readyNs = Number(process.hrtime.bigint() - start);
+        const navigation = await page.evaluate(readNavigationMetrics);
 
-        const summaryReady = latestMark('registrar:summary-ready');
-        const gridDomComplete = latestMark('registrar:grid-dom-complete');
-        const gridRendered = latestMark('registrar:grid-rendered');
-        const courseClick = latestMark('benchmark:course-click');
-        const courseDetailReady = latestMark('registrar:course-detail-ready');
-        const courseRendered = latestMark('registrar:course-rendered');
-        if (!summaryReady || !gridDomComplete || !gridRendered || !courseClick
-            || !courseDetailReady || !courseRendered) {
-            throw new Error('benchmark performance marks are incomplete');
-        }
-
-        const initialEntries = completedBetween(0, gridRendered.startTime);
-        const courseEntries = completedBetween(
-            courseClick.startTime,
-            courseRendered.startTime,
-        );
-        const summaryEntry = initialEntries.find(isDataBlob);
+        phase = 'course-open';
+        const courseStart = process.hrtime.bigint();
+        await page.evaluate(() => performance.mark('benchmark:course-click'));
+        await page.locator('.course-cell').first().click();
+        await page.locator('#modalOverlay.active').waitFor({ state: 'visible' });
+        await page.waitForFunction(() => (
+            performance.getEntriesByName('registrar:course-detail-ready').length > 0
+            && performance.getEntriesByName('registrar:course-rendered').length > 0
+        ));
+        const courseReadyNs = Number(process.hrtime.bigint() - courseStart);
+        const measured = await page.evaluate(readBenchmarkMetrics);
 
         return {
-            initialTransferBytes: sum(initialEntries, 'transferSize'),
-            initialRequestCount: initialEntries.length,
-            initialJsonRequestCount: initialEntries.filter(isJson).length,
-            summaryBytes: summaryEntry ? Math.round(summaryEntry.encodedBodySize) : 0,
-            gridRenderTimeNs: Math.round((gridRendered.startTime - summaryReady.startTime) * 1e6),
-            navigationToGridReadyNs: Math.round(gridRendered.startTime * 1e6),
-            courseOpenBytes: sum(courseEntries, 'encodedBodySize'),
-            courseOpenDataBytes: sum(
-                courseEntries.filter(isDataBlob),
-                'encodedBodySize',
-            ),
-            courseOpenRequestCount: courseEntries.length,
+            readyNs,
+            ...navigation,
+            courseReadyNs,
+            courseBytes: measured.courseOpenBytes,
+            ...measured,
         };
-    });
-
-    await page.close();
-    return {
-        readyNs,
-        ...navigation,
-        courseReadyNs,
-        courseBytes: measured.courseOpenBytes,
-        ...measured,
-    };
+    } catch (error) {
+        await retainFailureArtifacts(page, label, phase, error, messages);
+        throw new Error(
+            `BENCHMARK_READINESS_FAILURE: ${phase}: ${error}; artifacts=${artifactDirectory}`,
+            { cause: error },
+        );
+    } finally {
+        await page.close();
+    }
 }
 
 const cold = [];
-for (let index = 0; index < coldIterations; index += 1) {
-    const context = await browser.newContext();
-    cold.push(await measure(context));
-    await context.close();
-}
-
-const warmContext = await browser.newContext();
-await measure(warmContext);
 const warm = [];
-for (let index = 0; index < warmIterations; index += 1) {
-    warm.push(await measure(warmContext));
+try {
+    for (let index = 0; index < coldIterations; index += 1) {
+        const context = await browser.newContext();
+        try {
+            cold.push(await measure(context, `cold-${index + 1}`));
+        } finally {
+            await context.close();
+        }
+    }
+
+    const warmContext = await browser.newContext();
+    try {
+        await measure(warmContext, 'warmup');
+        for (let index = 0; index < warmIterations; index += 1) {
+            warm.push(await measure(warmContext, `warm-${index + 1}`));
+        }
+    } finally {
+        await warmContext.close();
+    }
+} finally {
+    await browser.close();
 }
-await warmContext.close();
-await browser.close();
 
 const aggregate = samples => ({
     // Existing metrics remain in the result for compatibility with prior reports.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,6 +36,70 @@ def test_summary_statistics(samples, expected_median, expected_p95):
     assert result["p95"] == expected_p95
 
 
+def test_performance_budgets_name_every_failed_metric():
+    measurements = {
+        "website": {
+            "cold": {"full_generation": {"unit": "ns", "p95": 2_000_000_001}},
+            "warm": {
+                "no_change_generation": {"unit": "ns", "p95": 500_000_001},
+                "one_course_change_generation": {
+                    "unit": "ns",
+                    "p95": 1_000_000_001,
+                },
+            },
+            "artifacts": {"file_count": 101, "total_bytes": 2_000_001},
+        },
+        "browser": {
+            "warm": {
+                "navigation_to_ready": {"unit": "ns", "p95": 250_000_001},
+                "course_open": {"unit": "ns", "p95": 300_000_001},
+            }
+        },
+    }
+
+    result = benchmark.evaluate_performance_budgets(
+        measurements,
+        publication_baseline={"file_count": 80, "total_bytes": 1_000_000},
+    )
+
+    assert result["passed"] is False
+    assert {failure["metric"] for failure in result["failures"]} == {
+        "full_generation",
+        "no_change_generation",
+        "one_course_change_generation",
+        "navigation_to_ready",
+        "course_open",
+        "publication_file_count",
+        "publication_total_bytes",
+    }
+
+
+def test_performance_budgets_require_percentage_and_noise_floor_for_growth():
+    measurements = {
+        "website": {
+            "cold": {"full_generation": {"unit": "ns", "p95": 1}},
+            "warm": {
+                "no_change_generation": {"unit": "ns", "p95": 1},
+                "one_course_change_generation": {"unit": "ns", "p95": 1},
+            },
+            "artifacts": {"file_count": 102, "total_bytes": 1_050_000},
+        },
+        "browser": {
+            "warm": {
+                "navigation_to_ready": {"unit": "ns", "p95": 1},
+                "course_open": {"unit": "ns", "p95": 1},
+            }
+        },
+    }
+
+    result = benchmark.evaluate_performance_budgets(
+        measurements,
+        publication_baseline={"file_count": 100, "total_bytes": 1_000_000},
+    )
+
+    assert result == {"passed": True, "failures": []}
+
+
 def test_summary_rejects_empty_samples():
     with pytest.raises(ValueError, match="must not be empty"):
         benchmark.summarize([])
@@ -59,6 +124,30 @@ def test_synthetic_database_is_deterministic_and_non_secret(tmp_path):
     assert first_metadata["allocation"]["table_bytes"] > 0
     assert first_metadata["allocation"]["index_bytes"] > 0
     assert b"Synthetic Instructor" in first.read_bytes()
+
+
+def test_database_metadata_accepts_finalized_checkpointed_schema(tmp_path):
+    database = tmp_path / "finalized.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE state_snapshot(snapshot_id INTEGER PRIMARY KEY);
+            CREATE TABLE course_catalog(course_id INTEGER PRIMARY KEY, course_code TEXT);
+            CREATE TABLE section_catalog(section_id INTEGER PRIMARY KEY);
+            CREATE TABLE section_change_event(event_id INTEGER PRIMARY KEY);
+            INSERT INTO state_snapshot VALUES (1), (2);
+            INSERT INTO course_catalog VALUES (1, 'TEST 100');
+            INSERT INTO section_catalog VALUES (1), (2), (3);
+            INSERT INTO section_change_event VALUES (1), (2), (3), (4);
+            """
+        )
+
+    assert benchmark.database_metadata(database)["counts"] == {
+        "snapshots": 2,
+        "courses": 1,
+        "sections": 3,
+        "enrollment_data": 4,
+    }
 
 
 def test_database_benchmark_does_not_mutate_source(tmp_path):
@@ -122,6 +211,34 @@ def test_website_adapter_generates_expected_artifacts(tmp_path):
     assert summary["semester"] == "Summer 2026"
     assert artifacts["summary_bytes"] == summary_path.stat().st_size
     assert artifacts["manifest_bytes"] == manifest_path.stat().st_size
+
+
+def test_frontend_copy_uses_only_the_current_manifest_graph(tmp_path, monkeypatch):
+    website = tmp_path / "website"
+    assets = website / "public" / "assets"
+    (assets / ".vite").mkdir(parents=True)
+    (assets / "main-current.js").write_text("current")
+    (assets / "main-current.css").write_text("current")
+    (assets / "main-stale.js").write_text("stale")
+    (assets / ".vite" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "src/main.js": {
+                    "file": "main-current.js",
+                    "css": ["main-current.css"],
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(benchmark, "WEBSITE", website)
+
+    output = tmp_path / "output"
+    benchmark._copy_frontend_assets(output)
+
+    assert (output / "assets" / "main-current.js").is_file()
+    assert (output / "assets" / "main-current.css").is_file()
+    assert (output / "assets" / ".vite" / "manifest.json").is_file()
+    assert not (output / "assets" / "main-stale.js").exists()
 
 
 def test_browser_metric_schema_and_payload_comparison_are_reported(
@@ -191,7 +308,7 @@ def test_result_schema_and_markdown_share_values(tmp_path, monkeypatch):
     result = benchmark.run(args)
     saved = json.loads(output.read_text())
     report = markdown.read_text()
-    assert saved["format"] == 1
+    assert saved["format"] == 2
     assert saved["source"] == {
         "classification": "runtime_copy",
         "semester": "Summer 2026",
@@ -217,12 +334,22 @@ def test_invalid_iterations_are_rejected(tmp_path):
         benchmark.run(args)
 
 
-def test_browser_benchmark_uses_server_assigned_port(tmp_path, monkeypatch):
-    output = tmp_path / "site"
-    output.mkdir()
+def _mock_browser_benchmark(monkeypatch, completed):
     server = MagicMock()
     server.server_address = ("127.0.0.1", 54321)
     thread = MagicMock()
+    run = MagicMock(return_value=completed)
+
+    monkeypatch.setattr(benchmark, "_copy_frontend_assets", lambda output: None)
+    monkeypatch.setattr(benchmark, "ThreadingHTTPServer", lambda *args: server)
+    monkeypatch.setattr(benchmark, "Thread", lambda **kwargs: thread)
+    monkeypatch.setattr(benchmark.subprocess, "run", run)
+    return server, thread, run
+
+
+def test_browser_benchmark_uses_server_assigned_port(tmp_path, monkeypatch):
+    output = tmp_path / "site"
+    output.mkdir()
     completed = SimpleNamespace(
         returncode=0,
         stdout=json.dumps(
@@ -234,24 +361,42 @@ def test_browser_benchmark_uses_server_assigned_port(tmp_path, monkeypatch):
         ),
         stderr="",
     )
-    run = MagicMock(return_value=completed)
-
-    monkeypatch.setattr(benchmark, "_copy_frontend_assets", lambda output: None)
-    monkeypatch.setattr(benchmark, "ThreadingHTTPServer", lambda *args: server)
-    monkeypatch.setattr(benchmark, "Thread", lambda **kwargs: thread)
-    monkeypatch.setattr(benchmark.subprocess, "run", run)
+    server, thread, run = _mock_browser_benchmark(monkeypatch, completed)
     monkeypatch.setattr(
         benchmark,
         "file_inventory",
         lambda output: {"file_count": 0, "total_bytes": 0, "largest_files": []},
     )
 
-    benchmark.benchmark_browser(output, 1, 1)
+    benchmark.benchmark_browser(output, 1, 1, "Spring 2026")
 
-    assert run.call_args.args[0][2] == "http://127.0.0.1:54321/summer2026.html"
+    assert run.call_args.args[0][2] == ("http://127.0.0.1:54321/semesters/spring-2026/")
+    assert run.call_args.args[0][5] == str(
+        benchmark.ROOT / "output" / "benchmark-browser"
+    )
     server.shutdown.assert_called_once_with()
     server.server_close.assert_called_once_with()
     thread.join.assert_called_once_with(timeout=5)
+
+
+def test_browser_benchmark_classifies_readiness_failures(tmp_path, monkeypatch):
+    output = tmp_path / "site"
+    output.mkdir()
+    completed = SimpleNamespace(
+        returncode=2,
+        stdout="",
+        stderr=(
+            "BENCHMARK_READINESS_FAILURE: initial-grid timed out; "
+            "artifacts=/tmp/benchmark-browser"
+        ),
+    )
+    _mock_browser_benchmark(monkeypatch, completed)
+
+    with pytest.raises(
+        benchmark.BrowserBenchmarkReadinessError,
+        match="readiness/infrastructure failure",
+    ):
+        benchmark.benchmark_browser(output, 1, 1, "Summer 2026")
 
 
 def test_deployment_loads_project_dotenv(tmp_path, monkeypatch):

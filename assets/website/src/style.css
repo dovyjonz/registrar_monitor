@@ -911,6 +911,8 @@ header p {
     color: hsl(var(--foreground));
     font-family: inherit;
     text-align: left;
+    appearance: none;
+    -webkit-appearance: none;
     /* Performance: skip rendering off-screen cells */
     content-visibility: auto;
     contain-intrinsic-size: 120px 44px;
@@ -932,6 +934,14 @@ header p {
 }
 
 .course-cell.full {
+    background: linear-gradient(135deg, hsl(var(--destructive-surface)), hsl(346 84% 38%));
+    border-color: hsl(var(--destructive));
+    color: hsl(var(--destructive-foreground));
+}
+
+.course-cell.full:hover,
+.course-cell.full:focus,
+.course-cell.full:active {
     background: linear-gradient(135deg, hsl(var(--destructive-surface)), hsl(346 84% 38%));
     border-color: hsl(var(--destructive));
     color: hsl(var(--destructive-foreground));
@@ -1036,6 +1046,13 @@ header p {
     font-weight: 700;
     line-height: 1.2;
     overflow-wrap: anywhere;
+}
+
+.modal-course-semester {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.2;
 }
 
 .modal-header-left {
@@ -1313,6 +1330,28 @@ header p {
     visibility: hidden;
     height: 0 !important;
     overflow: hidden;
+}
+
+.registration-unavailable-guide {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 7px;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.66rem;
+    line-height: 1;
+}
+
+.registration-unavailable-guide[hidden] {
+    display: none;
+}
+
+.registration-unavailable-swatch {
+    width: 18px;
+    height: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.7);
+    border-radius: 2px;
+    background: rgba(239, 68, 68, 0.2);
 }
 
 /* Chart legend */
@@ -1899,40 +1938,9 @@ html.modal-open body {
 }
 
 /* Scroll-driven animation for chart (when supported) */
-@supports (animation-timeline: view()) {
-    .chart-container {
-        animation: fadeSlideIn linear;
-        animation-timeline: view();
-        animation-range: entry 0% entry 100%;
-    }
-
-    @keyframes fadeSlideIn {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-}
-
 /* ============================================
    Visual Polish (Phase 5)
    ============================================ */
-
-/* Modal open animation */
-.modal {
-    transform: scale(0.95) translateY(20px);
-    transition: transform var(--transition-normal);
-}
-
-.modal-overlay.active .modal {
-    transform: scale(1) translateY(0);
-}
-
 
 /* Mobile optimizations */
 @media (width <=768px) {
@@ -2084,14 +2092,36 @@ html.modal-open body {
     }
 
     .chart-readout {
-        height: auto;
-        min-height: 92px;
-        padding: 10px 12px;
-        row-gap: 6px;
+        position: relative;
+        height: 84px;
+        min-height: 84px;
+        padding: 8px 10px;
+        row-gap: 2px;
+        align-content: center;
+    }
+
+    .chart-readout-header {
+        align-items: baseline;
+        padding-right: 48px;
+        row-gap: 2px;
+        white-space: normal;
+    }
+
+    .chart-readout-context {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+    }
+
+    .chart-readout-pinned {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        margin-left: 0;
     }
 
     .chart-readout[hidden]::after {
-        min-height: 70px;
+        min-height: 66px;
     }
 
     .chart-readout-values {

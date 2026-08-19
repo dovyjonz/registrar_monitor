@@ -15,7 +15,6 @@ from registrarmonitor.models import (
 )
 from registrarmonitor.reporting.report_formatter import (
     NEAR_THRESHOLD,
-    SIGNIFICANT_CHANGE_THRESHOLD,
     ReportFormatter,
 )
 
@@ -55,33 +54,6 @@ class TestGetStatusEmoji:
         }
         course = Course("CS 101", "CS", sections, 1.0)
         assert formatter._get_status_emoji(1.0, is_course=True, course=course) == "🔴"
-
-
-class TestFormatChangeDelta:
-    """Tests for _format_change_delta method."""
-
-    def test_significant_increase(self, formatter: ReportFormatter):
-        """Significant increase should include triangle indicator."""
-        result = formatter._format_change_delta(0.20)  # 20% increase
-        assert "🔺" in result
-        assert "+" in result
-
-    def test_significant_decrease(self, formatter: ReportFormatter):
-        """Significant decrease should include triangle indicator."""
-        result = formatter._format_change_delta(-0.20)  # 20% decrease
-        assert "🔺" in result
-        assert "-" in result
-
-    def test_minor_change(self, formatter: ReportFormatter):
-        """Minor change should not include triangle indicator."""
-        result = formatter._format_change_delta(0.05)  # 5% change
-        assert "🔺" not in result
-        assert "+" in result
-
-    def test_threshold_boundary(self, formatter: ReportFormatter):
-        """Change at threshold should not include indicator."""
-        result = formatter._format_change_delta(SIGNIFICANT_CHANGE_THRESHOLD)
-        assert "🔺" not in result
 
 
 class TestFormatChangesReport:
@@ -131,9 +103,9 @@ class TestFormatChangesReport:
 
         report = formatter.format_changes_report(comparison, current, previous)
 
-        assert "✨" in report
+        assert "+ CS 101 - COURSE ADDED" in report
         assert "CS 101" in report
-        assert "NEW" in report
+        assert "ADDED" in report
 
     def test_removed_course_formatting(self, formatter: ReportFormatter):
         """Removed course should be formatted with X emoji."""
@@ -152,7 +124,7 @@ class TestFormatChangesReport:
 
         report = formatter.format_changes_report(comparison, current, previous)
 
-        assert "❌" in report
+        assert "− CS 101 - COURSE REMOVED" in report
         assert "CS 101" in report
         assert "REMOVED" in report
 
@@ -297,3 +269,144 @@ class TestFormatChangesReport:
         bb_pos = report.find("BB 201")
         cc_pos = report.find("CC 301")
         assert aa_pos < bb_pos < cc_pos
+
+    def test_header_uses_active_priority_once_and_omits_routine_semester_fill(
+        self, formatter: ReportFormatter
+    ):
+        comparison = EnrollmentComparison(
+            previous_snapshot_timestamp="2026-08-13 10:00:00",
+            current_snapshot_timestamp="2026-08-13 12:00:00",
+        )
+        previous = EnrollmentSnapshot("2026-08-13 10:00:00", "Fall 2026", 0.70, {})
+        current = EnrollmentSnapshot("2026-08-13 12:00:00", "Fall 2026", 0.75, {})
+
+        report = formatter.format_changes_report(comparison, current, previous)
+
+        assert report.count("P2 · Y3") == 1
+        assert "📈" not in report
+        assert "75%" not in report
+
+    def test_new_course_is_one_compact_event_without_section_dump(
+        self, formatter: ReportFormatter
+    ):
+        course = Course(
+            "CS 101",
+            "CS",
+            {
+                "10L": Section("10L", "L", 25, 30, 0.83),
+                "11L": Section("11L", "L", 20, 30, 0.67),
+            },
+            0.75,
+        )
+        comparison = EnrollmentComparison(
+            previous_snapshot_timestamp="2026-08-13 10:00:00",
+            current_snapshot_timestamp="2026-08-13 12:00:00",
+            new_courses=[course],
+        )
+
+        report = formatter.format_changes_report(
+            comparison,
+            EnrollmentSnapshot(
+                "2026-08-13 12:00:00", "Fall 2026", 0.75, {"CS 101": course}
+            ),
+            EnrollmentSnapshot("2026-08-13 10:00:00", "Fall 2026", 0.70, {}),
+        )
+
+        assert "+ CS 101 - COURSE ADDED" in report
+        assert "10L" not in report
+        assert "11L" not in report
+
+    def test_required_type_full_names_only_an_actual_limiting_type(
+        self, formatter: ReportFormatter
+    ):
+        previous_course = Course(
+            "CS 101",
+            "CS",
+            {
+                "1L": Section("1L", "L", 10, 20, 0.5),
+                "1B": Section("1B", "B", 9, 10, 0.9),
+            },
+            0.7,
+        )
+        current_course = Course(
+            "CS 101",
+            "CS",
+            {
+                "1L": Section("1L", "L", 11, 20, 0.55),
+                "1B": Section("1B", "B", 10, 10, 1.0),
+            },
+            0.775,
+        )
+        comparison = SnapshotComparator().compare_snapshots(
+            EnrollmentSnapshot(
+                "2026-08-13 12:00:00",
+                "Fall 2026",
+                0.75,
+                {"CS 101": current_course},
+            ),
+            EnrollmentSnapshot(
+                "2026-08-13 10:00:00",
+                "Fall 2026",
+                0.70,
+                {"CS 101": previous_course},
+            ),
+        )
+
+        report = formatter.format_changes_report(
+            comparison,
+            EnrollmentSnapshot(
+                "2026-08-13 12:00:00",
+                "Fall 2026",
+                0.75,
+                {"CS 101": current_course},
+            ),
+            EnrollmentSnapshot(
+                "2026-08-13 10:00:00",
+                "Fall 2026",
+                0.70,
+                {"CS 101": previous_course},
+            ),
+        )
+
+        assert "CS 101 - LAB FULL" in report
+        assert "section type mismatch" not in report
+
+    def test_uniformly_full_required_types_use_simple_100_percent_heading(
+        self, formatter: ReportFormatter
+    ):
+        previous_course = Course(
+            "CS 101",
+            "CS",
+            {
+                "1L": Section("1L", "L", 19, 20, 0.95),
+                "1B": Section("1B", "B", 9, 10, 0.9),
+            },
+            0.925,
+        )
+        current_course = Course(
+            "CS 101",
+            "CS",
+            {
+                "1L": Section("1L", "L", 20, 20, 1.0),
+                "1B": Section("1B", "B", 10, 10, 1.0),
+            },
+            1.0,
+        )
+        current = EnrollmentSnapshot(
+            "2026-08-13 12:00:00", "Fall 2026", 1.0, {"CS 101": current_course}
+        )
+        previous = EnrollmentSnapshot(
+            "2026-08-13 10:00:00",
+            "Fall 2026",
+            0.925,
+            {"CS 101": previous_course},
+        )
+
+        report = formatter.format_changes_report(
+            SnapshotComparator().compare_snapshots(current, previous),
+            current,
+            previous,
+        )
+
+        assert "CS 101 - 100%" in report
+        assert "LAB FULL" not in report

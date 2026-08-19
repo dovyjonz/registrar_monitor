@@ -8,13 +8,16 @@ import {
     buildAverageChartPoints,
     buildCourseChartDomain,
     buildObservedCapacityPoints,
+    buildRegistrationUnavailableIntervals,
     buildSectionChartPoints,
     extendSteppedSeriesToDomainEnd,
     findSteppedPointIndexAtX,
+    filterMilestonesToObservedRange,
     getChartMapper,
     getEnrollmentScaleMax,
     getSectionTypeName,
     limitPointsAroundMilestones,
+    markObservationEnd,
 } from '../src/chartMapping.mjs';
 
 test('stepped interactions stop outside the recorded observation range', () => {
@@ -25,6 +28,20 @@ test('stepped interactions stop outside the recorded observation range', () => {
     assert.equal(findSteppedPointIndexAtX(xValues, 35), 1);
     assert.equal(findSteppedPointIndexAtX(xValues, 40), 2);
     assert.equal(findSteppedPointIndexAtX(xValues, 41), null);
+});
+
+test('archived milestone guides stay inside real observed bounds', () => {
+    const domain = [{ timestamp: 100 }, { timestamp: 200 }];
+    const milestones = [
+        { time: new Date(50).toISOString(), label: 'Before' },
+        { time: new Date(150).toISOString(), label: 'Inside' },
+        { time: new Date(250).toISOString(), label: 'After' },
+    ];
+
+    assert.deepEqual(
+        filterMilestonesToObservedRange(milestones, domain).map(item => item.label),
+        ['Inside'],
+    );
 });
 
 test('enrollment step transitions occur at the observation timestamp', () => {
@@ -142,6 +159,20 @@ test('chart mappings recover the real time beneath a gliding phased cursor', () 
             `${mode} should round-trip an in-between timestamp`,
         );
     }
+});
+
+test('timeline mapping preserves literal elapsed durations across long gaps', () => {
+    const hour = 60 * 60 * 1000;
+    const domain = [0, 2 * hour, 50 * hour, 52 * hour].map((timestamp, snapshotIdx) => ({
+        snapshotIdx,
+        timestamp,
+    }));
+    const mapper = getChartMapper('timeline', domain, domain, []);
+
+    assert.deepEqual(mapper.domainXValues, [0, 2 * hour, 50 * hour, 52 * hour]);
+    assert.equal(mapper.mapTime(50 * hour) - mapper.mapTime(2 * hour), 48 * hour);
+    assert.equal(mapper.mapTime(52 * hour) - mapper.mapTime(50 * hour), 2 * hour);
+    assert.equal(mapper.unmapX(51 * hour), 51 * hour);
 });
 
 test('section chart points keep tooltip and capacity marker metadata on the source snapshot', () => {
@@ -326,7 +357,7 @@ test('phased charts retain two observations around each registration boundary', 
     );
 });
 
-test('historical stepped lines extend their final observation to the comparison domain end', () => {
+test('sparse current lines carry their last value through the recorded observation domain', () => {
     assert.deepEqual(
         extendSteppedSeriesToDomainEnd(
             [{ x: 10, y: 25, sourceIndex: 2 }, { x: 20, y: 50, sourceIndex: 4 }],
@@ -366,4 +397,49 @@ test('average chart points surface section capacity changes at course level', ()
         capacity: 30,
     }]);
     assert.equal(points[1].capacityChanged, true);
+});
+
+test('course chart points mark intervals where a required section type is full', () => {
+    const snapshots = [
+        { ts: '2026-08-01T10:00:00Z' },
+        { ts: '2026-08-02T10:00:00Z' },
+    ];
+    const course = {
+        ah: [{ i: 0, f: 0.5 }, { i: 1, f: 0.75 }],
+        s: {
+            L1: { t: 'L', h: [{ i: 0, e: 10, c: 20, f: 0.5 }, { i: 1, e: 11, c: 20, f: 0.55 }] },
+            B1: { t: 'B', h: [{ i: 0, e: 5, c: 10, f: 0.5 }, { i: 1, e: 10, c: 10, f: 1 }] },
+        },
+    };
+
+    const points = buildAverageChartPoints(course, snapshots);
+    assert.equal(points[0].registrationUnavailable, false);
+    assert.equal(points[1].registrationUnavailable, true);
+    assert.deepEqual(points[1].limitingTypes, ['Lab']);
+});
+
+test('registration-unavailable intervals decorate observed state without changing points', () => {
+    const points = [
+        { x: 0, registrationUnavailable: false, sourceIndex: 0 },
+        { x: 10, registrationUnavailable: true, limitingTypes: ['Lab'], sourceIndex: 1 },
+        { x: 20, registrationUnavailable: true, limitingTypes: ['Lab'], sourceIndex: 2 },
+        { x: 30, registrationUnavailable: false, sourceIndex: 3 },
+        { x: 40, registrationUnavailable: true, limitingTypes: ['Lecture'], sourceIndex: 4 },
+    ];
+
+    assert.deepEqual(buildRegistrationUnavailableIntervals(points, 50), [
+        { xMin: 10, xMax: 30, limitingTypes: ['Lab'] },
+        { xMin: 40, xMax: 50, limitingTypes: ['Lecture'] },
+    ]);
+    assert.equal(points.some(point => 'registrationInterval' in point), false);
+});
+
+test('observation-end cue decorates the last real point without changing the series', () => {
+    const points = [{ x: 10, y: 25, sourceIndex: 2 }, { x: 20, y: 50, sourceIndex: 4 }];
+    const decorated = markObservationEnd(points);
+
+    assert.equal(decorated.length, points.length);
+    assert.deepEqual(decorated.map(({ x, y, sourceIndex }) => ({ x, y, sourceIndex })), points);
+    assert.equal(decorated.at(-1).observationEnded, true);
+    assert.equal(points.at(-1).observationEnded, undefined);
 });

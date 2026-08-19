@@ -12,7 +12,7 @@ from numbers import Real
 from pathlib import Path
 from typing import Any
 
-from .availability import calculate_availability
+from ..availability import calculate_availability
 
 PublicationHook = Callable[[str, str], None]
 

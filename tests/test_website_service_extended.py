@@ -396,8 +396,8 @@ class TestValidatePublicOutput:
 
 def test_prunes_unreferenced_immutable_publication_files(tmp_path):
     service = WebsiteService(output_dir=tmp_path)
-    course_hash = "111111111111"
-    semester_hash = "222222222222"
+    course_hash = "11111111"
+    semester_hash = "22222222"
     pages = [
         tmp_path / "courses" / "fall-2026" / "ant-140" / "index.html",
         tmp_path / "semesters" / "fall-2026" / "index.html",
@@ -412,8 +412,8 @@ def test_prunes_unreferenced_immutable_publication_files(tmp_path):
     )
 
     for kind, hashes in {
-        "course": [course_hash, "aaaaaaaaaaaa"],
-        "semester": [semester_hash, "bbbbbbbbbbbb"],
+        "course": [course_hash, "aaaaaaaa"],
+        "semester": [semester_hash, "bbbbbbbb"],
     }.items():
         root = tmp_path / "data" / "previews" / kind
         root.mkdir(parents=True)

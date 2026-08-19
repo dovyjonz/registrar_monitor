@@ -7,6 +7,7 @@ import {
     OBSERVATION_STEP_MODE,
     buildChartPresentation,
     buildObservedCapacityPoints,
+    buildRegistrationUnavailableIntervals,
     buildAverageChartPoints,
     buildCourseChartDomain,
     buildProfessorAverageChartPoints,
@@ -19,15 +20,17 @@ import {
     getXScaleBounds,
     extendSteppedSeriesToDomainEnd,
     findSteppedPointIndexAtX,
+    filterMilestonesToObservedRange,
     limitPointsAroundMilestones,
+    markObservationEnd,
     normalizeInstructorName,
 } from './chartMapping.mjs';
 import {
-    courseToSlug,
     getManifestUrl,
     prioritizeHistoricalSemesters,
     semesterToSlug,
 } from './urlSlugs.mjs';
+import { createCourseRouteResolver } from './courseRoutes.mjs';
 import {
     adaptPreviewCourseState,
     IntegrityError,
@@ -36,6 +39,10 @@ import {
     UnsupportedSchemaError,
 } from './manifestData.mjs';
 import { courseMatchesElective, getElectiveCategories } from './electiveFilters.mjs';
+import {
+    formatPriorityCompact,
+    formatPriorityFull,
+} from './registrationSemantics.mjs';
 
 function markPerformance(name) {
     if (typeof performance?.mark === 'function') performance.mark(name);
@@ -195,6 +202,7 @@ async function loadChartJs() {
 let chart = null;
 let selectedCourse = null;
 let selectedSection = null;
+let selectedCourseShareUrl = null;
 let currentEnrollmentData = [];
 let chartMode = localStorage.getItem('chartMode') || 'phased'; // 'phased', 'snapshots', or 'timeline'
 let staticManifest = null;
@@ -204,6 +212,7 @@ let courseRequestVersion = 0;
 const departmentPayloads = new Map();
 const summaryCourses = new Map();
 const hydratedCourses = new Map();
+const resolveCourseRoute = createCourseRouteResolver();
 let mappedData = null;
 const dataLoadController = new AbortController();
 window.addEventListener('pagehide', () => dataLoadController.abort(), { once: true });
@@ -311,6 +320,30 @@ function getCourseIsFilled(course) {
     return course?.isFilled ?? course?.if ?? false;
 }
 
+function getCourseAvailability(course) {
+    return course?.availability || course?.previewState?.availability || null;
+}
+
+function getCoursePublicState(course) {
+    const averageFill = getCourseAverageFill(course);
+    const availability = getCourseAvailability(course);
+    const registrationUnavailable = availability?.status === 'required-type-full';
+    const ordinaryFull = availability?.status === 'full';
+    const isFilled = getCourseIsFilled(course) || registrationUnavailable;
+    return {
+        averageFill,
+        isFilled,
+        registrationUnavailable,
+        status: isFilled || averageFill >= 1 ? 'full' : averageFill >= 0.8 ? 'near' : 'open',
+        readout: registrationUnavailable || ordinaryFull
+            ? 'FULL'
+            : `${Math.round(averageFill * 100)}%`,
+        accessibilityCopy: registrationUnavailable
+            ? `${availability.compact}. ${availability.sentence}`
+            : ordinaryFull ? `FULL. ${availability.sentence}` : `${Math.round(averageFill * 100)}% full`,
+    };
+}
+
 function getCourseSections(course) {
     return course?.sections || course?.s || {};
 }
@@ -318,6 +351,33 @@ function getCourseSections(course) {
 function getCourseSnapshots(course) {
     const data = getData();
     return course?.sn || data?.sn || [];
+}
+
+function getSemesterSlug() {
+    return semesterToSlug(IS_COMBINED ? activeSemester : getData().sem || '');
+}
+
+async function getCourseRouteIdentity(courseCode) {
+    return resolveCourseRoute({
+        semesterSlug: getSemesterSlug(),
+        courseCode,
+        archived: document.body.dataset.pageArchived === 'true',
+        initialCourse: document.body.dataset.initialCourse,
+        initialToken: document.body.dataset.previewHash,
+    });
+}
+
+async function showCourseRoute(courseCode) {
+    try {
+        const identity = await getCourseRouteIdentity(courseCode);
+        if (selectedCourse !== courseCode) return identity;
+        selectedCourseShareUrl = new URL(identity.sharePath, window.location.origin).href;
+        history.replaceState(null, '', identity.sharePath);
+        return identity;
+    } catch (error) {
+        console.error(`Failed to resolve share identity for ${courseCode}:`, error);
+        return null;
+    }
 }
 
 /**
@@ -422,7 +482,6 @@ async function findEarlierCourseCandidate(courseCode) {
 
 async function findEarlierProfessorCandidate(courseCode, professorIdentity) {
     let lastError = null;
-    let courseFound = false;
     for (const candidate of getHistoricalSemesterCandidates()) {
         let loaded;
         try {
@@ -434,7 +493,6 @@ async function findEarlierProfessorCandidate(courseCode, professorIdentity) {
 
         const summaryCourse = loaded.payload?.data?.cr?.[courseCode];
         if (!summaryCourse) continue;
-        courseFound = true;
 
         try {
             const department = getCourseDepartment(summaryCourse, courseCode);
@@ -454,7 +512,7 @@ async function findEarlierProfessorCandidate(courseCode, professorIdentity) {
             lastError = error;
         }
     }
-    return { candidate: null, error: lastError, courseFound };
+    return { candidate: null, error: lastError };
 }
 
 function displayInstructorName(value) {
@@ -615,11 +673,10 @@ async function resolveProfessorAvailability(courseCode, course, requestVersion, 
         const result = await resolvedProfessorComparisons.get(cacheKey);
         if (!isCurrentComparisonRequest(courseCode, requestVersion, token)) return;
         if (result?.candidate === null) {
-            const unavailable = result.courseFound === true;
             if (result.error) resolvedProfessorComparisons.delete(cacheKey);
             setHistoricalComparisonState(
-                result.error ? 'failed' : (unavailable ? 'unavailable' : 'hidden'),
-                unavailable || result.error ? descriptorBase : null,
+                result.error ? 'failed' : 'unavailable',
+                descriptorBase,
             );
             return;
         }
@@ -800,6 +857,7 @@ function mapHistoricalComparisonPoints(
             x: historicalCoordinateMapper.mapX(historicalMapper.xValues[index]),
             y: point.enrollmentLevel ?? point.fill,
             sourceIndex: point.sourceIndex ?? index,
+            ...(point.removalEnded ? { removalEnded: true } : {}),
         }))
         .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
 }
@@ -843,7 +901,7 @@ function addCurrentMilestoneAnnotations({
         const startsPriority = priority && !renderedPriorities.has(priority);
         if (startsPriority) renderedPriorities.add(priority);
         const milestoneLabel = startsPriority
-            ? compactLabels ? `P${priority}` : `P${priority}: ${milestone.label}`
+            ? compactLabels ? `P${priority}` : formatPriorityCompact(priority, milestone.label)
             : milestone.label;
         const displayLabel = !compactLabels || startsPriority
             || DEADLINE_LABELS.has(milestone.label);
@@ -878,13 +936,21 @@ function buildHistoricalChartState({
         return { historicalDataPoints: [] };
     }
 
-    const historicalChartPoints = limitPointsAroundMilestones(
-        historicalComparison.chartPoints.map((point, sourceIndex) => ({
+    const sourceHistoricalChartPoints = historicalComparison.chartPoints
+        .map((point, sourceIndex) => ({
             ...point,
             sourceIndex,
-        })),
+        }));
+    const historicalChartPoints = limitPointsAroundMilestones(
+        sourceHistoricalChartPoints,
         historicalComparison.milestones,
     );
+    const sourceEnd = sourceHistoricalChartPoints.at(-1);
+    if (sourceEnd?.removalEnded
+        && !historicalChartPoints.some(point => point.sourceIndex === sourceEnd.sourceIndex)) {
+        historicalChartPoints.push(sourceEnd);
+        historicalChartPoints.sort((first, second) => first.timestamp - second.timestamp);
+    }
     const historicalChartDomain = limitPointsAroundMilestones(
         historicalComparison.chartDomain,
         historicalComparison.milestones,
@@ -955,6 +1021,36 @@ function buildMilestoneRenderState({
         });
     }
     return { annotations, annotationXValues };
+}
+
+function addRegistrationUnavailableAnnotations(
+    annotations,
+    visibleChartPoints,
+    xValues,
+    domainEnd,
+) {
+    const intervals = buildRegistrationUnavailableIntervals(
+        visibleChartPoints.map((point, index) => ({
+            x: xValues[index],
+            registrationUnavailable: point.registrationUnavailable,
+            limitingTypes: point.limitingTypes,
+        })),
+        domainEnd,
+    );
+    intervals.forEach((interval, index) => {
+        annotations[`registrationUnavailable${index}`] = {
+            type: 'box',
+            xMin: interval.xMin,
+            xMax: interval.xMax,
+            backgroundColor: 'rgba(239, 68, 68, 0.13)',
+            borderColor: 'rgba(239, 68, 68, 0.42)',
+            borderWidth: 1,
+            drawTime: 'beforeDatasetsDraw',
+            z: -2,
+            label: { display: false },
+        };
+    });
+    return intervals;
 }
 
 /**
@@ -1066,11 +1162,19 @@ function renderJumpToNavigation(sortedDepts) {
         a.textContent = dept;
         a.addEventListener('click', event => {
             event.preventDefault();
-            document.getElementById(`dept-${dept}`)?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start',
-            });
             setDepartmentPanelOpen(false);
+            requestAnimationFrame(() => {
+                const target = document.getElementById(`dept-${dept}`);
+                if (!target) return;
+                const alignTarget = () => {
+                    window.scrollTo({
+                        top: window.scrollY + target.getBoundingClientRect().top - 16,
+                        behavior: 'instant',
+                    });
+                };
+                alignTarget();
+                requestAnimationFrame(alignTarget);
+            });
         });
         jumpNav.appendChild(a);
     }
@@ -1151,20 +1255,20 @@ function renderCourseGrid() {
             totalSections += sectionCount;
             fullSections += fullSectionCount;
 
-            const averageFill = getCourseAverageFill(course);
-            const isFilled = getCourseIsFilled(course);
-            const status = isFilled || averageFill >= 1 ? 'full' :
-                averageFill >= 0.8 ? 'near' : 'open';
+            const publicState = getCoursePublicState(course);
             const isStarred = bookmarks.has(course.code);
 
             const cell = document.createElement('button');
             cell.type = 'button';
-            cell.className = `course-cell ${getStatusClass(averageFill, isFilled)}${isStarred ? ' starred' : ''}`;
+            cell.className = `course-cell ${getStatusClass(publicState.averageFill, publicState.isFilled)}${isStarred ? ' starred' : ''}`;
             cell.setAttribute('data-course', course.code);
-            cell.setAttribute('data-status', status);
-            cell.setAttribute('data-fill', averageFill);
+            cell.setAttribute('data-status', publicState.status);
+            cell.setAttribute('data-fill', publicState.averageFill);
             cell.setAttribute('data-electives', getElectiveCategories(course.code).join(' '));
-            cell.setAttribute('aria-label', `${formatCourseCode(course.code)}: ${Math.round(averageFill * 100)}% full`);
+            cell.setAttribute(
+                'aria-label',
+                `${formatCourseCode(course.code)}: ${publicState.accessibilityCopy}`,
+            );
             cell.style.setProperty('--cell-index', totalCourses);
             const codeSpan = document.createElement('span');
             codeSpan.className = 'course-code';
@@ -1172,7 +1276,7 @@ function renderCourseGrid() {
             cell.appendChild(codeSpan);
             const fillSpan = document.createElement('span');
             fillSpan.className = 'course-fill';
-            fillSpan.textContent = `${Math.round(averageFill * 100)}%`;
+            fillSpan.textContent = publicState.readout;
             cell.appendChild(fillSpan);
             cell.onclick = () => openCourse(course.code);
             grid.appendChild(cell);
@@ -1260,6 +1364,8 @@ function resetCourseDetailView() {
     currentEnrollmentData = [];
     lastRenderArgs = null;
     document.getElementById('chartLegend')?.classList.remove('visible');
+    const unavailableGuide = document.getElementById('registrationUnavailableGuide');
+    if (unavailableGuide) unavailableGuide.hidden = true;
     const readout = document.getElementById('chartReadout');
     if (readout) {
         readout.hidden = true;
@@ -1368,7 +1474,6 @@ function updateModalCourseTitle(courseCode, title) {
     code.textContent = courseCode;
     name.textContent = title || '';
     name.hidden = !title;
-    heading.setAttribute('aria-label', title ? `${courseCode}: ${title}` : courseCode);
 }
 
 function renderCoursePublicationState(course) {
@@ -1386,7 +1491,7 @@ function renderCoursePublicationState(course) {
     badge.textContent = 'REMOVED';
     state.appendChild(badge);
     const copy = document.createElement('span');
-    const changed = preview.lastChanged
+    const changed = preview?.lastChanged
         ? new Date(preview.lastChanged).toLocaleString('en-US', {
             month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
         })
@@ -1406,8 +1511,8 @@ function openCourseModal(courseCode, summaryCourse) {
 
     selectedCourse = courseCode;
     selectedSection = null;
+    selectedCourseShareUrl = null;
     resetHistoricalComparisonState();
-    initializeHistoricalComparisonControl(summaryCourse);
     const title = getCourseTitle(summaryCourse);
     updateModalCourseTitle(courseCode, title);
     updateModalBookmark(courseCode);
@@ -1428,9 +1533,7 @@ function openCourseModal(courseCode, summaryCourse) {
 
     const shareBtn = document.getElementById('modalShareLink');
     if (shareBtn) shareBtn.style.display = '';
-    if (document.body.dataset.initialCourse !== courseCode) {
-        history.replaceState(null, '', `#${courseCode.replace(/\s+/g, '-')}`);
-    }
+    void showCourseRoute(courseCode);
     showModalDetailLoading();
     focusModal();
 }
@@ -1521,6 +1624,7 @@ function renderCourseDetails(courseCode, course, requestVersion) {
         showAverageFillChart(courseCode, course, requestVersion)
             .then(() => {
                 if (requestVersion === courseRequestVersion && selectedCourse === courseCode) {
+                    initializeHistoricalComparisonControl(course);
                     markPerformance('registrar:course-rendered');
                     if (hasHistoricalCandidateCache(courseCode)) {
                         void resolveHistoricalAvailability(courseCode, course, requestVersion);
@@ -1643,11 +1747,11 @@ function refreshChartTooltip(chartInstance) {
     }
 }
 
-function getMilestoneReference(timestamp, milestones) {
+function getMilestoneReference(timestamp, milestones, compact = false) {
     if (!Number.isFinite(timestamp)) return '';
     const ordered = milestones
         .map(milestone => ({
-            label: formatMilestoneReference(milestone),
+            label: formatMilestoneReference(milestone, compact),
             time: new Date(milestone.time).getTime(),
         }))
         .filter(milestone => Number.isFinite(milestone.time))
@@ -1660,11 +1764,16 @@ function getMilestoneReference(timestamp, milestones) {
     return '';
 }
 
-function formatMilestoneReference(milestone) {
+function formatMilestoneReference(milestone, compact = false) {
+    if (compact) {
+        return milestone.priority
+            ? formatPriorityCompact(milestone.priority, milestone.label)
+            : milestone.label;
+    }
     if (DEADLINE_LABELS.has(milestone.label)) return `${milestone.label} deadline`;
     const yearMatch = /^Y(.+)$/u.exec(milestone.label);
     const label = yearMatch ? `Year ${yearMatch[1]}` : milestone.label;
-    return milestone.priority ? `${label} [P${milestone.priority}]` : label;
+    return milestone.priority ? formatPriorityFull(milestone.priority, milestone.label) : label;
 }
 
 function setChartTooltipPinned(chartInstance, pixelX) {
@@ -1729,7 +1838,12 @@ function renderChartReadout({ chart: chartInstance, tooltip }, canvas, milestone
     title.className = 'chart-readout-title';
     title.textContent = tooltip.title?.[0] || '';
     header.appendChild(title);
-    const context = getMilestoneReference(Number(canvas.dataset.hoverTimestamp), milestones);
+    const compactMilestones = window.matchMedia('(width <= 768px)').matches;
+    const context = getMilestoneReference(
+        Number(canvas.dataset.hoverTimestamp),
+        milestones,
+        compactMilestones,
+    );
     if (context) {
         const contextElement = document.createElement('span');
         contextElement.className = 'chart-readout-context';
@@ -1793,13 +1907,13 @@ function createMilestoneDot(milestone, index, count, now, renderedPriorities) {
     dot.style.left = `${(index / (count - 1)) * 100}%`;
     if (passed) dot.style.background = milestone.color;
     dot.title = milestone.priority
-        ? `Priority ${milestone.priority}: ${milestone.label}`
+        ? formatPriorityFull(milestone.priority, milestone.label)
         : milestone.label;
 
     const label = document.createElement('span');
     label.className = 'mp-dot-label';
     label.textContent = startsPriority
-        ? `P${milestone.priority}: ${milestone.label}`
+        ? formatPriorityCompact(milestone.priority, milestone.label)
         : milestone.label;
     label.dataset.compactLabel = startsPriority ? `P${milestone.priority}` : milestone.label;
     dot.appendChild(label);
@@ -1829,7 +1943,7 @@ function renderMilestoneProgress() {
     const count = mTimes.length;
     const nextMilestone = mTimes.find(milestone => now < milestone.time);
     if (summary) {
-        const priorityPrefix = nextMilestone?.priority ? `P${nextMilestone.priority}: ` : '';
+        const priorityPrefix = nextMilestone?.priority ? `P${nextMilestone.priority} · ` : '';
         summary.textContent = nextMilestone
             ? `${priorityPrefix}Next ${nextMilestone.label}`
             : 'Registration complete';
@@ -2079,6 +2193,7 @@ function updateChartAccessibilitySummary({
     fillData,
     historicalComparison,
     hasHistoricalDataset,
+    registrationUnavailableIntervals,
 }) {
     canvas.setAttribute('aria-label', `${chartLabel} enrollment history`);
     const summary = document.getElementById('chartSummary');
@@ -2098,7 +2213,28 @@ function updateChartAccessibilitySummary({
     const comparisonSummary = hasHistoricalDataset
         ? ` Compared with ${historicalComparison.semester}${professorSummary}.`
         : '';
-    summary.textContent = `${chartLabel}. ${visibleChartPoints.length} enrollment observations. Latest: ${latestFill}% full${countSummary}.${comparisonSummary}`;
+    const unavailableSummary = registrationUnavailableIntervals.length > 0
+        ? ` ${registrationUnavailableIntervals.length} registration-unavailable interval${registrationUnavailableIntervals.length === 1 ? '' : 's'}.`
+        : '';
+    summary.textContent = `${chartLabel}. ${visibleChartPoints.length} enrollment observations. Latest: ${latestFill}% full${countSummary}.${unavailableSummary}${comparisonSummary}`;
+}
+
+function updateRegistrationUnavailableGuide(intervals) {
+    const guide = document.getElementById('registrationUnavailableGuide');
+    if (guide) guide.hidden = intervals.length === 0;
+}
+
+function updateHistoricalChartStateAttributes(canvas, historicalPoints, currentPoints) {
+    const historicalEnd = historicalPoints.at(-1);
+    canvas.dataset.historicalPointCount = String(historicalPoints.length);
+    canvas.dataset.historicalSyntheticPoints = String(
+        historicalPoints.filter(point => point.synthetic).length,
+    );
+    canvas.dataset.historicalEndKind = historicalEnd?.removalEnded
+        ? 'removal'
+        : historicalEnd?.observationEnded ? 'observation' : 'none';
+    canvas.dataset.historicalEndpointX = String(historicalEnd?.x ?? '');
+    canvas.dataset.currentEndpointX = String(currentPoints.at(-1)?.x ?? '');
 }
 
 /**
@@ -2175,7 +2311,9 @@ async function renderChart(
         historicalComparison,
     };
 
-    const milestones = getMilestones();
+    const milestones = document.body.dataset.pageArchived === 'true'
+        ? filterMilestonesToObservedRange(getMilestones(), chartDomain)
+        : getMilestones();
     const presentation = buildChartPresentation({
         points: chartPoints,
         domain: chartDomain,
@@ -2222,15 +2360,22 @@ async function renderChart(
         historicalDataPoints,
         compactLabels: compactMilestoneLabels,
     });
+    const registrationUnavailableIntervals = addRegistrationUnavailableAnnotations(
+        annotations,
+        visibleChartPoints,
+        xValues,
+        recordedDomainEnd,
+    );
+    updateRegistrationUnavailableGuide(registrationUnavailableIntervals);
     const historicalXValues = historicalDataPoints.map(point => point.x);
     const xScaleDomain = selectChartScaleDomain(currentComparisonDomain, historicalXValues);
     const xBounds = getXScaleBounds([
         ...xScaleDomain,
         ...annotationXValues,
     ]);
-    const displayHistoricalDataPoints = historicalComparison?.mode === 'course'
-        ? extendSteppedSeriesToDomainEnd(historicalDataPoints, xBounds.max)
-        : historicalDataPoints;
+    const displayHistoricalDataPoints = historicalDataPoints.at(-1)?.removalEnded
+        ? historicalDataPoints
+        : markObservationEnd(historicalDataPoints);
 
     // Show chart canvas
     document.getElementById('chartPlaceholder').style.display = 'none';
@@ -2244,14 +2389,23 @@ async function renderChart(
         fillData,
         historicalComparison,
         hasHistoricalDataset,
+        registrationUnavailableIntervals,
     });
+    canvas.dataset.registrationUnavailableIntervals = String(
+        registrationUnavailableIntervals.length,
+    );
     canvas.offsetHeight;
 
     replaceActiveChart();
     setZoomControlsState(false);
 
     // Build dataset with {x, y} pairs
-    const dataPoints = fillData.map((y, i) => ({ x: xValues[i], y, sourceIndex: i }));
+    const dataPoints = fillData.map((y, i) => ({
+        x: xValues[i],
+        y,
+        sourceIndex: i,
+        limitingTypes: visibleChartPoints[i]?.limitingTypes ?? [],
+    }));
     const capacityDataPoints = buildObservedCapacityPoints(capacityData, xValues);
     const displayDataPoints = extendSteppedSeriesToDomainEnd(dataPoints, recordedDomainEnd);
     const displayCapacityDataPoints = extendSteppedSeriesToDomainEnd(
@@ -2302,12 +2456,25 @@ async function renderChart(
         stepped: OBSERVATION_STEP_MODE,
         borderDash: [7, 4],
         borderWidth: 2.5,
-        pointRadius: 0,
+        pointRadius: context => (
+            context.raw?.observationEnded || context.raw?.removalEnded ? 4 : 0
+        ),
         pointHoverRadius: 0,
+        pointStyle: context => context.raw?.removalEnded
+            ? 'crossRot'
+            : context.raw?.observationEnded ? 'triangle' : 'circle',
+        pointRotation: context => context.raw?.observationEnded ? 90 : 0,
+        pointBackgroundColor: 'rgba(247, 249, 252, 0.15)',
         // Draw above capacity and milestones, but behind the current line.
         order: 1,
     } : null;
     canvas.dataset.historicalDatasets = historicalDataset ? '1' : '0';
+    updateHistoricalChartStateAttributes(
+        canvas,
+        displayHistoricalDataPoints,
+        displayDataPoints,
+    );
+    canvas.dataset.enrollmentLineStyle = 'solid';
     const compactTooltip = window.matchMedia('(max-width: 768px)').matches;
     const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
     canvas.dataset.tooltipDensity = compactTooltip ? 'compact' : 'regular';
@@ -2524,13 +2691,12 @@ function closeModal() {
 
     selectedCourse = null;
     selectedSection = null;
+    selectedCourseShareUrl = null;
     currentEnrollmentData = [];
     lastRenderArgs = null;
     resetHistoricalComparisonState();
     resetCourseDetailView();
-    // Clear URL hash
-    const suffix = document.body.dataset.initialCourse ? window.location.search : '';
-    history.replaceState(null, '', `${window.location.pathname}${suffix}`);
+    history.replaceState(null, '', `/semesters/${getSemesterSlug()}/`);
 }
 
 /**
@@ -2556,9 +2722,37 @@ function clearChartActiveElements() {
     }
 }
 
-// Event listeners
-document.getElementById('modalOverlay').addEventListener('click', (e) => {
-    if (e.target.id === 'modalOverlay') closeModal();
+// Backdrop dismissal is an intentional short press that starts and ends on the
+// backdrop. A chart drag may end over the backdrop, but it must never close the
+// modal or synthesize activation outside the chart.
+const modalOverlay = document.getElementById('modalOverlay');
+let backdropGesture = null;
+modalOverlay.addEventListener('pointerdown', (event) => {
+    backdropGesture = {
+        pointerId: event.pointerId,
+        startedOnBackdrop: event.target === modalOverlay,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+    };
+}, true);
+modalOverlay.addEventListener('pointermove', (event) => {
+    if (!backdropGesture || event.pointerId !== backdropGesture.pointerId) return;
+    const distance = Math.hypot(
+        event.clientX - backdropGesture.startX,
+        event.clientY - backdropGesture.startY,
+    );
+    if (distance > 8) backdropGesture.moved = true;
+}, true);
+modalOverlay.addEventListener('pointercancel', () => {
+    backdropGesture = null;
+}, true);
+modalOverlay.addEventListener('click', (event) => {
+    const dismiss = event.target === modalOverlay
+        && backdropGesture?.startedOnBackdrop
+        && !backdropGesture.moved;
+    backdropGesture = null;
+    if (dismiss) closeModal();
 });
 
 // Track the element that opened the modal for focus restoration
@@ -2608,12 +2802,13 @@ document.getElementById('modalCloseBtn')?.addEventListener('click', closeModal);
 // Share link button
 document.getElementById('modalShareLink')?.addEventListener('click', async () => {
     if (!selectedCourse) return;
-    const semSlug = semesterToSlug(IS_COMBINED ? activeSemester : getData().sem || '');
-    const courseSlug = courseToSlug(selectedCourse);
-    const cleanUrl = `${window.location.origin}/courses/${semSlug}/${courseSlug}/`;
-    const archived = document.body.dataset.courseArchived === 'true';
-    const hash = document.body.dataset.previewHash;
-    const shareUrl = !archived && hash ? `${cleanUrl}?v=${hash}` : cleanUrl;
+    const courseCode = selectedCourse;
+    if (!selectedCourseShareUrl) await showCourseRoute(courseCode);
+    if (selectedCourse !== courseCode || !selectedCourseShareUrl) {
+        showToast('Share link unavailable');
+        return;
+    }
+    const shareUrl = selectedCourseShareUrl;
 
     try {
         await navigator.clipboard.writeText(shareUrl);
@@ -3215,7 +3410,6 @@ async function initApp() {
     renderCourseGrid();
     markAfterAnimationFrames('registrar:grid-rendered');
 
-    replaceDisplayedVersion();
     if (!await handleInitialCourseNavigation()) handleHashNavigation();
 
     // Show "last updated" toast on load

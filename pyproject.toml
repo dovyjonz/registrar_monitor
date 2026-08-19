@@ -51,7 +51,7 @@ addopts = [
     "--cov=src/registrarmonitor",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
-    "--cov-fail-under=75",
+    "--cov-fail-under=80",
 ]
 asyncio_mode = "strict"
 markers = [

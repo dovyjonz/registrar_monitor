@@ -7,7 +7,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       slug: 'ant-140',
@@ -31,7 +31,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Spring 2026',
       semesterSlug: 'spring-2026',
       slug: 'ant-214',
@@ -47,7 +47,7 @@ describe('preview card', () => {
     const current = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       status: 'current',
@@ -55,7 +55,7 @@ describe('preview card', () => {
     const archived = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'b1b2c3d4e5f6',
+      hash: 'ubLD1OX2',
       semester: 'Spring 2026',
       semesterSlug: 'spring-2026',
       status: 'archived',
@@ -71,7 +71,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Spring 2026',
       semesterSlug: 'spring-2026',
       availability: {
@@ -85,14 +85,14 @@ describe('preview card', () => {
           { type: 'Lab', enrollment: 45, capacity: 50, available: 5 },
         ],
       },
-      priority: { label: 'PRIORITY 3: ALL' },
+      priority: { compact: 'P3 · ALL', full: 'Priority 3 — All students' },
     });
 
     expect(html).toContain('<span class="course-readout-label">Availability</span><span class="course-readout-value">7 places open</span>');
     expect(html).not.toContain('course-readout-label">Limit');
     expect(html).not.toContain('Lab + Lecture');
     expect(html).toContain('<span class="course-readout-label">Lab</span><span class="course-readout-value">45/50, 90% full</span>');
-    expect(html).toContain('<span class="priority">PRIORITY 3: ALL</span>');
+    expect(html).toContain('<span class="priority">P3 · ALL</span>');
     expect(html).not.toContain('7 registration places available');
   });
 
@@ -100,7 +100,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Summer 2026',
       semesterSlug: 'summer-2026',
       availability: {
@@ -117,9 +117,10 @@ describe('preview card', () => {
         }],
       },
       priority: {
-        label: 'PRIORITY 1',
-        current: { label: 'Y2', priority: '1', time: '2026-05-12T11:00:00+05:00' },
-        next: { label: 'Y1', priority: '1', time: '2026-05-12T13:00:00+05:00' },
+        compact: 'P1 · Y2',
+        full: 'Priority 1 — Year 2',
+        current: { label: 'Y2', priority: '1', compact: 'P1 · Y2', time: '2026-05-12T11:00:00+05:00' },
+        next: { label: 'Y1', priority: '1', compact: 'P1 · Y1', time: '2026-05-12T13:00:00+05:00' },
       },
       course: {
         sections: { '1L': { type: 'L' } },
@@ -127,21 +128,66 @@ describe('preview card', () => {
       },
     });
 
-    expect(html).toContain('Open now: P1: Y2');
-    expect(html).toContain('Next: P1: Y1 at 12 May 13:00');
+    expect(html).toContain('Open now: P1 · Y2');
+    expect(html).toContain('Next: P1 · Y1 at 12 May 13:00');
     expect(html).toContain('.course-readout{width:100%');
     expect(html).toContain('justify-content:space-between;gap:5px 28px');
     expect(html).toContain('flex-wrap:wrap');
-    expect(html).toContain('class="course-readout-registration"><span class="priority">Open now: P1: Y2</span><span class="course-readout-context">Next: P1: Y1 at 12 May 13:00</span>');
+    expect(html).toContain('class="course-readout-registration"><span class="priority">Open now: P1 · Y2</span><span class="course-readout-context">Next: P1 · Y1 at 12 May 13:00</span>');
     expect(html).toContain('<span class="course-readout-sections">1 Lecture section: open</span>');
     expect(html).toContain('.course-readout-context{color:hsl(48 100% 55%);font-size:17px;font-weight:700');
+  });
+
+  it('does not reconstruct missing canonical priority copy', () => {
+    const html = renderCard({
+      schemaVersion: 1,
+      kind: 'course',
+      hash: 'obLD1OX2',
+      semester: 'Summer 2026',
+      semesterSlug: 'summer-2026',
+      priority: {
+        compact: 'P1 · Y3',
+        full: 'Priority 1 — Year 3',
+        current: { label: 'Y3', priority: '1', time: '2026-05-12T11:00:00+05:00' },
+        next: { label: 'Y2', priority: '1', time: '2026-05-12T13:00:00+05:00' },
+      },
+    });
+
+    expect(html).toContain('Open now: Y3');
+    expect(html).toContain('Next: Y2 at 12 May 13:00');
+    expect(html).not.toContain('Open now: P1 · Y3');
+    expect(html).not.toContain('Next: P1 · Y2');
+  });
+
+  it('makes required-type-full availability outrank ordinary availability', () => {
+    const html = renderCard({
+      schemaVersion: 1,
+      kind: 'course',
+      hash: 'obLD1OX2',
+      semester: 'Fall 2026',
+      semesterSlug: 'fall-2026',
+      code: 'CS 101',
+      availability: {
+        sentence: 'No registration places — all Lab sections are full.',
+        breakdown: 'Labs 0/1 open, Lectures 1/1 open.',
+        available: 0,
+        kind: 'registration-places',
+        status: 'required-type-full',
+        compact: 'LAB FULL',
+        limitingTypes: ['Lab'],
+        types: [],
+      },
+    });
+
+    expect(html).toContain('LAB FULL');
+    expect(html).toContain('No registration places');
   });
 
   it('summarizes mixed open and full sections', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       availability: {
@@ -172,7 +218,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Summer 2026',
       semesterSlug: 'summer-2026',
       timestamps: [
@@ -197,9 +243,9 @@ describe('preview card', () => {
 
     expect(html).toContain('Equally spaced milestone enrollment and capacity history');
     expect(html).toContain('class="milestone"');
-    expect(html).toContain('P1: Y4+');
-    expect(html).toContain('P2: Y2');
-    expect(html).toContain('P3: ALL');
+    expect(html).toContain('P1 · Y4+');
+    expect(html).toContain('P2 · Y2');
+    expect(html).toContain('P3 · ALL');
     expect(html).toContain('>Y3</text>');
     expect(html).toContain('>Drop</text>');
     expect(html).toContain('>Close</text>');
@@ -221,7 +267,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       timestamps: ['2026-08-13T09:00:00+05:00', '2026-08-13T10:55:00+05:00'],
@@ -251,7 +297,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       timestamps: ['2026-08-01T09:00:00+05:00', '2026-08-02T09:00:00+05:00'],
@@ -279,7 +325,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       timestamps: [0, 1, 2, 3].map((day) => `2026-08-0${day + 1}T09:00:00+05:00`),
@@ -307,7 +353,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       slug: 'wcs-210-asc-200',
@@ -344,7 +390,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'course',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Spring 2026',
       semesterSlug: 'spring-2026',
       slug: 'ant-214',
@@ -363,7 +409,7 @@ describe('preview card', () => {
     const html = renderCard({
       schemaVersion: 1,
       kind: 'semester',
-      hash: 'a1b2c3d4e5f6',
+      hash: 'obLD1OX2',
       semester: 'Fall 2026',
       semesterSlug: 'fall-2026',
       courseCount: 404,
@@ -372,7 +418,8 @@ describe('preview card', () => {
       openSeats: 2318,
       updated: '2026-08-03T15:45:00+05:00',
       priority: {
-        label: 'PRIORITY 2',
+        compact: 'P2 · Y3',
+        full: 'Priority 2 — Year 3',
         eligible: ['Y4+', 'Y3'],
         next: { label: 'Y2', time: '2026-08-04T13:00:00+05:00' },
       },

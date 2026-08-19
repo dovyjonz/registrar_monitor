@@ -149,7 +149,7 @@ function graph(state: PreviewState): string {
     const x = xFor(presentation.mapTime(parsed));
     const previousPriority = index > 0 ? visibleMilestones[index - 1]?.priority : null;
     const label = milestone.priority && milestone.priority !== previousPriority
-      ? `P${milestone.priority}: ${milestone.label}`
+      ? `P${milestone.priority} · ${milestone.label}`
       : milestone.label;
     const color = milestone.priority ? milestone.color : '#94A3B8';
     const textX = index === 0 ? x + 6 : index === visibleMilestones.length - 1 ? x - 6 : x;
@@ -184,7 +184,12 @@ function formatUpdated(value: string | undefined): string {
   }).format(parsed).replace(',', '') + ' Astana time';
 }
 
-function formatNextMilestone(next: { label: string; time: string; priority?: string } | null | undefined): string {
+function formatNextMilestone(next: {
+  label: string;
+  time: string;
+  priority?: string;
+  compact?: string;
+} | null | undefined): string {
   if (!next) return '';
   const parsed = new Date(String(next.time).replace(' ', 'T'));
   if (!Number.isFinite(parsed.getTime())) return '';
@@ -196,16 +201,21 @@ function formatNextMilestone(next: { label: string; time: string; priority?: str
     hour12: false,
     timeZone: 'Asia/Almaty',
   }).format(parsed).replace(',', '');
-  const priority = next.priority ? `P${next.priority}: ` : '';
-  return `Next: ${priority}${String(next.label)} at ${when}`;
+  const gate = next.compact || next.label;
+  return `Next: ${gate} at ${when}`;
 }
 
 function formatCurrentMilestone(
-  current: { label: string; time: string; priority?: string } | null | undefined,
+  current: {
+    label: string;
+    time: string;
+    priority?: string;
+    compact?: string;
+  } | null | undefined,
 ): string {
   if (!current?.label) return '';
-  const priority = current.priority ? `P${current.priority}: ` : '';
-  return `Open now: ${priority}${current.label}`;
+  const gate = current.compact || current.label;
+  return `Open now: ${gate}`;
 }
 
 function formatFinalState(value: string | undefined): string {
@@ -240,6 +250,12 @@ function courseSectionSummary(state: PreviewState): string {
 function courseReadout(state: PreviewState, includeBreakdown = false): Array<[string, string]> {
   const availability = state.availability;
   if (!availability) return [];
+  if (availability.status === 'required-type-full') {
+    return [
+      ['Status', availability.compact || 'REGISTRATION UNAVAILABLE'],
+      ['Availability', availability.sentence],
+    ];
+  }
   const label = availability.kind === 'registration-places' ? 'places' : 'seats';
   const lines: Array<[string, string]> = [
     ['Availability', `${availability.available} ${label} open`],
@@ -286,7 +302,7 @@ export function renderCard(state: PreviewState): string {
   const title = course ? state.code : state.semester;
   const subtitle = course ? state.title : `${state.courseCount} courses, ${state.sectionCount} sections`;
   const currentMilestone = formatCurrentMilestone(state.priority?.current);
-  const priorityCopy = currentMilestone || state.priority?.label || '';
+  const priorityCopy = currentMilestone || state.priority?.compact || '';
   const priority = priorityCopy ? `<span class="priority">${escapeHtml(priorityCopy)}</span>` : '';
   const nextMilestone = formatNextMilestone(state.priority?.next);
   const context = nextMilestone || (status === 'archived' || status === 'removed'

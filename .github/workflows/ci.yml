@@ -152,8 +152,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix assets/website
 
-      - name: Install Chromium
-        run: npm --prefix assets/website exec playwright install --with-deps chromium
+      - name: Install browsers
+        run: npm --prefix assets/website exec playwright install --with-deps chromium webkit
 
       - name: Seed deterministic smoke data
         run: uv run python scripts/seed_smoke_data.py
@@ -163,6 +163,12 @@ jobs:
 
       - name: Run Playwright against generated output
         run: npm --prefix assets/website run test:e2e
+
+      - name: Run focused Mobile Safari regressions
+        run: npm --prefix assets/website run test:e2e:webkit
+
+      - name: Prove affected browser regressions are stable
+        run: make test-browser-stability
 
       - name: Upload generated-site and Playwright reports
         if: always()
@@ -196,10 +202,33 @@ jobs:
         with:
           node-version: 24.18.0
           cache: npm
-          cache-dependency-path: assets/website/package-lock.json
+          cache-dependency-path: |
+            assets/website/package-lock.json
+            workers/preview-images/package-lock.json
 
-      - name: Audit frontend lockfile
-        run: npm audit --prefix assets/website --audit-level=high
+      - name: Audit npm lockfiles
+        run: make security
+
+  preview-worker:
+    name: Preview Worker checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: workers/preview-images/package-lock.json
+
+      - name: Install Worker dependencies
+        run: npm ci --prefix workers/preview-images
+
+      - name: Check Worker
+        run: make worker-check
 
   benchmark:
     name: Synthetic performance benchmark artifact
@@ -233,8 +262,11 @@ jobs:
         run: make benchmark-synthetic PERF_COLD=1 PERF_WARM=2
 
       - name: Upload benchmark
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: performance-baseline-synthetic
-          path: output/performance-baseline.json
-          if-no-files-found: error
+          path: |
+            output/performance-baseline.json
+            output/benchmark-browser/
+          if-no-files-found: warn

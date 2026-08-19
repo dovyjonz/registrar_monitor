@@ -43,6 +43,22 @@ function sha256Hex(body) {
     return createHash('sha256').update(body).digest('hex');
 }
 
+async function waitForScrollToSettle(page) {
+    await page.evaluate(() => new Promise(resolveScrollSettled => {
+        let settleTimer;
+        const finish = () => {
+            window.removeEventListener('scroll', scheduleFinish);
+            resolveScrollSettled();
+        };
+        const scheduleFinish = () => {
+            clearTimeout(settleTimer);
+            settleTimer = setTimeout(finish, 100);
+        };
+        window.addEventListener('scroll', scheduleFinish, { passive: true });
+        scheduleFinish();
+    }));
+}
+
 test('generated production site serves a working semester dashboard', async ({ page }) => {
     const failedRequests = [];
     const pageErrors = [];
@@ -54,9 +70,9 @@ test('generated production site serves a working semester dashboard', async ({ p
         if (pathname.endsWith('.json')) jsonRequests.push(pathname);
     });
 
-    const semesterResponse = await page.goto('/semesters/summer-2026/');
+    const semesterResponse = await page.goto('/semesters/fall-2026/');
     expect(semesterResponse?.ok()).toBe(true);
-    await expect(page).toHaveURL(/\/semesters\/summer-2026\/$/);
+    await expect(page).toHaveURL(/\/semesters\/fall-2026\/$/);
     await expect(page.locator('body')).not.toContainText('Loading enrollment data...');
     await expect(page.locator('#courseGrid')).toBeVisible();
     await expect(page.locator('#toastContainer')).toHaveAttribute('role', 'status');
@@ -68,9 +84,9 @@ test('generated production site serves a working semester dashboard', async ({ p
     await page.locator('.milestone-details summary').click();
     await expect(page.locator('.milestone-details')).toHaveAttribute('open', '');
     const milestoneLabels = await page.locator('.mp-dot-label').allTextContents();
-    expect(milestoneLabels).toContain('P1: Y4+');
-    expect(milestoneLabels).toContain('P2: Y3+');
-    expect(milestoneLabels).toContain('P3: ALL');
+    expect(milestoneLabels).toContain('P1 · Y4+');
+    expect(milestoneLabels).toContain('P2 · Y4+');
+    expect(milestoneLabels).toContain('P3 · ALL');
     const timelineColors = await page.locator('.mp-fill').evaluate(element => (
         getComputedStyle(element).backgroundImage
     ));
@@ -101,7 +117,11 @@ test('generated production site serves a working semester dashboard', async ({ p
     await expect(page.locator('#jumpToNav a:visible')).toHaveText('MATH');
     await page.locator('#jumpToNav a:visible').click();
     await expect(page.locator('#departmentPanel')).toBeHidden();
+    await waitForScrollToSettle(page);
     await expect(page.locator('#dept-MATH')).toBeInViewport();
+    const departmentHeadingY = (await page.locator('#dept-MATH').boundingBox())?.y;
+    expect(departmentHeadingY).toBeGreaterThanOrEqual(12);
+    expect(departmentHeadingY).toBeLessThanOrEqual(32);
 
     await page.keyboard.press('/');
     await expect(page.locator('#courseSearch')).toBeFocused();
@@ -156,11 +176,13 @@ test('generated production site serves a working semester dashboard', async ({ p
     await firstCourse.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
+    await expect(page).toHaveURL(/\/courses\/fall-2026\/.+\/\?v=[A-Za-z0-9_-]{8}$/);
     await expect.poll(() => page.evaluate(() => (
         document.querySelector('#modalOverlay')?.contains(document.activeElement)
     ))).toBe(true);
     expect(blobRequests()).toHaveLength(2);
     await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/semesters\/fall-2026\/$/);
     await expect(firstCourse).toBeFocused();
 
     const sameDepartmentCourses = page.locator(
@@ -185,6 +207,19 @@ test('generated production site serves a working semester dashboard', async ({ p
     expect(duplicateIds).toEqual([]);
     await expect(page.locator('#modalOverlay')).toHaveAttribute('role', 'dialog');
     await expect(page.locator('#modalCloseBtn')).toHaveAccessibleName(/close/i);
+    const semesterReminder = page.locator('#modalSemester');
+    const openCourseCode = await page.locator('#modalCourseCode').textContent();
+    await expect(semesterReminder).toHaveText('Fall 2026');
+    await expect(page.locator('#modalOverlay')).toHaveAccessibleName(
+        new RegExp(`${openCourseCode}.*Fall 2026`),
+    );
+    expect(await semesterReminder.evaluate(element => ({
+        followsCourseName: element.previousElementSibling?.id === 'modalCourseName',
+        isVisuallySecondary: (
+            Number.parseFloat(getComputedStyle(element).fontSize)
+            < Number.parseFloat(getComputedStyle(element.previousElementSibling).fontSize)
+        ),
+    }))).toEqual({ followsCourseName: true, isVisuallySecondary: true });
     await expect(page.locator('#enrollment-chart')).toHaveAttribute(
         'aria-describedby',
         'chartSummary',
@@ -225,11 +260,29 @@ test('clean live course route opens the existing modal on a narrow viewport', as
     await page.setViewportSize({ width: 390, height: 844 });
     const response = await page.goto('/courses/fall-2026/ant-101/');
     expect(response?.ok()).toBe(true);
-    await expect(page).toHaveURL(/\/courses\/fall-2026\/ant-101\/\?v=[a-f0-9]{12}$/);
+    await expect(page).toHaveURL(/\/courses\/fall-2026\/ant-101\/\?v=[A-Za-z0-9_-]{8}$/);
     await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
     await expect(page.locator('#modalCourseCode')).toHaveText('ANT 101');
     await expect(page.locator('#courseAvailability')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText('Nazarbayev University');
+});
+
+test('explicit Share copies the same current state identity as the visible live URL', async ({ browser }) => {
+    const context = await browser.newContext({
+        permissions: ['clipboard-read', 'clipboard-write'],
+    });
+    const page = await context.newPage();
+    const response = await page.goto('/semesters/fall-2026/');
+    expect(response?.ok()).toBe(true);
+    await page.locator('.course-cell[data-course="ANT 101"]').click();
+    await expect(page).toHaveURL(/\/courses\/fall-2026\/ant-101\/\?v=[A-Za-z0-9_-]{8}$/);
+    const visibleUrl = page.url();
+
+    await page.locator('#modalShareLink').click();
+
+    await expect(page.locator('#toastContainer')).toContainText('Share link copied');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(visibleUrl);
+    await context.close();
 });
 
 test('elective filters compose and either-category courses appear in both groups', async ({ page }) => {
@@ -265,6 +318,42 @@ test('archived clean course route stays unversioned and opens its final modal', 
     await expect(page).toHaveURL(/\/courses\/summer-2026\/ant-110\/$/);
     await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
     await expect(page.locator('#modalCourseCode')).toHaveText('ANT 110');
+});
+
+test('required-type-full courses use compact cards and an explained chart interval', async ({ page }) => {
+    const response = await page.goto('/semesters/summer-2026/');
+    expect(response?.ok()).toBe(true);
+    await page.locator('#courseSearch').fill('CHME 403');
+    const course = page.locator('.course-cell[data-course="CHME 403"]');
+    await expect(course).toBeVisible();
+    await expect(course.locator('.course-fill')).toHaveText('FULL');
+    await expect(course).toHaveAttribute(
+        'aria-label',
+        'CHME 403: LAB + LECTURE FULL. No registration places — all Lab and Lecture sections are full.',
+    );
+
+    await course.click();
+    await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#courseState')).toBeHidden();
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-registration-unavailable-intervals',
+        /^[1-9]\d*$/,
+    );
+    await expect(page.locator('#chartSummary')).toContainText(
+        /registration-unavailable interval/,
+    );
+    await expect(page.locator('#registrationUnavailableGuide')).toBeVisible();
+    await expect(page.locator('#registrationUnavailableGuide')).toHaveText(
+        'Required sections full',
+    );
+
+    await page.locator('#modalCloseBtn').click();
+    await page.locator('#courseSearch').fill('ANT 110');
+    const ordinaryFullCourse = page.locator('.course-cell[data-course="ANT 110"]');
+    await expect(ordinaryFullCourse.locator('.course-fill')).toHaveText('FULL');
+    await ordinaryFullCourse.click();
+    await expect(page.locator('#courseState')).toBeHidden();
+    await expect(page.locator('#registrationUnavailableGuide')).toBeHidden();
 });
 
 test('mobile dashboard keeps stats, timeline, and controls precisely aligned', async ({ page }) => {
@@ -336,6 +425,14 @@ test('mobile dashboard keeps stats, timeline, and controls precisely aligned', a
         statsAligned: true,
         timelineAligned: true,
     });
+
+    await page.locator('#departmentToggle').click();
+    await page.locator('#departmentSearch').fill('math');
+    await page.locator('#jumpToNav a:visible').click();
+    await waitForScrollToSettle(page);
+    const mobileDepartmentHeadingY = (await page.locator('#dept-MATH').boundingBox())?.y;
+    expect(mobileDepartmentHeadingY).toBeGreaterThanOrEqual(12);
+    expect(mobileDepartmentHeadingY).toBeLessThanOrEqual(32);
 
     await expect(page.locator('.course-cell').first()).toBeVisible();
     for (const filter of ['full', 'near', 'open']) {
@@ -459,7 +556,9 @@ test('course deep links open the modal after the verified summary loads', async 
     await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
     await expect(page.locator('#modalCourseCode')).toHaveText(firstCode);
     await expect(page.locator('#modalCourseName')).not.toBeEmpty();
-    await expect(page.locator('#modalTitle')).toHaveAccessibleName(new RegExp(`^${firstCode}:`));
+    await expect(page.locator('#modalTitle')).toHaveAccessibleName(
+        new RegExp(`^${firstCode}.*Summer 2026$`),
+    );
     await page.keyboard.press('Escape');
     await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
 });
@@ -521,6 +620,14 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
     await expect(toggle).toContainText(/Fall 2025/);
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
         .toBe('1');
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-historical-synthetic-points',
+        '0',
+    );
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-historical-end-kind',
+        'observation',
+    );
     await expect.poll(async () => {
         const current = await page.locator('.chart-wrapper').boundingBox();
         return Math.max(
@@ -591,8 +698,7 @@ test('continuous phased time works on mobile', async ({ page }) => {
     await page.mouse.click(pinnedX, pinnedY);
     await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'true');
     await expect(page.locator('.chart-readout-pinned')).toHaveText('Pinned');
-    await expect(page.locator('.chart-readout-context')).toContainText(/Year|deadline/);
-    await expect(page.locator('.chart-readout-context')).not.toContainText('\u00b7');
+    await expect(page.locator('.chart-readout-context')).toContainText(/P\d · /);
     expect(await page.locator('.chart-readout-pinned').evaluate(element => (
         element.getBoundingClientRect().right
             <= element.parentElement.getBoundingClientRect().right
@@ -623,6 +729,88 @@ test('continuous phased time works on mobile', async ({ page }) => {
     expect(await page.locator('#modalOverlay').evaluate(element => (
         element.scrollWidth <= element.clientWidth
     ))).toBe(true);
+});
+
+test('narrow full-capacity graph states keep the readout stable and unclipped', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 740 });
+    const response = await page.goto('/courses/summer-2026/bus-101/');
+    expect(response?.ok()).toBe(true);
+
+    const canvas = page.locator('#enrollment-chart');
+    const readout = page.locator('#chartReadout');
+    const chartWrapper = page.locator('.chart-wrapper');
+    await expect(canvas).toBeVisible();
+    await canvas.scrollIntoViewIfNeeded();
+    await expect(canvas).toHaveAttribute('data-enrollment-line-style', 'solid');
+
+    const initialReadoutBox = await readout.boundingBox();
+    const initialWrapperBox = await chartWrapper.boundingBox();
+    expect(Math.round(initialReadoutBox.height)).toBe(84);
+    const canvasBox = await canvas.boundingBox();
+    expect(canvasBox).toBeTruthy();
+
+    let fullCapacityX = null;
+    for (const fraction of [0.55, 0.65, 0.75, 0.85, 0.95]) {
+        const x = canvasBox.x + canvasBox.width * fraction;
+        await page.mouse.move(x, canvasBox.y + canvasBox.height * 0.5);
+        await expect(canvas).toHaveAttribute('data-hover-timestamp', /\d+/);
+        await expect(readout).toBeVisible();
+        expect(Math.round((await readout.boundingBox()).height)).toBe(84);
+        expect((await chartWrapper.boundingBox()).y).toBeCloseTo(initialWrapperBox.y, 0);
+        expect(await readout.evaluate(element => ({
+            contentFitsVertically: element.scrollHeight <= element.clientHeight,
+            contentFitsHorizontally: element.scrollWidth <= element.clientWidth,
+        }))).toEqual({
+            contentFitsVertically: true,
+            contentFitsHorizontally: true,
+        });
+        const text = await readout.innerText();
+        if (text.includes('100% full') && text.includes('100% opening')) fullCapacityX = x;
+    }
+    expect(fullCapacityX).not.toBeNull();
+
+    await page.mouse.click(fullCapacityX, canvasBox.y + canvasBox.height * 0.5);
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'true');
+    const pinned = readout.locator('.chart-readout-pinned');
+    await expect(pinned).toBeVisible();
+    expect(Math.round((await readout.boundingBox()).height)).toBe(84);
+    expect((await chartWrapper.boundingBox()).y).toBeCloseTo(initialWrapperBox.y, 0);
+    expect(await readout.evaluate(element => {
+        const badge = element.querySelector('.chart-readout-pinned').getBoundingClientRect();
+        const card = element.getBoundingClientRect();
+        const content = [
+            ...element.querySelectorAll('.chart-readout-title, .chart-readout-context'),
+        ].flatMap(item => [...item.getClientRects()]);
+        const overlapsBadge = content.some(rect => !(
+            rect.right <= badge.left
+            || rect.left >= badge.right
+            || rect.bottom <= badge.top
+            || rect.top >= badge.bottom
+        ));
+        return {
+            badgeInsideCard: badge.top >= card.top
+                && badge.right <= card.right
+                && badge.bottom <= card.bottom,
+            contentFitsVertically: element.scrollHeight <= element.clientHeight,
+            overlapsBadge,
+        };
+    })).toEqual({
+        badgeInsideCard: true,
+        contentFitsVertically: true,
+        overlapsBadge: false,
+    });
+
+    await page.mouse.click(fullCapacityX, canvasBox.y + canvasBox.height * 0.5);
+    await expect(canvas).toHaveAttribute('data-tooltip-pinned', 'false');
+    await expect(readout).toHaveAttribute('hidden', '');
+    expect(Math.round((await readout.boundingBox()).height)).toBe(84);
+    expect((await chartWrapper.boundingBox()).y).toBeCloseTo(initialWrapperBox.y, 0);
+
+    for (const mode of ['snapshots', 'timeline', 'phased']) {
+        await page.locator(`.chart-mode-btn[data-mode="${mode}"]`).click();
+        expect(Math.round((await readout.boundingBox()).height)).toBe(84);
+        expect((await chartWrapper.boundingBox()).y).toBeCloseTo(initialWrapperBox.y, 0);
+    }
 });
 
 test('touch dragging inspects the chart without trapping vertical scrolling', async ({ browser }) => {
@@ -689,7 +877,7 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     await expect(readout).toBeVisible();
     await expect(readout).toContainText(/Enrollment|Capacity/);
     await expect(readout.locator('.chart-readout-context')).toContainText(/→|Until|Since/);
-    await expect(readout).toHaveCSS('position', 'static');
+    await expect(readout).toHaveCSS('position', 'relative');
     await expect.poll(async () => (await chartWrapper.boundingBox()).y)
         .toBeCloseTo(wrapperTopBeforeTouch, 0);
     await expect.poll(async () => (await canvas.boundingBox()).y)
@@ -701,8 +889,12 @@ test('touch dragging inspects the chart without trapping vertical scrolling', as
     expect(canvasBox.y + canvasBox.height)
         .toBeLessThanOrEqual(wrapperBox.y + wrapperBox.height);
     expect(readoutBox.width).toBeLessThanOrEqual(canvasBox.width);
-    expect(readoutBox.height).toBeGreaterThanOrEqual(80);
+    expect(readoutBox.height).toBeLessThanOrEqual(85);
     expect(readoutBox.y + readoutBox.height).toBeLessThanOrEqual(canvasBox.y);
+    await expect(readout).toHaveCSS('align-content', 'center');
+    expect(await readout.locator('.chart-readout-context').evaluate(element => (
+        getComputedStyle(element).textOverflow
+    ))).toBe('clip');
     expect((await readout.locator('.chart-readout-label').allTextContents())
         .every(text => !text.includes('…'))).toBe(true);
     const enrollmentRow = readout.locator('.chart-readout-line').filter({ hasText: 'Enrollment' });
@@ -957,6 +1149,128 @@ test('historical comparison reports no history instead of remaining in a fetchin
     await expect(toggle).toBeDisabled();
 });
 
+test('professor history reports no history when the course is absent from earlier semesters', async ({ page }) => {
+    const response = await page.goto('/semesters/fall-2026/');
+    expect(response?.ok()).toBe(true);
+
+    await page.locator('.course-cell[data-course="ANT 233"]').click();
+    const section = page.locator('#section-001');
+    await expect(section).toBeVisible();
+    await section.click();
+
+    const controls = page.locator('#historicalComparisonControls');
+    const toggle = page.locator('#historicalComparisonToggle');
+    await expect(controls).toHaveAttribute('data-state', 'unavailable');
+    await expect(toggle).toHaveText('No history');
+    await expect(toggle).toBeDisabled();
+});
+
+test('professor no-history state returns to the current course view without reload', async ({ page }) => {
+    const current = readSemesterManifestFixture('fall-2026');
+    const currentDepartmentUrl = new URL(
+        current.manifest.departments.MATH.url,
+        `http://127.0.0.1${current.manifestPath}`,
+    );
+    const currentPayload = readSiteJson(currentDepartmentUrl.pathname.slice(1));
+    currentPayload.courses['MATH 161'].sections['3L'].instructor = 'Never Taught Before';
+    const currentBody = JSON.stringify(currentPayload);
+    const currentManifest = {
+        ...current.manifest,
+        departments: {
+            ...current.manifest.departments,
+            MATH: {
+                ...current.manifest.departments.MATH,
+                sha256: sha256Hex(currentBody),
+                bytes: Buffer.byteLength(currentBody),
+            },
+        },
+    };
+    await page.route('**/*.json', async route => {
+        const pathname = new URL(route.request().url()).pathname;
+        if (pathname === current.manifestPath) {
+            await route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify(currentManifest),
+            });
+            return;
+        }
+        if (pathname === currentDepartmentUrl.pathname) {
+            await route.fulfill({ contentType: 'application/json', body: currentBody });
+            return;
+        }
+        await route.continue();
+    });
+    const response = await page.goto('/semesters/fall-2026/');
+    expect(response?.ok()).toBe(true);
+    await page.locator('.course-cell[data-course="MATH 161"]').click();
+    const section = page.locator('#section-3L');
+    await expect(section).toBeVisible();
+    await section.click();
+    const controls = page.locator('#historicalComparisonControls');
+    const toggle = page.locator('#historicalComparisonToggle');
+    await expect(controls).toHaveAttribute('data-state', 'unavailable');
+    await expect(toggle).toHaveText('No history');
+
+    await section.click();
+
+    await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
+    await expect(controls).toHaveAttribute('data-state', 'available');
+    await expect(toggle).toHaveText('Fall 2025');
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-historical-datasets',
+        '0',
+    );
+});
+
+test('chart drag ending on the backdrop does not dismiss or activate the page', async ({ page }) => {
+    await page.goto('/semesters/fall-2025/#MATH-161');
+    const canvas = page.locator('#enrollment-chart');
+    await expect(canvas).toBeVisible();
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+    const selectedBefore = await page.locator('.modal-course-code').textContent();
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(2, 2, { steps: 8 });
+    await page.mouse.up();
+
+    await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
+    await expect(page.locator('.modal-course-code')).toHaveText(selectedBefore);
+
+    await page.locator('#modalOverlay').click({ position: { x: 2, y: 2 } });
+    await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
+});
+
+test('full course styling and mobile selects preserve semantic and accessible sizing @webkit', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/semesters/fall-2026/');
+    const fullCourse = page.locator('.course-cell').first();
+    await expect(fullCourse).toBeVisible();
+    await fullCourse.evaluate(element => element.classList.add('full'));
+    const resting = await fullCourse.evaluate(element => getComputedStyle(element).backgroundImage);
+    await fullCourse.focus();
+    const focused = await fullCourse.evaluate(element => ({
+        background: getComputedStyle(element).backgroundImage,
+        focus: getComputedStyle(element).boxShadow,
+    }));
+    expect(resting).toContain('linear-gradient');
+    expect(focused.background).toBe(resting);
+    expect(focused.focus).not.toBe('none');
+
+    for (const selector of ['#sortSelect', '#electiveFilter']) {
+        const metrics = await page.locator(selector).evaluate(element => {
+            const style = getComputedStyle(element);
+            return {
+                height: element.getBoundingClientRect().height,
+                fontSize: Number.parseFloat(style.fontSize),
+            };
+        });
+        expect(metrics.height).toBeGreaterThanOrEqual(44);
+        expect(metrics.fontSize).toBeLessThanOrEqual(16);
+    }
+});
+
 test('selecting a section switches to professor comparison and deselecting returns to course mode', async ({ page }) => {
     const current = readSemesterManifestFixture('fall-2026');
     const historical = readSemesterManifestFixture('fall-2025');
@@ -975,6 +1289,10 @@ test('selecting a section switches to professor comparison and deselecting retur
     currentPayload.courses[courseCode].sections['1L'].instructor = 'Jane Smith';
     historicalPayload.courses[courseCode].sections['1L'].instructor = 'Jane Smith';
     historicalPayload.courses[courseCode].sections['1R'].instructor = 'Jane Smith';
+    historicalPayload.courses[courseCode].events.push(
+        { eventType: 'section_removed', sectionCode: '1L', timestampIdx: 291 },
+        { eventType: 'section_removed', sectionCode: '1R', timestampIdx: 291 },
+    );
 
     const currentBody = JSON.stringify(currentPayload);
     const historicalBody = JSON.stringify(historicalPayload);
@@ -1047,6 +1365,10 @@ test('selecting a section switches to professor comparison and deselecting retur
     );
     await expect.poll(() => page.locator('#enrollment-chart').getAttribute('data-historical-datasets'))
         .toBe('1');
+    await expect(page.locator('#enrollment-chart')).toHaveAttribute(
+        'data-historical-end-kind',
+        'removal',
+    );
 
     await page.locator('#section-1L').click();
     await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(

@@ -128,29 +128,8 @@ def build_semester_page(
         title = f"{course_state['code']}: {semester} Enrollment Monitor"
         course_title = course_state.get("title", "")
         availability = course_state["availability"]["sentence"]
-        priority_state = course_state.get("priority") or {}
-        current = priority_state.get("current") or {}
-        next_milestone = priority_state.get("next") or {}
-        current_copy = (
-            f"Open now: Priority {current.get('priority')}, {current['label']}"
-            if current.get("priority") and current.get("label")
-            else None
-        )
-        next_time = _format_astana_timestamp(next_milestone.get("time"))
-        next_prefix = (
-            f"Priority {next_milestone['priority']}, "
-            if next_milestone.get("priority")
-            else ""
-        )
-        next_copy = (
-            f"Next: {next_prefix}{next_milestone['label']} on {next_time}"
-            if next_milestone.get("label") and next_time
-            else None
-        )
         description_parts = [
-            value.rstrip(".")
-            for value in (course_title, availability, current_copy, next_copy, semester)
-            if value
+            value.rstrip(".") for value in (course_title, availability) if value
         ]
         description = ". ".join(description_parts) + "."
         image_url = (
@@ -177,13 +156,7 @@ def build_semester_page(
                 f"{state.get('openSeats', 0)} seats open"
                 f"{', updated ' + updated if updated else ''}."
             )
-        og_url = (
-            canonical_url
-            if state.get("archived")
-            else f"{canonical_url}?v={state['hash']}"
-            if state.get("hash")
-            else canonical_url
-        )
+        og_url = canonical_url
         image_url = (
             f"{PREVIEW_BASE_URL}/preview/semester/{sem_slug}/{state['hash']}.png"
             if state.get("hash")
@@ -196,6 +169,7 @@ def build_semester_page(
     return template.render(
         page_title=title,
         page_description=description,
+        semester=semester,
         nav_html=nav_html,
         last_updated=last_updated,
         manifest_filename=manifest_filename,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -11,8 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from registrarmonitor.config import get_timezone
+from registrarmonitor.registration import derive_priority_state
 
-from .availability import calculate_availability
+from ..availability import calculate_availability
 from .config import course_to_slug, semester_to_slug
 
 PREVIEW_SCHEMA_VERSION = 1
@@ -40,66 +42,8 @@ def canonical_bytes(value: Any) -> bytes:
 
 
 def _short_hash(value: dict[str, Any]) -> str:
-    return hashlib.sha256(canonical_bytes(value)).hexdigest()[:12]
-
-
-def derive_priority_state(
-    milestones: list[dict[str, str]], *, at: str | None
-) -> dict[str, Any] | None:
-    """Derive compact current/next priority copy from normalized milestones."""
-    if not at:
-        return None
-    now = datetime.fromisoformat(at)
-
-    def milestone_time(item: dict[str, str]) -> datetime:
-        value = datetime.fromisoformat(item["time"])
-        if value.tzinfo is None and now.tzinfo is not None:
-            return value.replace(tzinfo=now.tzinfo)
-        if value.tzinfo is not None and now.tzinfo is None:
-            return value.replace(tzinfo=None)
-        return value
-
-    ordered = sorted(milestones, key=milestone_time)
-    priorities = [item for item in ordered if item.get("priority")]
-    reached = [item for item in priorities if milestone_time(item) <= now]
-    upcoming = [item for item in priorities if milestone_time(item) > now]
-    if not reached and not upcoming:
-        return None
-    current = reached[-1] if reached else None
-    next_item = upcoming[0] if upcoming else None
-    if current:
-        priority = current.get("priority")
-    elif next_item:
-        priority = next_item.get("priority")
-    else:
-        return None
-    eligible = list(
-        dict.fromkeys(item["label"] for item in reached if item.get("label"))
-    )
-    label = f"PRIORITY {priority}"
-    if current and current.get("label") == "ALL":
-        label += ": ALL"
-    return {
-        "label": label,
-        "current": (
-            {
-                key: current[key]
-                for key in ("label", "time", "priority")
-                if key in current
-            }
-            if current
-            else None
-        ),
-        "eligible": eligible,
-        "next": next(
-            (
-                {key: item[key] for key in ("label", "time", "priority") if key in item}
-                for item in ordered
-                if milestone_time(item) > now and item.get("label")
-            ),
-            None,
-        ),
-    }
+    digest = hashlib.sha256(canonical_bytes(value)).digest()[:6]
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def _course_last_changed(course: dict[str, Any], timestamps: list[str]) -> str | None:

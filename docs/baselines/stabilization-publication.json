@@ -1,0 +1,11 @@
+{
+  "fixture": {
+    "courses": 75,
+    "sections": 114,
+    "snapshots": 200,
+    "seed": 20260729,
+    "semester": "Summer 2026"
+  },
+  "file_count": 170,
+  "total_bytes": 1811131
+}

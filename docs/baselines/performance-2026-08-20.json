@@ -1,0 +1,1259 @@
+{
+  "database": {
+    "allocation": {
+      "index_bytes": 315392,
+      "objects": [
+        {
+          "bytes": 258048,
+          "kind": "table",
+          "name": "state_snapshot",
+          "pages": 63
+        },
+        {
+          "bytes": 212992,
+          "kind": "table",
+          "name": "section_change_event",
+          "pages": 52
+        },
+        {
+          "bytes": 126976,
+          "kind": "table",
+          "name": "migration_phase",
+          "pages": 31
+        },
+        {
+          "bytes": 90112,
+          "kind": "table",
+          "name": "section_checkpoint_state",
+          "pages": 22
+        },
+        {
+          "bytes": 69632,
+          "kind": "table",
+          "name": "course_checkpoint_state",
+          "pages": 17
+        },
+        {
+          "bytes": 57344,
+          "kind": "index",
+          "name": "sqlite_autoindex_state_snapshot_2",
+          "pages": 14
+        },
+        {
+          "bytes": 53248,
+          "kind": "index",
+          "name": "sqlite_autoindex_migration_phase_1",
+          "pages": 13
+        },
+        {
+          "bytes": 36864,
+          "kind": "index",
+          "name": "idx_section_change_event_section_snapshot",
+          "pages": 9
+        },
+        {
+          "bytes": 36864,
+          "kind": "index",
+          "name": "sqlite_autoindex_section_change_event_1",
+          "pages": 9
+        },
+        {
+          "bytes": 32768,
+          "kind": "table",
+          "name": "reporting_log_v2",
+          "pages": 8
+        },
+        {
+          "bytes": 32768,
+          "kind": "index",
+          "name": "sqlite_autoindex_section_checkpoint_state_1",
+          "pages": 8
+        },
+        {
+          "bytes": 24576,
+          "kind": "index",
+          "name": "sqlite_autoindex_state_snapshot_1",
+          "pages": 6
+        },
+        {
+          "bytes": 20480,
+          "kind": "index",
+          "name": "idx_reporting_log_v2_timestamp",
+          "pages": 5
+        },
+        {
+          "bytes": 20480,
+          "kind": "index",
+          "name": "sqlite_autoindex_course_checkpoint_state_1",
+          "pages": 5
+        },
+        {
+          "bytes": 12288,
+          "kind": "index",
+          "name": "idx_reporting_log_v2_snapshot",
+          "pages": 3
+        },
+        {
+          "bytes": 12288,
+          "kind": "table",
+          "name": "section_latest_state",
+          "pages": 3
+        },
+        {
+          "bytes": 12288,
+          "kind": "table",
+          "name": "sqlite_schema",
+          "pages": 3
+        },
+        {
+          "bytes": 4096,
+          "kind": "table",
+          "name": "course_catalog",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "table",
+          "name": "course_change_event",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "table",
+          "name": "course_latest_state",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "idx_course_change_event_course_snapshot",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "table",
+          "name": "section_catalog",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "sqlite_autoindex_course_catalog_1",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "sqlite_autoindex_course_change_event_1",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "sqlite_autoindex_section_catalog_1",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "index",
+          "name": "sqlite_autoindex_state_checkpoint_1",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "table",
+          "name": "state_checkpoint",
+          "pages": 1
+        },
+        {
+          "bytes": 4096,
+          "kind": "table",
+          "name": "storage_control",
+          "pages": 1
+        }
+      ],
+      "page_size_bytes": 4096,
+      "table_bytes": 839680
+    },
+    "bytes": 1155072,
+    "counts": {
+      "courses": 75,
+      "enrollment_data": 2516,
+      "sections": 114,
+      "snapshots": 1970
+    },
+    "foreign_key_violations": 0,
+    "integrity": "ok",
+    "schema_version": 2,
+    "sha256": "8c075c4560caf29fde828d4c2cb132bfa426462370f83da0817aa29a660fd2ec"
+  },
+  "definitions": {
+    "cold": "fresh disposable database/output or empty browser context",
+    "p95": "nearest-rank percentile",
+    "warm": "reused initialized database/output or browser context and cache"
+  },
+  "format": 2,
+  "measurements": {
+    "browser": {
+      "cold": {
+        "course_open": {
+          "median": 149603500,
+          "p95": 228819958,
+          "samples": [
+            228819958,
+            149035958,
+            150171042,
+            155263458,
+            141786875,
+            144173000,
+            155365833,
+            174684125,
+            148259500,
+            140577208
+          ],
+          "unit": "ns"
+        },
+        "course_open_bytes": {
+          "median": 311756,
+          "p95": 311756,
+          "samples": [
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756
+          ],
+          "unit": "bytes"
+        },
+        "course_open_data_bytes": {
+          "median": 15974,
+          "p95": 15974,
+          "samples": [
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974
+          ],
+          "unit": "bytes"
+        },
+        "course_open_request_count": {
+          "median": 8,
+          "p95": 8,
+          "samples": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "unit": "requests"
+        },
+        "dom_content_loaded": {
+          "median": 30150000,
+          "p95": 138700000,
+          "samples": [
+            138700000,
+            32000000,
+            31700000,
+            31400000,
+            30400000,
+            29900000,
+            28000000,
+            29500000,
+            27500000,
+            28400000
+          ],
+          "unit": "ns"
+        },
+        "grid_render_time": {
+          "median": 18650000,
+          "p95": 52900000,
+          "samples": [
+            52900000,
+            18600000,
+            18700000,
+            19300000,
+            17200000,
+            16800000,
+            25100000,
+            17400000,
+            24600000,
+            16800000
+          ],
+          "unit": "ns"
+        },
+        "initial_json_request_count": {
+          "median": 3,
+          "p95": 3,
+          "samples": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "unit": "requests"
+        },
+        "initial_request_count": {
+          "median": 7,
+          "p95": 7,
+          "samples": [
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "unit": "requests"
+        },
+        "initial_transfer_bytes": {
+          "median": 176187,
+          "p95": 176187,
+          "samples": [
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187
+          ],
+          "unit": "bytes"
+        },
+        "load_complete": {
+          "median": 30200000,
+          "p95": 175400000,
+          "samples": [
+            175400000,
+            32000000,
+            31700000,
+            31400000,
+            30400000,
+            30000000,
+            28100000,
+            29500000,
+            27500000,
+            28400000
+          ],
+          "unit": "ns"
+        },
+        "navigation_to_grid_ready": {
+          "median": 61650000,
+          "p95": 275800000,
+          "samples": [
+            275800000,
+            62600000,
+            61300000,
+            62000000,
+            57700000,
+            56100000,
+            63600000,
+            56700000,
+            62800000,
+            54600000
+          ],
+          "unit": "ns"
+        },
+        "navigation_to_ready": {
+          "median": 68688916,
+          "p95": 316196916,
+          "samples": [
+            316196916,
+            76161292,
+            73758125,
+            72903791,
+            69590541,
+            67544000,
+            66683667,
+            67787291,
+            66071542,
+            65171584
+          ],
+          "unit": "ns"
+        },
+        "summary_bytes": {
+          "median": 34819,
+          "p95": 34819,
+          "samples": [
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819
+          ],
+          "unit": "bytes"
+        },
+        "transferred_resources": {
+          "median": 176187,
+          "p95": 176187,
+          "samples": [
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187,
+            176187
+          ],
+          "unit": "bytes"
+        }
+      },
+      "served_files": {
+        "file_count": 187,
+        "largest_files": [
+          {
+            "bytes": 164666,
+            "path": "assets/chart-BfY8aOyS.js"
+          },
+          {
+            "bytes": 74393,
+            "path": "data/blobs/4c9c69024791db0d18b60669ef280ff2e71366b6a2b88ce22e1e2b613636b2db.json"
+          },
+          {
+            "bytes": 65976,
+            "path": "assets/main-CrujfKnp.js"
+          },
+          {
+            "bytes": 62601,
+            "path": "data/blobs/62d375aee385503b200a97a4c9ad6004e03356958a324963db67216a6887cfff.json"
+          },
+          {
+            "bytes": 47384,
+            "path": "data/blobs/8f2e12e7745556e7607654a3239828e81f18bfc9af9ea0ac51b98737cb70891a.json"
+          },
+          {
+            "bytes": 39858,
+            "path": "assets/helpers.dataset-C0GGwor3.js"
+          },
+          {
+            "bytes": 36699,
+            "path": "assets/chartjs-plugin-annotation.esm-BddRUU-u.js"
+          },
+          {
+            "bytes": 35915,
+            "path": "assets/main-B359bcvi.css"
+          },
+          {
+            "bytes": 35237,
+            "path": "assets/chartjs-plugin-zoom.esm-Bqo0s4i6.js"
+          },
+          {
+            "bytes": 34819,
+            "path": "data/blobs/0a1613d17efad887fa500da0f4f17dd73fbca73f82ecbb4eaa44757f573c8e7b.json"
+          }
+        ],
+        "total_bytes": 2474595
+      },
+      "warm": {
+        "course_open": {
+          "median": 144140145.5,
+          "p95": 149061084,
+          "samples": [
+            144198291,
+            139082166,
+            147495209,
+            141301125,
+            145706625,
+            144082000,
+            146954916,
+            143243292,
+            149662834,
+            147916458,
+            149061084,
+            145416667,
+            143270542,
+            144880541,
+            142284959,
+            141628917,
+            144646667,
+            141888875,
+            141043625,
+            143317875
+          ],
+          "unit": "ns"
+        },
+        "course_open_bytes": {
+          "median": 311756,
+          "p95": 311756,
+          "samples": [
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756,
+            311756
+          ],
+          "unit": "bytes"
+        },
+        "course_open_data_bytes": {
+          "median": 15974,
+          "p95": 15974,
+          "samples": [
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974,
+            15974
+          ],
+          "unit": "bytes"
+        },
+        "course_open_request_count": {
+          "median": 8,
+          "p95": 8,
+          "samples": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "unit": "requests"
+        },
+        "dom_content_loaded": {
+          "median": 25300000,
+          "p95": 26800000,
+          "samples": [
+            24600000,
+            25300000,
+            25100000,
+            24200000,
+            25300000,
+            26800000,
+            25000000,
+            26300000,
+            25100000,
+            23400000,
+            26600000,
+            25600000,
+            25600000,
+            27300000,
+            26400000,
+            24800000,
+            24800000,
+            24800000,
+            25500000,
+            25600000
+          ],
+          "unit": "ns"
+        },
+        "grid_render_time": {
+          "median": 19700000,
+          "p95": 20900000,
+          "samples": [
+            17100000,
+            19700000,
+            20000000,
+            17100000,
+            19100000,
+            20800000,
+            19800000,
+            17000000,
+            17800000,
+            19700000,
+            19400000,
+            20900000,
+            20000000,
+            17200000,
+            20200000,
+            17000000,
+            24200000,
+            19900000,
+            19700000,
+            20000000
+          ],
+          "unit": "ns"
+        },
+        "initial_json_request_count": {
+          "median": 3,
+          "p95": 3,
+          "samples": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "unit": "requests"
+        },
+        "initial_request_count": {
+          "median": 7,
+          "p95": 7,
+          "samples": [
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "unit": "requests"
+        },
+        "initial_transfer_bytes": {
+          "median": 1200,
+          "p95": 1200,
+          "samples": [
+            1200,
+            1200,
+            1200,
+            300,
+            900,
+            1200,
+            1200,
+            300,
+            300,
+            1200,
+            1200,
+            300,
+            300,
+            1200,
+            1200,
+            300,
+            300,
+            1200,
+            1200,
+            300
+          ],
+          "unit": "bytes"
+        },
+        "load_complete": {
+          "median": 25300000,
+          "p95": 26800000,
+          "samples": [
+            24600000,
+            25300000,
+            25100000,
+            24200000,
+            25300000,
+            26800000,
+            25000000,
+            26300000,
+            25100000,
+            23400000,
+            26600000,
+            25600000,
+            25600000,
+            27400000,
+            26400000,
+            24800000,
+            24800000,
+            24800000,
+            25500000,
+            25600000
+          ],
+          "unit": "ns"
+        },
+        "navigation_to_grid_ready": {
+          "median": 56950000,
+          "p95": 59400000,
+          "samples": [
+            52600000,
+            57700000,
+            55700000,
+            52100000,
+            55100000,
+            60900000,
+            57000000,
+            53000000,
+            53400000,
+            55200000,
+            59300000,
+            58600000,
+            58100000,
+            54500000,
+            59000000,
+            52700000,
+            59400000,
+            56900000,
+            57400000,
+            57600000
+          ],
+          "unit": "ns"
+        },
+        "navigation_to_ready": {
+          "median": 62309166.5,
+          "p95": 64730625,
+          "samples": [
+            62523167,
+            60930334,
+            63557458,
+            62181583,
+            63503167,
+            64730625,
+            60059208,
+            63887125,
+            63141500,
+            58177667,
+            62318833,
+            61739584,
+            61310542,
+            65684375,
+            62299500,
+            62765792,
+            63900500,
+            59953792,
+            60503041,
+            60496625
+          ],
+          "unit": "ns"
+        },
+        "summary_bytes": {
+          "median": 34819,
+          "p95": 34819,
+          "samples": [
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819,
+            34819
+          ],
+          "unit": "bytes"
+        },
+        "transferred_resources": {
+          "median": 1200,
+          "p95": 1200,
+          "samples": [
+            1200,
+            1200,
+            1200,
+            300,
+            900,
+            1200,
+            1200,
+            300,
+            300,
+            1200,
+            1200,
+            300,
+            300,
+            1200,
+            1200,
+            300,
+            300,
+            1200,
+            1200,
+            300
+          ],
+          "unit": "bytes"
+        }
+      }
+    },
+    "database": {
+      "cold": {
+        "connection_schema_validation": {
+          "median": 806437.5,
+          "p95": 1027459,
+          "samples": [
+            952791,
+            902250,
+            1027459,
+            773583,
+            721417,
+            695625,
+            662167,
+            660000,
+            839292,
+            902791
+          ],
+          "unit": "ns"
+        },
+        "course_history_read": {
+          "median": 2703083.0,
+          "p95": 3396708,
+          "samples": [
+            3396708,
+            2575834,
+            3201750,
+            2580667,
+            2665708,
+            2755584,
+            2535541,
+            2740458,
+            2549334,
+            3061583
+          ],
+          "unit": "ns"
+        },
+        "integrity_check": {
+          "median": 13178833.5,
+          "p95": 13511500,
+          "samples": [
+            13356500,
+            13352667,
+            13511500,
+            13368125,
+            13312708,
+            13040000,
+            12815458,
+            13044959,
+            12928500,
+            12790375
+          ],
+          "unit": "ns"
+        },
+        "latest_snapshot_read": {
+          "median": 1074958.5,
+          "p95": 1273667,
+          "samples": [
+            1273667,
+            1078125,
+            1123291,
+            1072042,
+            1074000,
+            1087500,
+            1068291,
+            1059500,
+            1055542,
+            1075917
+          ],
+          "unit": "ns"
+        },
+        "snapshot_write": {
+          "median": 8794667.0,
+          "p95": 10172292,
+          "samples": [
+            9215125,
+            9163458,
+            9282542,
+            8759917,
+            8647250,
+            8326209,
+            10172292,
+            8275000,
+            8655375,
+            8829417
+          ],
+          "unit": "ns"
+        }
+      },
+      "poll_effects": {
+        "changed": {
+          "bytes_added": 4096,
+          "rows_added": {
+            "courses": 0,
+            "enrollment_data": 1,
+            "sections": 0,
+            "snapshots": 1
+          }
+        },
+        "unchanged": {
+          "bytes_added": 0,
+          "rows_added": {
+            "courses": 0,
+            "enrollment_data": 0,
+            "sections": 0,
+            "snapshots": 0
+          }
+        }
+      },
+      "warm": {
+        "connection_schema_validation": {
+          "median": 656083.5,
+          "p95": 862750,
+          "samples": [
+            584500,
+            681375,
+            633500,
+            660291,
+            640250,
+            653042,
+            670000,
+            862750,
+            627792,
+            659125,
+            685167,
+            630708,
+            635042,
+            642334,
+            910709,
+            708958,
+            706458,
+            625333,
+            708375,
+            650875
+          ],
+          "unit": "ns"
+        },
+        "course_history_read": {
+          "median": 2604396.0,
+          "p95": 3594542,
+          "samples": [
+            2562833,
+            2743584,
+            2968459,
+            2558792,
+            2555833,
+            2824250,
+            2600500,
+            2765875,
+            2681334,
+            2571708,
+            2553958,
+            2554250,
+            2554417,
+            2571208,
+            3594542,
+            2608417,
+            2608292,
+            2593500,
+            2970458,
+            7358209
+          ],
+          "unit": "ns"
+        },
+        "integrity_check": {
+          "median": 13036979.0,
+          "p95": 13327916,
+          "samples": [
+            13095000,
+            13082958,
+            12852333,
+            13133250,
+            12952834,
+            12804292,
+            13144333,
+            13121917,
+            12928417,
+            12870875,
+            12901292,
+            12956708,
+            12884750,
+            13072583,
+            13548250,
+            13095875,
+            12954083,
+            13001375,
+            13122000,
+            13327916
+          ],
+          "unit": "ns"
+        },
+        "latest_snapshot_read": {
+          "median": 1064521.0,
+          "p95": 1182166,
+          "samples": [
+            1021208,
+            1079000,
+            1056291,
+            1082459,
+            1056541,
+            1049583,
+            1065042,
+            1182166,
+            1054208,
+            1064000,
+            1054292,
+            1136583,
+            1045875,
+            1069458,
+            2583167,
+            1091625,
+            1083125,
+            1051000,
+            1075167,
+            1060875
+          ],
+          "unit": "ns"
+        },
+        "snapshot_write": {
+          "median": 8801792.0,
+          "p95": 9489584,
+          "samples": [
+            11529750,
+            8677125,
+            8575167,
+            9489584,
+            8821500,
+            8296125,
+            8578250,
+            8823500,
+            8698541,
+            9354167,
+            8677500,
+            8204083,
+            8490208,
+            8786750,
+            9276167,
+            9053584,
+            8617333,
+            8926750,
+            8845875,
+            8816834
+          ],
+          "unit": "ns"
+        }
+      }
+    },
+    "deployment": {
+      "duration": null,
+      "status": "not_run",
+      "uploaded_bytes": 2474595,
+      "uploaded_files": 187
+    },
+    "website": {
+      "artifacts": {
+        "courses": 71,
+        "file_count": 187,
+        "html_bytes": 14695,
+        "manifest_bytes": 5806,
+        "query_count": 6,
+        "slowest_sql": [
+          {
+            "duration_ns": 522292,
+            "sql": "SELECT count(*), max(observed_at) FROM state_snapshot"
+          },
+          {
+            "duration_ns": 339750,
+            "sql": "SELECT migration_phase FROM storage_control WHERE singleton = 1"
+          },
+          {
+            "duration_ns": 327334,
+            "sql": "SELECT c.course_code, s.section_code, s.section_id FROM section_catalog s JOIN course_catalog c ON c.course_id = s.course_id"
+          },
+          {
+            "duration_ns": 204458,
+            "sql": "SELECT active_mode FROM storage_control WHERE singleton = 1"
+          },
+          {
+            "duration_ns": 35375,
+            "sql": "PRAGMA user_version"
+          },
+          {
+            "duration_ns": 15250,
+            "sql": "PRAGMA user_version"
+          }
+        ],
+        "snapshots": 1970,
+        "summary_bytes": 34819,
+        "total_bytes": 2474595
+      },
+      "cold": {
+        "full_generation": {
+          "median": 4053723812.5,
+          "p95": 4148784792,
+          "samples": [
+            3775042584,
+            4148784792,
+            4102052166,
+            3979333666,
+            4047748583,
+            3981965250,
+            4059699042,
+            4077069000,
+            4090572834,
+            4038642917
+          ],
+          "unit": "ns"
+        }
+      },
+      "warm": {
+        "no_change_generation": {
+          "median": 1779229.5,
+          "p95": 2027083,
+          "samples": [
+            1372833,
+            1849500,
+            1820334,
+            1624083,
+            1766625,
+            1810250,
+            1862834,
+            1688375,
+            2027083,
+            1771459,
+            1668459,
+            1716250,
+            1787000,
+            1820166,
+            1960458,
+            1642333,
+            1898417,
+            1727083,
+            2119542,
+            1767333
+          ],
+          "unit": "ns"
+        },
+        "one_course_change_generation": {
+          "median": 4089381562.5,
+          "p95": 4527904250,
+          "samples": [
+            4064896250,
+            4443614500,
+            4086425166,
+            4043063000,
+            4089782125,
+            4083124292,
+            4099676292,
+            4369064583,
+            4078747333,
+            4080351667,
+            4076163667,
+            4122204291,
+            4104590375,
+            4670252708,
+            4088981000,
+            4068695458,
+            4077622416,
+            4091749917,
+            4156001708,
+            4527904250
+          ],
+          "unit": "ns"
+        }
+      }
+    }
+  },
+  "parameters": {
+    "cold_iterations": 10,
+    "mode": "all",
+    "seed": null,
+    "warm_iterations": 20
+  },
+  "platform": {
+    "architecture": "arm64",
+    "cpu": "Apple M1 Pro",
+    "memory_bytes": 17179869184,
+    "os": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "tools": {
+      "chromium": "151.0.7922.34",
+      "node": "v24.18.0",
+      "npm": "11.16.0",
+      "playwright": "Version 1.62.0",
+      "python": "3.13.5",
+      "sqlite": "3.47.1",
+      "uv": "uv 0.11.32 (Homebrew 2026-07-23 aarch64-apple-darwin)",
+      "vite": "vite/8.1.5 darwin-arm64 node-v24.18.0"
+    }
+  },
+  "recorded_at": "2026-08-20T16:32:39.051893+00:00",
+  "repository_revision": "e2c39599dfa878e38a041b3b14c054c738f0a6f7",
+  "source": {
+    "classification": "runtime_copy",
+    "semester": "Summer 2026"
+  }
+}

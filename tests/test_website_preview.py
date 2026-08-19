@@ -1,3 +1,5 @@
+import re
+
 from registrarmonitor.website.preview import (
     build_course_preview_state,
     build_semester_preview_state,
@@ -36,6 +38,7 @@ def test_noop_poll_timestamp_does_not_change_course_hash():
     )
 
     assert first["hash"] == second["hash"]
+    assert re.fullmatch(r"[A-Za-z0-9_-]{8}", first["hash"])
 
 
 def test_unrelated_department_timestamp_does_not_change_course_hash():
@@ -117,9 +120,9 @@ def test_priority_transition_changes_course_hash_without_course_change():
         published_at="2026-08-05T14:00:00+05:00",
     )
 
-    assert first["priority"]["label"] == "PRIORITY 1"
+    assert first["priority"]["compact"] == "P1 · Y4+"
     assert first["priority"]["current"]["label"] == "Y4+"
-    assert second["priority"]["label"] == "PRIORITY 2"
+    assert second["priority"]["compact"] == "P2 · Y3"
     assert second["priority"]["current"]["label"] == "Y3"
     assert first["hash"] != second["hash"]
 
@@ -141,7 +144,7 @@ def test_priority_state_accepts_naive_milestones_with_aware_observation():
         published_at="2026-08-05T10:00:00+05:00",
     )
 
-    assert state["priority"]["label"] == "PRIORITY 1"
+    assert state["priority"]["compact"] == "P1 · Y4+"
 
 
 def test_priority_state_is_cumulative_and_uses_deadline_as_next_item():

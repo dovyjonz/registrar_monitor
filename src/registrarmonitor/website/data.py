@@ -139,15 +139,12 @@ def _history_indices_for_website(
     milestones: list[dict[str, str]],
     buffer_hours: int = WEBSITE_HISTORY_BUFFER_HOURS,
 ) -> set[int] | None:
-    """Keep the buffered milestone window and latest snapshot as a chart anchor."""
-    keep_indices = _history_indices_in_milestone_window(
+    """Keep only real observations inside the buffered milestone window."""
+    return _history_indices_in_milestone_window(
         snapshots,
         milestones,
         buffer_hours=buffer_hours,
     )
-    if keep_indices is not None and snapshots:
-        keep_indices.add(len(snapshots) - 1)
-    return keep_indices
 
 
 def _compact_section_history(
@@ -689,6 +686,7 @@ def _checkpointed_semester_data(
     db: DatabaseManager,
     *,
     minify: bool,
+    archive_window: bool,
 ) -> dict[str, Any]:
     """Build the production payload from v2 state without legacy tables."""
     reconstructed = list(
@@ -696,6 +694,19 @@ def _checkpointed_semester_data(
             db.db_path, initialize=False
         ).iter_reconstructed_snapshots()
     )
+    milestones = get_milestones(semester)
+    if archive_window and reconstructed:
+        keep_indices = _history_indices_for_website(
+            [{"timestamp": snapshot.timestamp} for _, snapshot in reconstructed],
+            milestones,
+            buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
+        )
+        if keep_indices is not None:
+            reconstructed = [
+                item
+                for index, item in enumerate(reconstructed)
+                if index in keep_indices
+            ]
     data: dict[str, Any] = {
         "semester": semester,
         "lastReportTime": None,
@@ -839,7 +850,6 @@ def _checkpointed_semester_data(
                         },
                     )
 
-    milestones = get_milestones(semester)
     if milestones:
         keep_indices = _history_indices_for_website(
             data["snapshots"],
@@ -878,6 +888,7 @@ def get_semester_data(
     *,
     minify: bool = True,
     database: DatabaseManager | None = None,
+    archive_window: bool = False,
 ) -> dict[str, Any]:
     """
     Query the database for all course, section, and enrollment data.
@@ -891,7 +902,12 @@ def get_semester_data(
     """
     db = database or DatabaseManager(semester=semester)
     if db.storage_mode in {"v2", "finalized"}:
-        return _checkpointed_semester_data(semester, db, minify=minify)
+        return _checkpointed_semester_data(
+            semester,
+            db,
+            minify=minify,
+            archive_window=archive_window,
+        )
 
     data: dict[str, Any] = {
         "semester": semester,
@@ -913,6 +929,17 @@ def get_semester_data(
         )
 
         snapshots = cursor.fetchall()
+        milestones = get_milestones(semester)
+        if archive_window and snapshots:
+            keep_indices = _history_indices_for_website(
+                [{"timestamp": row[1]} for row in snapshots],
+                milestones,
+                buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
+            )
+            if keep_indices is not None:
+                snapshots = [
+                    row for index, row in enumerate(snapshots) if index in keep_indices
+                ]
         snapshot_id_to_idx: dict[int, int] = {}
 
         for idx, (snapshot_id, timestamp, overall_fill) in enumerate(snapshots):
@@ -1006,6 +1033,12 @@ def get_semester_data(
                 "history": [],
             }
 
+        data["courses"] = {
+            code: course
+            for code, course in data["courses"].items()
+            if course["sections"]
+        }
+
         # Get enrollment history for all sections
         cursor.execute("""
             SELECT
@@ -1091,6 +1124,21 @@ def get_semester_data(
         course_events = _build_course_events(semester, db)
         for course_code, events in course_events.items():
             if course_code in data["courses"]:
+                if archive_window and data["snapshots"]:
+                    first_timestamp = _parse_registrar_timestamp(
+                        data["snapshots"][0]["timestamp"]
+                    )
+                    last_timestamp = _parse_registrar_timestamp(
+                        data["snapshots"][-1]["timestamp"]
+                    )
+                    events = [
+                        event
+                        for event in events
+                        if event.get("snapshotTimestamp")
+                        and first_timestamp
+                        <= _parse_registrar_timestamp(event["snapshotTimestamp"])
+                        <= last_timestamp
+                    ]
                 data["courses"][course_code]["events"] = events
     except Exception as e:
         print(f"Warning: Failed to build course events: {e}")

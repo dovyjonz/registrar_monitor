@@ -59,6 +59,17 @@ export function getSortedUniqueNumbers(values) {
     return [...new Set(values.filter(Number.isFinite))].sort((a, b) => a - b);
 }
 
+export function filterMilestonesToObservedRange(milestones, chartDomain) {
+    const observed = getSortedUniqueNumbers((chartDomain || []).map(point => point.timestamp));
+    if (observed.length === 0) return [];
+    const min = observed[0];
+    const max = observed.at(-1);
+    return (milestones || []).filter(milestone => {
+        const timestamp = new Date(milestone?.time).getTime();
+        return Number.isFinite(timestamp) && timestamp >= min && timestamp <= max;
+    });
+}
+
 export function findSteppedPointIndexAtX(xValues, pixelX) {
     const values = (xValues || []).filter(Number.isFinite);
     if (!Number.isFinite(pixelX) || values.length === 0) return null;
@@ -83,14 +94,6 @@ export function getMedianPositiveGap(values) {
     gaps.sort((a, b) => a - b);
     const middle = Math.floor(gaps.length / 2);
     return gaps.length % 2 === 0 ? (gaps[middle - 1] + gaps[middle]) / 2 : gaps[middle];
-}
-
-export function getAdaptiveTimelineGapCap(timestamps, allTimes) {
-    const oneHour = 60 * 60 * 1000;
-    const oneDay = 24 * oneHour;
-    const medianGap = getMedianPositiveGap(timestamps) || getMedianPositiveGap(allTimes);
-    if (!medianGap) return oneDay;
-    return Math.min(Math.max(medianGap * 6, oneHour), oneDay);
 }
 
 export function getXScaleBounds(xValues) {
@@ -258,17 +261,24 @@ function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
         totals.capacity += level.capacity;
         totalsByType.set(level.sectionType, totals);
     }
-    const limitingType = [...totalsByType.values()].sort((first, second) => {
+    const orderedTypes = [...totalsByType.values()].sort((first, second) => {
         const firstAvailable = Math.max(first.capacity - first.enrollment, 0);
         const secondAvailable = Math.max(second.capacity - second.enrollment, 0);
         return firstAvailable - secondAvailable
             || first.sectionType.localeCompare(second.sectionType);
-    })[0];
+    });
+    const limitingType = orderedTypes[0];
+    const available = Math.max(limitingType.capacity - limitingType.enrollment, 0);
+    const limitingTypes = orderedTypes
+        .filter(item => Math.max(item.capacity - item.enrollment, 0) === available)
+        .map(item => getSectionTypeName(item.sectionType));
     return {
         enrollment: limitingType.enrollment,
         capacity: limitingType.capacity,
         enrollmentLevel: average('enrollmentLevel'),
         capacityLevel: average('capacityLevel'),
+        registrationUnavailable: totalsByType.size > 1 && available === 0,
+        limitingTypes,
     };
 }
 
@@ -313,6 +323,8 @@ export function buildAverageChartPoints(course, snapshots) {
                 capacityChanged: snapshotCapacityChanges.length > 0,
                 enrollmentLevel: levels?.enrollmentLevel ?? Math.round(point.f * 100),
                 capacityLevel: levels?.capacityLevel ?? 100,
+                registrationUnavailable: levels?.registrationUnavailable ?? false,
+                limitingTypes: levels?.limitingTypes ?? [],
             };
             if (snapshotCapacityChanges.length > 0) {
                 chartPoint.capacityChanges = snapshotCapacityChanges;
@@ -374,12 +386,41 @@ export function extendSteppedSeriesToDomainEnd(points, domainEnd) {
     }];
 }
 
+export function markObservationEnd(points) {
+    const series = (points || []).map(point => ({ ...point }));
+    if (series.length > 0) series.at(-1).observationEnded = true;
+    return series;
+}
+
 export function buildObservedCapacityPoints(capacityValues, xValues) {
     return (capacityValues || []).flatMap((y, index) => (
         Number.isFinite(y) && Number.isFinite(xValues?.[index])
             ? [{ x: xValues[index], y, sourceIndex: index }]
             : []
     ));
+}
+
+export function buildRegistrationUnavailableIntervals(points, domainEnd) {
+    const intervals = [];
+    let start = null;
+    let limitingTypes = new Set();
+    for (const point of points || []) {
+        if (!Number.isFinite(point?.x)) continue;
+        if (point.registrationUnavailable) {
+            if (start === null) start = point.x;
+            for (const value of point.limitingTypes || []) limitingTypes.add(value);
+            continue;
+        }
+        if (start !== null && point.x > start) {
+            intervals.push({ xMin: start, xMax: point.x, limitingTypes: [...limitingTypes] });
+        }
+        start = null;
+        limitingTypes = new Set();
+    }
+    if (start !== null && Number.isFinite(domainEnd) && domainEnd > start) {
+        intervals.push({ xMin: start, xMax: domainEnd, limitingTypes: [...limitingTypes] });
+    }
+    return intervals;
 }
 
 function getDomainTimes(domain) {
@@ -466,41 +507,11 @@ export function getTimelineMapper(points, domain) {
     const chartPoints = points || [];
     const canonicalDomain = getFallbackDomain(chartPoints, domain);
     const domainTimes = getDomainTimes(canonicalDomain);
-
-    if (domainTimes.length === 0) {
-        return { xValues: [], domainXValues: [], mapTime: t => t, unmapX: x => x };
-    }
-
-    const maxGapMs = getAdaptiveTimelineGapCap(domainTimes, domainTimes);
-    const timeMap = new Map();
-    let currentClipped = domainTimes[0];
-    timeMap.set(domainTimes[0], currentClipped);
-
-    for (let i = 1; i < domainTimes.length; i++) {
-        const diff = domainTimes[i] - domainTimes[i - 1];
-        const effectiveDiff = Math.min(diff, maxGapMs);
-        currentClipped += effectiveDiff;
-        timeMap.set(domainTimes[i], currentClipped);
-    }
-
-    const mapTime = t => {
-        if (timeMap.has(t)) return timeMap.get(t);
-        for (let i = 0; i < domainTimes.length - 1; i++) {
-            if (t >= domainTimes[i] && t <= domainTimes[i + 1]) {
-                const frac = (t - domainTimes[i]) / (domainTimes[i + 1] - domainTimes[i]);
-                return timeMap.get(domainTimes[i]) + frac * (timeMap.get(domainTimes[i + 1]) - timeMap.get(domainTimes[i]));
-            }
-        }
-        if (t < domainTimes[0]) return timeMap.get(domainTimes[0]);
-        return timeMap.get(domainTimes[domainTimes.length - 1]);
-    };
-
-    const mappedDomainTimes = domainTimes.map(time => timeMap.get(time));
     return {
-        xValues: chartPoints.map(point => mapTime(point.timestamp)),
-        domainXValues: mappedDomainTimes,
-        mapTime,
-        unmapX: createPiecewiseInverse(domainTimes, mappedDomainTimes),
+        xValues: chartPoints.map(point => point.timestamp),
+        domainXValues: domainTimes,
+        mapTime: time => time,
+        unmapX: x => x,
     };
 }
 

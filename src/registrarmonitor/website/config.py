@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from registrarmonitor.registration import get_priority_milestones
+
 
 def _get_base_url() -> str:
     """Get the base URL for canonical links and sharing.
@@ -186,33 +188,23 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
 
     colored_milestones = []
 
-    # Parse priorities and apply colors
-    priorities = sem_data.get("priorities", {})
-    for p_level in sorted(priorities.keys(), key=int):
-        # priority is "1", "2", etc.
-        priority = str(p_level)
+    # Apply presentation colors to shared registration milestones.
+    priority_indices: dict[str, int] = {}
+    for milestone in get_priority_milestones(semester):
+        priority = milestone["priority"]
         palette_idx = max(0, int(priority) - 1)
         palette = _PRIORITY_PALETTES[min(palette_idx, len(_PRIORITY_PALETTES) - 1)]
-
-        for i, m_data in enumerate(priorities[p_level]):
-            # m_data is [time, label] (and optional color if we wanted, but we don't need it now)
-            time_str = _serialize_registrar_time(m_data[0], registrar_timezone)
-            label_str = m_data[1]
-
-            # Skip hidden milestones (labels starting with '_')
-            if label_str.startswith("_"):
-                continue
-
-            color = palette[min(i, len(palette) - 1)]
-
-            colored_milestones.append(
-                {
-                    "time": time_str,
-                    "label": label_str,
-                    "color": color,
-                    "priority": priority,
-                }
-            )
+        label = milestone["label"]
+        if label.startswith("_"):
+            continue
+        index = priority_indices.get(priority, 0)
+        priority_indices[priority] = index + 1
+        colored_milestones.append(
+            {
+                **milestone,
+                "color": palette[min(index, len(palette) - 1)],
+            }
+        )
 
     # Parse deadlines and apply neutral colors
     raw_deadlines = [

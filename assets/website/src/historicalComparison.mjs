@@ -319,6 +319,27 @@ function getOpeningCapacity(sectionHistory) {
     return null;
 }
 
+function sectionSeriesEndsByRemoval(
+    sectionCode,
+    events,
+    finalSnapshotIdx,
+    professor,
+    section,
+) {
+    const transitions = getSectionEvents(
+        events,
+        sectionCode,
+        new Set(['section_removed', 'instructor_changed']),
+    ).filter(({ snapshotIdx }) => snapshotIdx > finalSnapshotIdx);
+    for (const { event, snapshotIdx } of transitions) {
+        if (getEventType(event) === 'section_removed') return true;
+        if (getInstructorAtSnapshot(sectionCode, section, events, snapshotIdx) !== professor) {
+            return false;
+        }
+    }
+    return false;
+}
+
 /**
  * Build an equal-weight professor fill series. The returned fill is the
  * displayed whole percentage; fillRatio preserves the exact mean for callers
@@ -369,7 +390,9 @@ export function buildProfessorAverageChartPoints(
             const fill = getFillAtOrBefore(history, snapshotIdx);
             const state = getEnrollmentStateAtOrBefore(history, snapshotIdx);
             const openingCapacity = getOpeningCapacity(history);
-            if (fill !== null) contributions.push({ fill, state, openingCapacity });
+            if (fill !== null) {
+                contributions.push({ sectionCode, fill, state, openingCapacity });
+            }
         }
 
         const timestamp = getSnapshotTimestamp(snapshots[snapshotIdx]);
@@ -396,9 +419,25 @@ export function buildProfessorAverageChartPoints(
             capacityLevel: averageLevel('capacity') ?? 100,
             contributingSections: contributions.length,
             contributorCount: contributions.length,
+            contributingSectionCodes: contributions.map(value => value.sectionCode),
         });
     }
-    return points.filter(point => Number.isFinite(point.timestamp));
+    const chartPoints = points.filter(point => Number.isFinite(point.timestamp));
+    const finalPoint = chartPoints.at(-1);
+    if (finalPoint && finalPoint.contributingSectionCodes.length > 0) {
+        const endedByRemoval = finalPoint.contributingSectionCodes.every(sectionCode => (
+            sectionSeriesEndsByRemoval(
+                sectionCode,
+                courseEvents,
+                finalPoint.snapshotIdx,
+                professor,
+                sections[sectionCode],
+            )
+        ));
+        if (endedByRemoval) finalPoint.removalEnded = true;
+    }
+    for (const point of chartPoints) delete point.contributingSectionCodes;
+    return chartPoints;
 }
 
 export function courseHasProfessor(course, selectedProfessor, snapshots, events = null) {
@@ -517,10 +556,10 @@ export function getHistoricalMilestoneAlignment({
 
 /**
  * Map a historical chart's x-coordinates into the current chart. Matching
- * milestone coordinates are used as piecewise anchors; the domain endpoints
- * remain anchors as well. This preserves the regular historical scaling for
- * terms with no matching milestones and prevents missing old deadlines from
- * shifting every later phase.
+ * milestone coordinates are used as piecewise anchors from the shared domain
+ * origin. After the last shared anchor, the final segment extrapolates without
+ * forcing the historical endpoint onto the current endpoint. Terms with no
+ * matching milestones retain regular endpoint-to-endpoint scaling.
  */
 export function createHistoricalCoordinateMapper({
     historicalDomainXValues = [],
@@ -566,10 +605,7 @@ export function createHistoricalCoordinateMapper({
         historicalMapTime,
         currentMapTime,
     });
-    const pointsBySource = new Map([
-        [sourceMin, targetMin],
-        [sourceMax, targetMax],
-    ]);
+    const pointsBySource = new Map([[sourceMin, targetMin]]);
     for (const anchor of anchors) {
         pointsBySource.set(anchor.historicalX, anchor.currentX);
     }
@@ -588,6 +624,15 @@ export function createHistoricalCoordinateMapper({
         }
         return chronological;
     }, []);
+
+    if (anchors.length === 0 || points.length < 2) {
+        return {
+            mapX: fallbackMap,
+            anchors,
+            sourceDomain: source,
+            targetDomain: target,
+        };
+    }
 
     const mapX = value => {
         const numericValue = Number(value);

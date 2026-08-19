@@ -401,6 +401,11 @@ def test_generate_headers_contains_security_headers(tmp_path):
     assert "https://static.cloudflareinsights.com" in content
     assert "connect-src 'self' https://cloudflareinsights.com" in content
     assert "X-Robots-Tag:" in content
+    assert "/courses/*\n  Cache-Control: no-cache" in content
+    assert (
+        "/data/previews/*\n  Cache-Control: public, max-age=31536000, immutable"
+        in content
+    )
 
 
 def test_generate_creates_robots_txt(tmp_path):
@@ -489,5 +494,5 @@ def test_generation_reuses_semester_data_while_publishing_clean_routes(tmp_path)
     ):
         assert service.generate(force=True) is True
 
-    get_data.assert_called_once_with("Summer 2026", minify=True)
+    get_data.assert_called_once_with("Summer 2026", minify=True, archive_window=False)
     assert (tmp_path / "semesters" / "summer-2026" / "index.html").is_file()

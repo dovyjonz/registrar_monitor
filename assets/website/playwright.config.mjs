@@ -6,7 +6,7 @@ export default defineConfig({
     testDir: './test',
     testMatch: 'browser-smoke.spec.mjs',
     forbidOnly: Boolean(process.env.CI),
-    retries: process.env.CI ? 2 : 0,
+    retries: 0,
     reporter: [
         ['line'],
         ['html', { outputFolder: '../../output/playwright/report', open: 'never' }],
@@ -14,7 +14,7 @@ export default defineConfig({
     outputDir: '../../output/playwright/test-results',
     use: {
         baseURL: 'http://127.0.0.1:4173',
-        browserName: 'chromium',
+        browserName: process.env.PLAYWRIGHT_BROWSER || 'chromium',
         headless: true,
         launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
             ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }

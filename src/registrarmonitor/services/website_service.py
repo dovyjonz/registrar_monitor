@@ -49,15 +49,18 @@ class WebsiteService:
             Path(__file__).parent.parent.parent.parent / "assets" / "website"
         )
         self.website_assets_dir = self._default_website_assets_dir
-        self._semester_data_cache: dict[str, dict] = {}
+        self._semester_data_cache: dict[tuple[str, bool], dict] = {}
 
-    def _get_semester_data(self, semester: str) -> dict:
+    def _get_semester_data(self, semester: str, *, archive_window: bool) -> dict:
         """Load each semester payload at most once during a generation run."""
-        if semester not in self._semester_data_cache:
-            self._semester_data_cache[semester] = get_semester_data(
-                semester, minify=True
+        key = (semester, archive_window)
+        if key not in self._semester_data_cache:
+            self._semester_data_cache[key] = get_semester_data(
+                semester,
+                minify=True,
+                archive_window=archive_window,
             )
-        return self._semester_data_cache[semester]
+        return self._semester_data_cache[key]
 
     @property
     def output_dir(self) -> Path:
@@ -88,11 +91,21 @@ class WebsiteService:
         """
         print(f"  Generating {semester}...", flush=True)
 
+        semesters = publication_semesters or [
+            entry.label for entry in build_publication_catalog()
+        ]
+        archived = bool(semesters and semester != semesters[0])
+
         # Get data and milestones
         data = (
-            get_semester_data(semester, minify=True, database=database)
+            get_semester_data(
+                semester,
+                minify=True,
+                database=database,
+                archive_window=archived,
+            )
             if database is not None
-            else self._get_semester_data(semester)
+            else self._get_semester_data(semester, archive_window=archived)
         )
         milestones = get_milestones(semester)
 
@@ -118,10 +131,6 @@ class WebsiteService:
             departments=departments,
         )
 
-        semesters = publication_semesters or [
-            entry.label for entry in build_publication_catalog()
-        ]
-        archived = bool(semesters and semester != semesters[0])
         semester_preview = build_semester_preview_state(
             summary=summary_payload,
             departments=departments,
@@ -657,7 +666,7 @@ class WebsiteService:
   Cache-Control: public, max-age=31536000, immutable
 
 /courses/*
-  Cache-Control: public, max-age=300, stale-while-revalidate=600
+  Cache-Control: no-cache
 """
 
     def _build_robots_content(self) -> str:
@@ -674,7 +683,7 @@ class WebsiteService:
 
         preview_root = self.output_dir / "data" / "previews"
         referenced_preview_hashes = set(
-            re.findall(r"(?:/|&quot;)([0-9a-f]{12})(?:\.json|\.png)", html)
+            re.findall(r"(?:/|&quot;)([A-Za-z0-9_-]{8})(?:\.json|\.png)", html)
         )
         if preview_root.is_dir():
             for path in preview_root.rglob("*.json"):

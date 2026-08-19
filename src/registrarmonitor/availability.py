@@ -1,4 +1,4 @@
-"""Pure current-course availability calculations."""
+"""Shared current-course registration availability semantics."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ class _TypeTotals(_Totals):
 
 
 def normalize_section_type(value: object) -> str:
-    """Apply the dashboard's human-readable names and whitespace normalization."""
+    """Return the canonical public name for a registrar section type."""
     text = re.sub(r"\s+", " ", str(value or "Other").strip())
     return SECTION_TYPE_NAMES.get(text, text) or "Other"
 
@@ -45,7 +45,7 @@ def _plural_type(value: str, count: int) -> str:
 
 
 def calculate_availability(sections: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """Calculate coherent available places across required section types."""
+    """Calculate registration places across all required section types."""
     totals: dict[str, _Totals] = defaultdict(
         lambda: {
             "enrollment": 0,
@@ -79,6 +79,8 @@ def calculate_availability(sections: dict[str, dict[str, Any]]) -> dict[str, Any
             "types": [],
             "sentence": "No current sections.",
             "breakdown": "",
+            "status": "empty",
+            "compact": "NO SECTIONS",
         }
 
     available = min(item["available"] for item in ordered)
@@ -91,12 +93,30 @@ def calculate_availability(sections: dict[str, dict[str, Any]]) -> dict[str, Any
             f"{item['enrollment']}/{item['capacity']} enrolled."
         )
         kind = "seats"
+        status = "full" if available == 0 else "open"
+        compact = "FULL" if available == 0 else "OPEN"
     else:
         noun = "place" if available == 1 else "places"
         limiting_text = " and ".join(value.lower() for value in limiting)
-        sentence = (
-            f"{available} registration {noun} available. Limited by {limiting_text}."
-        )
+        if available == 0:
+            if len(limiting) == 1:
+                subject = f"all {limiting[0]} sections are"
+                compact = f"{limiting[0].upper()} FULL"
+            elif len(limiting) == 2:
+                subject = f"all {limiting[0]} and {limiting[1]} sections are"
+                compact = f"{limiting[0].upper()} + {limiting[1].upper()} FULL"
+            else:
+                subject = f"all required {'/'.join(limiting)} sections are"
+                compact = "MULTIPLE TYPES FULL"
+            sentence = f"No registration places — {subject} full."
+            status = "required-type-full"
+        else:
+            sentence = (
+                f"{available} registration {noun} available. "
+                f"Limited by {limiting_text}."
+            )
+            status = "open"
+            compact = "OPEN"
         kind = "registration-places"
 
     breakdown = ", ".join(
@@ -113,4 +133,6 @@ def calculate_availability(sections: dict[str, dict[str, Any]]) -> dict[str, Any
         "types": ordered,
         "sentence": sentence,
         "breakdown": breakdown,
+        "status": status,
+        "compact": compact,
     }

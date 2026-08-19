@@ -171,6 +171,49 @@ test('late-opened and sparse sections join only after their first usable observa
     assert.deepEqual(points.map(point => point.fill), [20, 40, 60]);
 });
 
+test('professor series distinguishes explicit removal from observation end', () => {
+    const snapshots = [
+        { ts: '2026-01-01T10:00:00Z' },
+        { ts: '2026-01-02T10:00:00Z' },
+        { ts: '2026-01-03T10:00:00Z' },
+    ];
+    const removed = buildProfessorAverageChartPoints({
+        s: {
+            A: { in: 'Jane Smith', h: [{ i: 0, f: 0.2 }, { i: 1, f: 0.4 }] },
+        },
+        ev: [{ et: 'section_removed', sc: 'A', i: 2 }],
+    }, 'Jane Smith', snapshots);
+    const observed = buildProfessorAverageChartPoints({
+        s: {
+            A: { in: 'Jane Smith', h: [{ i: 0, f: 0.2 }, { i: 1, f: 0.4 }] },
+        },
+    }, 'Jane Smith', snapshots);
+
+    assert.equal(removed.at(-1).removalEnded, true);
+    assert.equal(observed.at(-1).removalEnded, undefined);
+    assert.deepEqual(
+        removed.map(({ snapshotIdx, fill }) => ({ snapshotIdx, fill })),
+        observed.map(({ snapshotIdx, fill }) => ({ snapshotIdx, fill })),
+    );
+});
+
+test('instructor reassignment is not mislabeled as section removal', () => {
+    const points = buildProfessorAverageChartPoints({
+        s: {
+            A: { in: 'Alex', h: [{ i: 0, f: 0.2 }, { i: 1, f: 0.4 }] },
+        },
+        ev: [{
+            et: 'instructor_changed', sc: 'A', ov: 'Jane Smith', nv: 'Alex', i: 2,
+        }],
+    }, 'Jane Smith', [
+        { ts: '2026-01-01T10:00:00Z' },
+        { ts: '2026-01-02T10:00:00Z' },
+        { ts: '2026-01-03T10:00:00Z' },
+    ]);
+
+    assert.equal(points.at(-1).removalEnded, undefined);
+});
+
 test('unknown values never match a professor and historical domains handle degenerate input', () => {
     const course = {
         s: {
@@ -313,4 +356,19 @@ test('historical mapping never folds backward when current observations stop bef
     assert.ok(mapped.every((value, index) => index === 0 || value >= mapped[index - 1]));
     assert.equal(mapper.mapX(835), 835);
     assert.equal(mapper.mapX(870), 870);
+});
+
+test('historical mapping extrapolates after the last shared milestone without stretching its endpoint', () => {
+    const mapper = createHistoricalCoordinateMapper({
+        historicalDomainXValues: [0, 100, 200],
+        currentDomainXValues: [0, 100, 300],
+        historicalMilestones: [{ time: 100, label: 'ALL' }],
+        currentMilestones: [{ time: 100, label: 'ALL' }],
+        historicalMapTime: time => time,
+        currentMapTime: time => time,
+    });
+
+    assert.equal(mapper.mapX(100), 100);
+    assert.equal(mapper.mapX(200), 200);
+    assert.notEqual(mapper.mapX(200), 300);
 });

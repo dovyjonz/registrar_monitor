@@ -28,15 +28,33 @@ from dotenv import load_dotenv
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.models import EnrollmentSnapshot
 from registrarmonitor.services.website_service import WebsiteService
+from registrarmonitor.website.checksums import compute_semester_hash, load_checksums
 from registrarmonitor.website.config import semester_to_slug
 from registrarmonitor.website.templates import build_redirect_index
 
 ROOT = Path(__file__).resolve().parent.parent
 WEBSITE = ROOT / "assets" / "website"
 SEMESTER = "Summer 2026"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 DEFAULT_SEED = 20260729
 PREVIEW_BRANCH = "performance-baseline-2026-07-29"
+PERFORMANCE_BUDGETS_NS = {
+    "full_generation": 2_000_000_000,
+    "no_change_generation": 500_000_000,
+    "one_course_change_generation": 1_000_000_000,
+    "navigation_to_ready": 250_000_000,
+    "course_open": 300_000_000,
+}
+PUBLICATION_GROWTH_RATIO = 1.20
+PUBLICATION_NOISE_FLOORS = {"file_count": 10, "total_bytes": 100_000}
+
+
+class BrowserBenchmarkReadinessError(RuntimeError):
+    """The browser benchmark could not reach its measurement boundary."""
+
+
+class PerformanceBudgetError(RuntimeError):
+    """One or more deterministic stabilization budgets failed."""
 
 
 def percentile_nearest_rank(samples: Sequence[int], percentile: float) -> int:
@@ -68,6 +86,49 @@ def timed(operation: Callable[[], Any]) -> int:
     return time.perf_counter_ns() - start
 
 
+def _budget_failure(metric: str, actual: int, limit: int, unit: str) -> dict[str, Any]:
+    return {"metric": metric, "actual": actual, "limit": limit, "unit": unit}
+
+
+def evaluate_performance_budgets(
+    measurements: dict[str, Any], *, publication_baseline: dict[str, int]
+) -> dict[str, Any]:
+    """Evaluate deterministic timing and fixed-fixture publication budgets."""
+    website = measurements["website"]
+    browser = measurements["browser"]
+    timing_metrics = {
+        "full_generation": website["cold"]["full_generation"]["p95"],
+        "no_change_generation": website["warm"]["no_change_generation"]["p95"],
+        "one_course_change_generation": website["warm"]["one_course_change_generation"][
+            "p95"
+        ],
+        "navigation_to_ready": browser["warm"]["navigation_to_ready"]["p95"],
+        "course_open": browser["warm"]["course_open"]["p95"],
+    }
+    failures = [
+        _budget_failure(metric, int(actual), PERFORMANCE_BUDGETS_NS[metric], "ns")
+        for metric, actual in timing_metrics.items()
+        if actual > PERFORMANCE_BUDGETS_NS[metric]
+    ]
+    artifacts = website["artifacts"]
+    for key in ("file_count", "total_bytes"):
+        baseline = publication_baseline[key]
+        actual = int(artifacts[key])
+        limit = max(
+            int(baseline * PUBLICATION_GROWTH_RATIO),
+            baseline + PUBLICATION_NOISE_FLOORS[key],
+        )
+        if actual > limit:
+            failures.append(_budget_failure(f"publication_{key}", actual, limit, key))
+    return {"passed": not failures, "failures": failures}
+
+
+def load_publication_baseline(path: Path) -> dict[str, int]:
+    """Load the accepted fixed-fixture publication shape."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {key: int(payload[key]) for key in ("file_count", "total_bytes")}
+
+
 @contextmanager
 def _database_connection(database: str | Path, **kwargs: Any):
     """Yield a SQLite connection and always close it after use."""
@@ -92,15 +153,46 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _benchmark_table_map(connection: sqlite3.Connection) -> dict[str, str]:
+    tables = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    if "state_snapshot" in tables:
+        required = {"course_catalog", "section_catalog", "section_change_event"}
+        missing = required - tables
+        if missing:
+            raise ValueError(
+                "checkpointed benchmark database is missing tables: "
+                + ", ".join(sorted(missing))
+            )
+        return {
+            "snapshots": "state_snapshot",
+            "courses": "course_catalog",
+            "sections": "section_catalog",
+            "enrollment_data": "section_change_event",
+        }
+    required = {"snapshots", "courses", "sections", "enrollment_data"}
+    missing = required - tables
+    if missing:
+        raise ValueError(
+            "benchmark database is missing tables: " + ", ".join(sorted(missing))
+        )
+    return {table: table for table in sorted(required)}
+
+
 def database_metadata(path: Path) -> dict[str, Any]:
     """Return safe aggregate metadata and validate a SQLite input."""
     with _database_connection(f"file:{path}?mode=ro", uri=True) as connection:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
         schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        table_map = _benchmark_table_map(connection)
         counts = {
-            table: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-            for table in ("snapshots", "courses", "sections", "enrollment_data")
+            label: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for label, table in table_map.items()
         }
         allocation_rows = connection.execute(
             """
@@ -242,25 +334,31 @@ def create_synthetic_database(
 
 def _latest_course_code(path: Path) -> str:
     with _database_connection(path) as connection:
+        course_table = _benchmark_table_map(connection)["courses"]
         return str(
             connection.execute(
-                "SELECT course_code FROM courses ORDER BY course_code LIMIT 1"
+                f"SELECT course_code FROM {course_table} ORDER BY course_code LIMIT 1"
             ).fetchone()[0]
         )
 
 
 def _change_first_section(snapshot: EnrollmentSnapshot) -> None:
     """Make one guaranteed-valid enrollment change in a benchmark snapshot."""
-    first_course = next(iter(snapshot.courses.values()))
-    first_section = next(iter(first_course.sections.values()))
-    original = first_section.enrollment
-    first_section.enrollment = original - 1 if original > 0 else 1
-    if first_section.enrollment > first_section.capacity:
-        raise ValueError(
-            "benchmark section cannot accept a synthetic enrollment change"
-        )
-    first_section.fill = first_section.enrollment / first_section.capacity
-    if first_section.enrollment == original:
+    section = next(
+        (
+            section
+            for course in snapshot.courses.values()
+            for section in course.sections.values()
+            if section.capacity > 0
+        ),
+        None,
+    )
+    if section is None:
+        raise ValueError("benchmark snapshot has no section with positive capacity")
+    original = section.enrollment
+    section.enrollment = original - 1 if original > 0 else 1
+    section.fill = section.enrollment / section.capacity
+    if section.enrollment == original:
         raise ValueError("benchmark failed to construct a changed snapshot")
 
 
@@ -281,9 +379,10 @@ def _write_changed_snapshot(
 
 def _row_counts(path: Path) -> dict[str, int]:
     with _database_connection(path) as connection:
+        table_map = _benchmark_table_map(connection)
         return {
-            table: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-            for table in ("snapshots", "courses", "sections", "enrollment_data")
+            label: connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for label, table in table_map.items()
         }
 
 
@@ -508,7 +607,11 @@ def generate_website_once(
         benchmark_database = _BenchmarkDatabaseManager(semester=semester)
         WebsiteService(
             output_dir=output,
-        ).generate_semester_page(semester, database=benchmark_database)
+        ).generate_semester_page(
+            semester,
+            database=benchmark_database,
+            publication_semesters=[semester],
+        )
     finally:
         _BenchmarkDatabaseManager.query_tracker = None
 
@@ -539,6 +642,29 @@ def generate_website_once(
     }
 
 
+def generate_website_incremental_once(
+    database: Path, output: Path, semester: str = SEMESTER
+) -> bool:
+    """Run the production checksum decision and generate only changed state."""
+    _BenchmarkDatabaseManager.benchmark_path = database
+    benchmark_database = _BenchmarkDatabaseManager(semester=semester)
+    current_hash = compute_semester_hash(semester, database=benchmark_database)
+    stored_hash = load_checksums(output / ".checksums.json").get(semester)
+    if current_hash == stored_hash:
+        return False
+    generate_website_once(database, output, semester)
+    return True
+
+
+def _append_one_course_change(
+    database: Path,
+    sequence: int,
+    semester: str = SEMESTER,
+) -> None:
+    """Append one realistic snapshot with exactly one changed course section."""
+    _write_changed_snapshot(database, sequence, semester)
+
+
 def benchmark_website(
     source: Path,
     cold_iterations: int,
@@ -547,7 +673,8 @@ def benchmark_website(
     semester: str = SEMESTER,
 ) -> dict[str, Any]:
     cold: list[int] = []
-    warm: list[int] = []
+    no_change: list[int] = []
+    one_course_change: list[int] = []
     artifacts: dict[str, Any] = {}
     with tempfile.TemporaryDirectory(
         prefix="registrar-website-benchmark-"
@@ -568,16 +695,33 @@ def benchmark_website(
         shutil.copy2(source, warm_database)
         warm_output = root / "warm-output"
         generate_website_once(warm_database, warm_output, semester)
-        for _ in range(warm_iterations):
-            warm.append(
+        for index in range(warm_iterations):
+            no_change.append(
                 timed(
-                    lambda: generate_website_once(warm_database, warm_output, semester)
+                    lambda: generate_website_incremental_once(
+                        warm_database, warm_output, semester
+                    )
+                )
+            )
+            changed_database = root / f"changed-{index}.db"
+            changed_output = root / f"changed-output-{index}"
+            shutil.copy2(source, changed_database)
+            generate_website_once(changed_database, changed_output, semester)
+            _append_one_course_change(changed_database, index, semester)
+            one_course_change.append(
+                timed(
+                    lambda database=changed_database, output=changed_output: (
+                        generate_website_incremental_once(database, output, semester)
+                    )
                 )
             )
         artifacts = generate_website_once(warm_database, final_output, semester)
     return {
-        "cold": {"semester_generation": summarize(cold)},
-        "warm": {"semester_generation": summarize(warm)},
+        "cold": {"full_generation": summarize(cold)},
+        "warm": {
+            "no_change_generation": summarize(no_change),
+            "one_course_change_generation": summarize(one_course_change),
+        },
         "artifacts": artifacts,
     }
 
@@ -586,7 +730,22 @@ def _copy_frontend_assets(output: Path) -> None:
     assets = WEBSITE / "public" / "assets"
     if not assets.is_dir():
         raise FileNotFoundError("frontend assets are missing; run make website-build")
-    shutil.copytree(assets, output / "assets", dirs_exist_ok=True)
+    manifest_path = assets / ".vite" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    referenced = {
+        relative_path
+        for entry in manifest.values()
+        for relative_path in [entry.get("file"), *entry.get("css", [])]
+        if relative_path
+    }
+    destination = output / "assets"
+    for relative_path in sorted(referenced):
+        target = destination / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(assets / relative_path, target)
+    target_manifest = destination / ".vite" / "manifest.json"
+    target_manifest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(manifest_path, target_manifest)
 
 
 def file_inventory(output: Path) -> dict[str, Any]:
@@ -659,7 +818,7 @@ class _QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
 
 
 def benchmark_browser(
-    output: Path, cold_iterations: int, warm_iterations: int
+    output: Path, cold_iterations: int, warm_iterations: int, semester: str
 ) -> dict[str, Any]:
     _copy_frontend_assets(output)
     handler = partial(_QuietHTTPRequestHandler, directory=str(output))
@@ -671,14 +830,16 @@ def benchmark_browser(
     )
     server_thread.start()
     port = server.server_address[1]
+    artifact_dir = ROOT / "output" / "benchmark-browser"
     try:
         completed = subprocess.run(
             [
                 "node",
                 "test/benchmark-browser.mjs",
-                f"http://127.0.0.1:{port}/summer2026.html",
+                f"http://127.0.0.1:{port}/semesters/{semester_to_slug(semester)}/",
                 str(cold_iterations),
                 str(warm_iterations),
+                str(artifact_dir),
             ],
             cwd=WEBSITE,
             check=False,
@@ -686,10 +847,13 @@ def benchmark_browser(
             text=True,
         )
         if completed.returncode:
-            raise RuntimeError(
-                "browser benchmark failed:\n"
-                + (completed.stderr or completed.stdout).strip()
-            )
+            detail = (completed.stderr or completed.stdout).strip()
+            if "BENCHMARK_READINESS_FAILURE:" in detail:
+                raise BrowserBenchmarkReadinessError(
+                    "browser benchmark readiness/infrastructure failure; "
+                    f"no performance budget was evaluated:\n{detail}"
+                )
+            raise RuntimeError(f"browser benchmark harness failure:\n{detail}")
         result = json.loads(completed.stdout)
         result["served_files"] = file_inventory(output)
         return result
@@ -744,7 +908,7 @@ def render_markdown(result: dict[str, Any]) -> str:
         return f"{value / 1_000_000:.2f}"
 
     lines = [
-        "# Performance baseline — 2026-07-29",
+        f"# Performance baseline — {result['recorded_at'][:10]}",
         "",
         (
             "This is an observational baseline. It does not set performance thresholds "
@@ -760,7 +924,7 @@ def render_markdown(result: dict[str, Any]) -> str:
             f"- Counts: {result['database']['counts']['snapshots']:,} snapshots, "
             f"{result['database']['counts']['courses']:,} courses, "
             f"{result['database']['counts']['sections']:,} sections, "
-            f"{result['database']['counts']['enrollment_data']:,} enrollment rows"
+            f"{result['database']['counts']['enrollment_data']:,} enrollment/state rows"
         ),
         (
             f"- Iterations: {result['parameters']['cold_iterations']} cold, "
@@ -884,7 +1048,7 @@ def render_markdown(result: dict[str, Any]) -> str:
             "",
             "### Poll storage effects",
             "",
-            "| Poll | Database bytes added | Snapshot rows | Enrollment rows |",
+            "| Poll | Database bytes added | Snapshot rows | Enrollment/state rows |",
             "|---|---:|---:|---:|",
             *[
                 f"| {name} | {effect['bytes_added']:,} | "
@@ -1018,7 +1182,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         browser_version = None
         if args.mode in {"all", "browser"}:
             measurements["browser"] = benchmark_browser(
-                generated_output, args.cold_iterations, args.warm_iterations
+                generated_output,
+                args.cold_iterations,
+                args.warm_iterations,
+                semester,
             )
             browser_version = measurements["browser"].pop("browser_version", None)
             served = measurements["browser"]["served_files"]
@@ -1039,6 +1206,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if sha256_file(source) != before_hash:
             raise RuntimeError("benchmark modified its source database")
 
+    budget_evaluation: dict[str, Any] | None = None
     result = {
         "format": FORMAT_VERSION,
         "recorded_at": datetime.now(UTC).isoformat(),
@@ -1059,6 +1227,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "p95": "nearest-rank percentile",
         },
     }
+    if getattr(args, "enforce_budgets", False):
+        if args.mode not in {"all", "browser"}:
+            raise ValueError("--enforce-budgets requires --mode all or browser")
+        baseline_path = getattr(
+            args,
+            "publication_baseline",
+            ROOT / "docs" / "baselines" / "stabilization-publication.json",
+        )
+        budget_evaluation = evaluate_performance_budgets(
+            measurements,
+            publication_baseline=load_publication_baseline(baseline_path),
+        )
+        result["budgets"] = budget_evaluation
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -1066,6 +1247,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.markdown:
         args.markdown.parent.mkdir(parents=True, exist_ok=True)
         args.markdown.write_text(render_markdown(result), encoding="utf-8")
+    if budget_evaluation and budget_evaluation["failures"]:
+        failures: list[dict[str, Any]] = budget_evaluation["failures"]
+        details = ", ".join(
+            f"{failure['metric']}={failure['actual']}>{failure['limit']}"
+            for failure in failures
+        )
+        raise PerformanceBudgetError(f"performance budget failed: {details}")
     return result
 
 
@@ -1087,6 +1275,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--markdown", type=Path)
     parser.add_argument("--deploy-preview", action="store_true")
     parser.add_argument("--pages-project", default="registrar-monitor")
+    parser.add_argument("--enforce-budgets", action="store_true")
+    parser.add_argument(
+        "--publication-baseline",
+        type=Path,
+        default=ROOT / "docs" / "baselines" / "stabilization-publication.json",
+    )
     return parser.parse_args(argv)
 
 

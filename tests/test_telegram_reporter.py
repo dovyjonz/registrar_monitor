@@ -71,8 +71,39 @@ async def test_send_text_report_success(reporter, tmp_path):
     reporter.bot.send_message.assert_called_once()
     call_args = reporter.bot.send_message.call_args
     assert call_args.kwargs["chat_id"] == "123456789"
-    assert "This is a test report." in call_args.kwargs["text"]
+    assert call_args.kwargs["text"] == "This is a test report\\."
     assert call_args.kwargs["parse_mode"] == ParseMode.MARKDOWN_V2
+
+
+@pytest.mark.asyncio
+async def test_complete_report_uses_normal_headings_and_monospace_numeric_rows(
+    reporter, tmp_path
+):
+    txt_path = tmp_path / "test_report.txt"
+    txt_path.write_text(
+        "📅 2026-08-13 12:00:00 · P2 · Y3\n\n"
+        "+ CS 101 - COURSE ADDED\n\n"
+        "MATH 200 - LAB FULL\n"
+        "  + 2R     3/25 - SECTION ADDED\n"
+        "  🟠 10L :  23/30 (+3)\n"
+        "  − 1B                  - SECTION REMOVED\n",
+        encoding="utf-8",
+    )
+
+    await reporter.send_text_report(str(txt_path))
+
+    sent_text = reporter.bot.send_message.call_args.kwargs["text"]
+    assert sent_text == (
+        "📅 2026\\-08\\-13 12:00:00 · P2 · Y3\n\n"
+        "*\\+ CS 101 \\- COURSE ADDED*\n\n"
+        "*MATH 200 \\- LAB FULL*\n"
+        "```\n"
+        "  + 2R     3/25 - SECTION ADDED\n"
+        "  🟠 10L :  23/30 (+3)\n"
+        "  − 1B                  - SECTION REMOVED\n"
+        "```"
+    )
+    assert not sent_text.startswith("```")
 
 
 @pytest.mark.asyncio
@@ -90,9 +121,9 @@ async def test_send_long_report_no_courses(reporter):
 
     reporter.bot.send_message.assert_called_once()
     sent_text = reporter.bot.send_message.call_args.kwargs["text"]
-    assert "Previous Snapshot: 2024-01-01" in sent_text
-    assert "No significant changes detected." in sent_text
-    assert sent_text.count("Previous Snapshot: 2024-01-01") == 1
+    assert "Previous Snapshot: 2024\\-01\\-01" in sent_text
+    assert "No significant changes detected\\." in sent_text
+    assert sent_text.count("Previous Snapshot: 2024\\-01\\-01") == 1
 
 
 @pytest.mark.asyncio
@@ -100,7 +131,6 @@ async def test_send_long_report_splits_across_messages(reporter):
     """Long content with multiple large course blocks should be split into
     multiple Telegram messages so no individual message exceeds max_length."""
     max_length = 4000
-    MARKDOWN_WRAPPER_OVERHEAD = 10
 
     header = "Previous Snapshot: 2024-01-01\nCurrent Snapshot: 2024-01-02\n"
 
@@ -114,7 +144,7 @@ async def test_send_long_report_splits_across_messages(reporter):
     course2 = make_course_block("CS 102")
     course3 = make_course_block("CS 103")
 
-    content = header + course1 + course2 + course3
+    content = f"{header}\n{course1}\n{course2}\n{course3}"
 
     await reporter._send_long_report(content)
 
@@ -123,9 +153,7 @@ async def test_send_long_report_splits_across_messages(reporter):
 
     for call in reporter.bot.send_message.call_args_list:
         sent_text = call.kwargs["text"]
-        assert len(sent_text) <= max_length + MARKDOWN_WRAPPER_OVERHEAD, (
-            f"Message too long: {len(sent_text)} chars"
-        )
+        assert len(sent_text) <= max_length, f"Message too long: {len(sent_text)} chars"
 
 
 @pytest.mark.asyncio
@@ -135,7 +163,7 @@ async def test_send_long_report_single_course_fits_in_one_message(reporter):
     header = "Previous Snapshot: 2024-01-01\nCurrent Snapshot: 2024-01-02\n"
     course = "CS 101\n  Section 10L: 25/30 (83%)\n  Section 11L: 28/30 (93%)\n"
 
-    content = header + course
+    content = header + "\n" + course
 
     await reporter._send_long_report(content)
 
@@ -156,7 +184,7 @@ async def test_send_long_report_course_block_near_limit(reporter):
     filler_count = (3900 - len(first_line)) // len(filler_line)
     course = first_line + filler_line * filler_count
 
-    content = header + course
+    content = header + "\n" + course
 
     await reporter._send_long_report(content)
 
@@ -183,7 +211,7 @@ async def test_send_long_report_two_courses_split_cleanly(reporter):
     course1 = make_block("CS 101", 2500)
     course2 = make_block("CS 102", 2500)
 
-    content = header + course1 + course2
+    content = f"{header}\n{course1}\n{course2}"
 
     await reporter._send_long_report(content)
 

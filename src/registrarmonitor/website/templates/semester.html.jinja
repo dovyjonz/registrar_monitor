@@ -120,9 +120,10 @@
         <div class="modal">
             <div class="modal-header">
                 <div class="modal-header-left">
-                    <h2 id="modalTitle" class="modal-course-heading" aria-label="Course details">
+                    <h2 id="modalTitle" class="modal-course-heading">
                         <span class="modal-course-code" id="modalCourseCode">Course</span>
                         <span class="modal-course-name" id="modalCourseName">Details</span>
+                        <span class="modal-course-semester" id="modalSemester">{{ semester }}</span>
                     </h2>
                 </div>
                 <div class="modal-header-right">
@@ -160,7 +161,7 @@
                         <div class="chart-mode-toggle" id="chartModeToggle" role="group" aria-label="Chart display mode">
                             <button class="chart-mode-btn active" data-mode="phased" aria-pressed="true" title="Equally spaced milestones">Phases</button>
                             <button class="chart-mode-btn" data-mode="snapshots" aria-pressed="false" title="Equal-width snapshots">Steps</button>
-                            <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false" title="Elapsed time with long gaps shortened">Time</button>
+                            <button class="chart-mode-btn" data-mode="timeline" aria-pressed="false" title="Literal elapsed time">Time</button>
                         </div>
                         <div class="chart-action-controls">
                             <div class="chart-zoom-controls">
@@ -179,6 +180,10 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                    <div class="registration-unavailable-guide" id="registrationUnavailableGuide" hidden>
+                        <span class="registration-unavailable-swatch" aria-hidden="true"></span>
+                        <span>Required sections full</span>
                     </div>
                     <div class="chart-readout" id="chartReadout" aria-live="polite" hidden></div>
                     <div class="chart-wrapper">

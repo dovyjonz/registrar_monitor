@@ -1,184 +1,74 @@
 # Test and operational tooling
 
-The Makefile is the command index. The commands below deliberately separate
-fast, deterministic checks from generated-site and browser work.
+The Makefile is the command index. Use `make help` for the current target list;
+this document records contracts and artifact locations that are not obvious from a
+command name.
 
-## Frontend tests
+## Quality layers
 
-`npm --prefix assets/website run test:unit` runs pure helper and Vite
-configuration tests with Node's built-in `node:test` runner. Keep pure modules
-such as URL slug and chart mapping helpers here; they do not need a browser.
-`make check` includes these unit tests.
+- `make check` is the standard local gate: Python formatting, linting, typing,
+  coverage/tests, frontend unit tests, lint, and build. It does not run Playwright.
+- `make site-smoke` builds and generates the dashboard, validates public output,
+  and crawls generated same-origin HTML, assets, and JSON. Its structured result is
+  `output/generated-site-crawl.json`.
+- `make test-browser` exercises generated `assets/website/public` output with
+  Playwright. Traces, screenshots, and HTML reports are under `output/playwright/`.
+- `make worker-check` validates the isolated preview-image Worker, including its
+  tests, types, and deployment dry-run.
+- `make security` audits both JavaScript lockfiles at moderate severity or higher.
+- `make release-candidate` assembles the broader stabilization release gate.
 
-`npm --prefix assets/website run test:e2e` runs Playwright Chromium smoke tests.
-The Playwright web server serves `assets/website/public` with Python's static
-server, so the suite exercises generated production output rather than Vite's
-development shell. `make test-browser` builds assets, generates the site,
-installs Chromium if needed, and runs the suite. Failure screenshots, traces,
-and the HTML report are written under `output/playwright/`.
-For an already-installed Chromium-compatible browser, set
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable path; CI uses the pinned
-Playwright Chromium download.
+Generated-site CI seeds isolated, ignored SQLite fixtures for every configured
+semester. Local test setup must not overwrite an existing database.
 
-## Generated-output integrity
+## Doctor
 
-`make site-smoke` builds and generates the dashboard, then crawls every generated
-HTML page. It combines `WebsiteService.validate_public_output()` with checks for
-missing same-origin links, assets, and JSON payloads. The structured result is
-written to `output/generated-site-crawl.json`.
+Use `make doctor` or `monitor doctor` locally. On a runtime host, run
+`scripts/runtime_doctor.sh` as the application user; it uses locked dependencies
+without syncing or requiring a writable uv cache.
 
-CI seeds one small deterministic SQLite fixture for each configured semester
-before this job. The fixtures exist only in ignored runtime output and are never
-used by production.
+The doctor checks toolchains and lockfiles, required paths with temporary write
+probes, frontend executables, and SQLite integrity, foreign keys, and schema
+versions. Missing optional state is a warning; integrity failures and missing
+required tools are errors. It never prints `.env`. Use `monitor doctor --json` or
+`--output` for machine-readable results.
 
-## Operational doctor
+Current host ownership, permissions, toolbox, and service procedures belong in
+`production-topology.md`.
 
-Run `make doctor` or `monitor doctor` during local development. On a runtime
-host, run `scripts/runtime_doctor.sh` as the application runtime user; it calls
-`uv run --locked --no-sync --no-cache monitor doctor`, so it does not require
-`make`, install dependencies, or require a writable uv cache. The doctor checks:
+## Logs
 
-- Python, uv, Jujutsu, Node.js, npm, and the pinned Node version;
-- required TOML and lockfiles, plus optional `.env` presence without reading or
-  printing secrets;
-- configured data, download, report, log, and generated-site paths with a
-  temporary write probe;
-- installed Vite and Playwright executables;
-- every enrollment SQLite database with `PRAGMA integrity_check`,
-  `PRAGMA foreign_key_check`, and `PRAGMA user_version`.
+Normal commands write human-readable stdout and rotating logs in the configured
+logs directory. The scheduler also writes one JSON object per decision to
+`scheduler_decisions.jsonl`. Keep logs free of secrets, environment dumps,
+Telegram identifiers, and full registrar payloads.
 
-Warnings describe optional or migratable state, such as a missing `.env`, no
-databases, or a legacy schema-version marker. Integrity failures, missing
-required tools, and missing frontend prerequisites return a non-zero exit code.
-Use `monitor doctor --json` for stdout JSON or
-`monitor doctor --output output/doctor.json` to save it.
-
-New databases set SQLite `user_version` to the application's
-`EXPECTED_SCHEMA_VERSION`. The diagnostic is read-only and does not migrate a
-database.
-
-### VM shared toolbox and permissions
-
-On `instance-20260501-152532`, the supported shared operator/runtime model uses
-the `registrarmonitor` group for `spook` and `dmitry_s_ivanenko`. The checkout,
-colocated `.git`/`.jj`, and `.venv` are operator-owned and group-writable; the
-runtime data, logs, downloads, reports, generated public output, and maintenance
-output are runtime-owned and group-writable. Setgid directories and default
-ACLs preserve that access for newly created files. The project root is
-traverse-only to the group, and `.env` remains `dmitry_s_ivanenko:dmitry_s_ivanenko`
-mode `0600` with no shared ACL.
-
-The VM toolbox contains only the requested Debian packages: `make`, `ripgrep`,
-`jq`, `sqlite3`, `gh`, `acl`, `git`, `curl`, and `ca-certificates`. The existing
-root-owned `/usr/local/bin/jj` is the verified official `v0.43.0` binary and was
-retained (binary SHA-256
-`7dfff2e4416e75e5ab20eaf741d60100f43be5a9b4d18c1347364e28a765edbe`). The
-checkout's stale 19-path patch is archived under
-`output/maintenance/vm-working-tree.patch` (SHA-256
-`9c7040b7e2dacd17afd46cd898781b30f1edd8eb667654bf6c2e7d84135d23e6`) as
-Jujutsu change `d65d29af` / local bookmark
-`vm-pre-reconciliation-2026-08-02`; the active working copy is clean on
-`main`/`origin/main`. The code/reporting/deployment test used `758345d9`.
-
-For the repaired host, run the runtime diagnostic as `dmitry_s_ivanenko` and
-run the operator gate with a raised file-descriptor limit while keeping dotenv
-disabled so the operator never needs `.env` access:
-
-```bash
-sudo -u dmitry_s_ivanenko -H \
-  /home/dmitry_s_ivanenko/registrar_monitor/scripts/runtime_doctor.sh
-
-sudo -u spook -H prlimit --nofile=65536:65536 -- \
-  env PYTHON_DOTENV_DISABLED=1 \
-  make -C /home/dmitry_s_ivanenko/registrar_monitor check-fast
-```
-
-The full `make check` gate and its configured coverage threshold are authoritative;
-do not copy test counts into operator documentation because the suite changes.
-The live VM service is documented in `production-topology.md`.
-
-## Runtime logging and scheduler decisions
-
-Normal CLI commands write human-readable logs to stdout and rotating files in the
-`directories.logs` path from `settings.toml` (normally `logs/`). The main stream is
-`registrar_monitor.log`; `errors.log` contains only `ERROR` and `CRITICAL` records.
-Each file rotates at 10 MB and retains five backups. `monitor doctor` is the
-exception: its stdout remains machine-readable or operator-focused and it does not
-initialize file logging.
-
-The scheduler also appends one structured record per scheduling decision to
-`logs/scheduler_decisions.jsonl`. Each line is independent JSON, so operators can
-inspect recent decisions without parsing the human-readable application log:
-
-```bash
-tail -n 20 logs/scheduler_decisions.jsonl | jq .
-```
-
-On the production host, systemd captures the same stdout stream. Prefer a bounded
-journal query for incident review and follow the redaction rules in
-`production-topology.md`; do not collect an unrestricted journal:
-
-```bash
-sudo journalctl -u registrarmonitor.service --since "30 minutes ago" --no-pager
-```
-
-Application logs must contain operational context, not secrets, environment dumps,
-Telegram identifiers, or full registrar payloads. Exceptions at workflow boundaries
-should retain tracebacks in the file and journal streams; expected no-op outcomes
-belong at `INFO`, retryable degradation at `WARNING`, and failed operations at
-`ERROR`.
+For incidents, query a bounded time window from `registrarmonitor.service`; never
+collect an unrestricted journal. Expected no-ops are `INFO`, retryable degradation
+is `WARNING`, and failed operations are `ERROR`. Workflow-boundary exceptions keep
+their tracebacks.
 
 ## Baselines and benchmarks
 
-`make baseline` writes `output/tooling-baseline.json`. It records platform and
-toolchain information, lockfile hashes, and the complete doctor report. It
-contains no environment values, tokens, chat identifiers, or database content.
+Routine reports go to ignored `output/`. Dated, intentionally recorded baselines
+live under `docs/baselines/`; database copies remain ignored and are never uploaded.
 
-`make benchmark DATABASE=output/performance-input/<copy>.db` writes
-`output/performance-baseline.json`. The input must be a local, ignored SQLite
-copy: the runner hashes it before and after and performs writes only against
-disposable copies. `make benchmark-synthetic` provides a deterministic,
-non-secret fallback for contributors without runtime access.
+Benchmark inputs must be disposable local SQLite copies. The runner hashes the
+input before and after and performs writes only on disposable copies. Synthetic
+benchmarks provide the non-secret CI/contributor path.
 
-The suite separates cold and warm samples and records raw values, median, and
-nearest-rank p95. It covers SQLite allocation and poll deltas, latest-state and
-course-history reads, SQL activity and website generation, generated file
-inventory, initial browser transfer/request counts, validated-summary bytes,
-mark-derived grid rendering, course-card readiness, and opening one course.
-Website generation runs through `WebsiteService` and reports payload and generated
-file sizes. Focused `benchmark-database`, `benchmark-website`, and
-`benchmark-browser` targets accept the same `DATABASE`, `PERF_COLD`, and
-`PERF_WARM` inputs.
+The suite separates readiness/infrastructure failures from performance-budget
+failures and retains browser diagnostics under `output/benchmark-browser/`. It
+measures full, no-change, and one-course generation; navigation and course-open
+readiness; and publication file/byte shape. Remote Cloudflare latency is recorded
+separately from deterministic CI budgets.
 
-`make benchmark-record` is the explicit command for dated Markdown and JSON
-under `docs/baselines/`. `make benchmark-record-deploy` additionally creates one
-Cloudflare Pages preview-branch deployment and records its duration and payload
-size. It requires existing Cloudflare credentials and never targets the
-production branch.
+## CI and hooks
 
-Routine reports are machine-readable JSON under the ignored `output/`
-directory. Dated baseline JSON is intentionally committed beside its Markdown
-rendering; copied databases are never committed or uploaded as CI artifacts.
+Python 3.13 is canonical; Python 3.14 is a compatibility job. Generated-site CI
+uploads crawl and browser diagnostics, while benchmark CI uploads structured
+results. Dependency review and lockfile audits enforce the repository security
+policy.
 
-## CI and dependency review
-
-Python 3.13 remains the canonical format, lint, type, coverage, and test job.
-Python 3.14 runs a separate compatibility test job. JUnit and coverage XML are
-uploaded from both jobs.
-
-The generated-site job runs the crawler and Playwright, then uploads crawl,
-trace, screenshot, and HTML reports. A separate benchmark job uploads its JSON
-result.
-
-On pull requests, GitHub's dependency review blocks newly introduced
-moderate-or-higher known vulnerabilities and `npm audit` checks the complete
-frontend lockfile. Dependabot proposes grouped weekly Python and npm updates and
-grouped monthly GitHub Actions updates, keeping each pull request reviewable.
-
-## Local hooks
-
-Ty is the sole repository-configured Python type checker. Pre-commit remains
-limited to text hygiene, Ruff, Ty, and frontend lint. It does
-not install browsers, generate the website, crawl output, run benchmarks, or run
-the full test suite. Use `make check`, `make site-smoke`, and
-`make test-browser` before sharing cross-cutting tooling changes.
+Pre-commit stays fast: text hygiene, Ruff, Ty, and frontend lint. Run the broader
+gates above when a change touches their behavior.
