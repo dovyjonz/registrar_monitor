@@ -259,6 +259,30 @@ def test_deploy_missing_cloudflare_account_id_skips_wrangler(tmp_path, monkeypat
     run.assert_not_called()
 
 
+def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, capsys):
+    service = WebsiteService()
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "semesters" / "fall-2026").mkdir(parents=True)
+    (tmp_path / "semesters" / "fall-2026" / "index.html").write_text(
+        '<link rel="stylesheet" href="/assets/main-missing.css">'
+        '<script type="module" src="/assets/main-missing.js"></script>'
+    )
+
+    with (
+        patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
+        patch("subprocess.run") as run,
+    ):
+        assert service.deploy(project_name="registrar-monitor") is False
+
+    run.assert_not_called()
+    output = capsys.readouterr().out
+    assert "Missing frontend asset referenced by" in output
+    assert "/assets/main-missing.css" in output
+    assert "/assets/main-missing.js" in output
+
+
 def test_wrangler_pages_deploy_does_not_use_unsupported_minify_flag(
     tmp_path, monkeypatch
 ):

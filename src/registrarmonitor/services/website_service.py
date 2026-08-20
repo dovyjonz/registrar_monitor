@@ -521,28 +521,33 @@ class WebsiteService:
             for source in dependency_sources
         )
 
-    def _validate_asset_references_in_html(self) -> bool:
-        """Return whether generated HTML references existing built assets."""
+    def _frontend_asset_reference_issues(self) -> list[str]:
+        """Return missing local frontend assets referenced by generated HTML."""
         import re
 
         output_dir = self.output_dir
-        valid = True
+        issues: list[str] = []
         for html_file in output_dir.rglob("*.html"):
             text = html_file.read_text(encoding="utf-8")
             asset_urls = re.findall(
-                r'(?:src|href)="(/assets/main-[^"]+\.(?:js|css))"',
+                r'(?:src|href)="(/assets/[^"]+\.(?:js|css))"',
                 text,
             )
             for asset_url in asset_urls:
                 if not (output_dir / asset_url.lstrip("/")).is_file():
-                    message = (
-                        f"Missing frontend asset referenced by "
-                        f"{html_file.name}: {asset_url}"
+                    issues.append(
+                        "Missing frontend asset referenced by "
+                        f"{html_file.relative_to(output_dir)}: {asset_url}"
                     )
-                    self.logger.error(message)
-                    print(f"Error: {message}")
-                    valid = False
-        return valid
+        return issues
+
+    def _validate_asset_references_in_html(self) -> bool:
+        """Return whether generated HTML references existing built assets."""
+        issues = self._frontend_asset_reference_issues()
+        for issue in issues:
+            self.logger.error(issue)
+            print(f"Error: {issue}")
+        return not issues
 
     def build_frontend_assets(self) -> bool:
         """Build the frontend assets using npm/vite.
@@ -801,6 +806,7 @@ class WebsiteService:
                 else:
                     errors.append(f"Unexpected file: {name}")
 
+        errors.extend(self._frontend_asset_reference_issues())
         return errors
 
     def is_any_semester_active(self, buffer_days: int = 7) -> bool:
