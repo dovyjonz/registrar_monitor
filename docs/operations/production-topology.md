@@ -21,15 +21,16 @@ Last verified: 2026-08-24. Times use `Asia/Almaty` unless noted.
 |---|---|---|
 | `registrarmonitor.service` | installed, enabled, active/running | scheduler, reports, dashboard publication |
 | `registrarmonitor-bot.service` | installed, enabled, active/running | private subscriptions and digest delivery |
-| `registrarmonitor-health.service` | generated; activation is separate | alerts the test operator when either main unit is not active |
+| `registrarmonitor-health.service` | installed, enabled, active/running | alerts the test operator when either main unit is not active |
 | `registrar-monitor.service` | retired and absent | never revive |
 
-On 2026-08-24 both canonical services were synchronized to commit `b83c29c` and
+On 2026-08-24 the canonical services were synchronized to commit `b83c29c` and
 restarted at `2026-08-24 16:03:19 +05`. The scheduler started with main PID
-`3044028`; the bot started with main PID `3044029`. Both were loaded, enabled,
-and active/running after restart, their deployed subscription-source checksums
-matched the local checkout, and their bounded warning journal since restart was
-empty.
+`3044028`; the bot later recovered with main PID `3045716` after the SQLite
+sidecar ownership repair. The service health monitor was deployed from commit
+`81b6ba9` and started at `2026-08-24 17:43:17 +05`. All three units were loaded,
+enabled, and active/running at final verification; the bounded health-monitor
+journal contained only startup records.
 
 `scripts/setup_vps.sh` generates all three supported unit files but does not
 install, enable, start, stop, or restart any unit. Installing or activating the
