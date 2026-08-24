@@ -1,5 +1,7 @@
 """Personal notification matching and durable delivery."""
 
+import asyncio
+import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -48,6 +50,35 @@ async def test_dispatches_only_watched_section(
     assert "Spring 2024" in text
     assert reply_markup.inline_keyboard[0][0].callback_data == "subs:0"
     assert store.list_deliveries(batch.batch_id)[0].status == "sent"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_loading_does_not_block_interactions(
+    tmp_path, current_snapshot, previous_snapshot
+):
+    store, _batch = prepare_delivery(
+        tmp_path, SubscriptionTarget("Spring 2024", "CS 101")
+    )
+    snapshots = iter([current_snapshot, previous_snapshot])
+
+    def slow_snapshot(_snapshot_id):
+        time.sleep(0.1)
+        return next(snapshots)
+
+    enrollment_db = MagicMock(get_snapshot_data=slow_snapshot)
+    dispatcher = SubscriptionDispatcher(store, enrollment_db, AsyncMock())
+    started = time.monotonic()
+    heartbeat_at = None
+
+    async def heartbeat():
+        nonlocal heartbeat_at
+        await asyncio.sleep(0.01)
+        heartbeat_at = time.monotonic()
+
+    await asyncio.gather(dispatcher.dispatch_one(), heartbeat())
+
+    assert heartbeat_at is not None
+    assert heartbeat_at - started < 0.05
 
 
 @pytest.mark.asyncio

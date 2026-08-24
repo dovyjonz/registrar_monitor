@@ -197,6 +197,122 @@ class SubscriptionStore:
             )
             return cursor.rowcount == 1
 
+    def add_watch(self, telegram_user_id: int, target: SubscriptionTarget) -> bool:
+        """Add a UI watch without narrowing an existing whole-course watch."""
+        with self._transaction() as connection:
+            current = self._course_section_codes(
+                connection,
+                telegram_user_id,
+                target.semester,
+                target.course_code,
+            )
+            if not target.is_course and "" in current:
+                return False
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO subscription(
+                    telegram_user_id, semester, course_code, section_code, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    telegram_user_id,
+                    target.semester,
+                    target.course_code,
+                    target.section_code,
+                    self._now(),
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def replace_section_watches(
+        self,
+        telegram_user_id: int,
+        course: SubscriptionTarget,
+        section_codes: set[str],
+    ) -> bool:
+        """Atomically replace every watch for one course with section watches."""
+        if not course.is_course:
+            raise ValueError("course target required")
+        with self._transaction() as connection:
+            current = self._course_section_codes(
+                connection,
+                telegram_user_id,
+                course.semester,
+                course.course_code,
+            )
+            return self._replace_course_targets(
+                connection,
+                telegram_user_id,
+                course.semester,
+                course.course_code,
+                current,
+                section_codes,
+            )
+
+    @staticmethod
+    def _course_section_codes(
+        connection: sqlite3.Connection,
+        telegram_user_id: int,
+        semester: str,
+        course_code: str,
+    ) -> set[str]:
+        rows = connection.execute(
+            """
+            SELECT section_code FROM subscription
+            WHERE telegram_user_id = ? AND semester = ? AND course_code = ?
+            """,
+            (telegram_user_id, semester, course_code),
+        ).fetchall()
+        return {row["section_code"] for row in rows}
+
+    def _replace_course_targets(
+        self,
+        connection: sqlite3.Connection,
+        telegram_user_id: int,
+        semester: str,
+        course_code: str,
+        current: set[str],
+        desired: set[str],
+    ) -> bool:
+        if current == desired:
+            return False
+        connection.execute(
+            """
+            DELETE FROM subscription
+            WHERE telegram_user_id = ? AND semester = ? AND course_code = ?
+            """,
+            (telegram_user_id, semester, course_code),
+        )
+        self._insert_targets(
+            connection,
+            telegram_user_id,
+            semester,
+            course_code,
+            desired,
+        )
+        return True
+
+    def _insert_targets(
+        self,
+        connection: sqlite3.Connection,
+        telegram_user_id: int,
+        semester: str,
+        course_code: str,
+        section_codes: set[str],
+    ) -> None:
+        now = self._now()
+        connection.executemany(
+            """
+            INSERT INTO subscription(
+                telegram_user_id, semester, course_code, section_code, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (telegram_user_id, semester, course_code, section_code, now)
+                for section_code in sorted(section_codes)
+            ],
+        )
+
     def unsubscribe(self, telegram_user_id: int, target: SubscriptionTarget) -> bool:
         with self._transaction() as connection:
             cursor = connection.execute(

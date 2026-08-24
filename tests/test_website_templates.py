@@ -31,7 +31,7 @@ def course_state(*, archived=False):
         },
         "priority": {
             "compact": "P2 · Y4+",
-            "full": "Priority 2 — Year 4+",
+            "full": "Priority 2 - Year 4+",
             "current": {
                 "label": "Y4+",
                 "time": "2026-08-13T09:00:00+05:00",

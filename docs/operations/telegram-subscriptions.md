@@ -6,18 +6,21 @@ changes the configured channel chat ID.
 
 ## User commands
 
-- `/watch` — search and add a course or section
-- `/catalog` — browse the current catalog with at-a-glance fill status
-- `/import` — paste a starred-course selection copied from the website
-- `/subscriptions` — list or remove watches
-- `/status [COURSE]` — choose a watch or show the latest stored enrollment
-- `/settings` — clear subscriptions or delete bot data
-- `/help` — show commands
+- `/watch` searches and adds a course or section
+- `/catalog` browses the current catalog with at-a-glance fill status
+- `/import` pastes a starred-course selection copied from the website
+- `/subscriptions` lists watches and opens them for editing
+- `/status [COURSE]` chooses a watch or shows the latest stored enrollment
+- `/settings` clears subscriptions or deletes bot data
+- `/help` shows commands
 
-The bot works only in private chats. An exact search match opens the course
-directly. Courses with many sections use paged controls and also accept a typed,
-comma- or space-separated list of section IDs. Section changes are shown as a
-receipt before they are applied.
+The bot works only in private chats. `/watch CSCI 115` immediately adds a whole
+course watch. `/watch CSCI 115 / 1L` immediately adds that section. Non-exact
+input opens search results. Courses with many sections use paged controls and
+also accept a typed, comma- or space-separated list of section IDs. Section
+changes are shown as a receipt before they are applied. Opening an existing watch
+from `/subscriptions` edits it instead of removing it. Removing a whole-course
+watch requires a separate confirmation.
 
 Telegram deep links are ordinary `t.me/<bot>?start=<payload>` links that open the
 private bot with a small validated context payload. They let a course page open
@@ -64,6 +67,13 @@ enabling, or starting it. The channel scheduler remains
 Startup refuses to poll while the bot has an active webhook or another update
 consumer. It uses direct Bot API polling because PTB's `Updater` bootstrap deletes
 webhooks; this service never calls `deleteWebhook`.
+
+Updates from different private chats run concurrently with a bound of eight.
+Updates within one chat remain ordered so section-selection state cannot race.
+Catalog reads, delivery snapshot rendering, and bot-state writes run outside the
+event loop. Immutable catalogs are reused until the latest snapshot ID changes.
+Every update records processing latency without logging chat or user identifiers;
+updates taking at least three seconds are warnings.
 
 ## Delivery contract
 

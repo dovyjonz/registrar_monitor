@@ -430,7 +430,7 @@ class WebsiteService:
         change on every rebuild.  Rather than regenerating every HTML page from
         scratch (which requires DB queries for each semester), this method reads
         the new manifest and performs a targeted in-place regex substitution on
-        the already-deployed HTML files — updating the script, module-preload,
+        the already-deployed HTML files, updating the script, module-preload,
         and stylesheet references to versioned assets. Checksums are left intact
         so incremental logic still skips semesters with no new data.
 
@@ -443,7 +443,7 @@ class WebsiteService:
         manifest_path = self.output_dir / "assets" / ".vite" / "manifest.json"
         if not manifest_path.exists():
             print(
-                "Warning: manifest.json not found — cannot patch asset hashes in HTML."
+                "Warning: manifest.json not found - cannot patch asset hashes in HTML."
             )
             return False
 
@@ -459,7 +459,7 @@ class WebsiteService:
         new_css = css_files[0] if css_files else None  # e.g. "main-CKing-67.css"
 
         if not new_js:
-            print("Warning: No JS entry in manifest — skipping asset hash patch.")
+            print("Warning: No JS entry in manifest - skipping asset hash patch.")
             return False
 
         output_dir = self.output_dir
@@ -488,7 +488,7 @@ class WebsiteService:
                 patched += 1
 
         print(
-            f"Patched asset hashes in {patched} HTML file(s) — no page regeneration needed."
+            f"Patched asset hashes in {patched} HTML file(s) - no page regeneration needed."
         )
         return True
 

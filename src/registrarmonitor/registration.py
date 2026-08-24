@@ -21,7 +21,7 @@ def format_priority_compact(priority: object, label: object) -> str:
 
 def format_priority_full(priority: object, label: object) -> str:
     """Return the sole expanded, accessible priority form."""
-    return f"Priority {priority} — {_expand_cohort(str(label))}"
+    return f"Priority {priority} - {_expand_cohort(str(label))}"
 
 
 def get_priority_milestones(semester: str) -> list[dict[str, str]]:

@@ -2,12 +2,16 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable
+from time import monotonic
+from typing import Any
+from weakref import WeakValueDictionary
 
 from telegram import BotCommand, BotCommandScopeChat, Update
 from telegram.error import Conflict, NetworkError
-from telegram.ext import Application, ChatMemberHandler
+from telegram.ext import Application, BaseUpdateProcessor, ChatMemberHandler
 
-from ..cli.utils import detect_active_semester
+from ..cli.utils import find_active_semester
 from ..config import get_config
 from ..data.database_manager import DatabaseManager
 from .catalog import SubscriptionCatalog
@@ -30,6 +34,70 @@ BOT_COMMANDS = [
 ]
 BOT_TEST_COMMAND = BotCommand("test", "Check developer test mode")
 BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEMBER]
+MAX_CONCURRENT_UPDATES = 8
+MAX_QUEUED_UPDATES = 1024
+SLOW_UPDATE_SECONDS = 3.0
+
+
+class LatencyTrackingUpdateProcessor(BaseUpdateProcessor):
+    """Process different chats concurrently while preserving per-chat order."""
+
+    def __init__(
+        self,
+        max_concurrent_updates: int,
+        *,
+        slow_update_seconds: float,
+    ) -> None:
+        super().__init__(max(MAX_QUEUED_UPDATES, max_concurrent_updates))
+        self.slow_update_seconds = slow_update_seconds
+        self._active_updates = asyncio.Semaphore(max_concurrent_updates)
+        self._chat_locks: WeakValueDictionary[int, asyncio.Lock] = WeakValueDictionary()
+
+    async def do_process_update(
+        self,
+        update: object,
+        coroutine: Awaitable[Any],
+    ) -> None:
+        started = monotonic()
+        chat = getattr(update, "effective_chat", None)
+        chat_id = getattr(chat, "id", None)
+        try:
+            if chat_id is None:
+                async with self._active_updates:
+                    await coroutine
+            else:
+                lock = self._chat_locks.get(chat_id)
+                if lock is None:
+                    lock = asyncio.Lock()
+                    self._chat_locks[chat_id] = lock
+                async with lock:
+                    async with self._active_updates:
+                        await coroutine
+        finally:
+            elapsed = monotonic() - started
+            log = logger.warning if elapsed >= self.slow_update_seconds else logger.info
+            log(
+                "Telegram update processed type=%s duration_ms=%.0f slow=%s",
+                self._update_type(update),
+                elapsed * 1000,
+                elapsed >= self.slow_update_seconds,
+            )
+
+    async def initialize(self) -> None:
+        pass
+
+    async def shutdown(self) -> None:
+        pass
+
+    @staticmethod
+    def _update_type(update: object) -> str:
+        if getattr(update, "callback_query", None) is not None:
+            return "callback_query"
+        if getattr(update, "message", None) is not None:
+            return "message"
+        if getattr(update, "my_chat_member", None) is not None:
+            return "my_chat_member"
+        return "other"
 
 
 def bot_commands() -> list[BotCommand]:
@@ -48,7 +116,19 @@ class SubscriptionBotRuntime:
         self.config = config
         self.test_user_id = config.get("telegram_bot", {}).get("test_user_id")
         self.store = SubscriptionStore(config["directories"]["telegram_bot_state"])
-        self.application = Application.builder().token(token).build()
+        self._catalog_lock = asyncio.Lock()
+        self._catalog_key: tuple[str, int] | None = None
+        self._catalog: SubscriptionCatalog | None = None
+        update_processor = LatencyTrackingUpdateProcessor(
+            MAX_CONCURRENT_UPDATES,
+            slow_update_seconds=SLOW_UPDATE_SECONDS,
+        )
+        self.application = (
+            Application.builder()
+            .token(token)
+            .concurrent_updates(update_processor)
+            .build()
+        )
         SubscriptionInteractions(
             self.store,
             self._latest_catalog,
@@ -119,13 +199,32 @@ class SubscriptionBotRuntime:
                 await self.application.update_queue.put(update)
 
     async def _latest_catalog(self) -> SubscriptionCatalog | None:
-        semester = await detect_active_semester()
-        if not semester:
-            return None
+        async with self._catalog_lock:
+            semester = await asyncio.to_thread(find_active_semester)
+            if not semester:
+                return None
+            snapshot_id = await asyncio.to_thread(self._latest_snapshot_id, semester)
+            if not snapshot_id:
+                return None
+            key = (semester, snapshot_id)
+            if self._catalog_key == key:
+                return self._catalog
+            snapshot = await asyncio.to_thread(
+                self._load_snapshot, semester, snapshot_id
+            )
+            self._catalog_key = key
+            self._catalog = SubscriptionCatalog(snapshot) if snapshot else None
+            return self._catalog
+
+    @staticmethod
+    def _latest_snapshot_id(semester: str) -> int | None:
         database = DatabaseManager.create_for_semester(semester)
-        snapshot_id = database.get_latest_snapshot_id()
-        snapshot = database.get_snapshot_data(snapshot_id) if snapshot_id else None
-        return SubscriptionCatalog(snapshot) if snapshot else None
+        return database.get_latest_snapshot_id()
+
+    @staticmethod
+    def _load_snapshot(semester: str, snapshot_id: int):
+        database = DatabaseManager.create_for_semester(semester)
+        return database.get_snapshot_data(snapshot_id)
 
     async def _delivery_loop(self) -> None:
         bot_config = self.config.get("telegram_bot", {})
@@ -147,10 +246,11 @@ class SubscriptionBotRuntime:
         loop = asyncio.get_running_loop()
         while True:
             if loop.time() >= next_recovery:
-                self._recover_pending_batches()
+                await asyncio.to_thread(self._recover_pending_batches)
                 next_recovery = loop.time() + recovery_interval
             if loop.time() >= next_cleanup:
-                self.store.cleanup(
+                await asyncio.to_thread(
+                    self.store.cleanup,
                     completed_batch_days=bot_config.get("completed_batch_days", 90),
                     inactive_user_days=bot_config.get("inactive_user_days", 180),
                 )
@@ -177,4 +277,6 @@ class SubscriptionBotRuntime:
         ):
             return
         if change.new_chat_member.status in {"kicked", "left"}:
-            self.store.deactivate_user(update.effective_chat.id)
+            await asyncio.to_thread(
+                self.store.deactivate_user, update.effective_chat.id
+            )

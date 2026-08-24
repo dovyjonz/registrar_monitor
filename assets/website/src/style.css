@@ -973,7 +973,7 @@ header p {
 }
 
 /* ============================================
-   Modal – rebuilt for proper scroll & sizing
+   Modal rebuilt for proper scroll & sizing
    ============================================ */
 .modal-overlay {
     position: fixed;

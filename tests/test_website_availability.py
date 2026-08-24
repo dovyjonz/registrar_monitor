@@ -83,7 +83,7 @@ def test_required_type_full_is_a_first_class_course_state():
 
     assert result["status"] == "required-type-full"
     assert result["compact"] == "LAB FULL"
-    assert result["sentence"] == "No registration places — all Lab sections are full."
+    assert result["sentence"] == "No registration places - all Lab sections are full."
 
 
 def test_two_required_types_full_are_named_together():
@@ -96,7 +96,7 @@ def test_two_required_types_full_are_named_together():
 
     assert result["compact"] == "LAB + LECTURE FULL"
     assert result["sentence"] == (
-        "No registration places — all Lab and Lecture sections are full."
+        "No registration places - all Lab and Lecture sections are full."
     )
 
 
@@ -111,7 +111,7 @@ def test_three_required_types_full_use_compact_summary_and_full_enumeration():
 
     assert result["compact"] == "MULTIPLE TYPES FULL"
     assert result["sentence"] == (
-        "No registration places — all required Lab/Lecture/Recitation sections are full."
+        "No registration places - all required Lab/Lecture/Recitation sections are full."
     )
 
 

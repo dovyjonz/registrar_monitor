@@ -127,7 +127,7 @@ async def test_text_search_and_destructive_confirmations(interaction):
     await bot.watch(update, context)
     assert context.user_data["awaiting_watch"] is True
     await bot.watch_text(update, context)
-    assert "<b>CS 101</b>" in update.effective_message.reply_text.await_args.args[0]
+    assert "Watching CS 101" in update.effective_message.reply_text.await_args.args[0]
 
     store.subscribe(41, SubscriptionTarget("Spring 2024", "CS 101"))
     clear_update = make_update(callback_data="clear:yes")
@@ -137,6 +137,31 @@ async def test_text_search_and_destructive_confirmations(interaction):
     delete_update = make_update(callback_data="delete:yes")
     await bot.callback(delete_update, make_context())
     assert store.get_user(41) is None
+
+
+@pytest.mark.asyncio
+async def test_single_watch_removal_requires_confirmation(interaction):
+    bot, store = interaction
+    store.touch_user(telegram_user_id=41, private_chat_id=91)
+    target = SubscriptionTarget("Spring 2024", "CS 101")
+    store.subscribe(41, target)
+    payload = encode_target(target)
+
+    prompt_update = make_update(callback_data=f"rm:{payload}")
+    await bot.callback(prompt_update, make_context())
+
+    assert store.list_subscriptions(41) == [target]
+    prompt = prompt_update.callback_query.edit_message_text.await_args
+    assert "Stop watching CS 101?" in prompt.args[0]
+    assert (
+        prompt.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+        == f"unsub:{payload}"
+    )
+
+    confirm_update = make_update(callback_data=f"unsub:{payload}")
+    await bot.callback(confirm_update, make_context())
+
+    assert store.list_subscriptions(41) == []
 
 
 @pytest.mark.asyncio
@@ -153,8 +178,8 @@ async def test_section_watches_are_compact_and_apply_together(interaction):
     keyboard = pick_update.callback_query.edit_message_text.await_args.kwargs[
         "reply_markup"
     ].inline_keyboard
-    assert [button.text for button in keyboard[1]] == ["☑ 10L", "☐ 11L"]
-    assert keyboard[-2][0].text == "Apply section watches · 1 selected"
+    assert [button.text for button in keyboard[1]] == ["[x] 10L", "[ ] 11L"]
+    assert keyboard[-2][0].text == "Apply section watches - 1 selected"
     assert keyboard[-1][0].url.endswith("/courses/spring-2024/cs-101/")
 
     apply_update = make_update(callback_data=f"apply:{encode_target(course)}")
@@ -188,7 +213,71 @@ async def test_subscriptions_group_semester_once_and_offer_add_watch(interaction
     assert reply.args[0].count("Spring 2024") == 1
     keyboard = reply.kwargs["reply_markup"].inline_keyboard
     assert len(keyboard[0]) == 2
-    assert keyboard[-1][0].text == "➕ Add watch"
+    assert keyboard[0][0].text.startswith("Edit ")
+    assert keyboard[0][0].callback_data.startswith("view:")
+    assert keyboard[-1][0].text == "Add watch"
+
+
+@pytest.mark.asyncio
+async def test_exact_watch_command_adds_course_or_section_immediately(interaction):
+    bot, store = interaction
+    course_update = make_update()
+
+    await bot.watch(course_update, make_context("CS", "101"))
+
+    assert store.list_subscriptions(41) == [SubscriptionTarget("Spring 2024", "CS 101")]
+    assert (
+        "Watching CS 101"
+        in course_update.effective_message.reply_text.await_args.args[0]
+    )
+
+    section_update = make_update()
+    await bot.watch(section_update, make_context("CS", "101", "/", "10L"))
+
+    assert store.list_subscriptions(41) == [SubscriptionTarget("Spring 2024", "CS 101")]
+    assert (
+        "whole-course watch already includes CS 101 / 10L"
+        in section_update.effective_message.reply_text.await_args.args[0]
+    )
+
+    store.clear_subscriptions(41)
+    section_update = make_update()
+    await bot.watch(section_update, make_context("CS", "101", "/", "10L"))
+
+    assert store.list_subscriptions(41) == [
+        SubscriptionTarget("Spring 2024", "CS 101", "10L")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_whole_course_watch_can_be_amended_to_sections(interaction):
+    bot, store = interaction
+    store.touch_user(telegram_user_id=41, private_chat_id=91)
+    course = SubscriptionTarget("Spring 2024", "CS 101")
+    store.subscribe(41, SubscriptionTarget("Spring 2024", "CS 101", "11L"))
+    store.add_watch(41, course)
+    context = make_context()
+
+    edit_update = make_update(callback_data=f"view:{encode_target(course)}")
+    await bot.callback(edit_update, context)
+
+    keyboard = edit_update.callback_query.edit_message_text.await_args.kwargs[
+        "reply_markup"
+    ].inline_keyboard
+    assert any(button.text == "[ ] 10L" for row in keyboard for button in row)
+
+    section = SubscriptionTarget("Spring 2024", "CS 101", "10L")
+    pick_update = make_update(callback_data=f"pick:{encode_target(section)}")
+    await bot.callback(pick_update, context)
+    apply_update = make_update(callback_data=f"apply:{encode_target(course)}")
+    await bot.callback(apply_update, context)
+    receipt = apply_update.callback_query.edit_message_text.await_args.args[0]
+    assert "10L" in receipt
+    assert "11L" not in receipt
+    confirm_update = make_update(callback_data="sections:confirm")
+    await bot.callback(confirm_update, context)
+
+    assert store.list_subscriptions(41) == [section]
 
 
 @pytest.mark.asyncio
@@ -300,9 +389,9 @@ async def test_large_course_is_paged_and_accepts_typed_sections(
     await bot.status(status_update, context)
 
     reply = status_update.effective_message.reply_text.await_args
-    assert "Sections 1–12 of 20" in reply.args[0]
+    assert "Sections 1-12 of 20" in reply.args[0]
     keyboard = reply.kwargs["reply_markup"].inline_keyboard
-    assert any(row[0].text == "⌨ Type section IDs" for row in keyboard)
+    assert any(row[0].text == "Type section IDs" for row in keyboard)
 
     target = SubscriptionTarget("Spring 2024", "CS 101")
     type_update = make_update(callback_data=f"type:{encode_target(target)}")

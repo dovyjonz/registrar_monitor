@@ -84,6 +84,18 @@ def test_batch_targets_are_immutable_and_do_not_backfill(store):
     assert store.effective_batch_subscriptions(batch.batch_id, 41) == []
 
 
+def test_quick_add_preserves_frozen_subscription_identity(store):
+    original = SubscriptionTarget("Fall 2026", "CSCI 151", "001")
+    added = SubscriptionTarget("Fall 2026", "CSCI 151", "002")
+    store.touch_user(telegram_user_id=41, private_chat_id=91)
+    store.add_watch(41, original)
+    batch = store.stage_batch("Fall 2026", 10, 11)
+
+    store.add_watch(41, added)
+
+    assert store.effective_batch_subscriptions(batch.batch_id, 41) == [original]
+
+
 def test_resubscribing_cannot_reuse_a_staged_subscription_identity(store):
     target = SubscriptionTarget("Fall 2026", "CSCI 151")
     store.touch_user(telegram_user_id=41, private_chat_id=91)

@@ -108,7 +108,7 @@ def calculate_availability(sections: dict[str, dict[str, Any]]) -> dict[str, Any
             else:
                 subject = f"all required {'/'.join(limiting)} sections are"
                 compact = "MULTIPLE TYPES FULL"
-            sentence = f"No registration places — {subject} full."
+            sentence = f"No registration places - {subject} full."
             status = "required-type-full"
         else:
             sentence = (

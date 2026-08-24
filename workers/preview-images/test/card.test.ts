@@ -85,7 +85,7 @@ describe('preview card', () => {
           { type: 'Lab', enrollment: 45, capacity: 50, available: 5 },
         ],
       },
-      priority: { compact: 'P3 · ALL', full: 'Priority 3 — All students' },
+      priority: { compact: 'P3 · ALL', full: 'Priority 3 - All students' },
     });
 
     expect(html).toContain('<span class="course-readout-label">Availability</span><span class="course-readout-value">7 places open</span>');
@@ -118,7 +118,7 @@ describe('preview card', () => {
       },
       priority: {
         compact: 'P1 · Y2',
-        full: 'Priority 1 — Year 2',
+        full: 'Priority 1 - Year 2',
         current: { label: 'Y2', priority: '1', compact: 'P1 · Y2', time: '2026-05-12T11:00:00+05:00' },
         next: { label: 'Y1', priority: '1', compact: 'P1 · Y1', time: '2026-05-12T13:00:00+05:00' },
       },
@@ -147,7 +147,7 @@ describe('preview card', () => {
       semesterSlug: 'summer-2026',
       priority: {
         compact: 'P1 · Y3',
-        full: 'Priority 1 — Year 3',
+        full: 'Priority 1 - Year 3',
         current: { label: 'Y3', priority: '1', time: '2026-05-12T11:00:00+05:00' },
         next: { label: 'Y2', priority: '1', time: '2026-05-12T13:00:00+05:00' },
       },
@@ -168,7 +168,7 @@ describe('preview card', () => {
       semesterSlug: 'fall-2026',
       code: 'CS 101',
       availability: {
-        sentence: 'No registration places — all Lab sections are full.',
+        sentence: 'No registration places - all Lab sections are full.',
         breakdown: 'Labs 0/1 open, Lectures 1/1 open.',
         available: 0,
         kind: 'registration-places',
@@ -419,7 +419,7 @@ describe('preview card', () => {
       updated: '2026-08-03T15:45:00+05:00',
       priority: {
         compact: 'P2 · Y3',
-        full: 'Priority 2 — Year 3',
+        full: 'Priority 2 - Year 3',
         eligible: ['Y4+', 'Y3'],
         next: { label: 'Y2', time: '2026-08-04T13:00:00+05:00' },
       },

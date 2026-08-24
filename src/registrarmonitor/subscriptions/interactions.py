@@ -1,5 +1,6 @@
 """Private-chat commands and inline interactions for course subscriptions."""
 
+import asyncio
 import re
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, MutableMapping
@@ -122,7 +123,7 @@ class SubscriptionInteractions:
         await message.reply_text(
             f"<b>Registrar Monitor</b>\n\n"
             "Track enrollment changes for a course or specific sections.\n\n"
-            f"📚 <b>{escape(semester)}</b>",
+            f"<b>Semester:</b> {escape(semester)}",
             parse_mode=ParseMode.HTML,
             reply_markup=self._home_keyboard(),
         )
@@ -137,7 +138,7 @@ class SubscriptionInteractions:
         if not query:
             if context.user_data is not None:
                 context.user_data["awaiting_watch"] = True
-            await message.reply_text("Send a course code or title.")
+            await message.reply_text(self._watch_prompt())
             return
         user = update.effective_user
         if user is not None:
@@ -214,12 +215,12 @@ class SubscriptionInteractions:
             return
         query = " ".join(context.args or []).strip()
         if not query:
-            targets = self.store.list_subscriptions(user.id)
+            targets = await asyncio.to_thread(self.store.list_subscriptions, user.id)
             if not targets:
                 await message.reply_text(
                     "You have no watches yet.",
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("➕ Add watch", callback_data="watch")]]
+                        [[InlineKeyboardButton("Add watch", callback_data="watch")]]
                     ),
                 )
                 return
@@ -287,13 +288,13 @@ class SubscriptionInteractions:
             return
         await message.reply_text(
             "<b>Courses</b>\n"
-            "/watch — add course or section watches\n"
-            "/catalog — browse every current course\n"
-            "/import — paste starred courses copied from the website\n"
-            "/status — latest stored enrollment\n\n"
+            "/watch - add course or section watches\n"
+            "/catalog - browse every current course\n"
+            "/import - paste starred courses copied from the website\n"
+            "/status - latest stored enrollment\n\n"
             "<b>Your alerts</b>\n"
-            "/subscriptions — review or remove watches\n"
-            "/settings — clear watches or delete bot data",
+            "/subscriptions - review or edit watches\n"
+            "/settings - clear watches or delete bot data",
             parse_mode=ParseMode.HTML,
         )
 
@@ -315,7 +316,7 @@ class SubscriptionInteractions:
                 f"Semester: {catalog.snapshot.semester}\n"
                 f"Latest snapshot: {catalog.snapshot.timestamp}"
             )
-        count = len(self.store.list_subscriptions(user.id))
+        count = len(await asyncio.to_thread(self.store.list_subscriptions, user.id))
         await message.reply_text(
             "<b>Developer test mode</b>\n\n"
             f"{snapshot}\n"
@@ -327,7 +328,7 @@ class SubscriptionInteractions:
                 [
                     [
                         InlineKeyboardButton(
-                            "🧪 Simulate watched change",
+                            "Simulate watched change",
                             callback_data="test:simulate",
                         )
                     ]
@@ -399,6 +400,8 @@ class SubscriptionInteractions:
             await self._change_subscription(
                 query.edit_message_text, user_id, data[4:], True
             )
+        elif data.startswith("rm:"):
+            await self._confirm_unsubscribe(query.edit_message_text, data[3:])
         elif data.startswith("unsub:"):
             await self._change_subscription(
                 query.edit_message_text, user_id, data[6:], False
@@ -412,7 +415,7 @@ class SubscriptionInteractions:
         elif data == "watch":
             if context.user_data is not None:
                 context.user_data["awaiting_watch"] = True
-            await query.edit_message_text("Send a course code or title.")
+            await query.edit_message_text(self._watch_prompt())
         elif data == "clear":
             await query.edit_message_text(
                 "Clear all subscriptions?",
@@ -421,7 +424,7 @@ class SubscriptionInteractions:
                 ),
             )
         elif data == "clear:yes":
-            count = self.store.clear_subscriptions(user_id)
+            count = await asyncio.to_thread(self.store.clear_subscriptions, user_id)
             await query.edit_message_text(f"Cleared {count} subscription(s).")
         elif data == "delete":
             await query.edit_message_text(
@@ -437,7 +440,7 @@ class SubscriptionInteractions:
                 ),
             )
         elif data == "delete:yes":
-            self.store.delete_user(user_id)
+            await asyncio.to_thread(self.store.delete_user, user_id)
             await query.edit_message_text("Your bot data was deleted.")
         else:
             await query.edit_message_text("This button is no longer valid.")
@@ -455,7 +458,8 @@ class SubscriptionInteractions:
                     "Use this bot in a private chat."
                 )
             return False
-        self.store.touch_user(
+        await asyncio.to_thread(
+            self.store.touch_user,
             telegram_user_id=user.id,
             private_chat_id=chat.id,
         )
@@ -474,6 +478,29 @@ class SubscriptionInteractions:
         catalog = await self._catalog_provider()
         if catalog is None:
             await send("No enrollment snapshot is available.")
+            return
+        exact_target = catalog.exact_target(query)
+        if exact_target is not None:
+            changed = await asyncio.to_thread(
+                self.store.add_watch, user_id, exact_target
+            )
+            if not changed and not exact_target.is_course:
+                message = (
+                    f"Your whole-course watch already includes "
+                    f"{self._target_label(exact_target)}. Use Edit watch to switch "
+                    "to selected sections."
+                )
+            else:
+                message = f"Watching {self._target_label(exact_target)}."
+            await send(
+                message,
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [self._target_button("Edit watch", "view", exact_target)],
+                        [InlineKeyboardButton("My watches", callback_data="subs:0")],
+                    ]
+                ),
+            )
             return
         matches = catalog.search(query)
         if not matches:
@@ -505,9 +532,8 @@ class SubscriptionInteractions:
         page: int = 0,
     ) -> None:
         target = SubscriptionTarget(catalog.snapshot.semester, course.course_code)
-        selected = self._stored_section_codes(
-            user_id, target.semester, target.course_code
-        )
+        watched = set(await asyncio.to_thread(self.store.list_subscriptions, user_id))
+        selected = set() if target in watched else self._section_codes(watched, target)
         self._save_section_selection(user_data, target, selected)
         self._save_current_course(user_data, target, page)
         await send(
@@ -517,7 +543,7 @@ class SubscriptionInteractions:
             parse_mode=ParseMode.HTML,
             link_preview_options=self._link_preview_options(),
             reply_markup=self._course_keyboard(
-                target.semester, course, user_id, selected, page=page
+                target.semester, course, watched, selected, page=page
             ),
         )
 
@@ -561,7 +587,7 @@ class SubscriptionInteractions:
         if course is None:
             return
         course_target = SubscriptionTarget(target.semester, target.course_code)
-        selected = self._load_section_selection(user_data, course_target, user_id)
+        selected = await self._load_section_selection(user_data, course_target, user_id)
         if target.section_code in selected:
             selected.remove(target.section_code)
         else:
@@ -575,7 +601,11 @@ class SubscriptionInteractions:
             parse_mode=ParseMode.HTML,
             link_preview_options=self._link_preview_options(),
             reply_markup=self._course_keyboard(
-                target.semester, course, user_id, selected, page=page
+                target.semester,
+                course,
+                set(await asyncio.to_thread(self.store.list_subscriptions, user_id)),
+                selected,
+                page=page,
             ),
         )
 
@@ -598,7 +628,7 @@ class SubscriptionInteractions:
         course = catalog.course(target.course_code)
         if course is None:
             return
-        selected = self._load_section_selection(user_data, target, user_id)
+        selected = await self._load_section_selection(user_data, target, user_id)
         self._save_current_course(
             user_data, target, self._current_section_page(user_data)
         )
@@ -611,7 +641,7 @@ class SubscriptionInteractions:
         )
         await edit(
             "<b>Review section watches</b>\n\n"
-            f"📚 {escape(target.semester)}\n"
+            f"Semester: {escape(target.semester)}\n"
             f"<b>{escape(target.course_code)}</b>\n{summary}\n\n"
             "This replaces the section watches for this course.",
             parse_mode=ParseMode.HTML,
@@ -644,19 +674,14 @@ class SubscriptionInteractions:
         course = catalog.course(target.course_code)
         if course is None:
             return
-        selected = self._load_section_selection(user_data, target, user_id)
-        for section in course.sections.values():
-            section_target = SubscriptionTarget(
-                target.semester, target.course_code, section.section_id
-            )
-            if section.section_id in selected:
-                self.store.subscribe(user_id, section_target)
-            else:
-                self.store.unsubscribe(user_id, section_target)
+        selected = await self._load_section_selection(user_data, target, user_id)
+        await asyncio.to_thread(
+            self.store.replace_section_watches, user_id, target, selected
+        )
         count = len(selected)
         await edit(
-            f"✅ <b>Section watches updated</b>\n\n"
-            f"{escape(target.course_code)} · {count} "
+            f"<b>Section watches updated</b>\n\n"
+            f"{escape(target.course_code)} - {count} "
             f"{'section' if count == 1 else 'sections'} selected.",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
@@ -761,7 +786,7 @@ class SubscriptionInteractions:
             return
         course = catalog.course(target.course_code)
         if course is not None:
-            selected = self._load_section_selection(user_data, target, user_id)
+            selected = await self._load_section_selection(user_data, target, user_id)
             page_count = max(
                 1, (len(course.sections) + SECTION_PAGE_SIZE - 1) // SECTION_PAGE_SIZE
             )
@@ -774,7 +799,13 @@ class SubscriptionInteractions:
                 parse_mode=ParseMode.HTML,
                 link_preview_options=self._link_preview_options(),
                 reply_markup=self._course_keyboard(
-                    target.semester, course, user_id, selected, page=page
+                    target.semester,
+                    course,
+                    set(
+                        await asyncio.to_thread(self.store.list_subscriptions, user_id)
+                    ),
+                    selected,
+                    page=page,
                 ),
             )
 
@@ -801,10 +832,14 @@ class SubscriptionInteractions:
         buttons = []
         for course in visible:
             status = (
-                "🔴" if course.is_filled else "🟠" if course.is_near_filled else "🟢"
+                "FULL"
+                if course.is_filled
+                else "NEAR"
+                if course.is_near_filled
+                else "OPEN"
             )
             lines.append(
-                f"{status} <code>{escape(course.course_code)}</code>  "
+                f"[{status}] <code>{escape(course.course_code)}</code>  "
                 f"{course.average_fill:.0%}"
             )
             buttons.append(
@@ -818,20 +853,20 @@ class SubscriptionInteractions:
         navigation = []
         if page > 0:
             navigation.append(
-                InlineKeyboardButton("‹ Previous", callback_data=f"catalog:{page - 1}")
+                InlineKeyboardButton("Previous", callback_data=f"catalog:{page - 1}")
             )
         if page + 1 < page_count:
             navigation.append(
-                InlineKeyboardButton("Next ›", callback_data=f"catalog:{page + 1}")
+                InlineKeyboardButton("Next", callback_data=f"catalog:{page + 1}")
             )
         if navigation:
             keyboard.append(navigation)
         keyboard.append([InlineKeyboardButton("Search", callback_data="watch")])
         await send(
-            f"📚 <b>{escape(catalog.snapshot.semester)}</b>\n"
-            f"<b>Course catalog</b> · {page + 1}/{page_count}\n\n"
+            f"<b>Semester:</b> {escape(catalog.snapshot.semester)}\n"
+            f"<b>Course catalog</b> - {page + 1}/{page_count}\n\n"
             + "\n".join(lines)
-            + "\n\n🟢 Open   🟠 Near full   🔴 Full",
+            + "\n\n[OPEN] Open   [NEAR] Near full   [FULL] Full",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
@@ -864,12 +899,12 @@ class SubscriptionInteractions:
         if user_data is not None:
             user_data["pending_import"] = [encode_target(target) for target in targets]
         summary = "\n".join(
-            f"• <code>{escape(target.course_code)}</code> · whole course"
+            f"• <code>{escape(target.course_code)}</code> - whole course"
             for target in targets
         )
         await send(
             "<b>Review website import</b>\n\n"
-            f"📚 {escape(semester)}\n{summary}\n\n"
+            f"Semester: {escape(semester)}\n{summary}\n\n"
             "These starred courses will be added as whole-course watches. Nothing is "
             "added until you confirm.",
             parse_mode=ParseMode.HTML,
@@ -908,12 +943,12 @@ class SubscriptionInteractions:
             await edit("This website import has expired.")
             return
         for target in targets:
-            self.store.subscribe(user_id, target)
+            await asyncio.to_thread(self.store.add_watch, user_id, target)
         summary = "\n".join(
             f"• <code>{escape(target.course_code)}</code>" for target in targets
         )
         await edit(
-            f"✅ <b>Website bookmarks imported</b>\n\n{summary}",
+            f"<b>Website bookmarks imported</b>\n\n{summary}",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("My watches", callback_data="subs:0")]]
@@ -925,11 +960,8 @@ class SubscriptionInteractions:
         if catalog is None:
             await edit("No enrollment snapshot is available.")
             return
-        targets = [
-            target
-            for target in self.store.list_subscriptions(user_id)
-            if catalog.resolve(target)
-        ]
+        stored_targets = await asyncio.to_thread(self.store.list_subscriptions, user_id)
+        targets = [target for target in stored_targets if catalog.resolve(target)]
         if not targets:
             await edit("Add at least one current watch before simulating a change.")
             return
@@ -961,7 +993,7 @@ class SubscriptionInteractions:
             await edit("The selected watch did not produce a reportable simulation.")
             return
         heading = escape_markdown(
-            "🧪 Simulation only — no enrollment data changed.", version=2
+            "Simulation only - no enrollment data changed.", version=2
         )
         await edit(
             f"{heading}\n\n{chunks[0]}",
@@ -983,10 +1015,11 @@ class SubscriptionInteractions:
         if catalog is None or not catalog.resolve(target):
             await edit("That course or section is not in the latest snapshot.")
             return
-        changed = (
-            self.store.subscribe(user_id, target)
-            if subscribe
-            else self.store.unsubscribe(user_id, target)
+        operation = self.store.add_watch if subscribe else self.store.unsubscribe
+        changed = await asyncio.to_thread(
+            operation,
+            user_id,
+            target,
         )
         if changed:
             message = f"{'Watching' if subscribe else 'Removed'} {self._target_label(target)}."
@@ -996,7 +1029,7 @@ class SubscriptionInteractions:
                 if subscribe
                 else f"Already removed {self._target_label(target)}."
             )
-        next_action = "unsub" if subscribe else "sub"
+        next_action = "rm" if subscribe else "sub"
         next_label = "Stop watching" if subscribe else "Watch again"
         await edit(
             message,
@@ -1008,27 +1041,42 @@ class SubscriptionInteractions:
             ),
         )
 
+    async def _confirm_unsubscribe(self, edit, payload: str) -> None:
+        try:
+            target = decode_target(payload)
+        except ValueError:
+            await edit("This button is no longer valid.")
+            return
+        await edit(
+            f"Stop watching {self._target_label(target)}?",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [self._target_button("Confirm remove", "unsub", target)],
+                    [self._target_button("Back", "view", target)],
+                ]
+            ),
+        )
+
     async def _show_subscriptions(self, send, user_id: int, *, page: int) -> None:
-        targets = self.store.list_subscriptions(user_id)
+        targets = await asyncio.to_thread(self.store.list_subscriptions, user_id)
         if not targets:
             await send(
                 "<b>Your watches</b>\n\nNo watches yet.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("➕ Add watch", callback_data="watch")]]
+                    [[InlineKeyboardButton("Add watch", callback_data="watch")]]
                 ),
             )
             return
         page_count = max(1, (len(targets) + PAGE_SIZE - 1) // PAGE_SIZE)
         page = min(page, page_count - 1)
         visible = targets[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
-        remove_buttons = [
-            self._target_button(f"✕ {self._target_label(target)}", "unsub", target)
+        edit_buttons = [
+            self._target_button(f"Edit {self._target_label(target)}", "view", target)
             for target in visible
         ]
         keyboard = [
-            remove_buttons[index : index + 2]
-            for index in range(0, len(remove_buttons), 2)
+            edit_buttons[index : index + 2] for index in range(0, len(edit_buttons), 2)
         ]
         navigation = []
         if page > 0:
@@ -1041,7 +1089,7 @@ class SubscriptionInteractions:
             )
         if navigation:
             keyboard.append(navigation)
-        keyboard.append([InlineKeyboardButton("➕ Add watch", callback_data="watch")])
+        keyboard.append([InlineKeyboardButton("Add watch", callback_data="watch")])
         by_semester: dict[str, list[SubscriptionTarget]] = defaultdict(list)
         for target in visible:
             by_semester[target.semester].append(target)
@@ -1051,7 +1099,7 @@ class SubscriptionInteractions:
                 f"• <code>{escape(self._target_label(target))}</code>"
                 for target in semester_targets
             )
-            sections.append(f"📚 <b>{escape(semester)}</b>\n{labels}")
+            sections.append(f"<b>{escape(semester)}</b>\n{labels}")
         await send(
             "<b>Your watches</b>\n\n" + "\n\n".join(sections),
             parse_mode=ParseMode.HTML,
@@ -1087,38 +1135,34 @@ class SubscriptionInteractions:
             ]
         )
 
+    @staticmethod
+    def _watch_prompt() -> str:
+        return (
+            "Send a course code to add it now, for example CSCI 115. "
+            "For one section, send CSCI 115 / 1L. You can also send a title "
+            "to search."
+        )
+
     def _course_keyboard(
         self,
         semester: str,
         course,
-        user_id: int,
+        watched: set[SubscriptionTarget],
         selected_sections: set[str],
         *,
         page: int = 0,
     ) -> InlineKeyboardMarkup:
-        watched = set(self.store.list_subscriptions(user_id))
         course_target = SubscriptionTarget(semester, course.course_code)
         course_watched = course_target in watched
         rows: list[list[InlineKeyboardButton]] = [
             [
                 self._target_button(
-                    "✓ Whole course" if course_watched else "Watch whole course",
-                    "unsub" if course_watched else "sub",
+                    "[x] Whole course" if course_watched else "Watch whole course",
+                    "rm" if course_watched else "sub",
                     course_target,
                 )
             ]
         ]
-        if course_watched:
-            rows.append(
-                [
-                    InlineKeyboardButton(
-                        "↗ Website preview",
-                        url=self._course_url(semester, course.course_code),
-                    ),
-                    InlineKeyboardButton("My watches", callback_data="subs:0"),
-                ]
-            )
-            return InlineKeyboardMarkup(rows)
         sections = self._sorted_sections(course)
         page_count = max(
             1, (len(sections) + SECTION_PAGE_SIZE - 1) // SECTION_PAGE_SIZE
@@ -1132,7 +1176,7 @@ class SubscriptionInteractions:
             )
             section_buttons.append(
                 self._target_button(
-                    f"{'☑' if section.section_id in selected_sections else '☐'} "
+                    f"{'[x]' if section.section_id in selected_sections else '[ ]'} "
                     f"{section.section_id}",
                     "pick",
                     target,
@@ -1147,7 +1191,7 @@ class SubscriptionInteractions:
             if page > 0:
                 navigation.append(
                     InlineKeyboardButton(
-                        "‹ Sections", callback_data=f"spage:{page - 1}"
+                        "Previous sections", callback_data=f"spage:{page - 1}"
                     )
                 )
             navigation.append(
@@ -1158,17 +1202,17 @@ class SubscriptionInteractions:
             if page + 1 < page_count:
                 navigation.append(
                     InlineKeyboardButton(
-                        "Sections ›", callback_data=f"spage:{page + 1}"
+                        "Next sections", callback_data=f"spage:{page + 1}"
                     )
                 )
             rows.append(navigation)
             rows.append(
-                [self._target_button("⌨ Type section IDs", "type", course_target)]
+                [self._target_button("Type section IDs", "type", course_target)]
             )
         rows.append(
             [
                 self._target_button(
-                    f"Apply section watches · {len(selected_sections)} selected",
+                    f"Apply section watches - {len(selected_sections)} selected",
                     "apply",
                     course_target,
                 )
@@ -1177,7 +1221,7 @@ class SubscriptionInteractions:
         rows.append(
             [
                 InlineKeyboardButton(
-                    "↗ Website preview",
+                    "Website preview",
                     url=self._course_url(semester, course.course_code),
                 ),
                 InlineKeyboardButton("My watches", callback_data="subs:0"),
@@ -1194,9 +1238,9 @@ class SubscriptionInteractions:
         section_code: str = "",
         page: int = 0,
     ) -> str:
-        title = f" — {escape(course.course_title)}" if course.course_title else ""
+        title = f" - {escape(course.course_title)}" if course.course_title else ""
         lines = [
-            f"📚 <b>{escape(semester)}</b>",
+            f"<b>Semester:</b> {escape(semester)}",
             "",
             f"<b>{escape(course.course_code)}</b>{title}",
             f"<i>Updated {escape(updated_at)}</i>",
@@ -1214,7 +1258,7 @@ class SubscriptionInteractions:
                 [
                     "",
                     (
-                        f"<i>Sections {start + 1}–"
+                        f"<i>Sections {start + 1}-"
                         f"{min(start + SECTION_PAGE_SIZE, len(sections))} "
                         f"of {len(sections)}</i>"
                     ),
@@ -1250,14 +1294,15 @@ class SubscriptionInteractions:
             ),
         )
 
-    def _stored_section_codes(
-        self, user_id: int, semester: str, course_code: str
+    @staticmethod
+    def _section_codes(
+        targets: set[SubscriptionTarget], course: SubscriptionTarget
     ) -> set[str]:
         return {
             target.section_code
-            for target in self.store.list_subscriptions(user_id)
-            if target.semester == semester
-            and target.course_code == course_code
+            for target in targets
+            if target.semester == course.semester
+            and target.course_code == course.course_code
             and not target.is_course
         }
 
@@ -1265,7 +1310,7 @@ class SubscriptionInteractions:
     def _selection_key(target: SubscriptionTarget) -> str:
         return f"section_selection:{target.semester}:{target.course_code}"
 
-    def _load_section_selection(
+    async def _load_section_selection(
         self,
         user_data: MutableMapping | None,
         target: SubscriptionTarget,
@@ -1274,9 +1319,8 @@ class SubscriptionInteractions:
         key = self._selection_key(target)
         if user_data is not None and key in user_data:
             return set(user_data[key])
-        selected = self._stored_section_codes(
-            user_id, target.semester, target.course_code
-        )
+        watched = set(await asyncio.to_thread(self.store.list_subscriptions, user_id))
+        selected = self._section_codes(watched, target)
         self._save_section_selection(user_data, target, selected)
         return selected
 

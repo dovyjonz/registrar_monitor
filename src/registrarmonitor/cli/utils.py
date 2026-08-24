@@ -3,6 +3,11 @@ from ..data.database_manager import DatabaseManager
 
 async def detect_active_semester(debug: bool = False) -> str | None:
     """Detect which semester database has the most recent data."""
+    return find_active_semester(debug)
+
+
+def find_active_semester(debug: bool = False) -> str | None:
+    """Synchronously detect the semester with the freshest stored snapshot."""
     try:
         available_semesters = DatabaseManager.get_semester_databases()
         if not available_semesters:

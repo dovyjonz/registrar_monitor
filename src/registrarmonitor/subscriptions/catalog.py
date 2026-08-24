@@ -48,5 +48,24 @@ class SubscriptionCatalog:
             return False
         return target.is_course or target.section_code in course.sections
 
+    def exact_target(self, query: str) -> SubscriptionTarget | None:
+        """Resolve an exact course or course/section expression."""
+        compact = _compact(query)
+        if not compact:
+            return None
+        semester = self.snapshot.semester
+        for course in self.snapshot.courses.values():
+            course_compact = _compact(course.course_code)
+            if compact == course_compact:
+                return SubscriptionTarget(semester, course.course_code)
+            for section in course.sections.values():
+                if compact == course_compact + _compact(section.section_id):
+                    return SubscriptionTarget(
+                        semester,
+                        course.course_code,
+                        section.section_id,
+                    )
+        return None
+
     def course(self, course_code: str) -> Course | None:
         return self.snapshot.courses.get(course_code)

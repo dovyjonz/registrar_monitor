@@ -329,7 +329,7 @@ test('required-type-full courses use compact cards and an explained chart interv
     await expect(course.locator('.course-fill')).toHaveText('FULL');
     await expect(course).toHaveAttribute(
         'aria-label',
-        'CHME 403: LAB + LECTURE FULL. No registration places — all Lab and Lecture sections are full.',
+        'CHME 403: LAB + LECTURE FULL. No registration places - all Lab and Lecture sections are full.',
     );
 
     await course.click();

@@ -76,63 +76,74 @@ class SubscriptionDispatcher:
 
     async def dispatch_one(self) -> bool:
         """Process at most one due delivery; return whether work was claimed."""
-        delivery = self.store.claim_due_delivery(lease_seconds=self.lease_seconds)
+        delivery = await asyncio.to_thread(
+            self.store.claim_due_delivery, lease_seconds=self.lease_seconds
+        )
         if delivery is None:
             return False
         if (
             self.test_user_id is not None
             and delivery.telegram_user_id != self.test_user_id
         ):
-            self.store.finish_delivery(
+            await asyncio.to_thread(
+                self.store.finish_delivery,
                 delivery.delivery_id,
                 status="skipped",
                 category="developer_test_mode",
             )
             return True
 
-        user = self.store.get_user(delivery.telegram_user_id)
-        batch = self.store.get_batch(delivery.batch_id)
+        user, batch = await asyncio.gather(
+            asyncio.to_thread(self.store.get_user, delivery.telegram_user_id),
+            asyncio.to_thread(self.store.get_batch, delivery.batch_id),
+        )
         if user is None or not user.active or batch is None:
-            self.store.finish_delivery(delivery.delivery_id, status="skipped")
+            await asyncio.to_thread(
+                self.store.finish_delivery, delivery.delivery_id, status="skipped"
+            )
             return True
 
-        targets = self.store.effective_batch_subscriptions(
-            delivery.batch_id, delivery.telegram_user_id
+        targets = await asyncio.to_thread(
+            self.store.effective_batch_subscriptions,
+            delivery.batch_id,
+            delivery.telegram_user_id,
         )
         if not targets:
-            self.store.finish_delivery(delivery.delivery_id, status="skipped")
+            await asyncio.to_thread(
+                self.store.finish_delivery, delivery.delivery_id, status="skipped"
+            )
             return True
 
-        reader = (
-            self.reader_for_semester(batch.semester)
-            if self.reader_for_semester
-            else self.enrollment_db
-        )
-        if reader is None:
-            raise RuntimeError("No enrollment reader configured")
-        current = reader.get_snapshot_data(batch.current_snapshot_id)
-        previous = reader.get_snapshot_data(batch.previous_snapshot_id)
+        current, previous = await asyncio.to_thread(self._load_snapshot_pair, batch)
         if current is None or previous is None:
-            self.store.finish_delivery(
+            await asyncio.to_thread(
+                self.store.finish_delivery,
                 delivery.delivery_id,
                 status="permanent_failed",
                 category="missing_snapshot",
             )
             return True
 
-        comparison = SnapshotComparator().compare_snapshots(current, previous)
         try:
-            chunks = render_personal_digest(comparison, current, previous, targets)
+            chunks = await asyncio.to_thread(
+                self._render_digest,
+                current,
+                previous,
+                targets,
+            )
         except ValueError:
             logger.warning("A personal delivery could not be rendered")
-            self.store.finish_delivery(
+            await asyncio.to_thread(
+                self.store.finish_delivery,
                 delivery.delivery_id,
                 status="permanent_failed",
                 category="rendering",
             )
             return True
         if not chunks:
-            self.store.finish_delivery(delivery.delivery_id, status="skipped")
+            await asyncio.to_thread(
+                self.store.finish_delivery, delivery.delivery_id, status="skipped"
+            )
             return True
 
         try:
@@ -160,27 +171,34 @@ class SubscriptionDispatcher:
                 )
                 self._last_send[delivery.private_chat_id] = self._monotonic()
                 self._last_global_send = self._last_send[delivery.private_chat_id]
-                self.store.record_chunk_sent(
-                    delivery.delivery_id, next_chunk_index=index + 1
+                await asyncio.to_thread(
+                    self.store.record_chunk_sent,
+                    delivery.delivery_id,
+                    next_chunk_index=index + 1,
                 )
         except RetryAfter as error:
             logger.warning("Telegram requested a personal-delivery retry delay")
-            self.store.retry_delivery(
+            await asyncio.to_thread(
+                self.store.retry_delivery,
                 delivery.delivery_id,
                 delay_seconds=self._retry_after_seconds(error),
                 category="rate_limit",
             )
         except Forbidden:
             logger.warning("Telegram personal delivery is permanently unreachable")
-            self.store.deactivate_user(delivery.telegram_user_id)
-            self.store.finish_delivery(
+            await asyncio.to_thread(
+                self.store.deactivate_user, delivery.telegram_user_id
+            )
+            await asyncio.to_thread(
+                self.store.finish_delivery,
                 delivery.delivery_id,
                 status="permanent_failed",
                 category="forbidden",
             )
         except BadRequest:
             logger.warning("Telegram rejected a personal delivery")
-            self.store.finish_delivery(
+            await asyncio.to_thread(
+                self.store.finish_delivery,
                 delivery.delivery_id,
                 status="permanent_failed",
                 category="bad_request",
@@ -191,14 +209,35 @@ class SubscriptionDispatcher:
                 self.retry_base_seconds * (2**delivery.attempt_count),
                 self.retry_max_seconds,
             )
-            self.store.retry_delivery(
+            await asyncio.to_thread(
+                self.store.retry_delivery,
                 delivery.delivery_id,
                 delay_seconds=delay,
                 category="network",
             )
         else:
-            self.store.finish_delivery(delivery.delivery_id, status="sent")
+            await asyncio.to_thread(
+                self.store.finish_delivery, delivery.delivery_id, status="sent"
+            )
         return True
+
+    def _load_snapshot_pair(self, batch):
+        reader = (
+            self.reader_for_semester(batch.semester)
+            if self.reader_for_semester
+            else self.enrollment_db
+        )
+        if reader is None:
+            raise RuntimeError("No enrollment reader configured")
+        return (
+            reader.get_snapshot_data(batch.current_snapshot_id),
+            reader.get_snapshot_data(batch.previous_snapshot_id),
+        )
+
+    @staticmethod
+    def _render_digest(current, previous, targets):
+        comparison = SnapshotComparator().compare_snapshots(current, previous)
+        return render_personal_digest(comparison, current, previous, targets)
 
     async def _respect_limits(self, chat_id: int) -> None:
         now = self._monotonic()
