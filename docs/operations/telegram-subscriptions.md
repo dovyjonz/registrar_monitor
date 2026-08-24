@@ -56,7 +56,9 @@ historical enrollment directly from the semester databases.
 Set `TELEGRAM_BOT_TEST_USER_ID` in `.env` to one positive numeric Telegram user
 ID, then start the bot. Only that account can interact with the private bot or
 receive personal digests. `/test` reports the active semester, latest snapshot,
-and watch count without displaying the configured ID. Its simulation button
+bot uptime, aggregate user and delivery counts, the configured user's watch
+count, and up to five recent identifier-free subscription log records without displaying
+the configured ID. Its simulation button
 renders one synthetic watched enrollment change through the real personal-digest
 formatter without writing enrollment state or creating delivery work.
 

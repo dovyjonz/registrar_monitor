@@ -350,6 +350,25 @@ class SubscriptionStore:
             ).fetchall()
         return [self._target(row) for row in rows]
 
+    def operational_stats(self) -> dict[str, int]:
+        """Return aggregate bot health counts without exposing user identifiers."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM bot_user) AS users,
+                    (SELECT COUNT(*) FROM bot_user WHERE active = 1) AS active_users,
+                    (SELECT COUNT(*) FROM delivery
+                     WHERE status IN ('pending', 'retry', 'sending'))
+                        AS pending_deliveries
+                """
+            ).fetchone()
+        return {
+            "users": row["users"],
+            "active_users": row["active_users"],
+            "pending_deliveries": row["pending_deliveries"],
+        }
+
     def effective_subscriptions(
         self, telegram_user_id: int, semester: str
     ) -> list[SubscriptionTarget]:

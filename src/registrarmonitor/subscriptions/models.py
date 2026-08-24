@@ -1,4 +1,4 @@
-"""Domain values persisted by the Telegram subscription service."""
+"""Value objects used by the Telegram subscription service."""
 
 from dataclasses import dataclass
 
@@ -21,6 +21,15 @@ class BotUser:
     telegram_user_id: int
     private_chat_id: int
     active: bool
+
+
+@dataclass(frozen=True)
+class BotDiagnostics:
+    uptime: str
+    users: int
+    active_users: int
+    pending_deliveries: int
+    recent_logs: tuple[str, ...]
 
 
 @dataclass(frozen=True)

@@ -2,9 +2,10 @@
 
 import asyncio
 import logging
-from collections.abc import Awaitable
+from collections import deque
+from collections.abc import Awaitable, Callable
 from time import monotonic
-from typing import Any
+from typing import Any, Protocol
 from weakref import WeakValueDictionary
 
 from telegram import BotCommand, BotCommandScopeChat, Update
@@ -17,6 +18,7 @@ from ..data.database_manager import DatabaseManager
 from .catalog import SubscriptionCatalog
 from .dispatcher import SubscriptionDispatcher
 from .interactions import SubscriptionInteractions
+from .models import BotDiagnostics
 from .publication import ReportPublication
 from .store import SubscriptionStore
 
@@ -33,6 +35,51 @@ BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEM
 MAX_CONCURRENT_UPDATES = 8
 MAX_QUEUED_UPDATES = 1024
 SLOW_UPDATE_SECONDS = 3.0
+
+
+class OperationalStatsStore(Protocol):
+    def operational_stats(self) -> dict[str, int]: ...
+
+
+class BotRuntimeDiagnostics:
+    """Keep a small, identifier-free operational view for developer test mode."""
+
+    def __init__(
+        self,
+        store: OperationalStatsStore,
+        *,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self._store = store
+        self._clock = clock
+        self._started_at = clock()
+        self._logs: deque[str] = deque(maxlen=5)
+
+    def record(self, record: logging.LogRecord) -> None:
+        self._logs.append(f"{record.levelname}: {record.getMessage()}")
+
+    async def snapshot(self) -> BotDiagnostics:
+        stats = await asyncio.to_thread(self._store.operational_stats)
+        elapsed = max(0, int(self._clock() - self._started_at))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime = f"{hours}h {minutes}m" if hours else f"{minutes}m {seconds}s"
+        return BotDiagnostics(
+            uptime=uptime,
+            users=stats["users"],
+            active_users=stats["active_users"],
+            pending_deliveries=stats["pending_deliveries"],
+            recent_logs=tuple(self._logs),
+        )
+
+
+class RecentSubscriptionLogHandler(logging.Handler):
+    def __init__(self, diagnostics: BotRuntimeDiagnostics) -> None:
+        super().__init__(level=logging.INFO)
+        self._diagnostics = diagnostics
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._diagnostics.record(record)
 
 
 class LatencyTrackingUpdateProcessor(BaseUpdateProcessor):
@@ -71,10 +118,11 @@ class LatencyTrackingUpdateProcessor(BaseUpdateProcessor):
                         await coroutine
         finally:
             elapsed = monotonic() - started
+            update_type = self._update_type(update)
             log = logger.warning if elapsed >= self.slow_update_seconds else logger.info
             log(
                 "Telegram update processed type=%s duration_ms=%.0f slow=%s",
-                self._update_type(update),
+                update_type,
                 elapsed * 1000,
                 elapsed >= self.slow_update_seconds,
             )
@@ -112,6 +160,8 @@ class SubscriptionBotRuntime:
         self.config = config
         self.test_user_id = config.get("telegram_bot", {}).get("test_user_id")
         self.store = SubscriptionStore(config["directories"]["telegram_bot_state"])
+        self.diagnostics = BotRuntimeDiagnostics(self.store)
+        self._diagnostics_log_handler = RecentSubscriptionLogHandler(self.diagnostics)
         self._catalog_lock = asyncio.Lock()
         self._catalog_key: tuple[str, int] | None = None
         self._catalog: SubscriptionCatalog | None = None
@@ -129,6 +179,7 @@ class SubscriptionBotRuntime:
             self.store,
             self._latest_catalog,
             test_user_id=self.test_user_id,
+            diagnostics=self.diagnostics.snapshot,
         ).register(self.application)
         self.application.add_handler(
             ChatMemberHandler(self._chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
@@ -139,6 +190,10 @@ class SubscriptionBotRuntime:
         initialized = False
         started = False
         tasks: list[asyncio.Task[None]] = []
+        subscription_logger = logging.getLogger("registrarmonitor.subscriptions")
+        diagnostics_handler = getattr(self, "_diagnostics_log_handler", None)
+        if diagnostics_handler is not None:
+            subscription_logger.addHandler(diagnostics_handler)
         try:
             await self.application.initialize()
             initialized = True
@@ -157,6 +212,7 @@ class SubscriptionBotRuntime:
                 logger.warning("Telegram bot developer test mode is active")
             await self.application.start()
             started = True
+            logger.info("Telegram bot polling started")
             tasks = [
                 asyncio.create_task(self._poll_updates()),
                 asyncio.create_task(self._delivery_loop()),
@@ -171,6 +227,8 @@ class SubscriptionBotRuntime:
                 await self.application.stop()
             if initialized:
                 await self.application.shutdown()
+            if diagnostics_handler is not None:
+                subscription_logger.removeHandler(diagnostics_handler)
 
     async def _poll_updates(self) -> None:
         """Poll without PTB's webhook-deleting Updater bootstrap."""

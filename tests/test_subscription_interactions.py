@@ -4,12 +4,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from telegram.constants import ChatType
+from telegram.constants import ChatType, ParseMode
 
 from registrarmonitor.models import Course, Section
 from registrarmonitor.subscriptions.catalog import SubscriptionCatalog
 from registrarmonitor.subscriptions.interactions import SubscriptionInteractions
-from registrarmonitor.subscriptions.models import SubscriptionTarget
+from registrarmonitor.subscriptions.models import BotDiagnostics, SubscriptionTarget
 from registrarmonitor.subscriptions.payloads import encode_course_import, encode_target
 from registrarmonitor.subscriptions.store import SubscriptionStore
 
@@ -142,13 +142,18 @@ async def test_start_text_adds_watch_and_invalid_text_reprompts(interaction):
     invalid_reply = invalid_update.effective_message.reply_text.await_args.args[0]
     assert "No matching course found" in invalid_reply
     assert "Send a course code" in invalid_reply
+    assert "<code>CSCI 115</code>" in invalid_reply
+    assert (
+        invalid_update.effective_message.reply_text.await_args.kwargs["parse_mode"]
+        == ParseMode.HTML
+    )
 
     valid_update = make_update(text="CS 101")
     await bot.watch_text(valid_update, context)
 
     assert store.list_subscriptions(41) == [SubscriptionTarget("Spring 2024", "CS 101")]
     assert (
-        "Watching CS 101"
+        "Watching <code>CS 101</code>"
         in valid_update.effective_message.reply_text.await_args.args[0]
     )
 
@@ -163,7 +168,7 @@ async def test_deep_link_confirms_then_callback_subscribes(interaction):
     await bot.start(start_update, make_context(payload))
 
     reply = start_update.effective_message.reply_text.await_args
-    assert "Watch CS 101 / 10L?" in reply.args[0]
+    assert "Watch <code>CS 101 / 10L</code>?" in reply.args[0]
     assert "10L  25/30  open" in reply.args[0]
     assert "Updated 2024-01-15 10:30:00" in reply.args[0]
     assert "View on the website" in reply.args[0]
@@ -189,7 +194,10 @@ async def test_text_search_and_destructive_confirmations(interaction):
 
     await bot.watch(update, context)
     await bot.watch_text(update, context)
-    assert "Watching CS 101" in update.effective_message.reply_text.await_args.args[0]
+    assert (
+        "Watching <code>CS 101</code>"
+        in update.effective_message.reply_text.await_args.args[0]
+    )
 
     store.subscribe(41, SubscriptionTarget("Spring 2024", "CS 101"))
     clear_update = make_update(callback_data="clear:yes")
@@ -214,7 +222,7 @@ async def test_single_watch_removal_requires_confirmation(interaction):
 
     assert store.list_subscriptions(41) == [target]
     prompt = prompt_update.callback_query.edit_message_text.await_args
-    assert "Stop watching CS 101?" in prompt.args[0]
+    assert "Stop watching <code>CS 101</code>?" in prompt.args[0]
     assert (
         prompt.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
         == f"unsub:{payload}"
@@ -277,8 +285,7 @@ async def test_watches_group_semester_and_open_details_safely(interaction):
     assert len(keyboard[0]) == 2
     assert keyboard[0][0].text == "CS 101 / 10L"
     assert keyboard[0][0].callback_data.startswith("detail:")
-    assert keyboard[-3][0].text == "Add a watch"
-    assert keyboard[-2][0].text == "Reset watches"
+    assert keyboard[-2][0].text == "Add a watch"
     assert keyboard[-1][0].text == "Data and settings"
 
     detail_update = make_update(callback_data=keyboard[0][0].callback_data)
@@ -295,7 +302,7 @@ async def test_watches_group_semester_and_open_details_safely(interaction):
 
 
 @pytest.mark.asyncio
-async def test_empty_watches_offers_add_watch(interaction):
+async def test_empty_watches_offers_add_watch_and_settings(interaction):
     bot, _store = interaction
     update = make_update()
 
@@ -303,7 +310,12 @@ async def test_empty_watches_offers_add_watch(interaction):
 
     reply = update.effective_message.reply_text.await_args
     assert "You have no watches" in reply.args[0]
-    assert reply.kwargs["reply_markup"].inline_keyboard[0][0].text == "Add a watch"
+    buttons = [
+        button.text
+        for row in reply.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert buttons == ["Add a watch", "Data and settings"]
 
 
 @pytest.mark.asyncio
@@ -320,6 +332,7 @@ async def test_quick_reset_requires_confirmation_and_clears_watches(interaction)
     prompt = reset_update.callback_query.edit_message_text.await_args
     assert prompt.args[0] == "Clear all watches?"
     assert prompt.kwargs["reply_markup"].inline_keyboard[0][0].text == ("Confirm clear")
+    assert prompt.kwargs["reply_markup"].inline_keyboard[1][0].text == "Back"
 
     confirm_update = make_update(callback_data="clear:yes")
     await bot.callback(confirm_update, make_context())
@@ -328,6 +341,14 @@ async def test_quick_reset_requires_confirmation_and_clears_watches(interaction)
     assert (
         "Cleared 1 watch"
         in (confirm_update.callback_query.edit_message_text.await_args.args[0])
+    )
+    assert (
+        confirm_update.callback_query.edit_message_text.await_args.kwargs[
+            "reply_markup"
+        ]
+        .inline_keyboard[0][0]
+        .text
+        == "My watches"
     )
 
 
@@ -352,6 +373,17 @@ async def test_data_settings_requires_confirmations(interaction):
     await bot.callback(clear_update, make_context())
     assert store.list_subscriptions(41)
 
+    delete_update = make_update(callback_data="delete")
+    await bot.callback(delete_update, make_context())
+    delete_buttons = [
+        button.text
+        for row in delete_update.callback_query.edit_message_text.await_args.kwargs[
+            "reply_markup"
+        ].inline_keyboard
+        for button in row
+    ]
+    assert delete_buttons == ["Confirm delete", "Back"]
+
 
 @pytest.mark.asyncio
 async def test_exact_watch_command_adds_course_or_section_immediately(interaction):
@@ -362,7 +394,7 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
 
     assert store.list_subscriptions(41) == [SubscriptionTarget("Spring 2024", "CS 101")]
     assert (
-        "Watching CS 101"
+        "Watching <code>CS 101</code>"
         in course_update.effective_message.reply_text.await_args.args[0]
     )
 
@@ -371,7 +403,7 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
 
     assert store.list_subscriptions(41) == [SubscriptionTarget("Spring 2024", "CS 101")]
     assert (
-        "whole-course watch already includes CS 101 / 10L"
+        "whole-course watch already includes <code>CS 101 / 10L</code>"
         in section_update.effective_message.reply_text.await_args.args[0]
     )
 
@@ -471,7 +503,18 @@ async def test_developer_mode_admits_only_configured_user(tmp_path, current_snap
     async def provide_catalog():
         return catalog
 
-    bot = SubscriptionInteractions(store, provide_catalog, test_user_id=41)
+    async def diagnostics():
+        return BotDiagnostics(
+            uptime="2h 3m",
+            users=4,
+            active_users=3,
+            pending_deliveries=2,
+            recent_logs=("INFO: Polling started", "INFO: Update processed in 18 ms"),
+        )
+
+    bot = SubscriptionInteractions(
+        store, provide_catalog, test_user_id=41, diagnostics=diagnostics
+    )
     outsider = make_update(user_id=42)
     outsider_callback = make_update(user_id=42, callback_data="subs:0")
 
@@ -489,6 +532,15 @@ async def test_developer_mode_admits_only_configured_user(tmp_path, current_snap
     assert "Developer test mode" in diagnostic
     assert "Spring 2024" in diagnostic
     assert "Latest snapshot:" in diagnostic
+    assert "Bot: running (uptime 2h 3m)" in diagnostic
+    assert "Users: 4 total, 3 active" in diagnostic
+    assert "Pending deliveries: 2" in diagnostic
+    assert "Polling started" in diagnostic
+    assert "Update processed in 18 ms" in diagnostic
+    assert (
+        developer.effective_message.reply_text.await_args.kwargs["parse_mode"]
+        == ParseMode.HTML
+    )
 
 
 @pytest.mark.asyncio

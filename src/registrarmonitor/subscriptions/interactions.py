@@ -29,7 +29,7 @@ from ..utils import get_section_sort_key
 from ..website.config import BASE_URL, course_to_slug, semester_to_slug
 from .catalog import SubscriptionCatalog
 from .formatting import render_personal_digest
-from .models import SubscriptionTarget
+from .models import BotDiagnostics, SubscriptionTarget
 from .payloads import (
     decode_course_import,
     decode_target,
@@ -38,6 +38,7 @@ from .payloads import (
 from .store import SubscriptionStore
 
 CatalogProvider = Callable[[], Awaitable[SubscriptionCatalog | None]]
+DiagnosticsProvider = Callable[[], Awaitable[BotDiagnostics]]
 PAGE_SIZE = 6
 CATALOG_PAGE_SIZE = 8
 SECTION_PAGE_SIZE = 12
@@ -60,10 +61,12 @@ class SubscriptionInteractions:
         catalog: CatalogProvider,
         *,
         test_user_id: int | None = None,
+        diagnostics: DiagnosticsProvider | None = None,
     ) -> None:
         self.store = store
         self._catalog_provider = catalog
         self.test_user_id = test_user_id
+        self._diagnostics_provider = diagnostics
 
     def register(self, application: Application) -> None:
         application.add_handler(CommandHandler("start", self.start))
@@ -107,7 +110,7 @@ class SubscriptionInteractions:
                 return
             await message.reply_text(
                 f"{self._course_text(catalog.snapshot.semester, course, catalog.snapshot.timestamp, section_code=target.section_code)}\n\n"
-                f"Watch {self._target_label(target)}?",
+                f"Watch <code>{escape(self._target_label(target))}</code>?",
                 parse_mode=ParseMode.HTML,
                 link_preview_options=self._link_preview_options(),
                 reply_markup=InlineKeyboardMarkup(
@@ -137,7 +140,9 @@ class SubscriptionInteractions:
         query = " ".join(context.args or []).strip()
         if not query:
             await message.reply_text(
-                self._watch_prompt(), reply_markup=self._add_watch_keyboard()
+                self._watch_prompt(),
+                parse_mode=ParseMode.HTML,
+                reply_markup=self._add_watch_keyboard(),
             )
             return
         user = update.effective_user
@@ -227,10 +232,30 @@ class SubscriptionInteractions:
                 f"Latest snapshot: {catalog.snapshot.timestamp}"
             )
         count = len(await asyncio.to_thread(self.store.list_subscriptions, user.id))
+        diagnostics = (
+            await self._diagnostics_provider()
+            if self._diagnostics_provider is not None
+            else None
+        )
+        if diagnostics is None:
+            runtime_status = "Bot: running (runtime statistics unavailable)"
+            recent = "• Recent logs unavailable."
+        else:
+            runtime_status = (
+                f"Bot: running (uptime {escape(diagnostics.uptime)})\n"
+                f"Users: {diagnostics.users} total, {diagnostics.active_users} active\n"
+                f"Pending deliveries: {diagnostics.pending_deliveries}"
+            )
+            event_lines = "\n".join(
+                f"• <code>{escape(event)}</code>" for event in diagnostics.recent_logs
+            )
+            recent = event_lines or "• No recent log records."
         await message.reply_text(
             "<b>Developer test mode</b>\n\n"
             f"{snapshot}\n"
+            f"{runtime_status}\n"
             f"Watches: {count}\n\n"
+            f"<b>Recent logs</b>\n{recent}\n\n"
             "Previewing a simulated change does not modify enrollment or send a "
             "real notification.",
             parse_mode=ParseMode.HTML,
@@ -332,7 +357,9 @@ class SubscriptionInteractions:
             await self._show_subscriptions(query.edit_message_text, user_id, page=page)
         elif data == "watch":
             await query.edit_message_text(
-                self._watch_prompt(), reply_markup=self._add_watch_keyboard()
+                self._watch_prompt(),
+                parse_mode=ParseMode.HTML,
+                reply_markup=self._add_watch_keyboard(),
             )
         elif data == "settings":
             await self._show_settings(query.edit_message_text)
@@ -340,12 +367,24 @@ class SubscriptionInteractions:
             await query.edit_message_text(
                 "Clear all watches?",
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("Confirm clear", callback_data="clear:yes")]]
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "Confirm clear", callback_data="clear:yes"
+                            )
+                        ],
+                        [InlineKeyboardButton("Back", callback_data="settings")],
+                    ]
                 ),
             )
         elif data == "clear:yes":
             count = await asyncio.to_thread(self.store.clear_subscriptions, user_id)
-            await query.edit_message_text(f"Cleared {count} watch(es).")
+            await query.edit_message_text(
+                f"Cleared {count} watch(es).",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("My watches", callback_data="subs:0")]]
+                ),
+            )
         elif data == "delete":
             await query.edit_message_text(
                 "Delete all of your bot data?",
@@ -355,13 +394,16 @@ class SubscriptionInteractions:
                             InlineKeyboardButton(
                                 "Confirm delete", callback_data="delete:yes"
                             )
-                        ]
+                        ],
+                        [InlineKeyboardButton("Back", callback_data="settings")],
                     ]
                 ),
             )
         elif data == "delete:yes":
             await asyncio.to_thread(self.store.delete_user, user_id)
-            await query.edit_message_text("Your bot data was deleted.")
+            await query.edit_message_text(
+                "Your bot data was deleted.", reply_markup=self._home_keyboard()
+            )
         else:
             await query.edit_message_text("This button is no longer valid.")
 
@@ -399,6 +441,7 @@ class SubscriptionInteractions:
         if catalog is None:
             await send(
                 "No enrollment snapshot is available.\n\n" + self._watch_prompt(),
+                parse_mode=ParseMode.HTML,
                 reply_markup=self._add_watch_keyboard(),
             )
             return
@@ -416,13 +459,16 @@ class SubscriptionInteractions:
             if not changed and not exact_target.is_course:
                 message = (
                     f"Your whole-course watch already includes "
-                    f"{self._target_label(exact_target)}. Use Edit watch to switch "
+                    f"<code>{escape(self._target_label(exact_target))}</code>. Use Edit watch to switch "
                     "to selected sections."
                 )
             else:
-                message = f"Watching {self._target_label(exact_target)}."
+                message = (
+                    f"Watching <code>{escape(self._target_label(exact_target))}</code>."
+                )
             await send(
                 message,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [self._target_button("Edit watch", "view", exact_target)],
@@ -435,6 +481,7 @@ class SubscriptionInteractions:
         if not matches:
             await send(
                 "No matching course found.\n\n" + self._watch_prompt(),
+                parse_mode=ParseMode.HTML,
                 reply_markup=self._add_watch_keyboard(),
             )
             return
@@ -576,10 +623,14 @@ class SubscriptionInteractions:
         self._save_section_selection(
             user_data, course_target, self._section_codes(watched, course_target)
         )
-        scope = "Whole course" if target.is_course else f"Section {target.section_code}"
+        scope = (
+            "Whole course"
+            if target.is_course
+            else f"Section <code>{escape(target.section_code)}</code>"
+        )
         text = (
             "<b>Watch details</b>\n\n"
-            f"<b>Current scope:</b> {escape(scope)}\n\n"
+            f"<b>Current scope:</b> {scope}\n\n"
             + self._course_text(
                 target.semester,
                 course,
@@ -717,7 +768,7 @@ class SubscriptionInteractions:
         await edit(
             "<b>Review changes</b>\n\n"
             f"Semester: {escape(target.semester)}\n"
-            f"<b>{escape(target.course_code)}</b>\n\n{summary}\n\n"
+            f"<code>{escape(target.course_code)}</code>\n\n{summary}\n\n"
             "Nothing changes until you save.",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
@@ -756,7 +807,7 @@ class SubscriptionInteractions:
         count = len(selected)
         await edit(
             f"<b>Watch updated</b>\n\n"
-            f"{escape(target.course_code)} now watches {count} "
+            f"<code>{escape(target.course_code)}</code> now watches {count} "
             f"{'section' if count == 1 else 'sections'}.",
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
@@ -791,7 +842,7 @@ class SubscriptionInteractions:
         if user_data is not None:
             user_data["awaiting_sections"] = True
         await edit(
-            f"<b>Type sections for {escape(target.course_code)}</b>\n\n"
+            f"<b>Type sections for <code>{escape(target.course_code)}</code></b>\n\n"
             "Send section IDs separated by spaces or commas, for example:\n"
             "<code>1L, 3L, 10PLb</code>\n\n"
             "Send <code>none</code> to clear the section selection.",
@@ -1098,17 +1149,18 @@ class SubscriptionInteractions:
             target,
         )
         if changed:
-            message = f"{'Watching' if subscribe else 'Removed'} {self._target_label(target)}."
+            message = f"{'Watching' if subscribe else 'Removed'} <code>{escape(self._target_label(target))}</code>."
         else:
             message = (
-                f"Already watching {self._target_label(target)}."
+                f"Already watching <code>{escape(self._target_label(target))}</code>."
                 if subscribe
-                else f"Already removed {self._target_label(target)}."
+                else f"Already removed <code>{escape(self._target_label(target))}</code>."
             )
         next_action = "rm" if subscribe else "sub"
         next_label = "Stop watching" if subscribe else "Watch again"
         await edit(
             message,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
                 [
                     [self._target_button(next_label, next_action, target)],
@@ -1124,7 +1176,8 @@ class SubscriptionInteractions:
             await edit("This button is no longer valid.")
             return
         await edit(
-            f"Stop watching {self._target_label(target)}?",
+            f"Stop watching <code>{escape(self._target_label(target))}</code>?",
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(
                 [
                     [self._target_button("Confirm remove", "unsub", target)],
@@ -1140,7 +1193,14 @@ class SubscriptionInteractions:
                 "<b>My watches</b>\n\nYou have no watches yet. Add one to get private enrollment-change messages.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("Add a watch", callback_data="watch")]]
+                    [
+                        [InlineKeyboardButton("Add a watch", callback_data="watch")],
+                        [
+                            InlineKeyboardButton(
+                                "Data and settings", callback_data="settings"
+                            )
+                        ],
+                    ]
                 ),
             )
             return
@@ -1166,7 +1226,6 @@ class SubscriptionInteractions:
         if navigation:
             keyboard.append(navigation)
         keyboard.append([InlineKeyboardButton("Add a watch", callback_data="watch")])
-        keyboard.append([InlineKeyboardButton("Reset watches", callback_data="clear")])
         keyboard.append(
             [InlineKeyboardButton("Data and settings", callback_data="settings")]
         )
@@ -1221,10 +1280,10 @@ class SubscriptionInteractions:
     @staticmethod
     def _watch_prompt() -> str:
         return (
-            "Send a course code to add it now, for example CSCI 115. "
-            "For one section, send CSCI 115 / 1L. You can also send a title "
+            "Send a course code to add it now, for example <code>CSCI 115</code>. "
+            "For one section, send <code>CSCI 115 / 1L</code>. You can also send a title "
             "to search. For several exact watches, separate them with commas "
-            "or new lines, for example CSCI 115, PHYS 161 / 1L."
+            "or new lines, for example <code>CSCI 115, PHYS 161 / 1L</code>."
         )
 
     @staticmethod
@@ -1370,15 +1429,24 @@ class SubscriptionInteractions:
             additions = selected
             removals = {"whole-course watch"}
         else:
-            current = ", ".join(sorted(existing)) or "None"
+            current = cls._format_section_values(existing)
             additions = selected - existing
             removals = existing - selected
-        added = ", ".join(sorted(additions)) or "None"
-        removed = ", ".join(sorted(removals)) or "None"
+        added = cls._format_section_values(additions)
+        removed = (
+            "whole-course watch"
+            if removals == {"whole-course watch"}
+            else cls._format_section_values(removals)
+        )
         return (
-            f"<b>Current:</b> {escape(current)}\n"
-            f"<b>Add:</b> {escape(added)}\n"
-            f"<b>Remove:</b> {escape(removed)}"
+            f"<b>Current:</b> {current}\n<b>Add:</b> {added}\n<b>Remove:</b> {removed}"
+        )
+
+    @staticmethod
+    def _format_section_values(values: set[str]) -> str:
+        return (
+            ", ".join(f"<code>{escape(value)}</code>" for value in sorted(values))
+            or "None"
         )
 
     @staticmethod
@@ -1394,7 +1462,7 @@ class SubscriptionInteractions:
         lines = [
             f"<b>Semester:</b> {escape(semester)}",
             "",
-            f"<b>{escape(course.course_code)}</b>{title}",
+            f"<code>{escape(course.course_code)}</code>{title}",
             f"<i>Updated {escape(updated_at)}</i>",
         ]
         sections = SubscriptionInteractions._sorted_sections(course)

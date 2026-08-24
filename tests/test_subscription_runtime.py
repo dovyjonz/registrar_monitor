@@ -12,6 +12,7 @@ from telegram.error import Conflict
 
 from registrarmonitor.subscriptions.runtime import (
     BOT_COMMANDS,
+    BotRuntimeDiagnostics,
     LatencyTrackingUpdateProcessor,
     SubscriptionBotRuntime,
     bot_commands,
@@ -76,6 +77,41 @@ async def test_direct_polling_reports_another_consumer():
 
 def test_public_command_menu_never_exposes_developer_command():
     assert "test" not in [command.command for command in bot_commands()]
+
+
+@pytest.mark.asyncio
+async def test_runtime_diagnostics_reports_bounded_safe_activity():
+    class Store:
+        def operational_stats(self):
+            return {
+                "users": 4,
+                "active_users": 3,
+                "pending_deliveries": 2,
+            }
+
+    store = Store()
+    times = iter([0.0, 100.0])
+    diagnostics = BotRuntimeDiagnostics(store, clock=lambda: next(times))
+    for message in (
+        "Polling started",
+        "Update processed in 18 ms",
+        "Delivery queue checked",
+    ):
+        diagnostics.record(
+            logging.LogRecord("test", logging.INFO, "", 0, message, (), None)
+        )
+
+    status = await diagnostics.snapshot()
+
+    assert status.uptime == "1m 40s"
+    assert status.users == 4
+    assert status.active_users == 3
+    assert status.pending_deliveries == 2
+    assert status.recent_logs == (
+        "INFO: Polling started",
+        "INFO: Update processed in 18 ms",
+        "INFO: Delivery queue checked",
+    )
 
 
 def make_catalog_runtime():

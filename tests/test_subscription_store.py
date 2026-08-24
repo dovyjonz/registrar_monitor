@@ -10,6 +10,19 @@ from registrarmonitor.subscriptions.store import SubscriptionStore
 pytestmark = pytest.mark.unit
 
 
+def test_operational_stats_are_aggregate_and_delivery_focused(tmp_path):
+    store = SubscriptionStore(tmp_path / "subscriptions.db")
+    store.touch_user(telegram_user_id=41, private_chat_id=91)
+    store.touch_user(telegram_user_id=42, private_chat_id=92)
+    store.deactivate_user(42)
+
+    assert store.operational_stats() == {
+        "users": 2,
+        "active_users": 1,
+        "pending_deliveries": 0,
+    }
+
+
 @pytest.fixture
 def store(tmp_path):
     return SubscriptionStore(
