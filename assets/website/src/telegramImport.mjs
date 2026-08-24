@@ -8,3 +8,13 @@ export function buildTelegramImportText(semester, courseCodes) {
     }
     return ['/import', semester, ...courses].join('\n');
 }
+
+export function telegramImportPresentation(count) {
+    if (!Number.isInteger(count) || count < 1) return null;
+    return {
+        label: count === 1 ? 'Copy for bot' : `Copy ${count} for bot`,
+        accessibleName: count === 1
+            ? 'Copy 1 starred course for the Telegram bot'
+            : `Copy ${count} starred courses for the Telegram bot`,
+    };
+}

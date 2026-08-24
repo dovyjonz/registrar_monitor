@@ -23,14 +23,10 @@ from .store import SubscriptionStore
 logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
-    BotCommand("start", "Open the subscription bot"),
+    BotCommand("start", "Open Registrar Monitor"),
     BotCommand("watch", "Watch a course or section"),
-    BotCommand("catalog", "Browse current courses"),
-    BotCommand("import", "Import website selections"),
-    BotCommand("subscriptions", "Manage subscriptions"),
-    BotCommand("status", "Show current enrollment"),
-    BotCommand("settings", "Manage bot data"),
-    BotCommand("help", "Show commands"),
+    BotCommand("watches", "Manage your watches"),
+    BotCommand("help", "Get help"),
 ]
 BOT_TEST_COMMAND = BotCommand("test", "Check developer test mode")
 BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEMBER]

@@ -252,8 +252,59 @@ test('generated production site serves a working semester dashboard', async ({ p
     await expect(page.locator('#jumpToNav a')).toHaveCount(0);
     await expect(departmentToggle).toBeHidden();
 
+    await page.locator('.filter-btn[data-filter="all"]').click();
+    await page.locator('.course-cell').first().click();
+    await page.locator('#modalBookmark').click();
+    await page.keyboard.press('Escape');
+    const telegramAction = page.locator('#telegramBookmarkImport');
+    await expect(telegramAction).toBeVisible();
+    await expect(telegramAction).toHaveText('Copy for bot');
+    await expect(telegramAction).toHaveAccessibleName(
+        'Copy 1 starred course for the Telegram bot',
+    );
+    expect(await telegramAction.evaluate(element => (
+        !element.closest('.filter-buttons') && element.getBoundingClientRect().height >= 44
+    ))).toBe(true);
+    await telegramAction.focus();
+    await expect(telegramAction).toBeFocused();
+
     expect(failedRequests).toEqual([]);
     expect(pageErrors).toEqual([]);
+});
+
+test('starred-course Telegram export is contextual, portable, and responsive', async ({ browser }) => {
+    const context = await browser.newContext({
+        permissions: ['clipboard-read', 'clipboard-write'],
+    });
+    const page = await context.newPage();
+    await page.goto('/semesters/summer-2026/');
+    const courseCode = await page.locator('.course-cell').first().getAttribute('data-course');
+    await page.evaluate(code => {
+        localStorage.setItem('courseBookmarks', JSON.stringify([code]));
+    }, courseCode);
+    await page.reload();
+
+    const action = page.locator('#telegramBookmarkImport');
+    await expect(action).toBeVisible();
+    await expect(action).toHaveText('Copy for bot');
+    await expect(action).toHaveAccessibleName('Copy 1 starred course for the Telegram bot');
+    expect(await action.evaluate(element => !element.closest('.filter-buttons'))).toBe(true);
+    await action.focus();
+    await expect(action).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#toastContainer')).toContainText(
+        'Copied. Paste this into Registrar Monitor on Telegram.',
+    );
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+        `/import\nSummer 2026\n${courseCode}`,
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await action.evaluate(element => ({
+        outsideFilters: !element.closest('.filter-buttons'),
+        height: element.getBoundingClientRect().height,
+    }))).toEqual({ outsideFilters: true, height: 44 });
+    await context.close();
 });
 
 test('clean live course route opens the existing modal on a narrow viewport', async ({ page }) => {

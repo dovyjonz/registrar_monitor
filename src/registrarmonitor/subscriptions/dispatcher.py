@@ -160,7 +160,7 @@ class SubscriptionDispatcher:
                             [
                                 [
                                     InlineKeyboardButton(
-                                        "Manage watches", callback_data="subs:0"
+                                        "My watches", callback_data="subs:0"
                                     )
                                 ]
                             ]

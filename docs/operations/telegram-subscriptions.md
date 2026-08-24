@@ -1,26 +1,30 @@
-# Telegram subscriptions
+# Telegram watches
 
 The subscription bot sends private enrollment-change digests for watched courses
 and sections. It uses the same bot token as channel reporting and never reads or
 changes the configured channel chat ID.
 
-## User commands
+## User commands and navigation
 
-- `/watch` searches and adds a course or section
-- `/catalog` browses the current catalog with at-a-glance fill status
-- `/import` pastes a starred-course selection copied from the website
-- `/subscriptions` lists watches and opens them for editing
-- `/status [COURSE]` chooses a watch or shows the latest stored enrollment
-- `/settings` clears subscriptions or deletes bot data
-- `/help` shows commands
+- `/start` opens Add a watch and My watches
+- `/watch` accepts an exact course or section, or searches by title
+- `/watches` opens watch details and management
+- `/help` explains both primary paths
+
+The public Telegram command menu contains only those four commands. The hidden
+`/import` transport remains available for starred courses copied from the website.
+Browse all courses is a secondary action inside Add a watch. Data and settings is
+inside My watches.
 
 The bot works only in private chats. `/watch CSCI 115` immediately adds a whole
 course watch. `/watch CSCI 115 / 1L` immediately adds that section. Non-exact
 input opens search results. Courses with many sections use paged controls and
 also accept a typed, comma- or space-separated list of section IDs. Section
-changes are shown as a receipt before they are applied. Opening an existing watch
-from `/subscriptions` edits it instead of removing it. Removing a whole-course
-watch requires a separate confirmation.
+changes use portable labels such as `1L selected`. Review changes shows additions
+and removals before Save changes applies the complete scope atomically. Back and
+Cancel do not change stored watches. Opening an existing target from `/watches`
+shows its latest stored enrollment and observation time instead of removing it.
+Stopping a watch, clearing all watches, and deleting bot data require confirmation.
 
 Telegram deep links are ordinary `t.me/<bot>?start=<payload>` links that open the
 private bot with a small validated context payload. They let a course page open
@@ -35,7 +39,7 @@ codes; the visitor pastes it into the bot they use. The bot validates every
 course against its latest snapshot and presents a whole-course-watch receipt
 before applying it. This paste flow is not constrained by Telegram's 64-character
 deep-link payload limit. Watches belong to one semester and do not carry forward
-automatically. Each digest includes a button back to subscription management.
+automatically. Each digest includes a button back to My watches.
 
 ## Runtime
 
@@ -83,8 +87,8 @@ delays are honored, transient failures back off, and a user who blocks the bot i
 deactivated until they message it again.
 
 Completed batches are retained for 90 days. Inactive users without subscriptions
-are removed after 180 days; subscribed accounts remain until the user clears or
-deletes their data. `/settings` provides immediate deletion.
+are removed after 180 days; accounts with watches remain until the user clears or
+deletes their data. Data and settings in My watches provides immediate deletion.
 
 ## Checks
 

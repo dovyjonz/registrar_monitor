@@ -53,11 +53,7 @@ async def test_runtime_refuses_active_webhook_and_shuts_down():
     assert [command.command for command in BOT_COMMANDS] == [
         "start",
         "watch",
-        "catalog",
-        "import",
-        "subscriptions",
-        "status",
-        "settings",
+        "watches",
         "help",
     ]
 

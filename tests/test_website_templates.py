@@ -87,7 +87,10 @@ def test_semester_shell_exposes_portable_telegram_bookmark_import(tmp_path):
 
     assert 'data-semester="Fall 2026"' in html
     assert 'id="telegramBookmarkImport"' in html
-    assert "Copy starred for Telegram" in html
+    assert "Copy for bot" in html
+    assert html.index('class="filter-buttons"') < html.index(
+        '</div>\n\n            <button type="button" class="telegram-import-btn"'
+    )
 
 
 def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):

@@ -415,6 +415,34 @@ header p {
     min-height: 44px;
 }
 
+.telegram-import-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: transparent;
+    color: hsl(var(--foreground));
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.telegram-import-btn:hover {
+    background: hsl(var(--muted));
+}
+
+.telegram-import-btn:focus-visible {
+    outline: 3px solid hsl(var(--ring));
+    outline-offset: 2px;
+}
+
+.telegram-import-btn[hidden] {
+    display: none;
+}
+
 .filter-btn[data-filter="full"]::before,
 .filter-btn[data-filter="near"]::before,
 .filter-btn[data-filter="open"]::before {

@@ -19,4 +19,4 @@ def render_personal_digest(
     if not formatter.has_reportable_changes(filtered):
         return []
     report = formatter.format_changes_report(filtered, current, previous)
-    return render_report_chunks(f"Your subscriptions - {current.semester}\n{report}")
+    return render_report_chunks(f"Your watches - {current.semester}\n{report}")

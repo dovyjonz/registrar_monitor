@@ -43,7 +43,10 @@ import {
     formatPriorityCompact,
     formatPriorityFull,
 } from './registrationSemantics.mjs';
-import { buildTelegramImportText } from './telegramImport.mjs';
+import {
+    buildTelegramImportText,
+    telegramImportPresentation,
+} from './telegramImport.mjs';
 
 function markPerformance(name) {
     if (typeof performance?.mark === 'function') performance.mark(name);
@@ -3211,9 +3214,10 @@ function updateTelegramBookmarkImport() {
     if (!telegramBookmarkImport) return;
     const selected = currentSemesterBookmarks();
     telegramBookmarkImport.hidden = selected.length === 0;
-    telegramBookmarkImport.textContent = selected.length === 1
-        ? 'Copy starred for Telegram'
-        : `Copy ${selected.length} starred for Telegram`;
+    const presentation = telegramImportPresentation(selected.length);
+    if (!presentation) return;
+    telegramBookmarkImport.textContent = presentation.label;
+    telegramBookmarkImport.setAttribute('aria-label', presentation.accessibleName);
 }
 
 telegramBookmarkImport?.addEventListener('click', async () => {
@@ -3223,9 +3227,9 @@ telegramBookmarkImport?.addEventListener('click', async () => {
             currentSemesterBookmarks(),
         );
         await navigator.clipboard.writeText(text);
-        showToast('Copied. Paste this message into the Telegram bot.');
-    } catch (error) {
-        showToast(error instanceof Error ? error.message : 'Could not copy Telegram import');
+        showToast('Copied. Paste this into Registrar Monitor on Telegram.');
+    } catch {
+        showToast('Could not copy. Select the text and copy it manually.');
     }
 });
 
