@@ -407,6 +407,42 @@ test('required-type-full courses use compact cards and an explained chart interv
     await expect(page.locator('#registrationUnavailableGuide')).toBeHidden();
 });
 
+test('desktop dashboard keeps search controls on one row', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const response = await page.goto('/semesters/fall-2026/');
+    expect(response?.ok()).toBe(true);
+
+    await page.locator('.course-cell').first().click();
+    await page.locator('#modalBookmark').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#telegramBookmarkImport')).toBeVisible();
+
+    const layout = await page.evaluate(() => {
+        const selectors = [
+            '.search-field',
+            '.filter-buttons',
+            '#telegramBookmarkImport',
+            '#electiveFilter',
+            '#sortSelect',
+            '#departmentToggle',
+        ];
+        const rects = selectors.map(selector => (
+            document.querySelector(selector).getBoundingClientRect()
+        ));
+        return {
+            rowHeight: Math.round(document.querySelector('.controls-row').getBoundingClientRect().height),
+            topRange: Math.max(...rects.map(rect => rect.top))
+                - Math.min(...rects.map(rect => rect.top)),
+            bottomRange: Math.max(...rects.map(rect => rect.bottom))
+                - Math.min(...rects.map(rect => rect.bottom)),
+        };
+    });
+
+    expect(layout.rowHeight).toBe(44);
+    expect(layout.topRange).toBeLessThan(1);
+    expect(layout.bottomRange).toBeLessThan(1);
+});
+
 test('mobile dashboard keeps stats, timeline, and controls precisely aligned', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const response = await page.goto('/semesters/fall-2026/');

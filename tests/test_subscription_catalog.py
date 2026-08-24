@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from registrarmonitor.models import Course
 from registrarmonitor.subscriptions.catalog import SubscriptionCatalog
 from registrarmonitor.subscriptions.models import SubscriptionTarget
 from registrarmonitor.subscriptions.payloads import (
@@ -42,6 +43,19 @@ def test_search_prefers_exact_code_then_bounded_partial(current_snapshot):
 
     assert [course.course_code for course in catalog.search(" cs 101 ")] == ["CS 101"]
     assert len(catalog.search("cs", limit=1)) == 1
+
+
+def test_search_deduplicates_course_codes(current_snapshot):
+    current_snapshot.courses["CS101-duplicate"] = Course(
+        course_code="CS 101",
+        department="CS",
+        sections={},
+        average_fill=0.67,
+    )
+
+    catalog = SubscriptionCatalog(current_snapshot)
+
+    assert [course.course_code for course in catalog.search("cs")] == ["CS 101"]
 
 
 def test_target_validation_uses_latest_snapshot(current_snapshot):

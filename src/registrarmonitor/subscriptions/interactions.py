@@ -121,7 +121,8 @@ class SubscriptionInteractions:
             f"<b>Registrar Monitor</b>\n\n"
             "Get a private message when enrollment changes for a watched course "
             "or section.\n\n"
-            "Type a course code to add it now, for example <code>CSCI 115</code>.\n\n"
+            "Type one or more course codes to add them now, for example "
+            "<code>CSCI 115</code> or <code>CSCI 115, PHYS 161 / 1L</code>.\n\n"
             f"<b>Active semester:</b> {escape(semester)}",
             parse_mode=ParseMode.HTML,
             reply_markup=self._home_keyboard(),
@@ -135,8 +136,6 @@ class SubscriptionInteractions:
             return
         query = " ".join(context.args or []).strip()
         if not query:
-            if context.user_data is not None:
-                context.user_data["awaiting_watch"] = True
             await message.reply_text(
                 self._watch_prompt(), reply_markup=self._add_watch_keyboard()
             )
@@ -162,10 +161,6 @@ class SubscriptionInteractions:
             await self._accept_typed_sections(
                 message.reply_text, message.text, user.id, context.user_data
             )
-            return
-        if context.user_data is None or not context.user_data.pop(
-            "awaiting_watch", False
-        ):
             return
         await self._show_search(
             message.reply_text, message.text, user.id, context.user_data
@@ -336,8 +331,6 @@ class SubscriptionInteractions:
                 page = 0
             await self._show_subscriptions(query.edit_message_text, user_id, page=page)
         elif data == "watch":
-            if context.user_data is not None:
-                context.user_data["awaiting_watch"] = True
             await query.edit_message_text(
                 self._watch_prompt(), reply_markup=self._add_watch_keyboard()
             )
@@ -404,7 +397,16 @@ class SubscriptionInteractions:
     ) -> None:
         catalog = await self._catalog_provider()
         if catalog is None:
-            await send("No enrollment snapshot is available.")
+            await send(
+                "No enrollment snapshot is available.\n\n" + self._watch_prompt(),
+                reply_markup=self._add_watch_keyboard(),
+            )
+            return
+        parts = self._watch_query_parts(query)
+        if len(parts) > 1:
+            await self._show_multiple_exact_watches(
+                send, parts, catalog, user_id, user_data
+            )
             return
         exact_target = catalog.exact_target(query)
         if exact_target is not None:
@@ -431,7 +433,10 @@ class SubscriptionInteractions:
             return
         matches = catalog.search(query)
         if not matches:
-            await send("No matching course found.")
+            await send(
+                "No matching course found.\n\n" + self._watch_prompt(),
+                reply_markup=self._add_watch_keyboard(),
+            )
             return
         if len(matches) == 1:
             await self._show_course(send, catalog, matches[0], user_id, user_data)
@@ -447,6 +452,55 @@ class SubscriptionInteractions:
             for course in matches
         ]
         await send("Select a course:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def _show_multiple_exact_watches(
+        self,
+        send,
+        parts: list[str],
+        catalog: SubscriptionCatalog,
+        user_id: int,
+        user_data: MutableMapping | None,
+    ) -> None:
+        targets = []
+        invalid = []
+        for part in parts:
+            target = catalog.exact_target(part)
+            if target is None:
+                invalid.append(part)
+            elif target not in targets:
+                targets.append(target)
+        if invalid:
+            invalid_lines = "\n".join(
+                f"• <code>{escape(part)}</code>" for part in invalid
+            )
+            await send(
+                "I could not find these exact course or section codes:\n"
+                f"{invalid_lines}\n\n{self._watch_prompt()}",
+                parse_mode=ParseMode.HTML,
+                reply_markup=self._add_watch_keyboard(),
+            )
+            return
+        added = 0
+        for target in targets:
+            added += await asyncio.to_thread(self.store.add_watch, user_id, target)
+        if added == len(targets):
+            heading = f"Added {added} watches."
+        elif added:
+            heading = (
+                f"Added {added} watches. {len(targets) - added} were already saved."
+            )
+        else:
+            heading = "All requested watches were already saved."
+        summary = "\n".join(
+            f"• <code>{escape(self._target_label(target))}</code>" for target in targets
+        )
+        await send(
+            f"<b>{heading}</b>\n\n{summary}",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("My watches", callback_data="subs:0")]]
+            ),
+        )
 
     async def _show_course(
         self,
@@ -1112,6 +1166,7 @@ class SubscriptionInteractions:
         if navigation:
             keyboard.append(navigation)
         keyboard.append([InlineKeyboardButton("Add a watch", callback_data="watch")])
+        keyboard.append([InlineKeyboardButton("Reset watches", callback_data="clear")])
         keyboard.append(
             [InlineKeyboardButton("Data and settings", callback_data="settings")]
         )
@@ -1168,8 +1223,13 @@ class SubscriptionInteractions:
         return (
             "Send a course code to add it now, for example CSCI 115. "
             "For one section, send CSCI 115 / 1L. You can also send a title "
-            "to search."
+            "to search. For several exact watches, separate them with commas "
+            "or new lines, for example CSCI 115, PHYS 161 / 1L."
         )
+
+    @staticmethod
+    def _watch_query_parts(query: str) -> list[str]:
+        return [part.strip() for part in re.split(r"[,;\n]+", query) if part.strip()]
 
     @staticmethod
     async def _show_settings(send) -> None:

@@ -31,14 +31,21 @@ class SubscriptionCatalog:
             if _compact(course.course_code) == compact
         ]
         if exact:
-            return sorted(exact, key=lambda course: course.course_code)[:limit]
+            return self._unique_courses(exact)[:limit]
         matches = [
             course
             for course in self.snapshot.courses.values()
             if compact in _compact(course.course_code)
             or normalized in normalize_search(course.course_title or "")
         ]
-        return sorted(matches, key=lambda course: course.course_code)[:limit]
+        return self._unique_courses(matches)[:limit]
+
+    @staticmethod
+    def _unique_courses(courses: list[Course]) -> list[Course]:
+        unique: dict[str, Course] = {}
+        for course in courses:
+            unique.setdefault(course.course_code, course)
+        return sorted(unique.values(), key=lambda course: course.course_code)
 
     def resolve(self, target: SubscriptionTarget) -> bool:
         if target.semester != self.snapshot.semester:

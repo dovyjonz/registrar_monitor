@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from telegram.constants import ChatType
 
-from registrarmonitor.models import Section
+from registrarmonitor.models import Course, Section
 from registrarmonitor.subscriptions.catalog import SubscriptionCatalog
 from registrarmonitor.subscriptions.interactions import SubscriptionInteractions
 from registrarmonitor.subscriptions.models import SubscriptionTarget
@@ -18,6 +18,31 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def interaction(tmp_path, current_snapshot):
+    store = SubscriptionStore(tmp_path / "subscriptions.db")
+    catalog = SubscriptionCatalog(current_snapshot)
+
+    async def provide_catalog():
+        return catalog
+
+    return SubscriptionInteractions(store, provide_catalog), store
+
+
+@pytest.fixture
+def multi_interaction(tmp_path, current_snapshot):
+    current_snapshot.courses["MATH 202"] = Course(
+        course_code="MATH 202",
+        department="MATH",
+        sections={
+            "1L": Section(
+                section_id="1L",
+                section_type="L",
+                enrollment=10,
+                capacity=30,
+                fill=0.33,
+            )
+        },
+        average_fill=0.33,
+    )
     store = SubscriptionStore(tmp_path / "subscriptions.db")
     catalog = SubscriptionCatalog(current_snapshot)
 
@@ -94,6 +119,7 @@ async def test_start_presents_only_two_primary_paths(interaction):
     reply = update.effective_message.reply_text.await_args
     assert "private message when enrollment changes" in reply.args[0]
     assert "CSCI 115" in reply.args[0]
+    assert "CSCI 115, PHYS 161 / 1L" in reply.args[0]
     assert "Spring 2024" in reply.args[0]
     buttons = [
         button.text
@@ -101,6 +127,30 @@ async def test_start_presents_only_two_primary_paths(interaction):
         for button in row
     ]
     assert buttons == ["Add a watch", "My watches"]
+
+
+@pytest.mark.asyncio
+async def test_start_text_adds_watch_and_invalid_text_reprompts(interaction):
+    bot, store = interaction
+    context = make_context()
+
+    await bot.start(make_update(), context)
+
+    invalid_update = make_update(text="not a course")
+    await bot.watch_text(invalid_update, context)
+
+    invalid_reply = invalid_update.effective_message.reply_text.await_args.args[0]
+    assert "No matching course found" in invalid_reply
+    assert "Send a course code" in invalid_reply
+
+    valid_update = make_update(text="CS 101")
+    await bot.watch_text(valid_update, context)
+
+    assert store.list_subscriptions(41) == [SubscriptionTarget("Spring 2024", "CS 101")]
+    assert (
+        "Watching CS 101"
+        in valid_update.effective_message.reply_text.await_args.args[0]
+    )
 
 
 @pytest.mark.asyncio
@@ -138,7 +188,6 @@ async def test_text_search_and_destructive_confirmations(interaction):
     context = make_context()
 
     await bot.watch(update, context)
-    assert context.user_data["awaiting_watch"] is True
     await bot.watch_text(update, context)
     assert "Watching CS 101" in update.effective_message.reply_text.await_args.args[0]
 
@@ -228,7 +277,8 @@ async def test_watches_group_semester_and_open_details_safely(interaction):
     assert len(keyboard[0]) == 2
     assert keyboard[0][0].text == "CS 101 / 10L"
     assert keyboard[0][0].callback_data.startswith("detail:")
-    assert keyboard[-2][0].text == "Add a watch"
+    assert keyboard[-3][0].text == "Add a watch"
+    assert keyboard[-2][0].text == "Reset watches"
     assert keyboard[-1][0].text == "Data and settings"
 
     detail_update = make_update(callback_data=keyboard[0][0].callback_data)
@@ -254,6 +304,31 @@ async def test_empty_watches_offers_add_watch(interaction):
     reply = update.effective_message.reply_text.await_args
     assert "You have no watches" in reply.args[0]
     assert reply.kwargs["reply_markup"].inline_keyboard[0][0].text == "Add a watch"
+
+
+@pytest.mark.asyncio
+async def test_quick_reset_requires_confirmation_and_clears_watches(interaction):
+    bot, store = interaction
+    target = SubscriptionTarget("Spring 2024", "CS 101")
+    store.touch_user(telegram_user_id=41, private_chat_id=91)
+    store.subscribe(41, target)
+
+    reset_update = make_update(callback_data="clear")
+    await bot.callback(reset_update, make_context())
+
+    assert store.list_subscriptions(41) == [target]
+    prompt = reset_update.callback_query.edit_message_text.await_args
+    assert prompt.args[0] == "Clear all watches?"
+    assert prompt.kwargs["reply_markup"].inline_keyboard[0][0].text == ("Confirm clear")
+
+    confirm_update = make_update(callback_data="clear:yes")
+    await bot.callback(confirm_update, make_context())
+
+    assert store.list_subscriptions(41) == []
+    assert (
+        "Cleared 1 watch"
+        in (confirm_update.callback_query.edit_message_text.await_args.args[0])
+    )
 
 
 @pytest.mark.asyncio
@@ -307,6 +382,41 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
     assert store.list_subscriptions(41) == [
         SubscriptionTarget("Spring 2024", "CS 101", "10L")
     ]
+
+
+@pytest.mark.asyncio
+async def test_multiple_exact_watch_text_adds_courses_and_sections(multi_interaction):
+    bot, store = multi_interaction
+    context = make_context()
+
+    await bot.watch(make_update(), context)
+    update = make_update(text="CS 101 / 10L, MATH 202")
+    await bot.watch_text(update, context)
+
+    assert store.list_subscriptions(41) == [
+        SubscriptionTarget("Spring 2024", "CS 101", "10L"),
+        SubscriptionTarget("Spring 2024", "MATH 202"),
+    ]
+    reply = update.effective_message.reply_text.await_args.args[0]
+    assert "CS 101 / 10L" in reply
+    assert "MATH 202" in reply
+
+
+@pytest.mark.asyncio
+async def test_invalid_multiple_watch_text_reports_codes_and_reprompts(
+    multi_interaction,
+):
+    bot, store = multi_interaction
+    context = make_context()
+
+    await bot.watch(make_update(), context)
+    update = make_update(text="CS 101, UNKNOWN 999")
+    await bot.watch_text(update, context)
+
+    assert store.list_subscriptions(41) == []
+    reply = update.effective_message.reply_text.await_args.args[0]
+    assert "UNKNOWN 999" in reply
+    assert "Send a course code" in reply
 
 
 @pytest.mark.asyncio
