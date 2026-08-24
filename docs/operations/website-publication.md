@@ -64,6 +64,43 @@ contacts the registrar, or deploys Pages assets. Invalid state is a non-cacheabl
 404; fetch/render failure is a non-cacheable 5xx and cannot block static
 publication or substitute stale content.
 
+### Preview Worker deployment
+
+Pages upload, VM code synchronization, and service restart do not deploy the
+preview-image Worker. Deploy it separately whenever its source or configuration
+changes, or when the preview token format, preview schema, or rendered card model
+changes. Otherwise Pages can publish valid preview JSON and metadata while the
+older Worker rejects the new image route; Telegram then shows only the title and
+description.
+
+From the repository root, run the release gate before the authorized production
+deployment:
+
+```bash
+make worker-check
+npm --prefix workers/preview-images exec wrangler -- deploy \
+  --config workers/preview-images/wrangler.jsonc \
+  --strict \
+  --message "Describe the preview contract change"
+```
+
+After deployment, inspect the active deployment and test an exact current
+`og:image` URL copied from a live course page:
+
+```bash
+npm --prefix workers/preview-images exec wrangler -- deployments list \
+  --name registrar-monitor-preview-images \
+  --json
+curl --fail --silent --show-error --location --output /dev/null \
+  --write-out 'status=%{http_code} content_type=%{content_type} size=%{size_download}\n' \
+  'https://registrar-monitor-preview-images.spooktaken.workers.dev/preview/course/<semester>/<course>/<hash>.png'
+```
+
+The image probe must report HTTP 200, `image/png`, and a nonzero size. A course
+page returning 200 and its preview JSON returning 200 are insufficient: they do
+not exercise the separately deployed Worker. Re-send the state-addressed course
+URL after this probe succeeds so Telegram fetches that exact image identity.
+
 ## Verification
 
 Use `make site-smoke` for generated-output integrity, `make test-browser` for the
