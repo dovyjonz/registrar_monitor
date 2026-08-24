@@ -87,6 +87,11 @@ def setup_logging(
     # Set root logger level
     root_logger.setLevel(numeric_level)
 
+    # httpx logs complete request URLs at INFO. Telegram embeds the bot token in
+    # those URLs, so third-party transport logs must never inherit our INFO level.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Create formatters
     console_formatter = ColoredFormatter(
         fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

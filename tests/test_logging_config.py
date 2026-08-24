@@ -85,6 +85,12 @@ class TestSetupLogging:
         handler_types = [type(h).__name__ for h in root_logger.handlers]
         assert "StreamHandler" in handler_types
 
+    def test_http_transport_request_logs_are_suppressed(self):
+        setup_logging(enable_file=False, force_setup=True)
+
+        assert logging.getLogger("httpx").level == logging.WARNING
+        assert logging.getLogger("httpcore").level == logging.WARNING
+
     def test_file_handler_not_added_when_disabled(self):
         with (
             patch("registrarmonitor.core.logging_config._logging_setup_done", False),
