@@ -42,6 +42,7 @@ import { courseMatchesElective, getElectiveCategories } from './electiveFilters.
 import {
     formatPriorityCompact,
     formatPriorityFull,
+    getCoursePublicState,
 } from './registrationSemantics.mjs';
 import {
     buildTelegramImportText,
@@ -318,39 +319,6 @@ function getCourseDepartment(course, courseCode) {
 
 function getCourseTitle(course) {
     return course?.title ?? course?.ti ?? '';
-}
-
-function getCourseAverageFill(course) {
-    const fill = course?.averageFill ?? course?.af;
-    return Number.isFinite(fill) ? fill : 0;
-}
-
-function getCourseIsFilled(course) {
-    return course?.isFilled ?? course?.if ?? false;
-}
-
-function getCourseAvailability(course) {
-    return course?.availability || course?.previewState?.availability || null;
-}
-
-function getCoursePublicState(course) {
-    const averageFill = getCourseAverageFill(course);
-    const availability = getCourseAvailability(course);
-    const registrationUnavailable = availability?.status === 'required-type-full';
-    const ordinaryFull = availability?.status === 'full';
-    const isFilled = getCourseIsFilled(course) || registrationUnavailable;
-    return {
-        averageFill,
-        isFilled,
-        registrationUnavailable,
-        status: isFilled || averageFill >= 1 ? 'full' : averageFill >= 0.8 ? 'near' : 'open',
-        readout: registrationUnavailable || ordinaryFull
-            ? 'FULL'
-            : `${Math.round(averageFill * 100)}%`,
-        accessibilityCopy: registrationUnavailable
-            ? `${availability.compact}. ${availability.sentence}`
-            : ordinaryFull ? `FULL. ${availability.sentence}` : `${Math.round(averageFill * 100)}% full`,
-    };
 }
 
 function getCourseSections(course) {

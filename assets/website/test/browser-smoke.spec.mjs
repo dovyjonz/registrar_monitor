@@ -405,6 +405,12 @@ test('required-type-full courses use compact cards and an explained chart interv
     await ordinaryFullCourse.click();
     await expect(page.locator('#courseState')).toBeHidden();
     await expect(page.locator('#registrationUnavailableGuide')).toBeHidden();
+
+    await page.locator('#modalCloseBtn').click();
+    await page.locator('#courseSearch').fill('ANT 111');
+    const overCapacityCourse = page.locator('.course-cell[data-course="ANT 111"]');
+    await expect(overCapacityCourse.locator('.course-fill')).toHaveText('125%');
+    await expect(overCapacityCourse).toHaveAttribute('aria-label', 'ANT 111: 125% full');
 });
 
 test('desktop dashboard keeps search controls on one row', async ({ page }) => {

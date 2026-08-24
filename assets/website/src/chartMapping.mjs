@@ -244,21 +244,21 @@ function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
             sectionType: section.t || section.type || 'Other',
             enrollment: state.e,
             capacity: state.c,
-            enrollmentLevel: (state.e / openingCapacity) * 100,
-            capacityLevel: (state.c / openingCapacity) * 100,
+            openingCapacity,
         }];
     });
     if (levels.length === 0) return null;
-    const average = key => levels.reduce((total, value) => total + value[key], 0) / levels.length;
     const totalsByType = new Map();
     for (const level of levels) {
         const totals = totalsByType.get(level.sectionType) || {
             sectionType: level.sectionType,
             enrollment: 0,
             capacity: 0,
+            openingCapacity: 0,
         };
         totals.enrollment += level.enrollment;
         totals.capacity += level.capacity;
+        totals.openingCapacity += level.openingCapacity;
         totalsByType.set(level.sectionType, totals);
     }
     const orderedTypes = [...totalsByType.values()].sort((first, second) => {
@@ -275,8 +275,8 @@ function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
     return {
         enrollment: limitingType.enrollment,
         capacity: limitingType.capacity,
-        enrollmentLevel: average('enrollmentLevel'),
-        capacityLevel: average('capacityLevel'),
+        enrollmentLevel: (limitingType.enrollment / limitingType.openingCapacity) * 100,
+        capacityLevel: (limitingType.capacity / limitingType.openingCapacity) * 100,
         registrationUnavailable: totalsByType.size > 1 && available === 0,
         limitingTypes,
     };

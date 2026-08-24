@@ -307,6 +307,44 @@ test('course tooltip totals use the minimum section-type sum', () => {
     assert.equal(point.capacity, 90);
 });
 
+test('course levels weight active sections by their aggregate opening capacity', () => {
+    const snapshots = [
+        { ts: '2026-08-11T10:00:00Z' },
+        { ts: '2026-08-17T10:00:00Z' },
+        { ts: '2026-08-18T10:00:00Z' },
+    ];
+    const asc200 = {
+        ah: [
+            { i: 0, f: 0 },
+            { i: 1, f: 33 / 32 },
+            { i: 2, f: (33 / 32 + 1) / 2 },
+        ],
+        ev: [{ et: 'section_added', sc: '2S', i: 2 }],
+        s: {
+            '1S': {
+                t: 'S',
+                h: [
+                    { i: 0, f: 0, e: 0, c: 12 },
+                    { i: 1, f: 33 / 32, e: 33, c: 32 },
+                    { i: 2, f: 33 / 32, e: 33, c: 32 },
+                ],
+            },
+            '2S': {
+                t: 'S',
+                h: [{ i: 2, f: 1, e: 36, c: 36 }],
+            },
+        },
+    };
+
+    const points = buildAverageChartPoints(asc200, snapshots);
+
+    assert.equal(points[1].capacityLevel, (32 / 12) * 100);
+    assert.equal(points[2].enrollment, 69);
+    assert.equal(points[2].capacity, 68);
+    assert.equal(points[2].enrollmentLevel, (69 / 48) * 100);
+    assert.equal(points[2].capacityLevel, (68 / 48) * 100);
+});
+
 test('synthetic capacity-change points average only active sections', () => {
     const courseWithSyntheticPoint = {
         ah: [{ i: 0, f: 0.25 }],

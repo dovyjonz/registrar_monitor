@@ -27,6 +27,7 @@ from telegram.helpers import escape_markdown
 from ..data.snapshot_comparator import SnapshotComparator
 from ..utils import get_section_sort_key
 from ..website.config import BASE_URL, course_to_slug, semester_to_slug
+from ..website.share import published_course_share_url
 from .catalog import SubscriptionCatalog
 from .formatting import render_personal_digest
 from .models import BotDiagnostics, SubscriptionTarget
@@ -39,6 +40,7 @@ from .store import SubscriptionStore
 
 CatalogProvider = Callable[[], Awaitable[SubscriptionCatalog | None]]
 DiagnosticsProvider = Callable[[], Awaitable[BotDiagnostics]]
+CourseShareUrlProvider = Callable[[str, str], str | None]
 PAGE_SIZE = 6
 CATALOG_PAGE_SIZE = 8
 SECTION_PAGE_SIZE = 12
@@ -62,11 +64,13 @@ class SubscriptionInteractions:
         *,
         test_user_id: int | None = None,
         diagnostics: DiagnosticsProvider | None = None,
+        course_share_url: CourseShareUrlProvider = published_course_share_url,
     ) -> None:
         self.store = store
         self._catalog_provider = catalog
         self.test_user_id = test_user_id
         self._diagnostics_provider = diagnostics
+        self._course_share_url = course_share_url
 
     def register(self, application: Application) -> None:
         application.add_handler(CommandHandler("start", self.start))
@@ -448,9 +452,33 @@ class SubscriptionInteractions:
             return
         exact_target = catalog.exact_target(query)
         if exact_target is not None:
+            watched = set(
+                await asyncio.to_thread(self.store.list_subscriptions, user_id)
+            )
+            course_target = SubscriptionTarget(
+                exact_target.semester,
+                exact_target.course_code,
+            )
+            already_covered = exact_target in watched or (
+                not exact_target.is_course and course_target in watched
+            )
+            share_url = None
+            if not already_covered:
+                share_url = self._course_share_url(
+                    catalog.snapshot.semester,
+                    exact_target.course_code,
+                )
+                if share_url is None:
+                    await send(
+                        "The course preview is still publishing. Try this watch again shortly.",
+                        reply_markup=self._add_watch_keyboard(),
+                    )
+                    return
             changed = await asyncio.to_thread(
                 self.store.add_watch, user_id, exact_target
             )
+            if not changed:
+                share_url = None
             if not changed and not exact_target.is_course:
                 message = (
                     f"Your whole-course watch already includes "
@@ -461,9 +489,16 @@ class SubscriptionInteractions:
                 message = (
                     f"Watching <code>{escape(self._target_label(exact_target))}</code>."
                 )
+                if share_url is not None:
+                    message += f'\n\n<a href="{share_url}">View on the website</a>'
             await send(
                 message,
                 parse_mode=ParseMode.HTML,
+                **(
+                    {"link_preview_options": self._link_preview_options()}
+                    if share_url is not None
+                    else {}
+                ),
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [self._target_button("Edit watch", "view", exact_target)],

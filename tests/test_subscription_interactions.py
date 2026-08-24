@@ -15,6 +15,10 @@ from registrarmonitor.subscriptions.store import SubscriptionStore
 
 pytestmark = pytest.mark.unit
 
+COURSE_SHARE_URL = (
+    "https://registrar-monitor.pages.dev/courses/spring-2024/cs-101/?v=Abcd_123"
+)
+
 
 @pytest.fixture
 def interaction(tmp_path, current_snapshot):
@@ -24,7 +28,14 @@ def interaction(tmp_path, current_snapshot):
     async def provide_catalog():
         return catalog
 
-    return SubscriptionInteractions(store, provide_catalog), store
+    return (
+        SubscriptionInteractions(
+            store,
+            provide_catalog,
+            course_share_url=lambda _semester, _course: COURSE_SHARE_URL,
+        ),
+        store,
+    )
 
 
 @pytest.fixture
@@ -49,7 +60,14 @@ def multi_interaction(tmp_path, current_snapshot):
     async def provide_catalog():
         return catalog
 
-    return SubscriptionInteractions(store, provide_catalog), store
+    return (
+        SubscriptionInteractions(
+            store,
+            provide_catalog,
+            course_share_url=lambda _semester, _course: COURSE_SHARE_URL,
+        ),
+        store,
+    )
 
 
 def make_update(*, text="", callback_data=None, private=True, user_id=41, chat_id=91):
@@ -397,6 +415,16 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
         "Watching <code>CS 101</code>"
         in course_update.effective_message.reply_text.await_args.args[0]
     )
+    assert (
+        f'href="{COURSE_SHARE_URL}"'
+        in course_update.effective_message.reply_text.await_args.args[0]
+    )
+    assert (
+        course_update.effective_message.reply_text.await_args.kwargs[
+            "link_preview_options"
+        ].prefer_large_media
+        is True
+    )
 
     section_update = make_update()
     await bot.watch(section_update, make_context("CS", "101", "/", "10L"))
@@ -406,6 +434,10 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
         "whole-course watch already includes <code>CS 101 / 10L</code>"
         in section_update.effective_message.reply_text.await_args.args[0]
     )
+    assert (
+        "link_preview_options"
+        not in section_update.effective_message.reply_text.await_args.kwargs
+    )
 
     store.clear_subscriptions(41)
     section_update = make_update()
@@ -414,6 +446,34 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
     assert store.list_subscriptions(41) == [
         SubscriptionTarget("Spring 2024", "CS 101", "10L")
     ]
+    assert (
+        f'href="{COURSE_SHARE_URL}"'
+        in section_update.effective_message.reply_text.await_args.args[0]
+    )
+    assert (
+        section_update.effective_message.reply_text.await_args.kwargs[
+            "link_preview_options"
+        ].prefer_large_media
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_exact_watch_waits_for_a_published_preview(interaction):
+    bot, store = interaction
+    bot._course_share_url = lambda _semester, _course: None
+    update = make_update()
+
+    await bot.watch(update, make_context("CS", "101"))
+
+    assert store.list_subscriptions(41) == []
+    assert (
+        "preview is still publishing"
+        in (update.effective_message.reply_text.await_args.args[0])
+    )
+    assert "link_preview_options" not in (
+        update.effective_message.reply_text.await_args.kwargs
+    )
 
 
 @pytest.mark.asyncio

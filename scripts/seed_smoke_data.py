@@ -317,6 +317,11 @@ def _courses_for_semester(semester: str, step: int) -> dict[str, Course]:
                     {"001": _section("001", "Lecture", 20)},
                     "Ordinary full-course fixture",
                 ),
+                "ANT 111": _course(
+                    "ANT 111",
+                    {"001": _section("001", "Lecture", 25)},
+                    "Over-capacity course fixture",
+                ),
                 "BUS 101": _course(
                     "BUS 101",
                     {"001": _section("001", "Lecture", 20)},

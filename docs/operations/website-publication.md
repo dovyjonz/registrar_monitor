@@ -44,6 +44,12 @@ milestone window. Enrollment, capacity, availability, status, chart endpoint, an
 preview state all derive from that observation. Later polls are not appended as
 terminal data.
 
+Course cards keep `FULL` for exactly-full courses and display the rounded fill
+percentage when average enrollment exceeds capacity. Course charts normalize the
+displayed limiting section type's aggregate enrollment and capacity against the
+sum of its active sections' opening capacities. A section added later contributes
+its own initial capacity from the point where it becomes active.
+
 ## Preview identity and Worker
 
 Preview tokens encode the first 48 bits of the preview-visible SHA-256 identity as

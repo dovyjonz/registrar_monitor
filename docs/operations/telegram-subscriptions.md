@@ -32,6 +32,15 @@ the matching bot course without asking the user to search again. They never
 subscribe silently: the bot resolves the payload against its latest stored
 snapshot and requires confirmation.
 
+Creating one exact course or section watch replies with its state-addressed
+website link and one large Telegram course preview. Course discovery and details
+retain their existing previews. Already-saved confirmations, imports, and
+personal digests stay compact and do not repeat rich previews. This keeps the
+preview in user-requested course contexts without adding a card to every
+enrollment-change message. A new exact watch is saved only after its current
+published preview checksum is available; a publication gap asks the user to retry
+instead of sending a stale or unversioned card.
+
 Website bookmark import is deliberately independent of any bot username. Each
 visitor's bookmarks remain in that browser. The dashboard copies a portable
 multi-line `/import` command containing the current semester and starred course
