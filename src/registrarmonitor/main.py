@@ -12,6 +12,7 @@ Usage:
     monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
     monitor [--debug] bot
+    monitor [--debug] health-monitor
     monitor [--debug] deploy [--deploy]
     monitor [--debug] doctor [--json]
     monitor [--debug] db <command>
@@ -52,6 +53,7 @@ Examples:
   monitor run                           # Complete workflow (poll + report + website)
   monitor schedule                      # Run the scheduler
   monitor bot                           # Run the subscription bot
+  monitor health-monitor                # Alert the test operator about service outages
   monitor db stats                      # Show database statistics
 
 Debug Mode:
@@ -162,6 +164,15 @@ Telegram Control:
         "bot",
         help="Run the Telegram subscription bot",
         description="Start private-chat subscription commands and digest delivery",
+    )
+
+    subparsers.add_parser(
+        "health-monitor",
+        help="Monitor the scheduler and subscription bot services",
+        description=(
+            "Monitor the two production systemd services and alert the configured "
+            "Telegram test operator when either service is unavailable"
+        ),
     )
 
     # Deploy command
@@ -454,6 +465,14 @@ async def handle_bot_command(_args) -> int:
     return 0
 
 
+async def handle_health_monitor_command(_args) -> int:
+    """Run the independent systemd health monitor."""
+    from .services.health_monitor import run_health_monitor
+
+    await run_health_monitor()
+    return 0
+
+
 async def handle_deploy_command(args) -> int:
     """Handle the deploy command."""
     command = DeployCommand(debug=args.debug)
@@ -607,6 +626,8 @@ async def async_main() -> int:
             return await handle_schedule_command(args)
         elif args.command == "bot":
             return await handle_bot_command(args)
+        elif args.command == "health-monitor":
+            return await handle_health_monitor_command(args)
         elif args.command == "deploy":
             return await handle_deploy_command(args)
         elif args.command == "doctor":

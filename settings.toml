@@ -85,6 +85,10 @@ cleanup_interval_seconds = 3600
 completed_batch_days = 90
 inactive_user_days = 180
 
+[health_monitor]
+# Independent systemd health checks for the scheduler and private bot services.
+interval_seconds = 30
+
 # ==============================================================================
 # Registration schedule — single source of truth
 # ==============================================================================

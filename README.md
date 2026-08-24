@@ -39,6 +39,7 @@ monitor report --stateful            # report new changes
 monitor run                          # poll, report, and generate the dashboard
 monitor schedule                     # run the monitoring daemon
 monitor bot                          # run private Telegram subscriptions
+monitor health-monitor               # alert the test operator about service outages
 monitor deploy                       # generate the dashboard
 monitor deploy --deploy              # generate and upload to Cloudflare Pages
 monitor db stats
@@ -109,9 +110,12 @@ gates are opt-in; see
 ## Production
 
 Production monitoring runs on `registrarmonitor.service`. The subscription bot
-unit is generated as `registrarmonitor-bot.service` but is not installed or
-active unless an operator performs that rollout explicitly. Repository sync,
-Pages deployment, and service-state changes are separate actions.
+unit is generated as `registrarmonitor-bot.service`. The independent health
+monitor is generated as `registrarmonitor-health.service`; it checks both main
+units and sends outage/recovery alerts to `TELEGRAM_BOT_TEST_USER_ID`. None of
+these generated units are installed or activated by setup unless an operator
+performs that rollout explicitly. Repository sync, Pages deployment, and
+service-state changes are separate actions.
 
 See
 [`docs/operations/production-topology.md`](docs/operations/production-topology.md)

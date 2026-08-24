@@ -21,6 +21,7 @@ Last verified: 2026-08-24. Times use `Asia/Almaty` unless noted.
 |---|---|---|
 | `registrarmonitor.service` | installed, enabled, active/running | scheduler, reports, dashboard publication |
 | `registrarmonitor-bot.service` | installed, enabled, active/running | private subscriptions and digest delivery |
+| `registrarmonitor-health.service` | generated; activation is separate | alerts the test operator when either main unit is not active |
 | `registrar-monitor.service` | retired and absent | never revive |
 
 On 2026-08-24 both canonical services were synchronized to commit `b83c29c` and
@@ -30,9 +31,10 @@ and active/running after restart, their deployed subscription-source checksums
 matched the local checkout, and their bounded warning journal since restart was
 empty.
 
-`scripts/setup_vps.sh` generates both supported unit files but does not install,
-enable, start, stop, or restart either unit. Installing the bot is a separate
-production rollout and is not implied by this repository change.
+`scripts/setup_vps.sh` generates all three supported unit files but does not
+install, enable, start, stop, or restart any unit. Installing or activating the
+health monitor is a separate production action and is not implied by a
+repository change.
 
 ## Files and permissions
 

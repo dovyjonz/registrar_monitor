@@ -72,16 +72,41 @@ SyslogIdentifier=registrarmonitor-bot
 WantedBy=multi-user.target
 EOF
 
+cat > scripts/registrarmonitor-health.service <<EOF
+[Unit]
+Description=Registrar Monitor Service Health Monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_ROOT
+EnvironmentFile=-$PROJECT_ROOT/.env
+Environment="PATH=$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/usr/bin/env uv run monitor health-monitor
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=registrarmonitor-health
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 echo ""
 echo "Setup complete."
 echo "A systemd service file has been generated at scripts/registrarmonitor.service"
 echo "The subscription bot unit is at scripts/registrarmonitor-bot.service"
+echo "The service health unit is at scripts/registrarmonitor-health.service"
 echo ""
 echo "To install the generated units without activating them, run:"
 echo "  sudo cp scripts/registrarmonitor.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-bot.service /etc/systemd/system/"
+echo "  sudo cp scripts/registrarmonitor-health.service /etc/systemd/system/"
 echo "  sudo systemctl daemon-reload"
 echo ""
-echo "This setup did not change either service's installed or active state."
+echo "This setup did not change any service's installed or active state."
 echo "Installation and activation are separate operator-authorized operations."
 echo "  sudo journalctl -u registrarmonitor -f  # to view live logs"

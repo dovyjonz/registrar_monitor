@@ -13,6 +13,7 @@ from registrarmonitor.main import (
     handle_db_command,
     handle_deploy_command,
     handle_doctor_command,
+    handle_health_monitor_command,
     handle_poll_command,
     handle_report_command,
     handle_run_command,
@@ -125,6 +126,17 @@ async def test_handle_bot_command_runs_runtime():
         assert await handle_bot_command(make_args("bot")) == 0
 
     runtime_cls.return_value.run.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_handle_health_monitor_command_runs_monitor():
+    with patch(
+        "registrarmonitor.services.health_monitor.run_health_monitor",
+        new_callable=AsyncMock,
+    ) as run_monitor:
+        assert await handle_health_monitor_command(make_args("health-monitor")) == 0
+
+    run_monitor.assert_awaited_once_with()
 
 
 class TestHandleDeployCommand:
