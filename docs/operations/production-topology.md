@@ -20,12 +20,15 @@ Last verified: 2026-08-24. Times use `Asia/Almaty` unless noted.
 | Unit | State | Purpose |
 |---|---|---|
 | `registrarmonitor.service` | installed, enabled, active/running | scheduler, reports, dashboard publication |
-| `registrarmonitor-bot.service` | not rolled out | private subscriptions and digest delivery |
+| `registrarmonitor-bot.service` | installed, enabled, active/running | private subscriptions and digest delivery |
 | `registrar-monitor.service` | retired and absent | never revive |
 
-On 2026-08-24 the canonical service remained loaded, enabled, and running with
-main PID `3008962` and start time `2026-08-22 20:06:48 +05`. The permission repair
-did not restart, stop, deploy, or synchronize code.
+On 2026-08-24 both canonical services were synchronized to commit `b83c29c` and
+restarted at `2026-08-24 16:03:19 +05`. The scheduler started with main PID
+`3044028`; the bot started with main PID `3044029`. Both were loaded, enabled,
+and active/running after restart, their deployed subscription-source checksums
+matched the local checkout, and their bounded warning journal since restart was
+empty.
 
 `scripts/setup_vps.sh` generates both supported unit files but does not install,
 enable, start, stop, or restart either unit. Installing the bot is a separate
