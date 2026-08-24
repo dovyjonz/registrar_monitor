@@ -49,6 +49,8 @@ async def test_runtime_refuses_active_webhook_and_shuts_down():
     assert [command.command for command in BOT_COMMANDS] == [
         "start",
         "watch",
+        "catalog",
+        "import",
         "subscriptions",
         "status",
         "settings",
@@ -72,6 +74,5 @@ async def test_direct_polling_reports_another_consumer():
         await runtime._poll_updates()
 
 
-def test_developer_command_is_visible_only_in_test_mode():
-    assert "test" not in [command.command for command in bot_commands(None)]
-    assert "test" in [command.command for command in bot_commands(41)]
+def test_public_command_menu_never_exposes_developer_command():
+    assert "test" not in [command.command for command in bot_commands()]

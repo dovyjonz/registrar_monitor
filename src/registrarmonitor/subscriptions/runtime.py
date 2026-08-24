@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from telegram import BotCommand, Update
+from telegram import BotCommand, BotCommandScopeChat, Update
 from telegram.error import Conflict, NetworkError
 from telegram.ext import Application, ChatMemberHandler
 
@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 BOT_COMMANDS = [
     BotCommand("start", "Open the subscription bot"),
     BotCommand("watch", "Watch a course or section"),
+    BotCommand("catalog", "Browse current courses"),
+    BotCommand("import", "Import website selections"),
     BotCommand("subscriptions", "Manage subscriptions"),
     BotCommand("status", "Show current enrollment"),
     BotCommand("settings", "Manage bot data"),
@@ -30,12 +32,9 @@ BOT_TEST_COMMAND = BotCommand("test", "Check developer test mode")
 BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEMBER]
 
 
-def bot_commands(test_user_id: int | None) -> list[BotCommand]:
-    """Return the public command menu, with developer diagnostics when enabled."""
-    commands = list(BOT_COMMANDS)
-    if test_user_id is not None:
-        commands.append(BOT_TEST_COMMAND)
-    return commands
+def bot_commands() -> list[BotCommand]:
+    """Return the command menu visible to ordinary users."""
+    return list(BOT_COMMANDS)
 
 
 class SubscriptionBotRuntime:
@@ -73,8 +72,12 @@ class SubscriptionBotRuntime:
                     "Telegram bot has an active webhook; remove it explicitly before "
                     "starting long polling"
                 )
-            await self.application.bot.set_my_commands(bot_commands(self.test_user_id))
+            await self.application.bot.set_my_commands(bot_commands())
             if self.test_user_id is not None:
+                await self.application.bot.set_my_commands(
+                    [*bot_commands(), BOT_TEST_COMMAND],
+                    scope=BotCommandScopeChat(self.test_user_id),
+                )
                 logger.warning("Telegram bot developer test mode is active")
             await self.application.start()
             started = True

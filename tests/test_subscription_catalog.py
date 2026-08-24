@@ -7,7 +7,12 @@ import pytest
 
 from registrarmonitor.subscriptions.catalog import SubscriptionCatalog
 from registrarmonitor.subscriptions.models import SubscriptionTarget
-from registrarmonitor.subscriptions.payloads import decode_target, encode_target
+from registrarmonitor.subscriptions.payloads import (
+    decode_course_import,
+    decode_target,
+    encode_course_import,
+    encode_target,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -45,3 +50,21 @@ def test_target_validation_uses_latest_snapshot(current_snapshot):
     assert catalog.resolve(SubscriptionTarget("Spring 2024", "CS 101", "10L"))
     assert not catalog.resolve(SubscriptionTarget("Spring 2024", "CS 101", "missing"))
     assert not catalog.resolve(SubscriptionTarget("Fall 2026", "CS 101"))
+
+
+def test_website_course_import_text_round_trip():
+    payload = encode_course_import("Fall 2026", ["MATH 101", "CSCI 115"])
+
+    assert payload == "/import\nFall 2026\nCSCI 115\nMATH 101"
+    assert decode_course_import(payload) == (
+        "Fall 2026",
+        ["CSCI 115", "MATH 101"],
+    )
+
+
+def test_website_course_import_supports_large_pasted_selection():
+    courses = [f"COURSE {index}" for index in range(20)]
+
+    payload = encode_course_import("Fall 2026", courses)
+
+    assert decode_course_import(payload) == ("Fall 2026", sorted(courses))

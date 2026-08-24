@@ -43,6 +43,7 @@ import {
     formatPriorityCompact,
     formatPriorityFull,
 } from './registrationSemantics.mjs';
+import { buildTelegramImportText } from './telegramImport.mjs';
 
 function markPerformance(name) {
     if (typeof performance?.mark === 'function') performance.mark(name);
@@ -257,6 +258,7 @@ if (IS_COMBINED && COMBINED_DATA && !COMBINED_DATA.sems.includes(activeSemester)
 
 // Bookmarks/Favorites State
 const bookmarks = new Set(JSON.parse(localStorage.getItem('courseBookmarks') || '[]'));
+const telegramBookmarkImport = document.getElementById('telegramBookmarkImport');
 
 /**
  * Get current semester data based on mode.
@@ -281,7 +283,10 @@ function refreshCourseMaps() {
     hydratedCourses.clear();
     mappedData = data;
 
-    if (!data?.cr) return;
+    if (!data?.cr) {
+        updateTelegramBookmarkImport();
+        return;
+    }
 
     for (const [code, course] of Object.entries(data.cr)) {
         summaryCourses.set(code, course);
@@ -291,6 +296,7 @@ function refreshCourseMaps() {
             hydratedCourses.set(code, course);
         }
     }
+    updateTelegramBookmarkImport();
 }
 
 function getSummaryCourse(courseCode) {
@@ -3190,7 +3196,38 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
 
 function saveBookmarks() {
     localStorage.setItem('courseBookmarks', JSON.stringify([...bookmarks]));
+    updateTelegramBookmarkImport();
 }
+
+function currentSemesterLabel() {
+    return activeSemester || document.body.dataset.semester || '';
+}
+
+function currentSemesterBookmarks() {
+    return [...bookmarks].filter(code => summaryCourses.has(code)).sort();
+}
+
+function updateTelegramBookmarkImport() {
+    if (!telegramBookmarkImport) return;
+    const selected = currentSemesterBookmarks();
+    telegramBookmarkImport.hidden = selected.length === 0;
+    telegramBookmarkImport.textContent = selected.length === 1
+        ? 'Copy starred for Telegram'
+        : `Copy ${selected.length} starred for Telegram`;
+}
+
+telegramBookmarkImport?.addEventListener('click', async () => {
+    try {
+        const text = buildTelegramImportText(
+            currentSemesterLabel(),
+            currentSemesterBookmarks(),
+        );
+        await navigator.clipboard.writeText(text);
+        showToast('Copied. Paste this message into the Telegram bot.');
+    } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Could not copy Telegram import');
+    }
+});
 
 // ============================================
 // Toast Notifications (Visual Polish)

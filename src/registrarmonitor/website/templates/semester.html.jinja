@@ -1,6 +1,6 @@
 {% extends "base.html.jinja" %}
 
-{% block body_attrs %} data-manifest-url="{{ manifest_filename }}"{% if preview_hash %} data-preview-hash="{{ preview_hash }}"{% endif %} data-page-archived="{{ 'true' if archived else 'false' }}"{% if initial_course %} data-initial-course="{{ initial_course }}" data-preview-state-url="{{ preview_state_url }}"{% endif %}{% endblock %}
+{% block body_attrs %} data-manifest-url="{{ manifest_filename }}" data-semester="{{ semester }}"{% if preview_hash %} data-preview-hash="{{ preview_hash }}"{% endif %} data-page-archived="{{ 'true' if archived else 'false' }}"{% if initial_course %} data-initial-course="{{ initial_course }}" data-preview-state-url="{{ preview_state_url }}"{% endif %}{% endblock %}
 
 {% block content %}
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -64,6 +64,9 @@
                         <path d="M7.25 4.75A2.25 2.25 0 0 1 9.5 2.5h5A2.25 2.25 0 0 1 16.75 4.75V21L12 17.8 7.25 21V4.75Z"></path>
                     </svg>
                     <span>Starred</span>
+                </button>
+                <button type="button" class="filter-btn telegram-import-btn" id="telegramBookmarkImport" hidden>
+                    Copy starred for Telegram
                 </button>
             </div>
 

@@ -75,6 +75,21 @@ def test_semester_shell_uses_root_absolute_assets_and_versioned_metadata(tmp_pat
     assert '<meta name="robots" content="noindex, nofollow">' in html
 
 
+def test_semester_shell_exposes_portable_telegram_bookmark_import(tmp_path):
+    html = build_semester_page(
+        {"cr": {"ANT 140": {}}, "lrt": None},
+        [],
+        "Fall 2026",
+        manifest_path=manifest(tmp_path),
+        semesters=["Fall 2026"],
+        preview_state={"hash": "obLD1OX2"},
+    )
+
+    assert 'data-semester="Fall 2026"' in html
+    assert 'id="telegramBookmarkImport"' in html
+    assert "Copy starred for Telegram" in html
+
+
 def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
     html = build_semester_page(
         {"cr": {}, "lrt": "2026-08-12T10:00:00+05:00"},

@@ -7,15 +7,32 @@ changes the configured channel chat ID.
 ## User commands
 
 - `/watch` — search and add a course or section
+- `/catalog` — browse the current catalog with at-a-glance fill status
+- `/import` — paste a starred-course selection copied from the website
 - `/subscriptions` — list or remove watches
 - `/status [COURSE]` — choose a watch or show the latest stored enrollment
 - `/settings` — clear subscriptions or delete bot data
 - `/help` — show commands
 
-The bot works only in private chats. Opening a deep link shows the target's current
-status and a confirmation; it never subscribes silently. Watches belong to one
-semester and do not carry forward automatically. Each digest includes a button
-back to subscription management.
+The bot works only in private chats. An exact search match opens the course
+directly. Courses with many sections use paged controls and also accept a typed,
+comma- or space-separated list of section IDs. Section changes are shown as a
+receipt before they are applied.
+
+Telegram deep links are ordinary `t.me/<bot>?start=<payload>` links that open the
+private bot with a small validated context payload. They let a course page open
+the matching bot course without asking the user to search again. They never
+subscribe silently: the bot resolves the payload against its latest stored
+snapshot and requires confirmation.
+
+Website bookmark import is deliberately independent of any bot username. Each
+visitor's bookmarks remain in that browser. The dashboard copies a portable
+multi-line `/import` command containing the current semester and starred course
+codes; the visitor pastes it into the bot they use. The bot validates every
+course against its latest snapshot and presents a whole-course-watch receipt
+before applying it. This paste flow is not constrained by Telegram's 64-character
+deep-link payload limit. Watches belong to one semester and do not carry forward
+automatically. Each digest includes a button back to subscription management.
 
 ## Runtime
 
@@ -32,7 +49,9 @@ historical enrollment directly from the semester databases.
 Set `TELEGRAM_BOT_TEST_USER_ID` in `.env` to one positive numeric Telegram user
 ID, then start the bot. Only that account can interact with the private bot or
 receive personal digests. `/test` reports the active semester, latest snapshot,
-and subscription count without displaying the configured ID.
+and watch count without displaying the configured ID. Its simulation button
+renders one synthetic watched enrollment change through the real personal-digest
+formatter without writing enrollment state or creating delivery work.
 
 Other users receive no replies. Any of their already-queued personal deliveries
 are marked skipped so disabling test mode cannot send a surprise backlog. Channel

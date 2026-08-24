@@ -8,6 +8,8 @@ from .models import SubscriptionTarget
 
 MAX_TARGET_PAYLOAD = 58
 TARGET_PAYLOAD_VERSION = 1
+IMPORT_COMMAND_PATTERN = re.compile(r"^/import(?:@[A-Za-z0-9_]+)?$")
+SEMESTER_PATTERN = re.compile(r"^(Fall|Spring|Summer) \d{4}$")
 
 
 def encode_target(target: SubscriptionTarget) -> str:
@@ -51,3 +53,28 @@ def decode_target(payload: str) -> SubscriptionTarget:
     ):
         raise ValueError("Invalid subscription link")
     return SubscriptionTarget(*values[1:])
+
+
+def encode_course_import(semester: str, course_codes: list[str]) -> str:
+    """Render a portable Telegram command containing website course bookmarks."""
+    normalized = sorted(
+        dict.fromkeys(code.strip() for code in course_codes if code.strip())
+    )
+    if SEMESTER_PATTERN.fullmatch(semester) is None or not normalized:
+        raise ValueError("Invalid course import")
+    if any("\n" in code or len(code) > 80 for code in normalized):
+        raise ValueError("Invalid imported courses")
+    return "\n".join(["/import", semester, *normalized])
+
+
+def decode_course_import(value: str) -> tuple[str, list[str]]:
+    """Parse a portable website selection pasted into the bot."""
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    if (
+        len(lines) < 3
+        or IMPORT_COMMAND_PATTERN.fullmatch(lines[0]) is None
+        or SEMESTER_PATTERN.fullmatch(lines[1]) is None
+        or any(len(code) > 80 for code in lines[2:])
+    ):
+        raise ValueError("Invalid course import")
+    return lines[1], list(dict.fromkeys(lines[2:]))
