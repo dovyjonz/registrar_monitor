@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from telegram.constants import ParseMode
+from telegram.error import NetworkError
 
 from registrarmonitor.reporting.telegram_reporter import TelegramReporter
 
@@ -73,6 +74,17 @@ async def test_send_text_report_success(reporter, tmp_path):
     assert call_args.kwargs["chat_id"] == "123456789"
     assert call_args.kwargs["text"] == "This is a test report\\."
     assert call_args.kwargs["parse_mode"] == ParseMode.MARKDOWN_V2
+
+
+@pytest.mark.asyncio
+async def test_send_text_report_propagates_telegram_failure(reporter, tmp_path):
+    """The report cycle must not log success when Telegram rejects the send."""
+    txt_path = tmp_path / "test_report.txt"
+    txt_path.write_text("report", encoding="utf-8")
+    reporter.bot.send_message.side_effect = NetworkError("unavailable")
+
+    with pytest.raises(NetworkError, match="unavailable"):
+        await reporter.send_text_report(str(txt_path))
 
 
 @pytest.mark.asyncio

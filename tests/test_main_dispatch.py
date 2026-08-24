@@ -9,6 +9,7 @@ pytestmark = pytest.mark.unit
 from registrarmonitor.main import (
     async_main,
     cli_main,
+    handle_bot_command,
     handle_db_command,
     handle_deploy_command,
     handle_doctor_command,
@@ -113,6 +114,17 @@ class TestHandleScheduleCommand:
             code = await handle_schedule_command(args)
 
         assert code == 0
+
+
+@pytest.mark.asyncio
+async def test_handle_bot_command_runs_runtime():
+    with patch(
+        "registrarmonitor.subscriptions.runtime.SubscriptionBotRuntime"
+    ) as runtime_cls:
+        runtime_cls.return_value.run = AsyncMock()
+        assert await handle_bot_command(make_args("bot")) == 0
+
+    runtime_cls.return_value.run.assert_awaited_once_with()
 
 
 class TestHandleDeployCommand:

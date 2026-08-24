@@ -62,6 +62,7 @@ meta/
 
 # Generated deployment files
 scripts/registrarmonitor.service
+scripts/registrarmonitor-bot.service
 
 # Reproducible local tooling artifacts
 /output/

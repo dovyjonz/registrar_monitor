@@ -21,6 +21,7 @@ from registrarmonitor.main import create_parser
         (["run", "--deploy"], "run"),
         (["schedule"], "schedule"),
         (["schedule", "--no-telegram"], "schedule"),
+        (["bot"], "bot"),
         (["deploy"], "deploy"),
         (["deploy", "--semester", "fall2025"], "deploy"),
         (["deploy", "--no-minify"], "deploy"),

@@ -1,97 +1,78 @@
 # Agent guide
 
-Registrar Monitor is a Python 3.13 application that downloads registrar
-spreadsheets, stores normalized enrollment snapshots in SQLite, reports changes,
-and publishes a static dashboard to Cloudflare Pages.
+Registrar Monitor is a Python 3.13 application with a Vite dashboard. It stores
+enrollment history in SQLite, reports changes to Telegram, and uploads a static
+site to Cloudflare Pages.
 
-## Sources of truth
+## Start here
 
-- `settings.toml`: semester dates, milestones, timezone, paths, and website settings.
-- `Makefile` and `monitor --help`: commands and quality gates.
-- `docs/operations/production-topology.md`: runtime state and production runbook.
-- `README.md` and `DATABASE.md`: operator usage and storage.
-- `docs/adr/`: architectural decisions.
+- `CONTEXT.md` defines domain terms.
+- `settings.toml`, `Makefile`, and `monitor --help` are executable sources of truth.
+- `README.md`, `DATABASE.md`, and `docs/adr/` explain the current system.
+- Use the focused repo skill under `.agents/skills/` for storage, Telegram,
+  dashboard, or production work.
 
-For the 2026 stabilization regressions or release evidence, read
-`docs/agents/stabilization-release-verification-2026-08-20.md`.
+## Agent skills
+
+Check each new request against `/ask-matt` before choosing an engineering flow.
+Follow the routed skill or flow, while preserving this guide's authorization and
+production boundaries.
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Matt's five canonical triage roles use their default label names. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository with `CONTEXT.md` and root `docs/adr/`. See
+`docs/agents/domain.md`.
 
 ## Invariants
 
-- SQLite is the enrollment source of truth. Keep JSON snapshots out of the normal
-  monitor path.
-- Derive scheduler and website behavior from `settings.toml`.
-- Keep secrets in `.env`; never print or copy tokens, chat IDs, environments, or
-  unrestricted runtime configuration.
-- Keep generated/runtime output untracked: `data/`, `logs/`, downloads, change
-  reports, `assets/website/public/`, `output/`, coverage, and caches.
-- Deploy the website by direct Cloudflare Pages upload. The preview-image Worker is
-  separate and does not deploy Pages assets.
-- Treat code sharing, Pages deployment, VM synchronization, and service changes as
-  separate actions. Production mutation requires explicit operator authorization.
+- SQLite is the enrollment source of truth. Do not restore JSON snapshot paths.
+- Keep bot state separate from enrollment databases.
+- Derive semester, scheduler, notification, and website behavior from
+  `settings.toml`.
+- Keep secrets in `.env`. Never print tokens, Telegram IDs, environment dumps, or
+  unrestricted journals.
+- Keep runtime/generated output untracked: `data/`, logs, downloads, reports,
+  generated website output, `output/`, coverage, and caches.
+- Remove obsolete paths instead of adding compatibility layers.
+- Treat code sharing, VM synchronization, Pages upload, database changes, and
+  service state as separate actions. Production mutation requires explicit
+  authorization.
 
 ## Boundaries
 
-Python lives under `src/registrarmonitor`; the Vite dashboard lives under
-`assets/website`.
-
 - `automation/`: downloads and scheduling
 - `data/`: parsing, SQLite, migrations, and comparisons
-- `reporting/`: text, Telegram, and PDF output
+- `reporting/`: channel text, Telegram, and PDF output
 - `services/`: workflow orchestration
+- `subscriptions/`: private bot interactions and delivery state
 - `website/`: static read models and page generation
 - `models.py`: enrollment domain models
 
-Prefer these boundaries and put reusable pytest fixtures in `tests/conftest.py`.
-Remove obsolete paths instead of adding compatibility layers.
+Put reusable pytest fixtures in `tests/conftest.py`. Prefer the existing libraries
+and the simplest complete design.
 
 ## Verification
 
-Use pinned toolchains and lockfiles. Start a new environment with `make bootstrap`
-and `make doctor`. Run the closest focused test while iterating, `make check-fast`
-for Python-only work, and `make check` before handing off cross-cutting changes.
-Browser, generated-site, Worker, security, benchmark, and release gates are
-documented in `docs/operations/tooling.md`.
+Run the closest focused test while iterating. Use `make check-fast` for Python
+changes and `make check` for cross-cutting or frontend changes. Browser, generated
+site, Worker, security, benchmark, and release gates are opt-in and documented in
+`docs/operations/tooling.md`.
 
 If the default uv cache is unavailable, use
 `UV_CACHE_DIR=/private/tmp/uv-cache`.
 
-Generated-dashboard tests must serve `assets/website/public`, not Vite's source
-shell. If generated HTML references a stale Vite hash, compare it with
-`assets/website/public/assets/.vite/manifest.json`, run the supported asset-hash
-patch through `WebsiteService`, and hard-refresh. Validate the deployed hashed
-asset, not only a successful build or upload log.
-
-Chart.js regular point and hover radii remain zero; capacity-change markers remain
-visible. Horizontal guides render before datasets with negative z-order so they
-stay behind course series and markers.
-
 ## Version control
 
-This is a colocated Jujutsu/Git repository. Use Jujutsu for normal work:
-
-1. Inspect `jj status`, a bounded `jj log`, and `jj diff`.
-2. Treat `@` as the working-copy commit and preserve unrelated changes.
-3. Inspect `jj op log` before recovery; prefer targeted Jujutsu undo/restore.
-4. Fetch and inspect bookmarks before sharing, then preview the exact bookmark push.
-
-Jujutsu commands can snapshot `@`; after history or recovery operations, re-check
-status, the affected log, and the diff. A clean empty `@` alone does not prove the
-intended files are present. Avoid Git worktree/history rewrites in this colocated
-repository. Do not add `Co-Authored-By` trailers.
-
-## Production
-
-Read `docs/operations/production-topology.md` before any production check or
-change. Use the `gcloud` skill, validate the exact leaf command with installed
-help, specify project and zone, bound output, and preview SSH commands. Keep
-checks read-only until the operator explicitly authorizes a mutation.
-
-Only `registrarmonitor.service` is supported. A code sync does not reload its
-Python process; after an explicitly authorized restart, verify active state, new
-process identity/start time, and source checksums. Never revive the retired unit.
-
-## Agent references
-
-- Local issues: `docs/agents/issue-tracker.md`
-- Triage roles: `docs/agents/triage-labels.md`
-- Domain documents: `docs/agents/domain.md`
+This is a colocated Jujutsu/Git repository. Use `jj status`, bounded `jj log`, and
+`jj diff`; treat `@` as the working-copy commit and preserve unrelated changes.
+Inspect `jj op log` before recovery. Avoid Git worktree/history rewrites and do
+not add co-author trailers.

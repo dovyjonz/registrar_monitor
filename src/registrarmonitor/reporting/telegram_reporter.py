@@ -6,7 +6,6 @@ import os
 
 from telegram import Bot
 from telegram.constants import ParseMode
-from telegram.error import TelegramError
 
 from ..config import get_config
 from .telegram_formatting import render_report_chunks
@@ -41,12 +40,11 @@ class TelegramReporter:
         with open(file_path, encoding=encoding) as file:
             return file.read(limit)
 
-    async def send_text_report(self, file_path: str):
+    async def send_text_report(self, file_path: str) -> None:
         """Read, render, and send one text report."""
         await asyncio.sleep(self.file_write_delay)
         if not os.path.exists(file_path):
-            print(f"TXT file {file_path} disappeared before sending.")
-            return
+            raise FileNotFoundError(f"TXT file disappeared before sending: {file_path}")
 
         filename = os.path.basename(file_path)
         if self.dry_run:
@@ -63,20 +61,9 @@ class TelegramReporter:
                 print(f"[DRY RUN] Error reading TXT file for preview: {error}")
             return
 
-        try:
-            content = await asyncio.to_thread(
-                self._read_file_content, file_path, "utf-8"
-            )
-            await self._send_long_report(content)
-            print(f"Successfully sent TXT report: {filename}")
-        except TelegramError as error:
-            print(f"Error sending TXT report {filename}: {error}")
-        except FileNotFoundError:
-            print(f"Error: TXT file not found at {file_path} during send attempt.")
-        except Exception as error:
-            print(
-                f"An unexpected error occurred sending TXT report {filename}: {error}"
-            )
+        content = await asyncio.to_thread(self._read_file_content, file_path, "utf-8")
+        await self._send_long_report(content)
+        print(f"Successfully sent TXT report: {filename}")
 
     async def _send_long_report(self, content: str):
         """Render and send reports split on complete course boundaries."""

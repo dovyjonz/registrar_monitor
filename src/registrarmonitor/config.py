@@ -62,6 +62,18 @@ class Config:
             if chat_id:
                 self.config["telegram"]["chat_id"] = chat_id
 
+        test_user = os.environ.get("TELEGRAM_BOT_TEST_USER_ID")
+        if test_user:
+            try:
+                test_user_id = int(test_user)
+            except ValueError as error:
+                raise ValueError(
+                    "TELEGRAM_BOT_TEST_USER_ID must be a positive integer"
+                ) from error
+            if test_user_id <= 0:
+                raise ValueError("TELEGRAM_BOT_TEST_USER_ID must be a positive integer")
+            self.config.setdefault("telegram_bot", {})["test_user_id"] = test_user_id
+
     def get_config(self) -> dict[str, Any]:
         return self.config
 

@@ -7,6 +7,7 @@ data_storage = "data"
 raw_downloads = "assets/downloads"
 input_files = "assets/input"
 logs = "logs"
+telegram_bot_state = "data/telegram_bot.db"
 
 [data_source]
 # Compatibility exception for the registrar's currently unverifiable TLS chain.
@@ -72,6 +73,17 @@ mode = "v2"
 # TELEGRAM_CHAT_ID in the environment or a local .env file.
 bot_token = ""
 chat_id = ""
+
+[telegram_bot]
+# TELEGRAM_BOT_TEST_USER_ID is environment-only and restricts private bot testing
+# to one account; it does not affect channel reporting.
+retry_base_seconds = 5
+retry_max_seconds = 900
+per_chat_interval_seconds = 1
+global_rate_per_second = 25
+cleanup_interval_seconds = 3600
+completed_batch_days = 90
+inactive_user_days = 180
 
 # ==============================================================================
 # Registration schedule — single source of truth

@@ -1865,6 +1865,39 @@ class DatabaseManager:
             )
             raise
 
+    def was_snapshot_reported(
+        self, snapshot_id: int, *, changes_were_found: bool
+    ) -> bool:
+        """Return whether an exact snapshot/reportability pair was logged."""
+        table = (
+            "reporting_log_v2"
+            if self.storage_mode in {"v2", "finalized"}
+            else "reporting_log"
+        )
+        try:
+            with self.get_connection() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT 1 FROM {table}
+                    WHERE reported_snapshot_id = ? AND changes_found = ?
+                    LIMIT 1
+                    """,
+                    (snapshot_id, int(changes_were_found)),
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error as error:
+            self.logger.error(
+                "Database error checking reporting log for snapshot %s: %s",
+                snapshot_id,
+                error,
+            )
+            raise
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected error checking reporting log for snapshot {snapshot_id}: {e}"
+            )
+            raise
+
     def add_reporting_log(self, snapshot_id: int, changes_were_found: bool) -> None:
         """Adds a new entry to the reporting log."""
         try:

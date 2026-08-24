@@ -17,6 +17,8 @@ from ..models import EnrollmentSnapshot
 from ..reporting.pdf_generator import PDFGenerator
 from ..reporting.report_formatter import ReportFormatter
 from ..reporting.telegram_reporter import TelegramReporter
+from ..subscriptions.publication import ReportPublication
+from ..subscriptions.store import SubscriptionStore
 from ..utils import construct_output_path
 
 
@@ -29,7 +31,12 @@ class ReportingService:
     as a standalone method.
     """
 
-    def __init__(self, semester: str | None = None):
+    def __init__(
+        self,
+        semester: str | None = None,
+        *,
+        subscription_store: SubscriptionStore | None = None,
+    ):
         """
         Initialize the reporting service.
 
@@ -44,6 +51,7 @@ class ReportingService:
         self.snapshot_comparator = SnapshotComparator()
         self.report_formatter = ReportFormatter()
         self._telegram_reporter: TelegramReporter | None = None
+        self._subscription_store = subscription_store
 
         # PDF generator is lazy-loaded only when explicitly requested
         self._pdf_generator: PDFGenerator | None = None
@@ -65,6 +73,16 @@ class ReportingService:
         if self._telegram_reporter is None:
             self._telegram_reporter = TelegramReporter()
         return self._telegram_reporter
+
+    @property
+    def subscription_store(self) -> SubscriptionStore:
+        """Lazy-load the bot database only for a live Telegram report."""
+        if self._subscription_store is None:
+            from ..config import get_config
+
+            path = get_config()["directories"]["telegram_bot_state"]
+            self._subscription_store = SubscriptionStore(path)
+        return self._subscription_store
 
     async def generate_and_send_reports(
         self,
@@ -253,13 +271,34 @@ class ReportingService:
         if changes_found:
             self.logger.info("Changes found! Generating and sending reports...")
 
-            # Use the main generation method
-            success, _ = await self.generate_and_send_reports(
-                current_snapshot=current_snapshot,
-                previous_snapshot=previous_snapshot,
-                send_telegram=send_telegram,
-                debug_mode=debug_mode,
-            )
+            if send_telegram and not debug_mode:
+
+                async def send_channel() -> None:
+                    success, _ = await self.generate_and_send_reports(
+                        current_snapshot=current_snapshot,
+                        previous_snapshot=previous_snapshot,
+                        send_telegram=True,
+                        debug_mode=False,
+                    )
+                    if not success:
+                        raise ReportGenerationError("Channel report was not sent")
+
+                await ReportPublication(
+                    self.subscription_store, self.db_manager
+                ).publish(
+                    semester=current_snapshot.semester,
+                    previous_snapshot_id=last_reported_id,
+                    current_snapshot_id=latest_snapshot_id,
+                    send_channel=send_channel,
+                )
+                success = True
+            else:
+                success, _ = await self.generate_and_send_reports(
+                    current_snapshot=current_snapshot,
+                    previous_snapshot=previous_snapshot,
+                    send_telegram=send_telegram,
+                    debug_mode=debug_mode,
+                )
 
             if success:
                 self.logger.info("Reports processed successfully")
@@ -271,14 +310,15 @@ class ReportingService:
 
         # Log that this snapshot has now been reported
         # We log it even if no changes were found, so we don't check it again
-        if not debug_mode:
+        publication_logged = changes_found and send_telegram and not debug_mode
+        if not debug_mode and not publication_logged:
             self.db_manager.add_reporting_log(
                 snapshot_id=latest_snapshot_id, changes_were_found=changes_found
             )
             self.logger.info(
                 f"Successfully logged snapshot {latest_snapshot_id} as reported"
             )
-        else:
+        elif debug_mode:
             self.logger.info(
                 f"DEBUG: Would log snapshot {latest_snapshot_id} as reported"
             )

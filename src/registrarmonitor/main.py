@@ -11,6 +11,7 @@ Usage:
     monitor [--debug] report [--no-telegram]
     monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
+    monitor [--debug] bot
     monitor [--debug] deploy [--deploy]
     monitor [--debug] doctor [--json]
     monitor [--debug] db <command>
@@ -50,6 +51,7 @@ Examples:
   monitor report --no-telegram          # Generate reports without sending
   monitor run                           # Complete workflow (poll + report + website)
   monitor schedule                      # Run the scheduler
+  monitor bot                           # Run the subscription bot
   monitor db stats                      # Show database statistics
 
 Debug Mode:
@@ -154,6 +156,12 @@ Telegram Control:
         "--no-telegram",
         action="store_true",
         help="Run scheduler without sending Telegram reports",
+    )
+
+    subparsers.add_parser(
+        "bot",
+        help="Run the Telegram subscription bot",
+        description="Start private-chat subscription commands and digest delivery",
     )
 
     # Deploy command
@@ -438,6 +446,14 @@ async def handle_schedule_command(args) -> int:
         return 0  # Normal exit for scheduler
 
 
+async def handle_bot_command(_args) -> int:
+    """Run the long-polling Telegram subscription service."""
+    from .subscriptions.runtime import SubscriptionBotRuntime
+
+    await SubscriptionBotRuntime().run()
+    return 0
+
+
 async def handle_deploy_command(args) -> int:
     """Handle the deploy command."""
     command = DeployCommand(debug=args.debug)
@@ -589,6 +605,8 @@ async def async_main() -> int:
             return await handle_run_command(args)
         elif args.command == "schedule":
             return await handle_schedule_command(args)
+        elif args.command == "bot":
+            return await handle_bot_command(args)
         elif args.command == "deploy":
             return await handle_deploy_command(args)
         elif args.command == "doctor":

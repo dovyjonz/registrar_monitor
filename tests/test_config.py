@@ -78,6 +78,28 @@ class TestTelegramEnvVars:
 
         assert cfg["telegram"]["bot_token"] == "only_token"
 
+    def test_developer_test_user_is_loaded_as_positive_integer(self, monkeypatch):
+        """A developer ID should activate restricted bot test mode."""
+        import registrarmonitor.config as config_mod
+
+        config_mod.Config._instance = None
+        monkeypatch.setenv("TELEGRAM_BOT_TEST_USER_ID", "41")
+
+        cfg = config_mod.Config().get_config()
+
+        assert cfg["telegram_bot"]["test_user_id"] == 41
+
+    @pytest.mark.parametrize("value", ["invalid", "0", "-1"])
+    def test_invalid_developer_test_user_fails_closed(self, monkeypatch, value):
+        """Malformed test-mode configuration must not start a public bot."""
+        import registrarmonitor.config as config_mod
+
+        config_mod.Config._instance = None
+        monkeypatch.setenv("TELEGRAM_BOT_TEST_USER_ID", value)
+
+        with pytest.raises(ValueError, match="TELEGRAM_BOT_TEST_USER_ID"):
+            config_mod.Config()
+
 
 class TestConfigMissingFile:
     """Tests for missing settings.toml handling."""

@@ -43,10 +43,25 @@ logs directory. The scheduler also writes one JSON object per decision to
 `scheduler_decisions.jsonl`. Keep logs free of secrets, environment dumps,
 Telegram identifiers, and full registrar payloads.
 
-For incidents, query a bounded time window from `registrarmonitor.service`; never
-collect an unrestricted journal. Expected no-ops are `INFO`, retryable degradation
-is `WARNING`, and failed operations are `ERROR`. Workflow-boundary exceptions keep
-their tracebacks.
+For scheduler incidents, query a bounded time window from
+`registrarmonitor.service`. For private-subscription incidents, use
+`registrarmonitor-bot.service`. Never collect an unrestricted journal. Expected
+no-ops are `INFO`, retryable degradation is `WARNING`, and failed operations are
+`ERROR`. Workflow-boundary exceptions keep their tracebacks. Neither service may
+log Telegram identifiers, tokens, or environment contents.
+
+The subscription bot's focused gate is:
+
+```bash
+uv run pytest --no-cov \
+  tests/test_subscription_store.py \
+  tests/test_subscription_publication.py \
+  tests/test_subscription_dispatcher.py \
+  tests/test_subscription_catalog.py
+```
+
+The generated `registrarmonitor-bot.service` is a deployment artifact, not a
+signal that production activation is authorized.
 
 ## Baselines and benchmarks
 

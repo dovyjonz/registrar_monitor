@@ -49,15 +49,39 @@ SyslogIdentifier=registrarmonitor
 WantedBy=multi-user.target
 EOF
 
+cat > scripts/registrarmonitor-bot.service <<EOF
+[Unit]
+Description=Registrar Monitor Telegram Subscription Bot
+Wants=network-online.target
+After=network-online.target registrarmonitor.service
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_ROOT
+EnvironmentFile=-$PROJECT_ROOT/.env
+Environment="PATH=$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/usr/bin/env uv run monitor bot
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=registrarmonitor-bot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 echo ""
 echo "Setup complete."
 echo "A systemd service file has been generated at scripts/registrarmonitor.service"
+echo "The subscription bot unit is at scripts/registrarmonitor-bot.service"
 echo ""
-echo "To install the canonical unit without activating it, run:"
+echo "To install the generated units without activating them, run:"
 echo "  sudo cp scripts/registrarmonitor.service /etc/systemd/system/"
+echo "  sudo cp scripts/registrarmonitor-bot.service /etc/systemd/system/"
 echo "  sudo systemctl daemon-reload"
 echo ""
-echo "Monitoring remains paused. Do not enable or start the service yet."
-echo "Before any future activation, the planned data changes must be completed and explicitly verified by an operator."
-echo "Activation is a separate manual operation and is not performed by this setup script."
+echo "This setup did not change either service's installed or active state."
+echo "Installation and activation are separate operator-authorized operations."
 echo "  sudo journalctl -u registrarmonitor -f  # to view live logs"

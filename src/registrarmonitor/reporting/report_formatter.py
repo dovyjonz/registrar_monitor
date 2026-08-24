@@ -18,7 +18,7 @@ class ReportFormatter:
     """Formats enrollment data into human-readable reports."""
 
     @staticmethod
-    def _has_reportable_section_change(section_change) -> bool:
+    def has_reportable_section_change(section_change) -> bool:
         """Return whether a modified section has an enrollment-side change."""
         return (
             section_change.current_enrollment != section_change.previous_enrollment
@@ -26,13 +26,13 @@ class ReportFormatter:
         )
 
     @classmethod
-    def _has_reportable_course_change(cls, course_change: CourseChangeDetail) -> bool:
+    def has_reportable_course_change(cls, course_change: CourseChangeDetail) -> bool:
         """Ignore instructor-only changes in text reports."""
         return bool(
             course_change.added_sections
             or course_change.removed_sections
             or any(
-                cls._has_reportable_section_change(section_change)
+                cls.has_reportable_section_change(section_change)
                 for section_change in course_change.modified_sections
             )
         )
@@ -43,7 +43,7 @@ class ReportFormatter:
             comparison.new_courses
             or comparison.removed_courses
             or any(
-                self._has_reportable_course_change(course_change)
+                self.has_reportable_course_change(course_change)
                 for course_change in comparison.changed_courses
             )
         )
@@ -124,7 +124,7 @@ class ReportFormatter:
         changed_courses_dict = {
             cc.course_code: cc
             for cc in comparison.changed_courses
-            if self._has_reportable_course_change(cc)
+            if self.has_reportable_course_change(cc)
         }
 
         all_course_codes: set[str] = (
@@ -182,7 +182,7 @@ class ReportFormatter:
                 reportable_modified_sections = [
                     section_change
                     for section_change in course_change_detail.modified_sections
-                    if self._has_reportable_section_change(section_change)
+                    if self.has_reportable_section_change(section_change)
                 ]
                 for sec_mod in sorted(
                     reportable_modified_sections,
