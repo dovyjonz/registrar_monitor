@@ -33,8 +33,9 @@ subscribe silently: the bot resolves the payload against its latest stored
 snapshot and requires confirmation.
 
 Creating one exact course or section watch replies with its state-addressed
-website link and one large Telegram course preview. Course discovery and details
-retain their existing previews. Already-saved confirmations, imports, and
+website link and one large Telegram course preview above the message text. Course
+discovery and details use the same top-aligned previews so loading a card does not
+push the surrounding text downward. Already-saved confirmations, imports, and
 personal digests stay compact and do not repeat rich previews. This keeps the
 preview in user-requested course contexts without adding a card to every
 enrollment-change message. A new exact watch is saved only after its current

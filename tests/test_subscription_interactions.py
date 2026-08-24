@@ -425,6 +425,12 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
         ].prefer_large_media
         is True
     )
+    assert (
+        course_update.effective_message.reply_text.await_args.kwargs[
+            "link_preview_options"
+        ].show_above_text
+        is True
+    )
 
     section_update = make_update()
     await bot.watch(section_update, make_context("CS", "101", "/", "10L"))

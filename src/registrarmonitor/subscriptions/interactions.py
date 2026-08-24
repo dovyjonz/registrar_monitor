@@ -1628,4 +1628,4 @@ class SubscriptionInteractions:
 
     @staticmethod
     def _link_preview_options() -> LinkPreviewOptions:
-        return LinkPreviewOptions(prefer_large_media=True, show_above_text=False)
+        return LinkPreviewOptions(prefer_large_media=True, show_above_text=True)
