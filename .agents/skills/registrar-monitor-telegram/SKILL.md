@@ -19,9 +19,9 @@ Read `CONTEXT.md`, `docs/adr/0002-telegram-subscription-delivery.md`, and
 - Keep interactions private, acknowledge callbacks first, validate every payload,
   and require confirmation for deep links and destructive actions.
 - Course watches supersede overlapping section watches in one digest.
-- When `TELEGRAM_BOT_TEST_USER_ID` is set, enforce it at both the interaction and
-  delivery boundaries. Ignore other users and terminally skip their queued work;
-  do not expose the configured ID.
+- When `TELEGRAM_BOT_TEST_USER_ID` is set, show `/test` only to that operator and
+  do not expose the configured ID. Never use it to restrict ordinary interactions
+  or personal delivery.
 - Treat IDs and tokens as sensitive. Do not log them.
 - Honor `RetryAfter`, back off transient failures, deactivate on `Forbidden`, and
   stay under configured per-chat and global rates.

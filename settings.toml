@@ -75,8 +75,8 @@ bot_token = ""
 chat_id = ""
 
 [telegram_bot]
-# TELEGRAM_BOT_TEST_USER_ID is environment-only and restricts private bot testing
-# to one account; it does not affect channel reporting.
+# TELEGRAM_BOT_TEST_USER_ID is environment-only and shows /test diagnostics to
+# one operator. It does not restrict ordinary interactions or delivery.
 retry_base_seconds = 5
 retry_max_seconds = 900
 per_chat_interval_seconds = 1

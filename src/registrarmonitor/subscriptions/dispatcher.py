@@ -55,7 +55,6 @@ class SubscriptionDispatcher:
         retry_max_seconds: int = 900,
         per_chat_interval: float = 1.0,
         global_interval: float = 0.04,
-        test_user_id: int | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -68,7 +67,6 @@ class SubscriptionDispatcher:
         self.retry_max_seconds = retry_max_seconds
         self.per_chat_interval = per_chat_interval
         self.global_interval = global_interval
-        self.test_user_id = test_user_id
         self._sleep = sleep
         self._monotonic = monotonic
         self._last_send: dict[int, float] = {}
@@ -81,18 +79,6 @@ class SubscriptionDispatcher:
         )
         if delivery is None:
             return False
-        if (
-            self.test_user_id is not None
-            and delivery.telegram_user_id != self.test_user_id
-        ):
-            await asyncio.to_thread(
-                self.store.finish_delivery,
-                delivery.delivery_id,
-                status="skipped",
-                category="developer_test_mode",
-            )
-            return True
-
         user, batch = await asyncio.gather(
             asyncio.to_thread(self.store.get_user, delivery.telegram_user_id),
             asyncio.to_thread(self.store.get_batch, delivery.batch_id),

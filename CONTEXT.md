@@ -15,9 +15,9 @@
 - **Deliverable batch** — a batch whose channel send and reporting-log entry both
   succeeded.
 - **Personal digest** — one user's reportable subset of a deliverable batch.
-- **Developer test mode** — optional private-bot mode that admits one configured
-  Telegram account for interactions and personal delivery. Channel reports are
-  unaffected.
+- **Developer diagnostics access** — optional private `/test` command shown only
+  to one configured Telegram operator. It does not restrict ordinary bot users
+  or personal delivery.
 - **Enrollment store** — the per-semester SQLite database; the enrollment source
   of truth.
 - **Bot store** — the separate SQLite database for users, subscriptions, batches,

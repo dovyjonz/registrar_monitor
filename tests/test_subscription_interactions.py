@@ -52,11 +52,11 @@ def multi_interaction(tmp_path, current_snapshot):
     return SubscriptionInteractions(store, provide_catalog), store
 
 
-def make_update(*, text="", callback_data=None, private=True, user_id=41):
+def make_update(*, text="", callback_data=None, private=True, user_id=41, chat_id=91):
     message = SimpleNamespace(text=text, reply_text=AsyncMock())
     user = SimpleNamespace(id=user_id)
     chat = SimpleNamespace(
-        id=91,
+        id=chat_id,
         type=ChatType.PRIVATE if private else ChatType.GROUP,
     )
     callback = None
@@ -496,7 +496,9 @@ async def test_group_chat_is_rejected(interaction):
 
 
 @pytest.mark.asyncio
-async def test_developer_mode_admits_only_configured_user(tmp_path, current_snapshot):
+async def test_diagnostics_are_private_without_restricting_ordinary_users(
+    tmp_path, current_snapshot
+):
     store = SubscriptionStore(tmp_path / "subscriptions.db")
     catalog = SubscriptionCatalog(current_snapshot)
 
@@ -515,21 +517,24 @@ async def test_developer_mode_admits_only_configured_user(tmp_path, current_snap
     bot = SubscriptionInteractions(
         store, provide_catalog, test_user_id=41, diagnostics=diagnostics
     )
-    outsider = make_update(user_id=42)
-    outsider_callback = make_update(user_id=42, callback_data="subs:0")
+    outsider = make_update(user_id=42, chat_id=92)
+    outsider_callback = make_update(user_id=42, chat_id=92, callback_data="subs:0")
+    outsider_test = make_update(user_id=42, chat_id=92)
 
     await bot.start(outsider, make_context())
     await bot.callback(outsider_callback, make_context())
+    await bot.developer_diagnostics(outsider_test, make_context())
 
-    outsider.effective_message.reply_text.assert_not_awaited()
-    outsider_callback.callback_query.answer.assert_not_awaited()
-    assert store.get_user(42) is None
+    outsider.effective_message.reply_text.assert_awaited_once()
+    outsider_callback.callback_query.answer.assert_awaited_once()
+    outsider_test.effective_message.reply_text.assert_not_awaited()
+    assert store.get_user(42) is not None
 
     developer = make_update()
-    await bot.test_mode_status(developer, make_context())
+    await bot.developer_diagnostics(developer, make_context())
 
     diagnostic = developer.effective_message.reply_text.await_args.args[0]
-    assert "Developer test mode" in diagnostic
+    assert "Developer diagnostics" in diagnostic
     assert "Spring 2024" in diagnostic
     assert "Latest snapshot:" in diagnostic
     assert "Bot: running (uptime 2h 3m)" in diagnostic

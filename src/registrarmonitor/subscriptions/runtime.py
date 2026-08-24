@@ -30,7 +30,7 @@ BOT_COMMANDS = [
     BotCommand("watches", "Manage your watches"),
     BotCommand("help", "Get help"),
 ]
-BOT_TEST_COMMAND = BotCommand("test", "Check developer test mode")
+BOT_DIAGNOSTICS_COMMAND = BotCommand("test", "Open developer diagnostics")
 BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEMBER]
 MAX_CONCURRENT_UPDATES = 8
 MAX_QUEUED_UPDATES = 1024
@@ -203,13 +203,7 @@ class SubscriptionBotRuntime:
                     "Telegram bot has an active webhook; remove it explicitly before "
                     "starting long polling"
                 )
-            await self.application.bot.set_my_commands(bot_commands())
-            if self.test_user_id is not None:
-                await self.application.bot.set_my_commands(
-                    [*bot_commands(), BOT_TEST_COMMAND],
-                    scope=BotCommandScopeChat(self.test_user_id),
-                )
-                logger.warning("Telegram bot developer test mode is active")
+            await self._configure_commands()
             await self.application.start()
             started = True
             logger.info("Telegram bot polling started")
@@ -229,6 +223,15 @@ class SubscriptionBotRuntime:
                 await self.application.shutdown()
             if diagnostics_handler is not None:
                 subscription_logger.removeHandler(diagnostics_handler)
+
+    async def _configure_commands(self) -> None:
+        await self.application.bot.set_my_commands(bot_commands())
+        if self.test_user_id is not None:
+            await self.application.bot.set_my_commands(
+                [*bot_commands(), BOT_DIAGNOSTICS_COMMAND],
+                scope=BotCommandScopeChat(self.test_user_id),
+            )
+            logger.info("Telegram developer diagnostics access is enabled")
 
     async def _poll_updates(self) -> None:
         """Poll without PTB's webhook-deleting Updater bootstrap."""
@@ -291,7 +294,6 @@ class SubscriptionBotRuntime:
             retry_max_seconds=bot_config.get("retry_max_seconds", 900),
             per_chat_interval=bot_config.get("per_chat_interval_seconds", 1),
             global_interval=1 / bot_config.get("global_rate_per_second", 25),
-            test_user_id=self.test_user_id,
         )
         cleanup_interval = bot_config.get("cleanup_interval_seconds", 3600)
         recovery_interval = 60
@@ -320,15 +322,7 @@ class SubscriptionBotRuntime:
 
     async def _chat_member(self, update: Update, _context) -> None:
         change = update.my_chat_member
-        user = update.effective_user
-        if (
-            change is None
-            or update.effective_chat is None
-            or (
-                self.test_user_id is not None
-                and (user is None or user.id != self.test_user_id)
-            )
-        ):
+        if change is None or update.effective_chat is None:
             return
         if change.new_chat_member.status in {"kicked", "left"}:
             await asyncio.to_thread(

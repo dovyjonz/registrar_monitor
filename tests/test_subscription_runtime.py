@@ -80,6 +80,21 @@ def test_public_command_menu_never_exposes_developer_command():
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_command_is_scoped_to_configured_user():
+    bot = SimpleNamespace(set_my_commands=AsyncMock())
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.application = cast(Any, SimpleNamespace(bot=bot))
+    runtime.test_user_id = 41
+
+    await runtime._configure_commands()
+
+    first, second = bot.set_my_commands.await_args_list
+    assert "test" not in [command.command for command in first.args[0]]
+    assert [command.command for command in second.args[0]][-1] == "test"
+    assert second.kwargs["scope"].chat_id == 41
+
+
+@pytest.mark.asyncio
 async def test_runtime_diagnostics_reports_bounded_safe_activity():
     class Store:
         def operational_stats(self):

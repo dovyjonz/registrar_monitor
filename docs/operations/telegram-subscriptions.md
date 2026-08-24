@@ -51,21 +51,21 @@ The bot uses `TELEGRAM_BOT_TOKEN` from `.env` and stores state at the
 `directories.telegram_bot_state` path in `settings.toml`. It reads current and
 historical enrollment directly from the semester databases.
 
-### Developer test mode
+### Developer diagnostics
 
 Set `TELEGRAM_BOT_TEST_USER_ID` in `.env` to one positive numeric Telegram user
-ID, then start the bot. Only that account can interact with the private bot or
-receive personal digests. `/test` reports the active semester, latest snapshot,
+ID, then start the bot. Telegram shows `/test` only in that account's command
+menu, and the handler rejects the command and its callbacks for everyone else.
+Ordinary interactions and personal delivery remain available to every user.
+`/test` reports the active semester, latest snapshot,
 bot uptime, aggregate user and delivery counts, the configured user's watch
 count, and up to five recent identifier-free subscription log records without displaying
 the configured ID. Its simulation button
 renders one synthetic watched enrollment change through the real personal-digest
 formatter without writing enrollment state or creating delivery work.
 
-Other users receive no replies. Any of their already-queued personal deliveries
-are marked skipped so disabling test mode cannot send a surprise backlog. Channel
-reporting is unchanged. Unset the variable and restart the bot to return to normal
-operation.
+The setting does not affect channel reporting. Unset it and restart the bot to
+remove the diagnostics command.
 
 `scripts/setup_vps.sh` generates `registrarmonitor-bot.service` without installing,
 enabling, or starting it. The channel scheduler remains

@@ -144,29 +144,6 @@ async def test_unsubscribed_delivery_is_skipped(
 
 
 @pytest.mark.asyncio
-async def test_developer_mode_skips_every_other_recipient(tmp_path):
-    store, batch = prepare_delivery(
-        tmp_path, SubscriptionTarget("Spring 2024", "CS 101")
-    )
-    enrollment_db = MagicMock()
-    messenger = AsyncMock()
-    dispatcher = SubscriptionDispatcher(
-        store,
-        enrollment_db,
-        messenger,
-        test_user_id=42,
-    )
-
-    assert await dispatcher.dispatch_one() is True
-
-    messenger.send_message.assert_not_awaited()
-    enrollment_db.get_snapshot_data.assert_not_called()
-    delivery = store.list_deliveries(batch.batch_id)[0]
-    assert delivery.status == "skipped"
-    assert delivery.error_category == "developer_test_mode"
-
-
-@pytest.mark.asyncio
 async def test_oversized_course_digest_fails_only_its_delivery(tmp_path):
     store, batch = prepare_delivery(
         tmp_path, SubscriptionTarget("Spring 2024", "CS 101")

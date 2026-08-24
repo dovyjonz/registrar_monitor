@@ -79,7 +79,7 @@ class TestTelegramEnvVars:
         assert cfg["telegram"]["bot_token"] == "only_token"
 
     def test_developer_test_user_is_loaded_as_positive_integer(self, monkeypatch):
-        """A developer ID should activate restricted bot test mode."""
+        """A developer ID should configure private diagnostics access."""
         import registrarmonitor.config as config_mod
 
         config_mod.Config._instance = None

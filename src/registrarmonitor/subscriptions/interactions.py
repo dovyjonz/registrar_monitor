@@ -75,7 +75,7 @@ class SubscriptionInteractions:
         application.add_handler(CommandHandler("watches", self.watches))
         application.add_handler(CommandHandler("help", self.help))
         if self.test_user_id is not None:
-            application.add_handler(CommandHandler("test", self.test_mode_status))
+            application.add_handler(CommandHandler("test", self.developer_diagnostics))
         application.add_handler(CallbackQueryHandler(self.callback))
         application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.watch_text)
@@ -213,15 +213,15 @@ class SubscriptionInteractions:
             parse_mode=ParseMode.HTML,
         )
 
-    async def test_mode_status(
+    async def developer_diagnostics(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Confirm the restricted bot can read its local state."""
+        """Show private operational diagnostics to the configured operator."""
         if not await self._prepare_private(update):
             return
         message = update.effective_message
         user = update.effective_user
-        if message is None or user is None or self.test_user_id is None:
+        if message is None or user is None or self.test_user_id != user.id:
             return
         catalog = await self._catalog_provider()
         if catalog is None:
@@ -251,7 +251,7 @@ class SubscriptionInteractions:
             )
             recent = event_lines or "• No recent log records."
         await message.reply_text(
-            "<b>Developer test mode</b>\n\n"
+            "<b>Developer diagnostics</b>\n\n"
             f"{snapshot}\n"
             f"{runtime_status}\n"
             f"Watches: {count}\n\n"
@@ -278,7 +278,7 @@ class SubscriptionInteractions:
         if query is None:
             return
         user = update.effective_user
-        if user is None or not self._is_allowed(user.id):
+        if user is None:
             return
         await query.answer()
         if (
@@ -412,8 +412,6 @@ class SubscriptionInteractions:
         user = update.effective_user
         if chat is None or user is None:
             return False
-        if not self._is_allowed(user.id):
-            return False
         if chat.type != ChatType.PRIVATE:
             if reply and update.effective_message:
                 await update.effective_message.reply_text(
@@ -426,9 +424,6 @@ class SubscriptionInteractions:
             private_chat_id=chat.id,
         )
         return True
-
-    def _is_allowed(self, user_id: int) -> bool:
-        return self.test_user_id is None or user_id == self.test_user_id
 
     async def _show_search(
         self,

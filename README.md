@@ -50,8 +50,8 @@ the global `--debug` option before the command. `monitor --help` is the complete
 CLI reference.
 
 Private Telegram users have `/watch`, `/subscriptions`, `/status`, `/settings`,
-and `/help`. Set `TELEGRAM_BOT_TEST_USER_ID` to test private interactions and
-delivery with one account before opening the bot to everyone. See
+and `/help`. Set `TELEGRAM_BOT_TEST_USER_ID` to show private `/test` diagnostics
+to one operator without restricting ordinary users. See
 [`docs/operations/telegram-subscriptions.md`](docs/operations/telegram-subscriptions.md).
 
 ## How it fits together
