@@ -88,8 +88,11 @@ Updates from different private chats run concurrently with a bound of eight.
 Updates within one chat remain ordered so section-selection state cannot race.
 Catalog reads, delivery snapshot rendering, and bot-state writes run outside the
 event loop. Immutable catalogs are reused until the latest snapshot ID changes.
-Every update records processing latency without logging chat or user identifiers;
-updates taking at least three seconds are warnings.
+Every update records queue wait, handler duration, and total processing latency
+without logging chat or user identifiers; updates whose total latency reaches at
+least three seconds are warnings. Polling transport failures record safe exception
+and cause types and use the configured retry backoff without logging exception
+messages, tokens, or chat identifiers.
 
 ## Delivery contract
 

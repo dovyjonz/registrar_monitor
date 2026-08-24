@@ -102,11 +102,13 @@ class LatencyTrackingUpdateProcessor(BaseUpdateProcessor):
         coroutine: Awaitable[Any],
     ) -> None:
         started = monotonic()
+        handler_started: float | None = None
         chat = getattr(update, "effective_chat", None)
         chat_id = getattr(chat, "id", None)
         try:
             if chat_id is None:
                 async with self._active_updates:
+                    handler_started = monotonic()
                     await coroutine
             else:
                 lock = self._chat_locks.get(chat_id)
@@ -115,14 +117,25 @@ class LatencyTrackingUpdateProcessor(BaseUpdateProcessor):
                     self._chat_locks[chat_id] = lock
                 async with lock:
                     async with self._active_updates:
+                        handler_started = monotonic()
                         await coroutine
         finally:
-            elapsed = monotonic() - started
+            finished = monotonic()
+            elapsed = finished - started
+            queue_wait = (
+                handler_started - started if handler_started is not None else elapsed
+            )
+            handler_duration = (
+                finished - handler_started if handler_started is not None else 0.0
+            )
             update_type = self._update_type(update)
             log = logger.warning if elapsed >= self.slow_update_seconds else logger.info
             log(
-                "Telegram update processed type=%s duration_ms=%.0f slow=%s",
+                "Telegram update processed type=%s queue_wait_ms=%.0f "
+                "handler_duration_ms=%.0f duration_ms=%.0f slow=%s",
                 update_type,
+                queue_wait * 1000,
+                handler_duration * 1000,
                 elapsed * 1000,
                 elapsed >= self.slow_update_seconds,
             )
@@ -236,7 +249,12 @@ class SubscriptionBotRuntime:
     async def _poll_updates(self) -> None:
         """Poll without PTB's webhook-deleting Updater bootstrap."""
         offset = None
+        bot_config = self.config.get("telegram_bot", {})
+        retry_base_seconds = max(0.0, float(bot_config.get("retry_base_seconds", 5)))
+        retry_max_seconds = max(0.0, float(bot_config.get("retry_max_seconds", 900)))
+        retry_seconds = min(retry_base_seconds, retry_max_seconds)
         while True:
+            poll_started = monotonic()
             try:
                 updates = await self.application.bot.get_updates(
                     offset=offset,
@@ -247,10 +265,21 @@ class SubscriptionBotRuntime:
                 raise RuntimeError(
                     "Telegram updates are already being consumed by another process"
                 ) from error
-            except NetworkError:
-                logger.warning("Telegram update polling failed transiently")
-                await asyncio.sleep(5)
+            except NetworkError as error:
+                cause = error.__cause__
+                logger.warning(
+                    "Telegram update polling failed transiently "
+                    "error_type=%s cause_type=%s poll_duration_ms=%.0f "
+                    "retry_seconds=%.0f",
+                    type(error).__name__,
+                    type(cause).__name__ if cause is not None else "none",
+                    (monotonic() - poll_started) * 1000,
+                    retry_seconds,
+                )
+                await asyncio.sleep(retry_seconds)
+                retry_seconds = min(retry_max_seconds, retry_seconds * 2)
                 continue
+            retry_seconds = min(retry_base_seconds, retry_max_seconds)
             for update in updates:
                 offset = update.update_id + 1
                 await self.application.update_queue.put(update)

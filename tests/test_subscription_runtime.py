@@ -2,13 +2,14 @@
 
 import asyncio
 import logging
+import re
 import time
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
-from telegram.error import Conflict
+from telegram.error import Conflict, NetworkError, TimedOut
 
 from registrarmonitor.subscriptions.runtime import (
     BOT_COMMANDS,
@@ -62,6 +63,7 @@ async def test_runtime_refuses_active_webhook_and_shuts_down():
 @pytest.mark.asyncio
 async def test_direct_polling_reports_another_consumer():
     runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.config = {}
     runtime.application = cast(
         Any,
         SimpleNamespace(
@@ -73,6 +75,113 @@ async def test_direct_polling_reports_another_consumer():
 
     with pytest.raises(RuntimeError, match="another process"):
         await runtime._poll_updates()
+
+
+@pytest.mark.asyncio
+async def test_polling_logs_transport_type_and_backs_off_until_success(
+    monkeypatch, caplog
+):
+    attempts = 0
+    sleep_delays = []
+
+    async def get_updates(**_kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            try:
+                raise OSError("synthetic socket failure")
+            except OSError as cause:
+                raise TimedOut("synthetic timeout") from cause
+        if attempts == 2:
+            raise TimedOut("synthetic timeout")
+        if attempts == 4:
+            raise NetworkError("synthetic transport failure")
+        if attempts == 3:
+            return ()
+        raise asyncio.CancelledError
+
+    async def fake_sleep(delay):
+        sleep_delays.append(delay)
+
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.config = {
+        "telegram_bot": {
+            "retry_base_seconds": 5,
+            "retry_max_seconds": 20,
+        }
+    }
+    runtime.application = cast(
+        Any,
+        SimpleNamespace(
+            bot=SimpleNamespace(get_updates=get_updates),
+            update_queue=asyncio.Queue(),
+        ),
+    )
+    monkeypatch.setattr(
+        "registrarmonitor.subscriptions.runtime.asyncio.sleep", fake_sleep
+    )
+
+    with caplog.at_level(
+        logging.WARNING, logger="registrarmonitor.subscriptions.runtime"
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await runtime._poll_updates()
+
+    assert attempts == 5
+    assert sleep_delays == [5, 10, 5]
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 3
+    assert all("poll_duration_ms=" in message for message in messages)
+    assert "cause_type=OSError" in messages[0]
+    assert "cause_type=none" in messages[1]
+    assert "cause_type=none" in messages[2]
+    assert "error_type=TimedOut" in messages[0]
+    assert "error_type=TimedOut" in messages[1]
+    assert "error_type=NetworkError" in messages[2]
+    assert "synthetic" not in caplog.text
+    assert "retry_seconds=5" in messages[0]
+    assert "retry_seconds=10" in messages[1]
+
+
+@pytest.mark.asyncio
+async def test_polling_backoff_stays_at_configured_cap(monkeypatch):
+    attempts = 0
+    sleep_delays = []
+
+    async def get_updates(**_kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 1_025:
+            raise NetworkError("synthetic transport failure")
+        raise asyncio.CancelledError
+
+    async def fake_sleep(delay):
+        sleep_delays.append(delay)
+
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.config = {
+        "telegram_bot": {
+            "retry_base_seconds": 5,
+            "retry_max_seconds": 20,
+        }
+    }
+    runtime.application = cast(
+        Any,
+        SimpleNamespace(
+            bot=SimpleNamespace(get_updates=get_updates),
+            update_queue=asyncio.Queue(),
+        ),
+    )
+    monkeypatch.setattr(
+        "registrarmonitor.subscriptions.runtime.asyncio.sleep", fake_sleep
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await runtime._poll_updates()
+
+    assert attempts == 1_026
+    assert sleep_delays[:4] == [5, 10, 20, 20]
+    assert sleep_delays[-1] == 20
 
 
 def test_public_command_menu_never_exposes_developer_command():
@@ -196,6 +305,66 @@ async def test_update_processor_preserves_order_within_one_chat():
 
 
 @pytest.mark.asyncio
+async def test_update_latency_separates_queue_wait_from_handler_duration(caplog):
+    processor = LatencyTrackingUpdateProcessor(
+        max_concurrent_updates=1,
+        slow_update_seconds=0.01,
+    )
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    chat = SimpleNamespace(id=91)
+
+    async def first_callback():
+        first_started.set()
+        await release_first.wait()
+
+    async def second_callback():
+        pass
+
+    first = asyncio.create_task(
+        processor.process_update(
+            SimpleNamespace(update_id=1, message=object(), effective_chat=chat),
+            first_callback(),
+        )
+    )
+    await first_started.wait()
+    second = asyncio.create_task(
+        processor.process_update(
+            SimpleNamespace(update_id=2, message=object(), effective_chat=chat),
+            second_callback(),
+        )
+    )
+    await asyncio.sleep(0.05)
+    release_first.set()
+
+    with caplog.at_level(
+        logging.WARNING, logger="registrarmonitor.subscriptions.runtime"
+    ):
+        await asyncio.gather(first, second)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert len(messages) == 2
+
+    def duration(message, field):
+        match = re.search(rf"(?:^|\s){re.escape(field)}=([0-9.]+)(?:\s|$)", message)
+        assert match is not None
+        return float(match.group(1))
+
+    queued_message = next(
+        message
+        for message in messages
+        if duration(message, "queue_wait_ms") > duration(message, "handler_duration_ms")
+    )
+    metrics = {
+        field: duration(queued_message, field)
+        for field in ("queue_wait_ms", "handler_duration_ms", "duration_ms")
+    }
+    assert metrics["duration_ms"] >= metrics["queue_wait_ms"]
+    assert metrics["duration_ms"] >= metrics["handler_duration_ms"]
+    assert "slow=True" in queued_message
+
+
+@pytest.mark.asyncio
 async def test_one_chat_cannot_consume_every_active_update_slot():
     processor = LatencyTrackingUpdateProcessor(
         max_concurrent_updates=2,
@@ -243,6 +412,8 @@ async def test_update_latency_is_logged_even_when_handler_fails(caplog):
         await processor.process_update(SimpleNamespace(message=object()), fail())
 
     assert "type=message" in caplog.text
+    assert "handler_duration_ms=" in caplog.text
+    assert "queue_wait_ms=" in caplog.text
     assert "duration_ms=" in caplog.text
 
 
