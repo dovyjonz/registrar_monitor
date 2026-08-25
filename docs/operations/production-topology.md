@@ -22,6 +22,7 @@ Last verified: 2026-08-24. Times use `Asia/Almaty` unless noted.
 | `registrarmonitor.service` | installed, enabled, active/running | scheduler, reports, dashboard publication |
 | `registrarmonitor-bot.service` | installed, enabled, active/running | private subscriptions and digest delivery |
 | `registrarmonitor-health.service` | installed, enabled, active/running | alerts the test operator when either main unit is not active |
+| `registrarmonitor-network-watchdog.timer` | installed, enabled, active/waiting | checks metadata connectivity each minute and restarts `systemd-networkd` when connectivity is lost |
 | `registrar-monitor.service` | retired and absent | never revive |
 
 On 2026-08-24 the canonical services were synchronized to commit `b83c29c` and
@@ -32,7 +33,8 @@ sidecar ownership repair. The service health monitor was deployed from commit
 enabled, and active/running at final verification; the bounded health-monitor
 journal contained only startup records.
 
-`scripts/setup_vps.sh` generates all three supported unit files but does not
+`scripts/setup_vps.sh` generates the supported application units and the network
+watchdog service/timer, but does not
 install, enable, start, stop, or restart any unit. Installing or activating the
 health monitor is a separate production action and is not implied by a
 repository change.

@@ -95,16 +95,45 @@ SyslogIdentifier=registrarmonitor-health
 WantedBy=multi-user.target
 EOF
 
+cat > scripts/registrarmonitor-network-watchdog.service <<EOF
+[Unit]
+Description=Registrar Monitor Network Recovery Check
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$PROJECT_ROOT/scripts/network_watchdog.sh
+TimeoutStartSec=30
+EOF
+
+cat > scripts/registrarmonitor-network-watchdog.timer <<EOF
+[Unit]
+Description=Run Registrar Monitor Network Recovery Check
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=registrarmonitor-network-watchdog.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
 echo ""
 echo "Setup complete."
 echo "A systemd service file has been generated at scripts/registrarmonitor.service"
 echo "The subscription bot unit is at scripts/registrarmonitor-bot.service"
 echo "The service health unit is at scripts/registrarmonitor-health.service"
+echo "The network watchdog units are at scripts/registrarmonitor-network-watchdog.service and scripts/registrarmonitor-network-watchdog.timer"
 echo ""
 echo "To install the generated units without activating them, run:"
 echo "  sudo cp scripts/registrarmonitor.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-bot.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-health.service /etc/systemd/system/"
+echo "  sudo cp scripts/registrarmonitor-network-watchdog.service /etc/systemd/system/"
+echo "  sudo cp scripts/registrarmonitor-network-watchdog.timer /etc/systemd/system/"
 echo "  sudo systemctl daemon-reload"
 echo ""
 echo "This setup did not change any service's installed or active state."
