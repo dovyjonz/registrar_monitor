@@ -23,6 +23,8 @@ dry_run = false
 [website]
 # Update interval in minutes
 update_interval = 30
+# Maximum time allowed for a website generation child process (seconds).
+generation_timeout_seconds = 3600
 # Cloudflare Pages project name
 pages_project_name = "registrar-monitor"
 # Base URL for canonical links and social sharing (default: https://{pages_project_name}.pages.dev)
@@ -88,6 +90,8 @@ inactive_user_days = 180
 [health_monitor]
 # Independent systemd health checks for the scheduler and private bot services.
 interval_seconds = 30
+# Require consecutive unhealthy observations before sending an outage alert.
+unhealthy_checks_before_alert = 2
 
 # ==============================================================================
 # Registration schedule — single source of truth

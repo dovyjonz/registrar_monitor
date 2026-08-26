@@ -688,36 +688,22 @@ def _checkpointed_semester_data(
     minify: bool,
     archive_window: bool,
 ) -> dict[str, Any]:
-    """Build the production payload from v2 state without legacy tables."""
-    reconstructed = list(
-        CheckpointedStateStore(
-            db.db_path, initialize=False
-        ).iter_reconstructed_snapshots()
-    )
-    milestones = get_milestones(semester)
-    if archive_window and reconstructed:
-        keep_indices = _history_indices_for_website(
-            [{"timestamp": snapshot.timestamp} for _, snapshot in reconstructed],
-            milestones,
-            buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
-        )
-        if keep_indices is not None:
-            reconstructed = [
-                item
-                for index, item in enumerate(reconstructed)
-                if index in keep_indices
-            ]
-    data: dict[str, Any] = {
-        "semester": semester,
-        "lastReportTime": None,
-        "snapshots": [],
-        "courses": {},
-    }
-    if not reconstructed:
-        print(f"No snapshots found for semester: {semester}")
-        return _minify_keys(data) if minify else data
-
+    """Build the production payload while retaining at most two full states."""
+    store = CheckpointedStateStore(db.db_path, initialize=False)
     with db.get_connection() as connection:
+        metadata = [
+            {
+                "id": int(row[0]),
+                "timestamp": str(row[1]),
+                "overallFill": float(row[2]),
+            }
+            for row in connection.execute(
+                """
+                SELECT snapshot_id, observed_at, overall_fill
+                FROM state_snapshot ORDER BY sequence_no
+                """
+            )
+        ]
         section_ids = {
             (str(row[0]), str(row[1])): int(row[2])
             for row in connection.execute(
@@ -729,17 +715,139 @@ def _checkpointed_semester_data(
             )
         }
 
-    for snapshot_id, snapshot in reconstructed:
-        data["snapshots"].append(
-            {
-                "id": snapshot_id,
-                "timestamp": snapshot.timestamp,
-                "overallFill": snapshot.overall_fill,
-            }
+    milestones = get_milestones(semester)
+    selected_indices: set[int] | None = None
+    if archive_window and metadata:
+        selected_indices = _history_indices_for_website(
+            metadata,
+            milestones,
+            buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
         )
-    data["lastReportTime"] = reconstructed[-1][1].timestamp
+        if selected_indices is not None:
+            metadata = [
+                value
+                for index, value in enumerate(metadata)
+                if index in selected_indices
+            ]
 
-    latest = reconstructed[-1][1]
+    data: dict[str, Any] = {
+        "semester": semester,
+        "lastReportTime": None,
+        "snapshots": metadata,
+        "courses": {},
+    }
+    if not metadata:
+        print(f"No snapshots found for semester: {semester}")
+        return _minify_keys(data) if minify else data
+
+    history_indices = _history_indices_for_website(
+        metadata,
+        milestones,
+        buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
+    )
+    selected_global_indices = (
+        [index for index in range(len(data["snapshots"]))]
+        if selected_indices is None
+        else sorted(selected_indices)
+    )
+    local_index_by_global = {
+        global_index: local_index
+        for local_index, global_index in enumerate(selected_global_indices)
+    }
+    histories: dict[tuple[str, str], list[tuple[int, float, int, int]]] = {}
+    events_by_course: dict[str, list[dict[str, Any]]] = {}
+    previous = None
+    latest = None
+
+    def append_event(course_code: str, event: dict[str, Any]) -> None:
+        events_by_course.setdefault(course_code, []).append(event)
+
+    for global_index, (_, snapshot) in enumerate(store.iter_reconstructed_snapshots()):
+        if global_index not in local_index_by_global:
+            continue
+        snapshot_index = local_index_by_global[global_index]
+        if history_indices is None or snapshot_index in history_indices:
+            for course_code, course in snapshot.courses.items():
+                for section_code, section in course.sections.items():
+                    histories.setdefault((course_code, section_code), []).append(
+                        (
+                            snapshot_index,
+                            section.fill,
+                            section.enrollment,
+                            section.capacity,
+                        )
+                    )
+
+        if previous is not None:
+            timestamp = snapshot.timestamp
+            previous_courses = set(previous.courses)
+            current_courses = set(snapshot.courses)
+            for course_code in sorted(current_courses - previous_courses):
+                append_event(
+                    course_code,
+                    {"eventType": "course_added", "snapshotTimestamp": timestamp},
+                )
+            for course_code in sorted(previous_courses - current_courses):
+                append_event(
+                    course_code,
+                    {"eventType": "course_removed", "snapshotTimestamp": timestamp},
+                )
+            for course_code in sorted(previous_courses & current_courses):
+                old_sections = previous.courses[course_code].sections
+                new_sections = snapshot.courses[course_code].sections
+                for section_code in sorted(set(new_sections) - set(old_sections)):
+                    append_event(
+                        course_code,
+                        {
+                            "eventType": "section_added",
+                            "sectionCode": section_code,
+                            "snapshotTimestamp": timestamp,
+                        },
+                    )
+                for section_code in sorted(set(old_sections) - set(new_sections)):
+                    append_event(
+                        course_code,
+                        {
+                            "eventType": "section_removed",
+                            "sectionCode": section_code,
+                            "snapshotTimestamp": timestamp,
+                        },
+                    )
+                for section_code in sorted(set(old_sections) & set(new_sections)):
+                    old = old_sections[section_code]
+                    new = new_sections[section_code]
+                    if old.capacity != new.capacity:
+                        append_event(
+                            course_code,
+                            {
+                                "eventType": "capacity_changed",
+                                "sectionCode": section_code,
+                                "oldValue": str(old.capacity),
+                                "newValue": str(new.capacity),
+                                "snapshotTimestamp": timestamp,
+                            },
+                        )
+                    if instructor_identity(old.instructor) != instructor_identity(
+                        new.instructor
+                    ):
+                        append_event(
+                            course_code,
+                            {
+                                "eventType": "instructor_changed",
+                                "sectionCode": section_code,
+                                "oldValue": old.instructor or "TBA",
+                                "newValue": new.instructor or "TBA",
+                                "snapshotTimestamp": timestamp,
+                            },
+                        )
+        previous = snapshot
+        latest = snapshot
+
+    if latest is None:
+        print(f"No snapshots found for semester: {semester}")
+        return _minify_keys(data) if minify else data
+
+    data["lastReportTime"] = latest.timestamp
     for course_code, course in latest.courses.items():
         course_data = {
             "department": course.department
@@ -756,114 +864,19 @@ def _checkpointed_semester_data(
                 "currentCapacity": section.capacity,
                 "currentFill": section.fill,
                 "sectionId": section_ids[(course_code, section_code)],
-                "history": [],
-            }
-        data["courses"][course_code] = course_data
-
-    def append_event(course_code: str, event: dict[str, Any]) -> None:
-        data["courses"][course_code].setdefault("events", []).append(event)
-
-    for snapshot_index, (_, snapshot) in enumerate(reconstructed):
-        for course_code, course_data in data["courses"].items():
-            course = snapshot.courses.get(course_code)
-            if course is None:
-                continue
-            for section_code, section_data in course_data["sections"].items():
-                section = course.sections.get(section_code)
-                if section is None:
-                    continue
-                section_data["history"].append(
+                "history": [
                     {
-                        "snapshotIdx": snapshot_index,
-                        "fill": section.fill,
-                        "enrollment": section.enrollment,
-                        "capacity": section.capacity,
+                        "snapshotIdx": point[0],
+                        "fill": point[1],
+                        "enrollment": point[2],
+                        "capacity": point[3],
                     }
-                )
-
-    for index in range(1, len(reconstructed)):
-        previous = reconstructed[index - 1][1]
-        current = reconstructed[index][1]
-        timestamp = current.timestamp
-        previous_courses = set(previous.courses)
-        current_courses = set(current.courses)
-        for course_code in sorted(current_courses - previous_courses):
-            if course_code in data["courses"]:
-                append_event(
-                    course_code,
-                    {"eventType": "course_added", "snapshotTimestamp": timestamp},
-                )
-        for course_code in sorted(previous_courses - current_courses):
-            if course_code in data["courses"]:
-                append_event(
-                    course_code,
-                    {"eventType": "course_removed", "snapshotTimestamp": timestamp},
-                )
-        for course_code in sorted(previous_courses & current_courses):
-            if course_code not in data["courses"]:
-                continue
-            previous_sections = previous.courses[course_code].sections
-            current_sections = current.courses[course_code].sections
-            for section_code in sorted(set(current_sections) - set(previous_sections)):
-                append_event(
-                    course_code,
-                    {
-                        "eventType": "section_added",
-                        "sectionCode": section_code,
-                        "snapshotTimestamp": timestamp,
-                    },
-                )
-            for section_code in sorted(set(previous_sections) - set(current_sections)):
-                append_event(
-                    course_code,
-                    {
-                        "eventType": "section_removed",
-                        "sectionCode": section_code,
-                        "snapshotTimestamp": timestamp,
-                    },
-                )
-            for section_code in sorted(set(previous_sections) & set(current_sections)):
-                old = previous_sections[section_code]
-                new = current_sections[section_code]
-                if old.capacity != new.capacity:
-                    append_event(
-                        course_code,
-                        {
-                            "eventType": "capacity_changed",
-                            "sectionCode": section_code,
-                            "oldValue": str(old.capacity),
-                            "newValue": str(new.capacity),
-                            "snapshotTimestamp": timestamp,
-                        },
-                    )
-                if instructor_identity(old.instructor) != instructor_identity(
-                    new.instructor
-                ):
-                    append_event(
-                        course_code,
-                        {
-                            "eventType": "instructor_changed",
-                            "sectionCode": section_code,
-                            "oldValue": old.instructor or "TBA",
-                            "newValue": new.instructor or "TBA",
-                            "snapshotTimestamp": timestamp,
-                        },
-                    )
-
-    if milestones:
-        keep_indices = _history_indices_for_website(
-            data["snapshots"],
-            milestones,
-            buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
-        )
-        if keep_indices is not None:
-            for course_data in data["courses"].values():
-                for section_data in course_data["sections"].values():
-                    section_data["history"] = [
-                        entry
-                        for entry in section_data["history"]
-                        if entry["snapshotIdx"] in keep_indices
-                    ]
+                    for point in histories.get((course_code, section_code), [])
+                ],
+            }
+        if course_code in events_by_course:
+            course_data["events"] = events_by_course[course_code]
+        data["courses"][course_code] = course_data
 
     for course_data in data["courses"].values():
         sections = course_data["sections"]

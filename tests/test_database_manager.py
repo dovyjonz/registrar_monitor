@@ -48,6 +48,17 @@ class TestDatabaseManagerInit:
 
         assert Path(db_path).exists()
 
+    def test_read_only_manager_cannot_mutate_enrollment_database(self, tmp_path: Path):
+        db_path = tmp_path / "read-only.db"
+        DatabaseManager(db_path=str(db_path))
+
+        reader = DatabaseManager(db_path=str(db_path), read_only=True)
+
+        with reader.get_connection() as connection:
+            assert connection.execute("PRAGMA query_only").fetchone()[0] == 1
+            with pytest.raises(sqlite3.OperationalError, match="readonly"):
+                connection.execute("PRAGMA user_version = 2")
+
     def test_creates_tables(self, db_manager: DatabaseManager):
         """Required tables should be created."""
         with db_manager.get_connection() as conn:

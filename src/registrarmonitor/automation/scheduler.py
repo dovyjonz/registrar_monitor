@@ -510,24 +510,34 @@ class TwoPhaseScheduler:
         self.pending_polls: asyncio.Queue = asyncio.Queue()
 
     def _run_website_update(self):
-        """Run website generation and deployment."""
+        """Generate in a disposable process, then deploy the completed output."""
         try:
-            # Lazy import to avoid circular dependencies if any
             from ..services.website_service import WebsiteService
 
             config = get_config()
             website_config = config.get("website", {})
             project_name = website_config.get("pages_project_name", "registrar-monitor")
+            generation_timeout_seconds = website_config["generation_timeout_seconds"]
 
             print(f"\n🌐 Starting Website Update (Project: {project_name})...")
             service = WebsiteService()
+            if not service.is_any_semester_active():
+                print("💤 Outside active registration windows. Skipping build/deploy.")
+                return
+            generation = subprocess.run(
+                [sys.executable, "-m", "registrarmonitor.main", "deploy"],
+                cwd=Path(__file__).resolve().parents[3],
+                check=False,
+                timeout=generation_timeout_seconds,
+            )
+            if generation.returncode != 0:
+                self.logger_ops.error(
+                    "Website generation child failed exit_code=%s",
+                    generation.returncode,
+                )
+                return
 
-            # Generate (incremental)
-            if service.generate(minify=True) and not getattr(
-                service, "last_generation_skipped", False
-            ):
-                # Deploy
-                service.deploy(project_name=project_name)
+            service.deploy(project_name=project_name)
 
         except Exception as e:
             print(f"❌ Website update failed: {e}")

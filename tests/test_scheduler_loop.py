@@ -132,16 +132,18 @@ class TestTwoPhaseSchedulerLoop:
             assert sched.get_all_milestones() == []
 
     def test_run_website_update(self):
-        """Calls generate and deploy on WebsiteService."""
+        """Generates in a child process before deploying from the scheduler."""
         mock_service = MagicMock()
-        mock_service.generate.return_value = True
-        mock_service.last_generation_skipped = False
+        mock_service.is_any_semester_active.return_value = True
 
         with (
             patch(
                 "registrarmonitor.automation.scheduler.get_config",
                 return_value={
-                    "website": {"pages_project_name": "test-project"},
+                    "website": {
+                        "pages_project_name": "test-project",
+                        "generation_timeout_seconds": 7200,
+                    },
                     "semesters": {},
                 },
             ),
@@ -153,22 +155,31 @@ class TestTwoPhaseSchedulerLoop:
                 "registrarmonitor.services.website_service.WebsiteService",
                 return_value=mock_service,
             ),
+            patch(
+                "registrarmonitor.automation.scheduler.subprocess.run",
+                return_value=MagicMock(returncode=0),
+            ) as run,
         ):
             sched = TwoPhaseScheduler(no_telegram=True)
             sched._run_website_update()
 
-        mock_service.generate.assert_called_once_with(minify=True)
+        command = run.call_args.args[0]
+        assert command[-2:] == ["registrarmonitor.main", "deploy"]
+        assert run.call_args.kwargs["timeout"] == 7200
         mock_service.deploy.assert_called_once_with(project_name="test-project")
 
-    def test_run_website_update_generate_false_skips_deploy(self):
-        """When generate returns False, deploy is not called."""
+    def test_run_website_update_generate_failure_skips_deploy(self):
+        """A failed isolated generation never publishes stale output."""
         mock_service = MagicMock()
-        mock_service.generate.return_value = False
+        mock_service.is_any_semester_active.return_value = True
 
         with (
             patch(
                 "registrarmonitor.automation.scheduler.get_config",
-                return_value={"semesters": {}},
+                return_value={
+                    "website": {"generation_timeout_seconds": 3600},
+                    "semesters": {},
+                },
             ),
             patch(
                 "registrarmonitor.automation.scheduler.get_current_zone_type",
@@ -178,11 +189,14 @@ class TestTwoPhaseSchedulerLoop:
                 "registrarmonitor.services.website_service.WebsiteService",
                 return_value=mock_service,
             ),
+            patch(
+                "registrarmonitor.automation.scheduler.subprocess.run",
+                return_value=MagicMock(returncode=1),
+            ),
         ):
             sched = TwoPhaseScheduler(no_telegram=True)
             sched._run_website_update()
 
-        mock_service.generate.assert_called_once_with(minify=True)
         mock_service.deploy.assert_not_called()
 
     def test_run_website_update_failure(self):
@@ -199,6 +213,10 @@ class TestTwoPhaseSchedulerLoop:
             patch(
                 "registrarmonitor.services.website_service.WebsiteService",
                 side_effect=RuntimeError("deploy failed"),
+            ),
+            patch(
+                "registrarmonitor.automation.scheduler.subprocess.run",
+                return_value=MagicMock(returncode=0),
             ),
         ):
             sched = TwoPhaseScheduler(no_telegram=True)

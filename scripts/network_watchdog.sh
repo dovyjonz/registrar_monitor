@@ -15,8 +15,14 @@ if metadata_is_reachable; then
     exit 0
 fi
 
+sleep 2
+if metadata_is_reachable; then
+    exit 0
+fi
+
 echo "Google metadata is unreachable; restarting systemd-networkd" >&2
-systemctl restart systemd-networkd.service
+timeout --signal=TERM --kill-after=2s 10s \
+    systemctl restart systemd-networkd.service
 sleep 3
 
 if ! metadata_is_reachable; then

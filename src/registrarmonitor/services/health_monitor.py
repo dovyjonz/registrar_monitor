@@ -77,16 +77,21 @@ class HealthMonitor:
         *,
         service_units: Sequence[str] = MONITORED_SERVICE_UNITS,
         interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
+        unhealthy_checks_before_alert: int,
     ) -> None:
         if not service_units:
             raise ValueError("At least one service unit is required")
         if interval_seconds <= 0:
             raise ValueError("Health monitor interval must be positive")
+        if unhealthy_checks_before_alert <= 0:
+            raise ValueError("Unhealthy checks before alert must be positive")
         self._checker = checker
         self._notify = notify
         self._service_units = tuple(service_units)
         self._interval_seconds = interval_seconds
+        self._unhealthy_checks_before_alert = unhealthy_checks_before_alert
         self._outage_alerted = False
+        self._consecutive_unhealthy_checks = 0
 
     async def check_once(self) -> HealthSnapshot:
         """Check all units and notify only when health changes state."""
@@ -95,14 +100,20 @@ class HealthMonitor:
         )
         snapshot = HealthSnapshot(tuple(statuses))
         if snapshot.healthy:
+            self._consecutive_unhealthy_checks = 0
             if self._outage_alerted and await self._try_notify(
                 self._recovery_message(snapshot)
             ):
                 self._outage_alerted = False
-        elif not self._outage_alerted and await self._try_notify(
-            self._outage_message(snapshot)
-        ):
-            self._outage_alerted = True
+        else:
+            self._consecutive_unhealthy_checks += 1
+            if (
+                not self._outage_alerted
+                and self._consecutive_unhealthy_checks
+                >= self._unhealthy_checks_before_alert
+                and await self._try_notify(self._outage_message(snapshot))
+            ):
+                self._outage_alerted = True
         return snapshot
 
     async def run(self) -> None:
@@ -172,6 +183,7 @@ async def run_health_monitor() -> None:
 
     health_config = config.get("health_monitor", {})
     interval_seconds = health_config.get("interval_seconds", DEFAULT_INTERVAL_SECONDS)
+    unhealthy_checks_before_alert = health_config["unhealthy_checks_before_alert"]
     async with Bot(token=bot_token) as bot:
 
         async def notify(message: str) -> None:
@@ -181,4 +193,5 @@ async def run_health_monitor() -> None:
             SystemdServiceChecker(),
             notify,
             interval_seconds=interval_seconds,
+            unhealthy_checks_before_alert=unhealthy_checks_before_alert,
         ).run()

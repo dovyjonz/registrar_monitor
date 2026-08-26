@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import re
+import sqlite3
 import time
 from types import SimpleNamespace
 from typing import Any, cast
@@ -437,7 +438,7 @@ async def test_latest_catalog_database_read_does_not_block_event_loop(
     monkeypatch.setattr(runtime_module, "find_active_semester", active_semester)
     monkeypatch.setattr(
         runtime_module.DatabaseManager,
-        "create_for_semester",
+        "create_read_only_for_semester",
         lambda _semester: SlowDatabase(),
     )
     runtime = make_catalog_runtime()
@@ -475,7 +476,7 @@ async def test_latest_catalog_reuses_unchanged_snapshot(monkeypatch, current_sna
     monkeypatch.setattr(runtime_module, "find_active_semester", active_semester)
     monkeypatch.setattr(
         runtime_module.DatabaseManager,
-        "create_for_semester",
+        "create_read_only_for_semester",
         lambda _semester: database,
     )
     runtime = make_catalog_runtime()
@@ -485,3 +486,27 @@ async def test_latest_catalog_reuses_unchanged_snapshot(monkeypatch, current_sna
 
     assert first is second
     assert snapshot_reads == 1
+
+
+def test_pending_batch_recovery_contains_transient_enrollment_lock(monkeypatch, caplog):
+    from registrarmonitor.subscriptions import runtime as runtime_module
+
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.store = cast(
+        Any,
+        SimpleNamespace(
+            list_pending_batches=lambda: [SimpleNamespace(semester="Fall 2026")]
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_module.DatabaseManager,
+        "create_read_only_for_semester",
+        lambda _semester: (_ for _ in ()).throw(
+            sqlite3.OperationalError("database is locked")
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        runtime._recover_pending_batches()
+
+    assert "Enrollment database is busy; pending batch recovery deferred" in caplog.text

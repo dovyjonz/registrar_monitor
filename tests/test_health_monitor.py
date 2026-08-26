@@ -25,6 +25,7 @@ def make_monitor(
         check,
         notify,
         service_units=tuple(states),
+        unhealthy_checks_before_alert=2,
     )
 
 
@@ -44,6 +45,9 @@ async def test_alerts_once_for_an_outage_and_notifies_on_recovery():
     states["registrarmonitor-bot.service"] = "failed"
     outage = await monitor.check_once()
     assert not outage.healthy
+    assert messages == []
+
+    await monitor.check_once()
     assert len(messages) == 1
     assert "registrarmonitor-bot.service: failed" in messages[0]
 
@@ -55,6 +59,34 @@ async def test_alerts_once_for_an_outage_and_notifies_on_recovery():
     assert recovered.healthy
     assert len(messages) == 2
     assert "recovered" in messages[1].lower()
+
+
+@pytest.mark.asyncio
+async def test_ignores_repeated_single_check_timeouts():
+    states = {
+        "registrarmonitor.service": "active",
+        "registrarmonitor-bot.service": "active",
+    }
+    messages: list[str] = []
+    monitor = make_monitor(states, messages)
+
+    for _ in range(3):
+        states.update(
+            {
+                "registrarmonitor.service": "timeout",
+                "registrarmonitor-bot.service": "timeout",
+            }
+        )
+        await monitor.check_once()
+        states.update(
+            {
+                "registrarmonitor.service": "active",
+                "registrarmonitor-bot.service": "active",
+            }
+        )
+        await monitor.check_once()
+
+    assert messages == []
 
 
 @pytest.mark.asyncio
@@ -80,8 +112,10 @@ async def test_retries_alert_when_telegram_delivery_fails():
         check,
         notify,
         service_units=tuple(states),
+        unhealthy_checks_before_alert=2,
     )
 
+    await monitor.check_once()
     await monitor.check_once()
     await monitor.check_once()
 
@@ -112,8 +146,16 @@ async def test_runtime_sends_alerts_to_configured_test_operator(monkeypatch):
             sent.append((chat_id, text))
 
     class FakeMonitor:
-        def __init__(self, _checker, notify, *, interval_seconds):
+        def __init__(
+            self,
+            _checker,
+            notify,
+            *,
+            interval_seconds,
+            unhealthy_checks_before_alert,
+        ):
             assert interval_seconds == 7
+            assert unhealthy_checks_before_alert == 3
             self.notify = notify
 
         async def run(self):
@@ -125,7 +167,10 @@ async def test_runtime_sends_alerts_to_configured_test_operator(monkeypatch):
         lambda: {
             "telegram": {"bot_token": "test-token"},
             "telegram_bot": {"test_user_id": 41},
-            "health_monitor": {"interval_seconds": 7},
+            "health_monitor": {
+                "interval_seconds": 7,
+                "unhealthy_checks_before_alert": 3,
+            },
         },
     )
     monkeypatch.setattr(health_monitor_module, "Bot", FakeBot)

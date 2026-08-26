@@ -77,9 +77,12 @@ class CheckpointedStateStore:
         *,
         initialize: bool = True,
         set_user_version: bool = True,
+        read_only: bool = False,
     ):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
+        if not read_only:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         self._course_ids: dict[str, int] = {}
         self._section_ids: dict[tuple[str, str], int] = {}
         self._latest_state_cache: (
@@ -96,10 +99,15 @@ class CheckpointedStateStore:
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(
+            f"file:{self.path}?mode=ro" if self.read_only else self.path,
+            uri=self.read_only,
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
+        if self.read_only:
+            connection.execute("PRAGMA query_only = ON")
         try:
             yield connection
         finally:

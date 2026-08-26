@@ -27,7 +27,13 @@ SUPPORTED_SCHEMA_VERSIONS = {EXPECTED_SCHEMA_VERSION, CHECKPOINTED_SCHEMA_VERSIO
 class DatabaseManager:
     """Manages SQLite database operations for enrollment data."""
 
-    def __init__(self, db_path: str | None = None, semester: str | None = None):
+    def __init__(
+        self,
+        db_path: str | None = None,
+        semester: str | None = None,
+        *,
+        read_only: bool = False,
+    ):
         """
         Initialize database manager.
 
@@ -36,10 +42,11 @@ class DatabaseManager:
             semester: Optional semester identifier for database naming.
         """
         self._uses_configured_path = db_path is None
+        self._read_only = read_only
         if db_path is None:
             config = get_config()
             data_dir = config["directories"]["data_storage"]
-            validate_directory_exists(data_dir, create_if_missing=True)
+            validate_directory_exists(data_dir, create_if_missing=not read_only)
 
             if semester:
                 # Create semester-specific database filename
@@ -61,17 +68,19 @@ class DatabaseManager:
         ] = {}
 
         # Ensure parent directory exists
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Set up logging
         self.logger = get_logger(__name__)
 
         # Initialize database
-        self._init_database()
+        if not read_only:
+            self._init_database()
         self.storage_mode = self._read_storage_mode()
         if self.storage_mode in {"shadow", "v2", "finalized"}:
             self._checkpointed_store = CheckpointedStateStore(
-                self.db_path, initialize=False
+                self.db_path, initialize=False, read_only=read_only
             )
 
     def _sanitize_semester_name(self, semester: str) -> str:
@@ -99,9 +108,15 @@ class DatabaseManager:
         """
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            conn = sqlite3.connect(
+                f"file:{self.db_path}?mode=ro" if self._read_only else self.db_path,
+                timeout=5.0,
+                uri=self._read_only,
+            )
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("PRAGMA busy_timeout = 5000")
+            if self._read_only:
+                conn.execute("PRAGMA query_only = ON")
             conn.row_factory = sqlite3.Row  # Enable column access by name
             yield conn
         except sqlite3.Error as e:
@@ -357,7 +372,7 @@ class DatabaseManager:
     def _get_checkpointed_store(self) -> CheckpointedStateStore:
         if self._checkpointed_store is None:
             self._checkpointed_store = CheckpointedStateStore(
-                self.db_path, initialize=False
+                self.db_path, initialize=False, read_only=self._read_only
             )
         return self._checkpointed_store
 
@@ -1452,6 +1467,19 @@ class DatabaseManager:
             return DatabaseManager(semester=semester)
 
     @staticmethod
+    def create_read_only_for_semester(
+        semester: str, data_dir: str | None = None
+    ) -> "DatabaseManager":
+        """Open an existing semester database with SQLite write protection."""
+        if data_dir:
+            safe_semester = DatabaseManager._sanitize_semester_name_static(semester)
+            db_path = Path(data_dir) / f"enrollment_{safe_semester}.db"
+            return DatabaseManager(
+                db_path=str(db_path), semester=semester, read_only=True
+            )
+        return DatabaseManager(semester=semester, read_only=True)
+
+    @staticmethod
     def _sanitize_semester_name_static(semester: str) -> str:
         """
         Static version of semester name sanitization.
@@ -1940,7 +1968,7 @@ class DatabaseManager:
         try:
             if self.storage_mode in {"v2", "finalized"}:
                 return CheckpointedStateStore(
-                    self.db_path, initialize=False
+                    self.db_path, initialize=False, read_only=self._read_only
                 ).get_snapshot_data(snapshot_id)
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -2064,7 +2092,7 @@ class DatabaseManager:
         try:
             if self.storage_mode in {"v2", "finalized"}:
                 return CheckpointedStateStore(
-                    self.db_path, initialize=False
+                    self.db_path, initialize=False, read_only=self._read_only
                 ).get_course_history(course_code, semester)
             with self.get_connection() as conn:
                 cursor = conn.cursor()

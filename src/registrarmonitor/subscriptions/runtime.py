@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sqlite3
 from collections import deque
 from collections.abc import Awaitable, Callable
 from time import monotonic
@@ -304,12 +305,12 @@ class SubscriptionBotRuntime:
 
     @staticmethod
     def _latest_snapshot_id(semester: str) -> int | None:
-        database = DatabaseManager.create_for_semester(semester)
+        database = DatabaseManager.create_read_only_for_semester(semester)
         return database.get_latest_snapshot_id()
 
     @staticmethod
     def _load_snapshot(semester: str, snapshot_id: int):
-        database = DatabaseManager.create_for_semester(semester)
+        database = DatabaseManager.create_read_only_for_semester(semester)
         return database.get_snapshot_data(snapshot_id)
 
     async def _delivery_loop(self) -> None:
@@ -318,7 +319,7 @@ class SubscriptionBotRuntime:
             self.store,
             None,
             self.application.bot,
-            reader_for_semester=DatabaseManager.create_for_semester,
+            reader_for_semester=DatabaseManager.create_read_only_for_semester,
             retry_base_seconds=bot_config.get("retry_base_seconds", 5),
             retry_max_seconds=bot_config.get("retry_max_seconds", 900),
             per_chat_interval=bot_config.get("per_chat_interval_seconds", 1),
@@ -346,8 +347,15 @@ class SubscriptionBotRuntime:
     def _recover_pending_batches(self) -> None:
         semesters = {batch.semester for batch in self.store.list_pending_batches()}
         for semester in semesters:
-            database = DatabaseManager.create_for_semester(semester)
-            ReportPublication(self.store, database).recover(semester=semester)
+            try:
+                database = DatabaseManager.create_read_only_for_semester(semester)
+                ReportPublication(self.store, database).recover(semester=semester)
+            except sqlite3.OperationalError as error:
+                if "locked" not in str(error).lower():
+                    raise
+                logger.warning(
+                    "Enrollment database is busy; pending batch recovery deferred"
+                )
 
     async def _chat_member(self, update: Update, _context) -> None:
         change = update.my_chat_member

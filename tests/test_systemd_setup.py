@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 SETUP_SCRIPT = Path(__file__).parent.parent / "scripts" / "setup_vps.sh"
+WATCHDOG_SCRIPT = Path(__file__).parent.parent / "scripts" / "network_watchdog.sh"
 
 
 def test_vps_setup_keeps_canonical_service_paused():
@@ -35,3 +36,12 @@ def test_vps_setup_keeps_canonical_service_paused():
     assert "did not change any service's installed or active state" in script
     assert "operator-authorized" in script
     assert "scripts/runtime_doctor.sh" in script
+
+
+def test_network_watchdog_confirms_failure_and_bounds_network_restart():
+    script = WATCHDOG_SCRIPT.read_text(encoding="utf-8")
+
+    assert script.count("metadata_is_reachable") >= 3
+    assert "sleep 2" in script
+    assert "timeout --signal=TERM --kill-after=2s 10s" in script
+    assert "systemctl restart systemd-networkd.service" in script
