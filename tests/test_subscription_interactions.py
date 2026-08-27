@@ -268,7 +268,7 @@ async def test_section_watches_are_compact_and_apply_together(interaction):
     ].inline_keyboard
     assert [button.text for button in keyboard[1]] == ["10L selected", "11L"]
     assert keyboard[-2][0].text == "Review changes"
-    assert keyboard[-1][0].url.endswith("/courses/spring-2024/cs-101/")
+    assert keyboard[-1][0].url == COURSE_SHARE_URL
 
     apply_update = make_update(callback_data=f"apply:{encode_target(course)}")
     await bot.callback(apply_update, context)
@@ -465,21 +465,48 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
 
 
 @pytest.mark.asyncio
-async def test_exact_watch_waits_for_a_published_preview(interaction):
+async def test_exact_watch_saves_without_an_unpublished_preview(interaction):
     bot, store = interaction
     bot._course_share_url = lambda _semester, _course: None
     update = make_update()
 
     await bot.watch(update, make_context("CS", "101"))
 
-    assert store.list_subscriptions(41) == []
-    assert (
-        "preview is still publishing"
-        in (update.effective_message.reply_text.await_args.args[0])
-    )
+    assert store.list_subscriptions(41) == [SubscriptionTarget("Spring 2024", "CS 101")]
+    text = update.effective_message.reply_text.await_args.args[0]
+    assert "Watching" in text
+    assert "href=" not in text
     assert "link_preview_options" not in (
         update.effective_message.reply_text.await_args.kwargs
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", [COURSE_SHARE_URL, None])
+async def test_course_text_and_preview_button_share_one_published_identity(
+    interaction, url
+):
+    bot, _store = interaction
+    provider = Mock(side_effect=[url])
+    bot._course_share_url = provider
+    target = SubscriptionTarget("Spring 2024", "CS 101")
+    update = make_update(callback_data=f"sections:{encode_target(target)}")
+    await bot.callback(update, make_context())
+    reply = update.callback_query.edit_message_text.await_args
+    links = [
+        button.url
+        for row in reply.kwargs["reply_markup"].inline_keyboard
+        for button in row
+        if button.url
+    ]
+    assert links == ([url] if url else [])
+    assert (f'href="{url}"' in reply.args[0]) if url else ("href=" not in reply.args[0])
+    provider.assert_called_once_with("Spring 2024", "CS 101")
+    assert "Review changes" in [
+        button.text
+        for row in reply.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
 
 
 @pytest.mark.asyncio

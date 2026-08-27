@@ -3,6 +3,7 @@
  */
 
 import './style.css';
+import { searchCourses } from './courseSearch.mjs';
 import {
     OBSERVATION_STEP_MODE,
     buildChartPresentation,
@@ -1161,7 +1162,8 @@ function renderJumpToNavigation(sortedDepts) {
     const hasDepartments = sortedDepts.length > 0;
     if (count) count.textContent = hasDepartments ? String(sortedDepts.length) : '';
     if (toggle) {
-        toggle.hidden = !hasDepartments;
+        toggle.hidden = false;
+        toggle.disabled = !hasDepartments;
         if (!hasDepartments) toggle.setAttribute('aria-expanded', 'false');
     }
     const panel = document.getElementById('departmentPanel');
@@ -1255,6 +1257,11 @@ function renderCourseGrid() {
             fillSpan.className = 'course-fill';
             fillSpan.textContent = publicState.readout;
             cell.appendChild(fillSpan);
+            const reason = document.createElement('span');
+            reason.className = 'search-reason';
+            reason.id = `search-reason-${totalCourses}`;
+            reason.hidden = true;
+            cell.appendChild(reason);
             cell.onclick = () => openCourse(course.code);
             grid.appendChild(cell);
         }
@@ -3016,15 +3023,31 @@ function hideTimeoutWarning() {
 function applyFilters() {
     const searchQuery = searchInput?.value.toLowerCase().trim() || '';
     const electiveCategory = electiveFilter?.value || 'all';
+    document.querySelectorAll('.catalog-select').forEach(field => {
+        field.querySelector('.catalog-select-label').textContent = field.querySelector('select').selectedOptions[0].textContent;
+    });
+    const results = searchQuery
+        ? searchCourses([...summaryCourses].map(([code, course]) => ({ code, title: course.ti, instructors: course.instructors })), searchQuery)
+        : [];
+    const matches = new Map(results.map(result => [result.code, result]));
+    sortCourseGrid(searchQuery ? new Map(results.map((result, index) => [result.code, index])) : null);
+    document.getElementById('courseGrid')?.classList.toggle('search-active', Boolean(searchQuery));
     const cells = document.querySelectorAll('.course-cell');
 
     let visibleCount = 0;
     cells.forEach(cell => {
-        const code = cell.getAttribute('data-course').toLowerCase();
+        const code = cell.dataset.course;
         const status = cell.dataset.status;
         const isStarred = cell.classList.contains('starred');
 
-        const matchesSearch = !searchQuery || code.includes(searchQuery);
+        const match = matches.get(code);
+        const matchesSearch = !searchQuery || Boolean(match);
+        const reason = cell.querySelector('.search-reason');
+        reason.textContent = match?.reason || '';
+        reason.hidden = !searchQuery;
+        reason.title = reason.textContent;
+        if (match?.reason) cell.setAttribute('aria-describedby', reason.id);
+        else cell.removeAttribute('aria-describedby');
         const matchesFilter = currentFilter === 'all' ||
             (currentFilter === 'starred' && isStarred) ||
             status === currentFilter;
@@ -3037,7 +3060,10 @@ function applyFilters() {
 
     const announcement = document.getElementById('searchAnnouncement');
     if (announcement) {
-        announcement.textContent = `Showing ${visibleCount} courses`;
+        announcement.textContent = searchQuery
+            ? `${visibleCount} ${visibleCount === 1 ? 'result' : 'results'} · Sorted by relevance`
+            : `Showing ${visibleCount} courses`;
+        announcement.classList.toggle('visually-hidden', !searchQuery);
     }
 
     // Update department headers
@@ -3058,7 +3084,7 @@ function applyFilters() {
         .filter(cell => !cell.classList.contains('hidden'))
         .map(cell => cell.dataset.course.split(' ')[0]))]
         .sort();
-    renderJumpToNavigation(sortBy === 'department' ? visibleDepartments : []);
+    renderJumpToNavigation(!searchQuery && sortBy === 'department' ? visibleDepartments : []);
 
     // Show empty state if no courses are visible (and we have cells to filter)
     if (cells.length > 0 && visibleCount === 0) {
@@ -3099,8 +3125,8 @@ electiveFilter?.addEventListener('change', applyFilters);
 // Sort Functionality (UX Enhancement)
 // ============================================
 
-document.getElementById('sortSelect')?.addEventListener('change', (e) => {
-    const sortBy = e.target.value;
+function sortCourseGrid(searchRanks) {
+    const sortBy = searchRanks ? 'relevance' : document.getElementById('sortSelect')?.value;
     const grid = document.getElementById('courseGrid');
     const cells = [...grid.querySelectorAll('.course-cell')];
     const headers = [...grid.querySelectorAll('.dept-header')];
@@ -3119,9 +3145,10 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
         const deptB = codeB.split(' ')[0];
 
         switch (sortBy) {
+            case 'relevance': return (searchRanks.get(codeA) ?? Infinity) - (searchRanks.get(codeB) ?? Infinity);
             case 'code': return codeA.localeCompare(codeB);
-            case 'fill-desc': return fillB - fillA;
-            case 'fill-asc': return fillA - fillB;
+            case 'fill-desc': return fillB - fillA || codeA.localeCompare(codeB);
+            case 'fill-asc': return fillA - fillB || codeA.localeCompare(codeB);
             default: return deptA.localeCompare(deptB) || codeA.localeCompare(codeB);
         }
     });
@@ -3158,8 +3185,9 @@ document.getElementById('sortSelect')?.addEventListener('change', (e) => {
         cells.forEach(c => grid.appendChild(c));
         document.getElementById('jumpToNav').textContent = '';
     }
-    applyFilters();
-});
+}
+
+document.getElementById('sortSelect')?.addEventListener('change', applyFilters);
 
 // ============================================
 // Bookmarks/Favorites (UX Enhancement)

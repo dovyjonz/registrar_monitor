@@ -243,7 +243,21 @@ def _canonical_json(value: object) -> bytes:
 
 
 def test_v3_builder_emits_small_summary_and_local_department_histories() -> None:
-    summary, departments = _build_v3(_v3_data())
+    data = _v3_data()
+    sections = data["courses"]["CSCI 101"]["sections"]
+    sections["2L"] = {**sections["1L"], "instructor": "A. Instructor"}
+    data["courses"]["CSCI 101"]["events"].append(
+        {
+            "eventType": "instructor_changed",
+            "sectionCode": "1L",
+            "oldValue": "Former Teacher",
+            "newValue": "A. Instructor",
+            "snapshotIdx": 2,
+        }
+    )
+    summary, departments = _build_v3(data)
+    assert summary["courses"]["CSCI 101"]["title"] == "Computer Science"
+    assert summary["courses"]["CSCI 101"]["instructors"] == ["A. Instructor"]
 
     assert summary["schemaVersion"] == 1
     assert summary["kind"] == "semester-summary"

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..availability import calculate_availability
+from ..data.instructor_normalization import clean_instructor_text, instructor_identity
 
 PublicationHook = Callable[[str, str], None]
 
@@ -604,6 +605,11 @@ def _validate_summary_v3(summary: dict[str, Any], semester: str) -> None:
             )
         _text(course["department"], f"summary.courses.{code}.department")
         _text(course["title"], f"summary.courses.{code}.title")
+        if "instructors" in course:
+            for name in _list(
+                course["instructors"], f"summary.courses.{code}.instructors"
+            ):
+                _text(name, f"summary.courses.{code}.instructors[]")
         _number(course["averageFill"], f"summary.courses.{code}.averageFill")
         if not isinstance(course["isFilled"], bool):
             raise TypeError(f"summary.courses.{code}.isFilled must be a boolean")
@@ -798,10 +804,18 @@ def build_frontend_payloads_v3(
         department_payload["timestamps"].extend(timestamps)
 
         sections = course_payload["sections"]
+        instructors = {
+            instructor_identity(section["instructor"]): clean_instructor_text(
+                section["instructor"]
+            )
+            for section in sections.values()
+            if instructor_identity(section["instructor"])
+        }
         summary_courses[code] = {
             "code": code,
             "department": department,
             "title": course_payload["title"],
+            "instructors": sorted(instructors.values(), key=str.casefold),
             "averageFill": course_payload["averageFill"],
             "isFilled": course_payload["isFilled"],
             "sectionCount": len(sections),

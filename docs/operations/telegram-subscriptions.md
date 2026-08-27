@@ -38,9 +38,9 @@ discovery and details use the same top-aligned previews so loading a card does n
 push the surrounding text downward. Already-saved confirmations, imports, and
 personal digests stay compact and do not repeat rich previews. This keeps the
 preview in user-requested course contexts without adding a card to every
-enrollment-change message. A new exact watch is saved only after its current
-published preview checksum is available; a publication gap asks the user to retry
-instead of sending a stale or unversioned card.
+enrollment-change message. All live course links resolve through the published state-addressed URL provider.
+A publication gap omits the website link and preview button while preserving
+the watch or course interaction. Text and buttons share the same resolved URL.
 
 Website bookmark import is deliberately independent of any bot username. Each
 visitor's bookmarks remain in that browser. The dashboard copies a portable

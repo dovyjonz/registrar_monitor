@@ -26,7 +26,6 @@ from telegram.helpers import escape_markdown
 
 from ..data.snapshot_comparator import SnapshotComparator
 from ..utils import get_section_sort_key
-from ..website.config import BASE_URL, course_to_slug, semester_to_slug
 from ..website.share import published_course_share_url
 from .catalog import SubscriptionCatalog
 from .formatting import render_personal_digest
@@ -112,8 +111,11 @@ class SubscriptionInteractions:
             course = catalog.course(target.course_code)
             if course is None:
                 return
+            share_url = self._course_share_url(
+                catalog.snapshot.semester, course.course_code
+            )
             await message.reply_text(
-                f"{self._course_text(catalog.snapshot.semester, course, catalog.snapshot.timestamp, section_code=target.section_code)}\n\n"
+                f"{self._course_text(catalog.snapshot.semester, course, catalog.snapshot.timestamp, share_url=share_url, section_code=target.section_code)}\n\n"
                 f"Watch <code>{escape(self._target_label(target))}</code>?",
                 parse_mode=ParseMode.HTML,
                 link_preview_options=self._link_preview_options(),
@@ -468,12 +470,6 @@ class SubscriptionInteractions:
                     catalog.snapshot.semester,
                     exact_target.course_code,
                 )
-                if share_url is None:
-                    await send(
-                        "The course preview is still publishing. Try this watch again shortly.",
-                        reply_markup=self._add_watch_keyboard(),
-                    )
-                    return
             changed = await asyncio.to_thread(
                 self.store.add_watch, user_id, exact_target
             )
@@ -490,7 +486,7 @@ class SubscriptionInteractions:
                     f"Watching <code>{escape(self._target_label(exact_target))}</code>."
                 )
                 if share_url is not None:
-                    message += f'\n\n<a href="{share_url}">View on the website</a>'
+                    message += f'\n\n<a href="{escape(share_url, quote=True)}">View on the website</a>'
             await send(
                 message,
                 parse_mode=ParseMode.HTML,
@@ -594,14 +590,24 @@ class SubscriptionInteractions:
         selected = set() if target in watched else self._section_codes(watched, target)
         self._save_section_selection(user_data, target, selected)
         self._save_current_course(user_data, target, page)
+        share_url = self._course_share_url(target.semester, course.course_code)
         await send(
             self._course_text(
-                target.semester, course, catalog.snapshot.timestamp, page=page
+                target.semester,
+                course,
+                catalog.snapshot.timestamp,
+                share_url=share_url,
+                page=page,
             ),
             parse_mode=ParseMode.HTML,
             link_preview_options=self._link_preview_options(),
             reply_markup=self._course_keyboard(
-                target.semester, course, watched, selected, page=page
+                target.semester,
+                course,
+                watched,
+                selected,
+                share_url=share_url,
+                page=page,
             ),
         )
 
@@ -658,6 +664,7 @@ class SubscriptionInteractions:
             if target.is_course
             else f"Section <code>{escape(target.section_code)}</code>"
         )
+        share_url = self._course_share_url(target.semester, course.course_code)
         text = (
             "<b>Watch details</b>\n\n"
             f"<b>Current scope:</b> {scope}\n\n"
@@ -665,6 +672,7 @@ class SubscriptionInteractions:
                 target.semester,
                 course,
                 catalog.snapshot.timestamp,
+                share_url=share_url,
                 section_code=target.section_code,
             )
         )
@@ -711,8 +719,11 @@ class SubscriptionInteractions:
         selected = set() if target in watched else self._section_codes(watched, target)
         self._save_section_selection(user_data, target, selected)
         self._save_current_course(user_data, target, 0)
+        share_url = self._course_share_url(target.semester, course.course_code)
         await edit(
-            self._course_text(target.semester, course, catalog.snapshot.timestamp),
+            self._course_text(
+                target.semester, course, catalog.snapshot.timestamp, share_url=share_url
+            ),
             parse_mode=ParseMode.HTML,
             link_preview_options=self._link_preview_options(),
             reply_markup=self._course_keyboard(
@@ -720,6 +731,7 @@ class SubscriptionInteractions:
                 course,
                 watched,
                 selected,
+                share_url=share_url,
                 editing_sections=True,
             ),
         )
@@ -751,9 +763,14 @@ class SubscriptionInteractions:
             selected.add(target.section_code)
         self._save_section_selection(user_data, course_target, selected)
         page = self._current_section_page(user_data)
+        share_url = self._course_share_url(target.semester, course.course_code)
         await edit(
             self._course_text(
-                target.semester, course, catalog.snapshot.timestamp, page=page
+                target.semester,
+                course,
+                catalog.snapshot.timestamp,
+                share_url=share_url,
+                page=page,
             ),
             parse_mode=ParseMode.HTML,
             link_preview_options=self._link_preview_options(),
@@ -762,6 +779,7 @@ class SubscriptionInteractions:
                 course,
                 set(await asyncio.to_thread(self.store.list_subscriptions, user_id)),
                 selected,
+                share_url=share_url,
                 page=page,
                 editing_sections=True,
             ),
@@ -948,9 +966,14 @@ class SubscriptionInteractions:
             )
             page = min(page, page_count - 1)
             self._save_current_course(user_data, target, page)
+            share_url = self._course_share_url(target.semester, course.course_code)
             await edit(
                 self._course_text(
-                    target.semester, course, catalog.snapshot.timestamp, page=page
+                    target.semester,
+                    course,
+                    catalog.snapshot.timestamp,
+                    share_url=share_url,
+                    page=page,
                 ),
                 parse_mode=ParseMode.HTML,
                 link_preview_options=self._link_preview_options(),
@@ -961,6 +984,7 @@ class SubscriptionInteractions:
                         await asyncio.to_thread(self.store.list_subscriptions, user_id)
                     ),
                     selected,
+                    share_url=share_url,
                     page=page,
                     editing_sections=True,
                 ),
@@ -1351,6 +1375,7 @@ class SubscriptionInteractions:
         *,
         page: int = 0,
         editing_sections: bool = False,
+        share_url: str | None,
     ) -> InlineKeyboardMarkup:
         course_target = SubscriptionTarget(semester, course.course_code)
         course_watched = course_target in watched
@@ -1369,9 +1394,10 @@ class SubscriptionInteractions:
             )
             rows.append(
                 [
-                    InlineKeyboardButton(
-                        "Website preview",
-                        url=self._course_url(semester, course.course_code),
+                    *(
+                        [InlineKeyboardButton("Website preview", url=share_url)]
+                        if share_url
+                        else []
                     ),
                     InlineKeyboardButton("Cancel", callback_data="subs:0"),
                 ]
@@ -1437,9 +1463,10 @@ class SubscriptionInteractions:
         )
         rows.append(
             [
-                InlineKeyboardButton(
-                    "Website preview",
-                    url=self._course_url(semester, course.course_code),
+                *(
+                    [InlineKeyboardButton("Website preview", url=share_url)]
+                    if share_url
+                    else []
                 ),
                 InlineKeyboardButton("Cancel", callback_data="subs:0"),
             ]
@@ -1487,6 +1514,7 @@ class SubscriptionInteractions:
         *,
         section_code: str = "",
         page: int = 0,
+        share_url: str | None,
     ) -> str:
         title = f" - {escape(course.course_title)}" if course.course_title else ""
         lines = [
@@ -1527,12 +1555,13 @@ class SubscriptionInteractions:
                 for section in group
             )
             lines.extend(["", f"<b>{escape(label)}</b>", f"<pre>{escape(rows)}</pre>"])
-        lines.extend(
-            [
-                "",
-                f'<a href="{SubscriptionInteractions._course_url(semester, course.course_code)}">View on the website</a>',
-            ]
-        )
+        if share_url:
+            lines.extend(
+                [
+                    "",
+                    f'<a href="{escape(share_url, quote=True)}">View on the website</a>',
+                ]
+            )
         return "\n".join(lines)
 
     @staticmethod
@@ -1618,13 +1647,6 @@ class SubscriptionInteractions:
             return max(0, int(user_data.get("section_page", 0)))
         except (TypeError, ValueError):
             return 0
-
-    @staticmethod
-    def _course_url(semester: str, course_code: str) -> str:
-        return (
-            f"{BASE_URL}/courses/{semester_to_slug(semester)}/"
-            f"{course_to_slug(course_code)}/"
-        )
 
     @staticmethod
     def _link_preview_options() -> LinkPreviewOptions:

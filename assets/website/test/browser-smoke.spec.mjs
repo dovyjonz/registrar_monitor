@@ -250,7 +250,7 @@ test('generated production site serves a working semester dashboard', async ({ p
     await page.locator('.filter-btn[data-filter="starred"]').click();
     await expect(page.locator('.empty-state')).toContainText('No bookmarked courses yet');
     await expect(page.locator('#jumpToNav a')).toHaveCount(0);
-    await expect(departmentToggle).toBeHidden();
+    await expect(departmentToggle).toBeDisabled();
 
     await page.locator('.filter-btn[data-filter="all"]').click();
     await page.locator('.course-cell').first().click();
@@ -336,6 +336,41 @@ test('explicit Share copies the same current state identity as the visible live 
     await context.close();
 });
 
+test('catalog search explains title and instructor results and restores normal sort', async ({ page }) => {
+    const requested = [];
+    page.on('request', request => requested.push(new URL(request.url()).pathname));
+    await page.goto('/semesters/fall-2026/');
+    const cells = page.locator('.course-cell:not(.hidden)');
+    const search = page.getByRole('searchbox', { name: 'Search courses', exact: true });
+    await expect(cells.first()).toBeVisible();
+    await page.locator('#sortSelect').selectOption('fill-desc');
+    const normalOrder = await cells.evaluateAll(items => items.map(item => item.dataset.course));
+    const beforeSearch = [...requested];
+    await search.fill('test instructor');
+    await expect(page.locator('#searchAnnouncement')).toContainText('Sorted by relevance');
+    const codes = await cells.evaluateAll(items => items.map(item => item.dataset.course));
+    expect(codes.length).toBeGreaterThan(1);
+    expect(codes).toEqual([...codes].sort());
+    await expect(cells.first().locator('.search-reason')).toHaveText('Prof. Test Instructor');
+    expect(new Set(await cells.evaluateAll(items => items.map(item => Math.round(item.getBoundingClientRect().height))))).toEqual(new Set([76]));
+    await page.locator('#electiveFilter').selectOption('humanities');
+    await expect(page.locator('[data-course="LING 131"]')).toBeVisible();
+    await page.locator('.filter-btn[data-filter="open"]').click();
+    expect(await cells.evaluateAll(items => items.every(item => item.dataset.status === 'open'))).toBe(true);
+    await page.locator('.filter-btn[data-filter="all"]').click();
+    await page.locator('#electiveFilter').selectOption('all');
+    await search.fill('ANT 101');
+    await expect(page.locator('.course-cell:visible')).toHaveCount(await cells.count());
+    await expect(cells.first()).toHaveAttribute('data-course', 'ANT 101');
+    await expect(cells.first().locator('.search-reason')).toBeEmpty();
+    await search.fill('anthropology');
+    await expect(cells.first().locator('.search-reason')).toContainText(/anthropology/i);
+    expect(requested.filter(path => !beforeSearch.includes(path))).toEqual([]);
+    await page.locator('#clearSearch').click();
+    expect(await cells.evaluateAll(items => items.map(item => item.dataset.course))).toEqual(normalOrder);
+    await expect(page.locator('#courseGrid')).not.toHaveClass(/search-active/);
+});
+
 test('elective filters compose and either-category courses appear in both groups', async ({ page }) => {
     const response = await page.goto('/semesters/fall-2026/');
     expect(response?.ok()).toBe(true);
@@ -413,7 +448,7 @@ test('required-type-full courses use compact cards and an explained chart interv
     await expect(overCapacityCourse).toHaveAttribute('aria-label', 'ANT 111: 125% full');
 });
 
-test('desktop dashboard keeps search controls on one row', async ({ page }) => {
+test('desktop dashboard keeps primary controls stable above contextual export', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     const response = await page.goto('/semesters/fall-2026/');
     expect(response?.ok()).toBe(true);
@@ -426,8 +461,7 @@ test('desktop dashboard keeps search controls on one row', async ({ page }) => {
     const layout = await page.evaluate(() => {
         const selectors = [
             '.search-field',
-            '.filter-buttons',
-            '#telegramBookmarkImport',
+            '.filter-btn',
             '#electiveFilter',
             '#sortSelect',
             '#departmentToggle',
@@ -444,7 +478,7 @@ test('desktop dashboard keeps search controls on one row', async ({ page }) => {
         };
     });
 
-    expect(layout.rowHeight).toBe(44);
+    expect(layout.rowHeight).toBe(48);
     expect(layout.topRange).toBeLessThan(1);
     expect(layout.bottomRange).toBeLessThan(1);
 });
@@ -485,15 +519,13 @@ test('mobile dashboard keeps stats, timeline, and controls precisely aligned', a
             document.querySelector('#electiveFilter'),
             document.querySelector('#sortSelect'),
             departmentToggle,
-            document.querySelector('.course-cell'),
-            document.querySelector('.milestone-details summary'),
         ];
         return {
             controlsAligned: toolbarControls.every(control => (
                 Math.abs(control.getBoundingClientRect().height - 44) < 1
             )),
-            controlsMove: feedbackControls.every(control => (
-                getComputedStyle(control).transitionProperty.includes('transform')
+            controlsStayStill: feedbackControls.every(control => (
+                !getComputedStyle(control).transitionProperty.includes('transform')
             )),
             departmentFontMatches: getComputedStyle(departmentToggle).fontSize
                 === getComputedStyle(departmentCount).fontSize,
@@ -512,12 +544,31 @@ test('mobile dashboard keeps stats, timeline, and controls precisely aligned', a
 
     expect(layout).toEqual({
         controlsAligned: true,
-        controlsMove: true,
+        controlsStayStill: true,
         departmentFontMatches: true,
         labelsContained: true,
         statsAligned: true,
         timelineAligned: true,
     });
+
+    const primaryGeometry = () => page.locator('.controls-row').evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        return [...element.querySelectorAll('input, button, select')].map(control => {
+            const rect = control.getBoundingClientRect();
+            return [rect.x - bounds.x, rect.y - bounds.y, rect.width, rect.height];
+        });
+    });
+    const beforeExport = await primaryGeometry();
+    await page.locator('.course-cell').first().click();
+    await page.locator('#modalBookmark').click();
+    await page.locator('#modalCloseBtn').click();
+    expect(await primaryGeometry()).toEqual(beforeExport);
+    expect(await page.locator('#telegramBookmarkImport').evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        const primary = document.querySelector('.controls-row').getBoundingClientRect();
+        return rect.top >= primary.bottom && Math.abs(rect.width - primary.width) < 1;
+    })).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
     await page.locator('#departmentToggle').click();
     await page.locator('#departmentSearch').fill('math');
@@ -1235,11 +1286,16 @@ test('historical comparison reports no history instead of remaining in a fetchin
     const toggle = page.locator('#historicalComparisonToggle');
     await expect(controls).toHaveAttribute('data-state', 'idle');
 
+    const initialBounds = await toggle.boundingBox();
+    expect(await page.locator('.chart-toolbar button').evaluateAll(buttons => buttons.every(button => (
+        !getComputedStyle(button).transitionProperty.includes('transform')
+    )))).toBe(true);
     await toggle.click();
 
     await expect(controls).toHaveAttribute('data-state', 'unavailable');
     await expect(toggle).toHaveText('No history');
     await expect(toggle).toBeDisabled();
+    expect(await toggle.boundingBox()).toEqual(initialBounds);
 });
 
 test('professor history reports no history when the course is absent from earlier semesters', async ({ page }) => {
@@ -1362,6 +1418,21 @@ test('full course styling and mobile selects preserve semantic and accessible si
         expect(metrics.height).toBeGreaterThanOrEqual(44);
         expect(metrics.fontSize).toBeLessThanOrEqual(16);
     }
+    for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.locator('#electiveFilter').selectOption('natural-science');
+        await page.locator('#sortSelect').selectOption('fill-asc');
+        const labels = await page.locator('.catalog-select-label').evaluateAll(elements => elements.map(element => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const text = range.getBoundingClientRect();
+            const box = element.parentElement.getBoundingClientRect();
+            return {font: parseFloat(getComputedStyle(element).fontSize), fits: text.left >= box.left && text.right <= box.right && text.top >= box.top && text.bottom <= box.bottom};
+        }));
+        expect(labels.every(label => label.font <= 12 && label.fits)).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+
 });
 
 test('selecting a section switches to professor comparison and deselecting returns to course mode', async ({ page }) => {

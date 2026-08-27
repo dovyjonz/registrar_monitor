@@ -47,12 +47,11 @@
         <div class="controls-row">
             <div class="search-field">
                 <label for="courseSearch" class="visually-hidden">Search courses</label>
-                <input type="search" id="courseSearch" placeholder="Search courses..."
+                <input type="search" id="courseSearch" placeholder="Search courses…" aria-description="Search by course code, title, or professor"
                     class="search-input">
                 <button type="button" class="search-clear" id="clearSearch" aria-label="Clear search" title="Clear search" hidden>×</button>
                 <span class="search-hint" aria-hidden="true"><kbd>/</kbd></span>
             </div>
-            <span id="searchAnnouncement" aria-live="polite" class="visually-hidden"></span>
 
             <div class="filter-buttons" role="group" aria-label="Filter by status">
                 <button type="button" class="filter-btn active" data-filter="all" title="Show all courses" aria-pressed="true">All</button>
@@ -67,26 +66,27 @@
                 </button>
             </div>
 
-            <button type="button" class="telegram-import-btn" id="telegramBookmarkImport"
-                aria-label="Copy starred courses for the Telegram bot" hidden>
-                Copy for bot
-            </button>
-
             <label for="electiveFilter" class="visually-hidden">Filter by elective requirement</label>
-            <select id="electiveFilter" class="elective-select" title="Filter by elective requirement">
-                <option value="all">All courses</option>
-                <option value="social-science">Social Science electives</option>
-                <option value="natural-science">Natural Science electives</option>
-                <option value="humanities">Humanities electives</option>
-            </select>
+            <div class="catalog-select elective-field">
+                <select id="electiveFilter" class="elective-select" title="Filter by elective requirement">
+                    <option value="all">All courses</option>
+                    <option value="social-science">Social Science electives</option>
+                    <option value="natural-science">Natural Science electives</option>
+                    <option value="humanities">Humanities electives</option>
+                </select>
+                <span class="catalog-select-label" aria-hidden="true">All courses</span>
+            </div>
 
             <label for="sortSelect" class="visually-hidden">Sort courses</label>
-            <select id="sortSelect" class="sort-select" title="Sort courses by">
-                <option value="department">By Department</option>
-                <option value="code">By Code</option>
-                <option value="fill-desc">Fill % (High→Low)</option>
-                <option value="fill-asc">Fill % (Low→High)</option>
-            </select>
+            <div class="catalog-select">
+                <select id="sortSelect" class="sort-select" title="Sort courses by">
+                    <option value="department">By department</option>
+                    <option value="code">By code</option>
+                    <option value="fill-desc">Most full first</option>
+                    <option value="fill-asc">Least full first</option>
+                </select>
+                <span class="catalog-select-label" aria-hidden="true">By department</span>
+            </div>
             <button type="button" class="department-toggle" id="departmentToggle"
                 aria-controls="departmentPanel" aria-expanded="false" hidden>
                 Departments <span id="departmentCount"></span>
@@ -95,6 +95,13 @@
                 </svg>
             </button>
         </div>
+
+        <button type="button" class="telegram-import-btn" id="telegramBookmarkImport"
+            aria-label="Copy starred courses for the Telegram bot" hidden>
+            Copy for bot
+        </button>
+
+        <p id="searchAnnouncement" aria-live="polite" class="visually-hidden"></p>
 
         <p class="elective-disclaimer">
             Double-check the electives against your degree requirements (handbooks).

@@ -180,6 +180,11 @@ function validateSummaryCourse(code, courseValue, context) {
     }
     requireString(course.department, `${context}.department`);
     requireText(course.title, `${context}.title`);
+    if (course.instructors !== undefined) {
+        for (const name of requireArray(course.instructors, `${context}.instructors`)) {
+            requireText(name, `${context}.instructors[]`);
+        }
+    }
     requireFiniteNumber(course.averageFill, `${context}.averageFill`);
     if (typeof course.isFilled !== 'boolean') {
         throw new Error(`${context}.isFilled must be a boolean`);
@@ -389,6 +394,7 @@ function adaptV3Summary(payload, semester) {
                 code,
                 d: course.department,
                 ti: course.title,
+                instructors: course.instructors ?? [],
                 af: course.averageFill,
                 if: course.isFilled,
                 s: {},

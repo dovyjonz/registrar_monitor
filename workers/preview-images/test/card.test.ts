@@ -293,6 +293,25 @@ describe('preview card', () => {
     expect(lineEnd).toBeLessThan(milestonePositions[1]);
   });
 
+  it.each([[20, 30, 40], [20, 30, 30]])('marks every capacity change and bounds the latest label: %j', (...capacities) => {
+    const html = renderCard({
+      schemaVersion: 1, kind: 'course', hash: 'obLD1OX2',
+      semester: 'Fall 2026', semesterSlug: 'fall-2026',
+      timestamps: ['2026-08-01T09:00:00Z', '2026-08-01T09:01:00Z', '2026-08-10T09:00:00Z'],
+      course: { sections: { '1L': { type: 'L' } }, sectionHistory: {
+        '1L': capacities.map((capacity, timestampIdx) => ({ timestampIdx, capacity, enrollment: 10, fill: 10 / capacity })),
+      } },
+    });
+    expect(html.match(/class="capacity-change-marker"/g)).toHaveLength(capacities[2] === 40 ? 2 : 1);
+    expect(html.match(/class="capacity-change-label"/g)).toHaveLength(1);
+    const label = html.match(/class="capacity-change-label" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)"/)!;
+    expect(Number(label[1])).toBeGreaterThanOrEqual(40);
+    expect(Number(label[1]) + Number(label[3])).toBeLessThanOrEqual(1080);
+    expect(Number(label[2])).toBeGreaterThanOrEqual(38);
+    expect(html).toContain('class="enrollment-series"');
+    expect(html).toContain('class="capacity-series"');
+  });
+
   it('renders observed capacity as a dashed step series with one change annotation', () => {
     const html = renderCard({
       schemaVersion: 1,
@@ -317,7 +336,10 @@ describe('preview card', () => {
 
     expect(html).toContain('class="capacity-series"');
     expect(html).toContain('stroke-dasharray:9 7');
-    expect(html).toContain('CAPACITY CHANGED');
+    expect(html).not.toContain('CAPACITY CHANGED');
+    expect(html).toContain('CAP 20→10');
+    expect(html).toMatch(/class="capacity-change-marker"[^>]+r="10" style="fill:none;stroke:hsl\(177 65% 68%\)"/);
+    expect(html.match(/class="capacity-change-marker"/g)).toHaveLength(1);
     expect(html).toContain('Lecture section 1L, milestone view');
   });
 

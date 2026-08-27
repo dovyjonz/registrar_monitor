@@ -239,12 +239,12 @@ function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
         if (!isSectionActiveAtSnapshot(activity, sectionCode, snapshotIdx)) return [];
         const state = getSectionStateAtSnapshot(section, snapshotIdx);
         const openingCapacity = getOpeningCapacity(section);
-        if (!state || !openingCapacity) return [];
+        if (!state) return [];
         return [{
-            sectionType: section.t || section.type || 'Other',
+            sectionType: getSectionTypeName(section.t || section.type || 'Other'),
             enrollment: state.e,
             capacity: state.c,
-            openingCapacity,
+            openingCapacity: openingCapacity ?? 0,
         }];
     });
     if (levels.length === 0) return null;
@@ -255,28 +255,30 @@ function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
             enrollment: 0,
             capacity: 0,
             openingCapacity: 0,
+            available: 0,
         };
+        totals.available += Math.max(level.capacity - level.enrollment, 0);
         totals.enrollment += level.enrollment;
         totals.capacity += level.capacity;
         totals.openingCapacity += level.openingCapacity;
         totalsByType.set(level.sectionType, totals);
     }
     const orderedTypes = [...totalsByType.values()].sort((first, second) => {
-        const firstAvailable = Math.max(first.capacity - first.enrollment, 0);
-        const secondAvailable = Math.max(second.capacity - second.enrollment, 0);
-        return firstAvailable - secondAvailable
+        return first.available - second.available
             || first.sectionType.localeCompare(second.sectionType);
     });
     const limitingType = orderedTypes[0];
-    const available = Math.max(limitingType.capacity - limitingType.enrollment, 0);
+    const available = limitingType.available;
     const limitingTypes = orderedTypes
-        .filter(item => Math.max(item.capacity - item.enrollment, 0) === available)
+        .filter(item => item.available === available)
         .map(item => getSectionTypeName(item.sectionType));
     return {
         enrollment: limitingType.enrollment,
         capacity: limitingType.capacity,
-        enrollmentLevel: (limitingType.enrollment / limitingType.openingCapacity) * 100,
-        capacityLevel: (limitingType.capacity / limitingType.openingCapacity) * 100,
+        enrollmentLevel: limitingType.openingCapacity > 0
+            ? (limitingType.enrollment / limitingType.openingCapacity) * 100 : 0,
+        capacityLevel: limitingType.openingCapacity > 0
+            ? (limitingType.capacity / limitingType.openingCapacity) * 100 : 0,
         registrationUnavailable: totalsByType.size > 1 && available === 0,
         limitingTypes,
     };

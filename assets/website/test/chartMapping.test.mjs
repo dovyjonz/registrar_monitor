@@ -456,6 +456,25 @@ test('course chart points mark intervals where a required section type is full',
     assert.deepEqual(points[1].limitingTypes, ['Lab']);
 });
 
+test('overfilled siblings cannot cancel registration places in another section', () => {
+    const snapshots = [{ ts: '2026-08-01T10:00:00Z' }];
+    const course = { ah: [{ i: 0, f: 1 }], s: {
+        L1: { t: 'L', h: [{ i: 0, e: 15, c: 10, f: 1.5 }] },
+        L2: { t: 'L', h: [{ i: 0, e: 5, c: 10, f: 0.5 }] },
+        B1: { t: 'B', h: [{ i: 0, e: 0, c: 10, f: 0 }] },
+    } };
+    const points = buildAverageChartPoints(course, snapshots);
+    assert.equal(points[0].registrationUnavailable, false);
+    assert.deepEqual(buildRegistrationUnavailableIntervals(points.map(p => ({ ...p, x: 0 })), 1), []);
+    delete course.s.L2;
+    assert.equal(buildAverageChartPoints(course, snapshots)[0].registrationUnavailable, true);
+    course.s.B1.h = [{ i: 0, e: 0, c: 0, f: 0 }];
+    course.s.L1.h = [{ i: 0, e: 5, c: 10, f: 0.5 }];
+    assert.equal(buildAverageChartPoints(course, snapshots)[0].registrationUnavailable, true);
+    delete course.s.B1;
+    assert.equal(buildAverageChartPoints(course, snapshots)[0].registrationUnavailable, false);
+});
+
 test('registration-unavailable intervals decorate observed state without changing points', () => {
     const points = [
         { x: 0, registrationUnavailable: false, sourceIndex: 0 },
