@@ -232,6 +232,7 @@ test('generated production site serves a working semester dashboard', async ({ p
     await expect(firstSection).toHaveAttribute('aria-pressed', 'true');
 
     await page.keyboard.press('Escape');
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/);
 
     const allFilter = page.locator('.filter-btn[data-filter="all"]');
     const openFilter = page.locator('.filter-btn[data-filter="open"]');
@@ -256,6 +257,7 @@ test('generated production site serves a working semester dashboard', async ({ p
     await page.locator('.course-cell').first().click();
     await page.locator('#modalBookmark').click();
     await page.keyboard.press('Escape');
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/);
     const telegramAction = page.locator('#telegramBookmarkImport');
     await expect(telegramAction).toBeVisible();
     await expect(telegramAction).toHaveText('Copy for bot');
@@ -434,6 +436,7 @@ test('required-type-full courses use compact cards and an explained chart interv
     );
 
     await page.locator('#modalCloseBtn').click();
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/);
     await page.locator('#courseSearch').fill('ANT 110');
     const ordinaryFullCourse = page.locator('.course-cell[data-course="ANT 110"]');
     await expect(ordinaryFullCourse.locator('.course-fill')).toHaveText('FULL');
@@ -442,6 +445,7 @@ test('required-type-full courses use compact cards and an explained chart interv
     await expect(page.locator('#registrationUnavailableGuide')).toBeHidden();
 
     await page.locator('#modalCloseBtn').click();
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/);
     await page.locator('#courseSearch').fill('ANT 111');
     const overCapacityCourse = page.locator('.course-cell[data-course="ANT 111"]');
     await expect(overCapacityCourse.locator('.course-fill')).toHaveText('125%');
@@ -456,6 +460,7 @@ test('desktop dashboard keeps primary controls stable above contextual export', 
     await page.locator('.course-cell').first().click();
     await page.locator('#modalBookmark').click();
     await page.keyboard.press('Escape');
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/);
     await expect(page.locator('#telegramBookmarkImport')).toBeVisible();
 
     const layout = await page.evaluate(() => {
@@ -562,6 +567,7 @@ test('mobile dashboard keeps stats, timeline, and controls precisely aligned', a
     await page.locator('.course-cell').first().click();
     await page.locator('#modalBookmark').click();
     await page.locator('#modalCloseBtn').click();
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/);
     expect(await primaryGeometry()).toEqual(beforeExport);
     expect(await page.locator('#telegramBookmarkImport').evaluate(element => {
         const rect = element.getBoundingClientRect();
@@ -796,6 +802,7 @@ test('historical course comparison is lazy, optional, aligned, and reset per mod
 
     await page.keyboard.press('Escape');
     await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/);
     await page.locator('.course-cell[data-course="MATH 161"]').click();
     await expect(page.locator('#historicalComparisonControls')).toHaveAttribute(
         'data-state',

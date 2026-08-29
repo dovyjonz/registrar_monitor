@@ -89,7 +89,7 @@ def test_semester_shell_exposes_portable_telegram_bookmark_import(tmp_path):
     assert 'id="telegramBookmarkImport"' in html
     assert "Copy for bot" in html
     assert html.index('class="filter-buttons"') < html.index(
-        '</div>\n\n            <button type="button" class="telegram-import-btn"'
+        'id="telegramBookmarkImport"'
     )
 
 

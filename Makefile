@@ -13,7 +13,7 @@ RUNTIME_ENV = PATH="$(PATH)"
 UV = $(RUNTIME_ENV) uv
 NPM = $(RUNTIME_ENV) npm
 
-.PHONY: help bootstrap doctor sync format format-check lint type test website-install website-lint website-test-unit website-build worker-install worker-check security check-fast check site-generate test-browser test-browser-webkit test-browser-stability site-smoke release-candidate baseline benchmark benchmark-database benchmark-website benchmark-browser benchmark-synthetic benchmark-record benchmark-record-deploy prototype-checkpointed-state prototype-checkpointed-state-targeted clean-generated
+.PHONY: help bootstrap doctor sync format format-check lint type test website-install website-lint website-test-unit website-build worker-install worker-check security check-fast check site-generate smoke-site-generate test-browser test-browser-webkit test-browser-stability site-smoke release-candidate baseline benchmark benchmark-database benchmark-website benchmark-browser benchmark-synthetic benchmark-record benchmark-record-deploy prototype-checkpointed-state prototype-checkpointed-state-targeted clean-generated
 
 PERF_COLD ?= 10
 PERF_WARM ?= 20
@@ -105,15 +105,18 @@ check: format-check lint type test website-lint website-test-unit website-build
 site-generate: website-build
 	$(UV) run monitor deploy --force
 
-test-browser: site-generate
+smoke-site-generate: website-build
+	$(UV) run python scripts/generate_smoke_site.py
+
+test-browser: smoke-site-generate
 	$(NPM) --prefix assets/website exec playwright install chromium
 	$(NPM) --prefix assets/website run test:e2e
 
-test-browser-webkit: site-generate
+test-browser-webkit: smoke-site-generate
 	$(NPM) --prefix assets/website exec playwright install webkit
 	$(NPM) --prefix assets/website run test:e2e:webkit
 
-test-browser-stability: site-generate
+test-browser-stability: smoke-site-generate
 	@for run in $$(seq 1 10); do \
 		echo "Browser stability run $$run/10"; \
 		$(NPM) --prefix assets/website run test:e2e:stability || exit $$?; \
