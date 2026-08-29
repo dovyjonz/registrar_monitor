@@ -1391,6 +1391,40 @@ test('chart drag ending on the backdrop does not dismiss or activate the page', 
     await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
 });
 
+test('course modal keeps the page stable until its close transition finishes', async ({ page }) => {
+    await page.goto('/semesters/fall-2026/');
+    const course = page.locator('.course-cell').first();
+    await course.click();
+    await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
+    const firstSection = page.locator('#sectionTypeSelector .section-item').first();
+    await expect(firstSection).toBeVisible();
+    const sectionText = await firstSection.textContent();
+
+    await page.evaluate(() => {
+        document.documentElement.style.setProperty('--transition-normal', '1s linear');
+    });
+    await page.locator('#modalCloseBtn').click();
+
+    await expect(page.locator('#modalOverlay')).not.toHaveClass(/active/);
+    await expect(firstSection).toHaveText(sectionText);
+    expect(await page.evaluate(() => ({
+        scrollLocked: document.documentElement.classList.contains('modal-open'),
+        mainInert: document.querySelector('#main-content')?.hasAttribute('inert'),
+        openerFocused: document.activeElement?.classList.contains('course-cell'),
+    }))).toEqual({
+        scrollLocked: true,
+        mainInert: true,
+        openerFocused: false,
+    });
+
+    await expect(page.locator('html')).not.toHaveClass(/modal-open/, { timeout: 2_000 });
+    await expect(page.locator('#main-content')).not.toHaveAttribute('inert', '');
+    await expect(course).toBeFocused();
+    await expect(page.locator('#sectionTypeSelector')).toBeHidden();
+    await expect(page.locator('#sectionTypeSelector')).toBeEmpty();
+    await expect(page).toHaveURL(/\/semesters\/fall-2026\/$/);
+});
+
 test('full course styling and mobile selects preserve semantic and accessible sizing @webkit', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/semesters/fall-2026/');

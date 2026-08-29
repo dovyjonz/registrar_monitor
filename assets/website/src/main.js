@@ -2652,22 +2652,18 @@ async function renderChart(
 /**
  * Close the course detail modal.
  */
-function closeModal() {
-    courseRequestVersion += 1;
-    document.getElementById('modalOverlay').classList.remove('active');
+function finishModalClose(overlay) {
+    if (overlay.classList.contains('active')) return;
+
     document.documentElement.classList.remove('modal-open');
     document.body.classList.remove('modal-open');
-
-    // Remove inert from background
     document.getElementById('main-content')?.removeAttribute('inert');
     document.querySelector('header')?.removeAttribute('inert');
     document.querySelector('.controls-panel')?.removeAttribute('inert');
 
-    // Hide share button
     const shareBtn = document.getElementById('modalShareLink');
     if (shareBtn) shareBtn.style.display = 'none';
 
-    // Restore focus to the opener
     if (modalOpener && typeof modalOpener.focus === 'function') {
         modalOpener.focus();
         modalOpener = null;
@@ -2680,6 +2676,26 @@ function closeModal() {
     lastRenderArgs = null;
     resetHistoricalComparisonState();
     resetCourseDetailView();
+}
+
+function closeModal() {
+    const overlay = document.getElementById('modalOverlay');
+    if (!overlay?.classList.contains('active')) return;
+
+    courseRequestVersion += 1;
+    const finish = event => {
+        if (event.target !== overlay || event.propertyName !== 'opacity') return;
+        overlay.removeEventListener('transitionend', finish);
+        finishModalClose(overlay);
+    };
+    overlay.addEventListener('transitionend', finish);
+    overlay.classList.remove('active');
+
+    if (getComputedStyle(overlay).transitionDuration === '0s') {
+        overlay.removeEventListener('transitionend', finish);
+        finishModalClose(overlay);
+    }
+
     history.replaceState(null, '', `/semesters/${getSemesterSlug()}/`);
 }
 
