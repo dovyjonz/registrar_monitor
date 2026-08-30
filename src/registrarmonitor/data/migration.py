@@ -2479,9 +2479,12 @@ def finalize_storage(
         )
 
     if _legacy_fingerprint(database) != str(control["legacy_fingerprint"]):
-        raise MigrationError(
-            "legacy tables changed during finalization; refusing to discard them"
-        )
+        # Dual writes legitimately advance the compatibility tables after the
+        # v2-mode transition captured its fingerprint. Before retiring those
+        # tables, prove the authoritative state, identities, and reporting
+        # position still agree. Mutable legacy catalog metadata is excluded:
+        # unlike v2 events, the old schema rewrites it retroactively.
+        _assert_legacy_v2_parity(database, MetadataMode.RAW_ENRICHED.value)
 
     store = CheckpointedStateStore(database, initialize=False)
     integrity = store.integrity()

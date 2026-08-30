@@ -1123,6 +1123,28 @@ def test_finalization_requires_authorization_and_retires_legacy_tables(
         )
 
 
+def test_finalization_audits_stale_dual_write_fingerprint(tmp_path: Path) -> None:
+    source = _migrated_v2_database(tmp_path)
+    with sqlite3.connect(source) as connection:
+        connection.execute(
+            "UPDATE storage_control SET legacy_fingerprint = 'stale-fingerprint'"
+        )
+
+    result = finalize_storage(
+        source,
+        semester="Summer 2025",
+        report_path=tmp_path / "finalize.json",
+        rollback_dir=tmp_path / "rollback",
+        authorized=True,
+    )
+
+    assert result.status == "finalized"
+    with sqlite3.connect(source) as connection:
+        assert connection.execute(
+            "SELECT active_mode, legacy_tables_retained FROM storage_control"
+        ).fetchone() == ("finalized", 0)
+
+
 def test_website_payload_is_equal_across_legacy_v2_and_finalized_reads(
     tmp_path: Path,
 ) -> None:
