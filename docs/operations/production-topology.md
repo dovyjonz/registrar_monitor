@@ -19,19 +19,23 @@ Last verified: 2026-08-24. Times use `Asia/Almaty` unless noted.
 
 | Unit | State | Purpose |
 |---|---|---|
-| `registrarmonitor.service` | installed, enabled, active/running | scheduler, reports, dashboard publication |
+| `registrarmonitor.service` | installed, disabled, inactive/dead | scheduler, reports, dashboard publication; intentionally stopped after Fall registration closed |
 | `registrarmonitor-bot.service` | installed, enabled, active/running | private subscriptions and digest delivery |
-| `registrarmonitor-health.service` | installed, enabled, active/running | alerts the test operator when either main unit is not active |
+| `registrarmonitor-health.service` | installed, disabled, inactive/dead | scheduler/bot outage alerts; intentionally stopped while the scheduler is disabled |
 | `registrarmonitor-network-watchdog.timer` | installed, enabled, active/waiting | checks metadata connectivity each minute and restarts `systemd-networkd` when connectivity is lost |
 | `registrar-monitor.service` | retired and absent | never revive |
 
-On 2026-08-24 the canonical services were synchronized to commit `b83c29c` and
-restarted at `2026-08-24 16:03:19 +05`. The scheduler started with main PID
-`3044028`; the bot later recovered with main PID `3045716` after the SQLite
-sidecar ownership repair. The service health monitor was deployed from commit
-`81b6ba9` and started at `2026-08-24 17:43:17 +05`. All three units were loaded,
-enabled, and active/running at final verification; the bounded health-monitor
-journal contained only startup records.
+On 2026-08-30 the VM was synchronized to commit `dd4f0e76`, Fall 2026 was
+finalized with a verified rollback archive, and the current dashboard was
+uploaded to Cloudflare Pages. All six configured databases are v2-only in
+`finalized` mode with no legacy compatibility tables. Future semesters initialize
+directly in this mode without shadow or dual-write paths.
+
+Fall polling remains disabled after registration closed. The scheduler and its
+health monitor are loaded, disabled, and inactive. The private bot was restarted
+on the deployed code at `2026-08-30 17:48:58 +05` and is active/running. The
+network watchdog timer remains enabled and active/waiting; the retired
+`registrar-monitor.service` remains absent.
 
 `scripts/setup_vps.sh` generates the supported application units and the network
 watchdog service/timer, but does not
