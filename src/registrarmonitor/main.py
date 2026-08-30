@@ -286,10 +286,9 @@ Telegram Control:
 
     initialize_parser = db_subparsers.add_parser(
         "initialize",
-        help="Create an empty semester database on the schema-v2 shadow path",
+        help="Create an empty semester database on the v2-only schema",
         description=(
-            "Initialize a fresh semester with checkpointed v2 tables and the "
-            "retained legacy compatibility tables."
+            "Initialize a fresh semester directly with checkpointed v2 tables."
         ),
     )
     initialize_parser.add_argument("--semester", required=True)

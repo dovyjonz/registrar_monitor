@@ -1675,12 +1675,18 @@ def _fresh_storage_evidence(database: Path) -> dict[str, Any]:
     )
     with sqlite3.connect(database) as connection:
         connection.row_factory = sqlite3.Row
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
         control_row = connection.execute(
             "SELECT * FROM storage_control WHERE singleton = 1"
         ).fetchone()
         control = dict(control_row) if control_row is not None else None
         counts: dict[str, int] = {}
-        for table in (*legacy_tables, *v2_tables):
+        for table in v2_tables:
             counts[table] = int(
                 connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
             )
@@ -1690,7 +1696,7 @@ def _fresh_storage_evidence(database: Path) -> dict[str, Any]:
             ),
             "storage_control": control,
             "counts": counts,
-            "legacy_tables_retained": all(table in counts for table in legacy_tables),
+            "legacy_tables_retained": bool(set(legacy_tables) & tables),
             "integrity_check": str(
                 connection.execute("PRAGMA integrity_check").fetchone()[0]
             ),
@@ -1721,7 +1727,6 @@ def _write_fresh_storage_report(path: Path, report: dict[str, Any]) -> None:
                 f"- Legacy tables retained: `{verification['legacy_tables_retained']}`",
                 f"- Integrity check: `{verification['integrity_check']}`",
                 f"- Foreign-key violations: `{verification['foreign_key_violations']}`",
-                f"- Legacy snapshots: `{counts['snapshots']}`",
                 f"- v2 snapshots: `{counts['state_snapshot']}`",
                 "",
             ]
@@ -1735,20 +1740,19 @@ def initialize_fresh_storage(
     semester: str,
     metadata_mode: MetadataMode,
     report_path: Path,
-    target_mode: str = "shadow",
+    target_mode: str = "finalized",
 ) -> FreshStorageResult:
-    """Create an empty semester database on the v2 dual-write path.
+    """Create an empty semester database directly on the v2-only path.
 
     This is intentionally separate from ``run_migration``: a fresh semester
-    has no historical observations to backfill, but it still needs both the
-    v2 tables and the retained legacy compatibility tables before its first
-    controlled ingest.
+    has no historical observations to backfill and therefore never needs the
+    retired legacy compatibility tables or shadow/dual-write modes.
     """
     database = Path(database).resolve()
     report_path = Path(report_path)
     metadata_mode = MetadataMode(metadata_mode)
-    if target_mode != "shadow":
-        raise MigrationError("fresh-semester initialization must start in shadow mode")
+    if target_mode != "finalized":
+        raise MigrationError("fresh-semester initialization must use v2-only mode")
     if not semester.strip():
         raise MigrationError("fresh-semester initialization requires a semester")
     if report_path.resolve() == database:
@@ -1779,11 +1783,11 @@ def initialize_fresh_storage(
                 if tuple(control) != (
                     semester,
                     metadata_mode.value,
-                    "shadow",
-                    "complete",
+                    "finalized",
+                    "finalized",
                 ):
                     raise MigrationError(
-                        "existing database is not the requested empty shadow baseline"
+                        "existing database is not the requested empty v2-only baseline"
                     )
                 status = "already_initialized"
             elif version not in {0, 1}:
@@ -1822,15 +1826,11 @@ def initialize_fresh_storage(
                         )
 
     if status == "initialized":
-        # This creates only the checkpointed tables. The compatibility schema
-        # and its control row are installed below after the empty-source check.
         CheckpointedStateStore(database, set_user_version=False)
         with sqlite3.connect(database) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
-            _ensure_legacy_schema(connection)
             connection.executescript(CONTROL_SCHEMA)
             connection.execute("BEGIN IMMEDIATE")
-            legacy_fingerprint = _legacy_fingerprint_from_connection(connection)
             now = _now()
             connection.execute(
                 """
@@ -1839,7 +1839,7 @@ def initialize_fresh_storage(
                     migration_phase, application_revision, legacy_fingerprint,
                     legacy_tables_retained, backup_path, backup_sha256,
                     last_parity_check_at, updated_at
-                ) VALUES (1, ?, ?, ?, 'shadow', 'initializing', ?, ?, 1,
+                ) VALUES (1, ?, ?, ?, 'finalized', 'finalized', ?, ?, 0,
                           NULL, NULL, ?, ?)
                 """,
                 (
@@ -1847,13 +1847,12 @@ def initialize_fresh_storage(
                     semester,
                     metadata_mode.value,
                     _revision(),
-                    legacy_fingerprint,
+                    "v2-only",
                     now,
                     now,
                 ),
             )
-            _phase(connection, "schema", legacy_fingerprint)
-            _phase(connection, "complete", legacy_fingerprint)
+            _phase(connection, "finalized", "v2-only")
             connection.execute("PRAGMA user_version = 2")
             connection.commit()
 
@@ -1866,24 +1865,21 @@ def initialize_fresh_storage(
             "active_mode": control.get("active_mode"),
             "empty_baseline": all(value == 0 for value in counts.values()),
             "legacy_tables_retained": verification["legacy_tables_retained"],
-            "identity_parity": counts["courses"] == counts["course_catalog"]
-            and counts["sections"] == counts["section_catalog"]
-            and counts["snapshots"] == counts["state_snapshot"]
-            and counts["reporting_log"] == counts["reporting_log_v2"],
         }
     )
     if (
         verification["user_version"] != TARGET_SCHEMA_VERSION
-        or verification["migration_phase"] != "complete"
-        or verification["active_mode"] != "shadow"
+        or verification["migration_phase"] != "finalized"
+        or verification["active_mode"] != "finalized"
     ):
         raise MigrationError("fresh storage initialization did not complete")
     active_mode = str(verification["active_mode"])
     if (
-        active_mode != "shadow"
+        active_mode != "finalized"
         or verification["integrity_check"] != "ok"
         or verification["foreign_key_violations"] != 0
         or not verification["empty_baseline"]
+        or verification["legacy_tables_retained"]
     ):
         raise MigrationError("fresh storage initialization failed its health checks")
     report = {

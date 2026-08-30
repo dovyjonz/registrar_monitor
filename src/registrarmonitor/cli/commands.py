@@ -572,13 +572,13 @@ class DatabaseCommands:
         report_path: Path,
         database: Path | None = None,
     ) -> bool:
-        """Create one empty semester database in the controlled shadow mode."""
+        """Create one empty semester database directly in v2-only mode."""
         try:
             semester_config = self._storage_config(semester)
-            if semester_config.get("mode") != "shadow":
+            if semester_config.get("mode") != "finalized":
                 raise ValueError(
                     "fresh-semester initialization requires the approved mode "
-                    "to be shadow"
+                    "to be finalized"
                 )
             metadata_mode = MetadataMode(str(semester_config["metadata_mode"]))
             if database is None:

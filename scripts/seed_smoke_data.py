@@ -7,9 +7,7 @@ from registrarmonitor.config import get_config
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.data.migration import (
     MetadataMode,
-    finalize_storage,
     initialize_fresh_storage,
-    transition_storage_mode,
 )
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.website.config import get_configured_semesters
@@ -44,7 +42,7 @@ def _seed_semester(
     metadata_mode: MetadataMode,
 ) -> DatabaseManager:
     """Seed one database while preserving its configured storage contract."""
-    if configured_mode not in {"legacy", "shadow", "v2", "finalized"}:
+    if configured_mode not in {"legacy", "finalized"}:
         raise ValueError(f"unsupported configured storage mode {configured_mode!r}")
 
     database = data_dir / (
@@ -81,23 +79,6 @@ def _seed_semester(
     manager = DatabaseManager(db_path=str(database), semester=semester)
     manager.store_enrollment_snapshot(snapshot)
 
-    if configured_mode == "shadow":
-        return manager
-
-    transition_storage_mode(
-        database,
-        semester=semester,
-        target_mode="v2",
-        report_path=report_dir / f"{slug}-v2.json",
-    )
-    if configured_mode == "finalized":
-        finalize_storage(
-            database,
-            semester=semester,
-            report_path=report_dir / f"{slug}-finalize.json",
-            rollback_dir=report_dir / "rollback",
-            authorized=True,
-        )
     return DatabaseManager(db_path=str(database), semester=semester)
 
 

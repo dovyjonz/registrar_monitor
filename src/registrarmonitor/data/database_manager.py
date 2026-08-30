@@ -158,6 +158,20 @@ class DatabaseManager:
                         )
                     return
 
+                if schema_version == 0 and self._uses_configured_path and self.semester:
+                    configured = (
+                        get_config()
+                        .get("storage", {})
+                        .get("semesters", {})
+                        .get(self.semester, {})
+                        .get("mode")
+                    )
+                    if configured != "legacy":
+                        raise sqlite3.DatabaseError(
+                            "checkpointed storage must be initialized explicitly; "
+                            f"run `monitor db initialize --semester {self.semester!r}`"
+                        )
+
                 # Create courses table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS courses (
@@ -356,13 +370,7 @@ class DatabaseManager:
                     raise sqlite3.DatabaseError(
                         f"no configured storage mode for {self.semester!r}"
                     )
-                # Finalization retires the legacy tables while preserving the
-                # v2 read contract. Allow a deployed v2 configuration to
-                # reopen that compacted database before settings is explicitly
-                # updated to ``finalized``.
-                if configured != mode and not (
-                    mode == "finalized" and configured == "v2"
-                ):
+                if configured != mode:
                     raise sqlite3.DatabaseError(
                         "configured storage mode disagrees with database "
                         f"metadata: {configured!r} != {mode!r}"

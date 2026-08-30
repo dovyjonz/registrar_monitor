@@ -230,9 +230,7 @@ def test_apply_requires_explicit_operator_authorization(tmp_path: Path) -> None:
         run_migration(request)
 
 
-def test_fresh_storage_starts_shadow_and_promotes_after_first_dual_write(
-    tmp_path: Path,
-) -> None:
+def test_fresh_storage_starts_v2_only_without_legacy_tables(tmp_path: Path) -> None:
     database = tmp_path / "fall-2026.db"
     result = initialize_fresh_storage(
         database,
@@ -242,7 +240,7 @@ def test_fresh_storage_starts_shadow_and_promotes_after_first_dual_write(
     )
 
     assert result.status == "initialized"
-    assert result.active_mode == "shadow"
+    assert result.active_mode == "finalized"
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
         assert connection.execute(
@@ -251,8 +249,8 @@ def test_fresh_storage_starts_shadow_and_promotes_after_first_dual_write(
         ).fetchone() == (
             "Fall 2026",
             "legacy-preserving",
-            "shadow",
-            "complete",
+            "finalized",
+            "finalized",
         )
 
     manager = DatabaseManager(db_path=str(database), semester="Fall 2026")
@@ -264,10 +262,15 @@ def test_fresh_storage_starts_shadow_and_promotes_after_first_dual_write(
     manager.store_enrollment_snapshot(first)
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 1
         assert (
             connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 1
         )
+        legacy_tables = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name IN ('courses','sections','snapshots','enrollment_data',"
+            "'reporting_log','instructor_changes')"
+        ).fetchall()
+        assert legacy_tables == []
         assert connection.execute(
             "SELECT snapshot_id, sequence_no FROM state_snapshot"
         ).fetchone() == (1, 1)
@@ -277,14 +280,8 @@ def test_fresh_storage_starts_shadow_and_promotes_after_first_dual_write(
     assert stored is not None
     assert stored.to_dict() == first.to_dict()
 
-    transition_storage_mode(
-        database,
-        semester="Fall 2026",
-        target_mode="v2",
-        report_path=tmp_path / "v2.json",
-    )
     reopened = DatabaseManager(db_path=str(database), semester="Fall 2026")
-    assert reopened.storage_mode == "v2"
+    assert reopened.storage_mode == "finalized"
     stored = reopened.get_snapshot_data(1)
     assert stored is not None
     assert stored.to_dict() == first.to_dict()

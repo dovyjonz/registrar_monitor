@@ -2,8 +2,6 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.data.migration import MetadataMode
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
@@ -90,11 +88,7 @@ def test_main_builds_fixture_for_configured_storage_modes(tmp_path: Path):
         assert {"MATH 161", "KAZ 368"} <= set(snapshot.courses)
 
 
-@pytest.mark.parametrize("configured_mode", ["v2", "finalized"])
-def test_seed_semester_initializes_configured_checkpointed_mode(
-    tmp_path: Path,
-    configured_mode: str,
-):
+def test_seed_semester_initializes_v2_only_mode(tmp_path: Path):
     snapshot = EnrollmentSnapshot(
         timestamp="2026-07-29 00:00:00",
         semester="Fall 2026",
@@ -114,9 +108,9 @@ def test_seed_semester_initializes_configured_checkpointed_mode(
         snapshot=snapshot,
         data_dir=tmp_path / "data",
         report_dir=tmp_path / "reports",
-        configured_mode=configured_mode,
+        configured_mode="finalized",
         metadata_mode=MetadataMode.LEGACY_PRESERVING,
     )
 
-    assert manager.storage_mode == configured_mode
+    assert manager.storage_mode == "finalized"
     assert manager.get_latest_snapshot_id() == 1

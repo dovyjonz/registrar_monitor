@@ -65,10 +65,10 @@ metadata_mode = "raw-enriched"
 mode = "finalized"
 
 [storage.semesters."Fall 2026"]
-# Fresh-semester qualification is complete; it remains outside the historical
-# migration order and uses v2 reads with the atomic compatibility write path.
+# Registration is closed and the archive-backed production finalization is
+# approved. The active database is v2-only with compatibility tables retired.
 metadata_mode = "legacy-preserving"
-mode = "v2"
+mode = "finalized"
 
 [telegram]
 # Bot token and chat ID are loaded from TELEGRAM_BOT_TOKEN and
