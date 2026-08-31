@@ -61,13 +61,13 @@ markers = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.0",
-    "ty==0.0.64",
+    "ruff==0.16.5",
+    "ty==0.0.75",
     "types-fpdf2==2.8.4.20260724",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
-    "pre-commit==4.6.1",
+    "pre-commit==4.6.2",
 ]
 
 [tool.ruff]
