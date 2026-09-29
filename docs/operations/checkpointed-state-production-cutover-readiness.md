@@ -1,5 +1,11 @@
 # Checkpointed-state production cutover readiness
 
+Historical rollout checklist: the configured databases completed finalization
+on 2026-08-30. Runtime storage is now v2-only; this document is retained for
+offline recovery and migration evidence, rather than as outstanding rollout work.
+See [production topology](production-topology.md) for the last recorded deployment
+and [backup and recovery](backup-and-recovery.md) for proposed ongoing protection.
+
 This document defines the evidence and operator decisions required before the
 checkpointed enrollment-state design in
 [`ADR-0001`](../adr/0001-checkpointed-enrollment-state.md) may be used in

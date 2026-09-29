@@ -8,8 +8,12 @@ for automation or advanced maintenance tasks not covered by the main CLI.
 
 import argparse
 import logging
+import os
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 # Add the src directory to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -28,12 +32,22 @@ def setup_logging(verbose: bool = False):
 def backup_database(db_manager: DatabaseManager, backup_path: str) -> int:
     """Create a backup of the database."""
     try:
-        import shutil
-
         backup_file = Path(backup_path)
+        if backup_file.resolve() == db_manager.db_path.resolve():
+            raise ValueError("Backup destination must differ from the source database")
         backup_file.parent.mkdir(parents=True, exist_ok=True)
-
-        shutil.copy2(db_manager.db_path, backup_file)
+        with TemporaryDirectory(dir=backup_file.parent, prefix=".backup-") as staging:
+            staged = Path(staging) / "database.db"
+            with db_manager.get_connection() as source:
+                with closing(sqlite3.connect(staged)) as target:
+                    source.backup(target)
+                    if target.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+                        raise ValueError("Backup integrity check failed")
+                    if target.execute("PRAGMA foreign_key_check").fetchall():
+                        raise ValueError("Backup foreign-key check failed")
+            staged.chmod(0o600)
+            # Publish a complete backup without replacing an existing destination.
+            os.link(staged, backup_file)
 
         print(f"✅ Database backed up to: {backup_file}")
         return 0

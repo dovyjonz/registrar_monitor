@@ -88,3 +88,16 @@ authorization flag. Use disposable copies for rehearsals and benchmarks.
 Back up enrollment databases and `.env` separately. Stop the relevant writer or
 use SQLite's backup mechanism before copying a live database. Bot state can be
 backed up independently from semester history.
+
+The advanced backup command uses SQLite's online backup API, validates integrity
+and foreign keys, and publishes a complete backup without replacing an existing
+file:
+
+```bash
+uv run python scripts/manage_database.py --semester "Fall 2026" backup \
+  output/backups/fall-2026.db
+```
+
+Use a unique destination for each backup. Proposed daily protection, retention,
+and restoration procedures are in
+[backup and recovery](docs/operations/backup-and-recovery.md).
