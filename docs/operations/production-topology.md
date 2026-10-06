@@ -1,12 +1,26 @@
 # Production topology
 
-Last production verification recorded: 2026-08-30. Times use `Asia/Almaty` unless
+Last production verification recorded: 2026-10-06. Times use `Asia/Almaty` unless
 noted. This is deployment evidence, not a live health check.
 
-Service states below were checked read-only on 2026-10-06 and still match the
-recorded deployment. The bot's process start remains 2026-08-30 17:48:58 +05;
-the scheduler and health monitor remain disabled. This check did not inspect
-database contents or change any service.
+The authorized maintenance update synchronized source to `7920fa64` and installed
+the locked Python and JavaScript dependencies on 2026-10-06. The private bot was
+restarted at `20:52:11 +05` (PID `400892`); subsequent verification found it
+active/running with zero automatic restarts. Its runtime and logging source
+checksums and the Python lockfile matched the local checkout. All three local
+generated health/watchdog unit files were preserved byte-for-byte.
+
+The runtime user's doctor check passed: database integrity and foreign keys were
+valid. The diagnostic initially warned on supported schema 2 databases; this
+maintenance also corrects that stale schema expectation. The additional
+`data/enrollment.db` reports schema 0 and remains unchanged. Scheduler and health
+monitor states remain disabled/inactive, and the watchdog remains enabled and
+active/waiting. No database migration, backup activation, Pages upload, or Worker
+deployment was performed.
+
+Installed dependency versions include Python Telegram Bot `22.8`, AnyIO `4.14.2`,
+python-dotenv `1.2.4`, Ruff `0.16.10`, Ty `0.0.84`, Virtualenv `21.7.13`,
+Playwright `1.63.0`, Vite `8.3.2`, ESLint `10.12.0`, and Wrangler `4.147.0`.
 
 ## Host
 
@@ -38,8 +52,8 @@ uploaded to Cloudflare Pages. All six configured databases are v2-only in
 directly in this mode without shadow or dual-write paths.
 
 Fall polling remains disabled after registration closed. The scheduler and its
-health monitor are loaded, disabled, and inactive. The private bot was restarted
-on the deployed code at `2026-08-30 17:48:58 +05` and is active/running. The
+health monitor are loaded, disabled, and inactive. The private bot is
+active/running after the maintenance restart recorded above. The
 network watchdog timer remains enabled and active/waiting; the retired
 `registrar-monitor.service` remains absent.
 

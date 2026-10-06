@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from registrarmonitor.data.database_manager import (
     EXPECTED_SCHEMA_VERSION,
@@ -64,6 +67,24 @@ def test_database_diagnostics_fail_for_corrupt_database(tmp_path: Path):
     checks = _database_checks(tmp_path, {"directories": {"data_storage": "data"}})
 
     assert checks[0]["status"] == "fail"
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "status"), [(2, "pass"), (0, "warn"), (99, "warn")]
+)
+def test_database_diagnostics_recognize_supported_schemas(
+    tmp_path: Path, schema_version: int, status: str
+):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    database = DatabaseManager(db_path=str(data_dir / "enrollment_fall_2026.db"))
+    with closing(sqlite3.connect(database.db_path)) as connection:
+        connection.execute(f"PRAGMA user_version = {schema_version}")
+
+    check = _database_checks(tmp_path, {})[0]
+
+    assert check["status"] == status
+    assert check["supported_schema_versions"] == [1, 2]
 
 
 def test_database_diagnostics_support_absolute_directory_outside_root(

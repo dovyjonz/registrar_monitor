@@ -11,11 +11,12 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .data.database_manager import EXPECTED_SCHEMA_VERSION
+from .data.database_manager import SUPPORTED_SCHEMA_VERSIONS
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -148,7 +149,7 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
             display_path = str(database)
         try:
             uri = f"{database.resolve().as_uri()}?mode=ro"
-            with sqlite3.connect(uri, uri=True) as connection:
+            with closing(sqlite3.connect(uri, uri=True)) as connection:
                 integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
                 schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
                 foreign_key_issues = len(
@@ -158,7 +159,7 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
                 "fail"
                 if integrity != "ok" or foreign_key_issues
                 else "pass"
-                if schema_version == EXPECTED_SCHEMA_VERSION
+                if schema_version in SUPPORTED_SCHEMA_VERSIONS
                 else "warn"
             )
             checks.append(
@@ -170,7 +171,7 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
                     path=display_path,
                     integrity=integrity,
                     schema_version=schema_version,
-                    expected_schema_version=EXPECTED_SCHEMA_VERSION,
+                    supported_schema_versions=sorted(SUPPORTED_SCHEMA_VERSIONS),
                     foreign_key_issues=foreign_key_issues,
                 )
             )
