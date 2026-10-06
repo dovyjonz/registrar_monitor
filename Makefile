@@ -109,11 +109,11 @@ smoke-site-generate: website-build
 	$(UV) run python scripts/generate_smoke_site.py
 
 test-browser: smoke-site-generate
-	$(NPM) --prefix assets/website exec playwright install chromium
+	$(NPM) --prefix assets/website exec -- playwright install chromium
 	$(NPM) --prefix assets/website run test:e2e
 
 test-browser-webkit: smoke-site-generate
-	$(NPM) --prefix assets/website exec playwright install webkit
+	$(NPM) --prefix assets/website exec -- playwright install webkit
 	$(NPM) --prefix assets/website run test:e2e:webkit
 
 test-browser-stability: smoke-site-generate

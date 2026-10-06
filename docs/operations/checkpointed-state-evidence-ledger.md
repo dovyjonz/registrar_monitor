@@ -1,5 +1,19 @@
 # Checkpointed-state production evidence ledger
 
+## Historical record, superseded 2026-08-30
+
+This ledger preserves the 2026-08-02 rollout evidence, including its then-open
+gates. It is not the current backlog. On 2026-08-30 Fall 2026 was finalized,
+legacy runtime writes were retired, and the dashboard was deployed. All six
+configured databases now use v2-only finalized storage, as recorded in
+[production topology](production-topology.md).
+
+The compatibility-write performance gate below belongs to the retired path;
+current performance checks use `make benchmark-synthetic`. Ongoing backup policy
+and activation requirements are recorded in [backup and recovery](backup-and-recovery.md).
+
+## Evidence as recorded 2026-08-02
+
 Updated 2026-08-02 after the authorized target-host Step 3 applies, Step 4 mode
 transitions, Step 5 historical finalizations, and the stopped Fall 2026 Step 6 /
 Step 7 rollout. This ledger records that historical evidence state; it does not

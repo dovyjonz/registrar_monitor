@@ -1,8 +1,13 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Checkpoint enrollment state with events and static read models
+
+Implemented: all six configured semester databases were finalized on 2026-08-30.
+Runtime storage is v2-only; new semesters initialize directly in finalized mode.
+The design and experiment history below explain that decision. Current operations
+are recorded in [production topology](../operations/production-topology.md).
 
 Registrar Monitor will retain one SQLite database per semester, but replace
 finalized full-state persistence with normalized identities, materialized latest

@@ -9,6 +9,7 @@ import logging
 import logging.handlers
 import sys
 import time
+from collections.abc import Callable
 from copy import copy
 from pathlib import Path
 
@@ -173,7 +174,7 @@ def get_logger(name: str | None = None) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def log_performance(func):
+def log_performance[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     """
     Decorator to log function performance metrics.
 
@@ -184,20 +185,22 @@ def log_performance(func):
     """
     import functools
 
+    name = getattr(func, "__name__", type(func).__name__)
+
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         logger = get_logger(func.__module__)
         start_time = time.monotonic()
 
         try:
-            logger.debug("Starting %s", func.__name__)
+            logger.debug("Starting %s", name)
             result = func(*args, **kwargs)
             duration = time.monotonic() - start_time
-            logger.debug("Completed %s in %.3fs", func.__name__, duration)
+            logger.debug("Completed %s in %.3fs", name, duration)
             return result
         except Exception:
             duration = time.monotonic() - start_time
-            logger.exception("Failed %s after %.3fs", func.__name__, duration)
+            logger.exception("Failed %s after %.3fs", name, duration)
             raise
 
     return wrapper

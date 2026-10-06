@@ -24,6 +24,11 @@ def publishable_catalog():
 class TestGenerateSemesterPage:
     def test_generates_empty_page_when_no_courses(self, tmp_path):
         with (
+            patch("registrarmonitor.services.website_service.update_checksum"),
+            patch(
+                "registrarmonitor.website.checksums.DatabaseManager",
+                side_effect=AssertionError("Unit test must not read a local database"),
+            ),
             patch(
                 "registrarmonitor.services.website_service.get_semester_data",
                 return_value={"cr": {}},

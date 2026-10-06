@@ -85,5 +85,22 @@ uploads crawl and browser diagnostics, while benchmark CI uploads structured
 results. Dependency review and lockfile audits enforce the repository security
 policy.
 
+Dependabot uses the `uv` ecosystem so Python updates include `uv.lock`, following
+[uv's integration guidance](https://docs.astral.sh/uv/guides/integration/dependabot/).
+The lockfile includes AnyIO 4.14.2, which fixes GHSA-82r6-8w77-94w6. Runtime
+lockfile changes require both canonical and compatibility test jobs; synchronizing
+the VM remains a separate production action.
+
+Pass Playwright options after npm's `--` separator so npm does not consume
+`--with-deps`. Generated-site CI installs Chromium and WebKit's system libraries
+through that option.
+
+Wrangler is pinned to 4.147.0 in both JavaScript packages. The `sharp` 0.35.5
+override addresses GHSA-wq5f-xc86-pv6w; the Worker also pins transitive `undici`
+7.29.1 to address the advisories affecting 7.29.0. Remove these overrides when
+the upstream Miniflare and Worker test-pool pins include the patched versions.
+`make security` verifies both lockfiles; `make worker-check` verifies the overridden
+dependencies in the actual Worker test runtime and deployment dry-run.
+
 Pre-commit stays fast: text hygiene, Ruff, Ty, and frontend lint. Run the broader
 gates above when a change touches their behavior.

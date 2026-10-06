@@ -14,9 +14,10 @@ site to Cloudflare Pages.
 
 ## Agent skills
 
-Check each new request against `/ask-matt` before choosing an engineering flow.
-Follow the routed skill or flow, while preserving this guide's authorization and
-production boundaries.
+Use `/ask-matt` as a routing reference when the appropriate engineering workflow
+is unclear. For a well-scoped authorized request, use the relevant focused skill
+and carry out the work. Enter an interview or planning-only flow when the user
+requests it or material unresolved product decisions require it.
 
 ### Issue tracker
 

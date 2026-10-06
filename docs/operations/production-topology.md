@@ -1,6 +1,12 @@
 # Production topology
 
-Last verified: 2026-08-24. Times use `Asia/Almaty` unless noted.
+Last production verification recorded: 2026-08-30. Times use `Asia/Almaty` unless
+noted. This is deployment evidence, not a live health check.
+
+Service states below were checked read-only on 2026-10-06 and still match the
+recorded deployment. The bot's process start remains 2026-08-30 17:48:58 +05;
+the scheduler and health monitor remain disabled. This check did not inspect
+database contents or change any service.
 
 ## Host
 
@@ -44,6 +50,9 @@ health monitor is a separate production action and is not implied by a
 repository change.
 
 ## Files and permissions
+
+Ongoing backup targets and activation gates are documented in
+[backup and recovery](backup-and-recovery.md).
 
 The operator owns source, `.git`, `.jj`, and `.venv`. The runtime user owns
 generated/runtime paths including `data`, `logs`, downloads, change reports,
