@@ -85,6 +85,12 @@ uploads crawl and browser diagnostics, while benchmark CI uploads structured
 results. Dependency review and lockfile audits enforce the repository security
 policy.
 
+Dependabot uses the `uv` ecosystem so Python updates include `uv.lock`, following
+[uv's integration guidance](https://docs.astral.sh/uv/guides/integration/dependabot/).
+The lockfile includes AnyIO 4.14.2, which fixes GHSA-82r6-8w77-94w6. Runtime
+lockfile changes require both canonical and compatibility test jobs; synchronizing
+the VM remains a separate production action.
+
 Pass Playwright options after npm's `--` separator so npm does not consume
 `--with-deps`. Generated-site CI installs Chromium and WebKit's system libraries
 through that option.
