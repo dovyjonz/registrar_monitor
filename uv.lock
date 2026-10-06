@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.13, <3.15"
+resolution-markers = [
+    "python_full_version >= '3.14'",
+    "python_full_version < '3.14'",
+]
 
 [[package]]
 name = "anyio"
@@ -406,23 +410,24 @@ wheels = [
 
 [[package]]
 name = "python-dotenv"
-version = "1.2.2"
+version = "1.2.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/26/2fbeedb218a787a5eea551c7532cac4e009f83d689dd2faa0d0353473f86/python_dotenv-1.2.4.tar.gz", hash = "sha256:f0d53e69935a851c0dcc78f3ab7aaccd8cabef0b92382b576b824212902873c0", size = 60824, upload-time = "2026-10-01T05:36:10Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
+    { url = "https://files.pythonhosted.org/packages/60/d1/38f3a3405989a89ac18390803e70c6ad7c7760da4f9b83cbeca0c44a0c72/python_dotenv-1.2.4-py3-none-any.whl", hash = "sha256:42269a8a5b3fd54ffa6f3d84b18abed50064717576b4ecf03dc4a55d8aa04fdc", size = 23266, upload-time = "2026-10-01T05:36:08.633Z" },
 ]
 
 [[package]]
 name = "python-telegram-bot"
-version = "22.3"
+version = "22.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "httpcore", marker = "python_full_version >= '3.14'" },
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/db/fc/0196e0d7ad247011a560788db204e0a28d76ab75b3d7c7131878f8fb5a06/python_telegram_bot-22.3.tar.gz", hash = "sha256:513d5ab9db96dcf25272dad0a726555e80edf60d09246a7d0d425b77115f5440", size = 1464513, upload-time = "2025-07-20T20:03:09.805Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/77/153517bb1ac1bba670c6fb1dbf09e1fd0730494b1705934e715391413a0d/python_telegram_bot-22.8.tar.gz", hash = "sha256:f9d3847fcb23ee603477e442800b33bb4adf851a73e0619d2050be879decf1ef", size = 1551700, upload-time = "2026-06-12T08:10:29.1Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/54/0955bd46a1e046169500e129c7883664b6675d580074d68823485e4d5de1/python_telegram_bot-22.3-py3-none-any.whl", hash = "sha256:88fab2d1652dbfd5379552e8b904d86173c524fdb9270d3a8685f599ffe0299f", size = 717115, upload-time = "2025-07-20T20:03:07.261Z" },
+    { url = "https://files.pythonhosted.org/packages/60/7c/ed7d4dd94280bd434173cae9f7a7aedaaab9af128ae4f494423a5687c820/python_telegram_bot-22.8-py3-none-any.whl", hash = "sha256:42373918097f1b837cc4e717d588c19ea79651497ec712bb5b0c76e5e63c50e1", size = 769397, upload-time = "2026-06-12T08:10:27.066Z" },
 ]
 
 [[package]]
@@ -583,11 +588,11 @@ wheels = [
 
 [[package]]
 name = "types-toml"
-version = "0.10.8.20240310"
+version = "0.10.8.20260518"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/86/47/3e4c75042792bff8e90d7991aa5c51812cc668828cc6cce711e97f63a607/types-toml-0.10.8.20240310.tar.gz", hash = "sha256:3d41501302972436a6b8b239c850b26689657e25281b48ff0ec06345b8830331", size = 4392, upload-time = "2024-03-10T02:18:37.518Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4b/11/6ece999e91f2ccb848ab4420f3f4816e78ac0541f739e6864affdaaa5737/types_toml-0.10.8.20260518.tar.gz", hash = "sha256:80e10facd24fdeda9d5c672187d72be3ac284843788d67f5aae59e3e016db6fe", size = 9419, upload-time = "2026-05-18T06:02:16.719Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/a2/d32ab58c0b216912638b140ab2170ee4b8644067c293b170e19fba340ccc/types_toml-0.10.8.20240310-py3-none-any.whl", hash = "sha256:627b47775d25fa29977d9c70dc0cbab3f314f32c8d8d0c012f2ef5de7aaec05d", size = 4777, upload-time = "2024-03-10T02:18:36.568Z" },
+    { url = "https://files.pythonhosted.org/packages/91/25/489751806bf5c95e4007f8e17409199c54d31e49ffbea07c5729b1286c8e/types_toml-0.10.8.20260518-py3-none-any.whl", hash = "sha256:0e564ab05f6fde62a315b3b5a9b6624fda569399795d30a37e64705a70459303", size = 9669, upload-time = "2026-05-18T06:02:15.86Z" },
 ]
 
 [[package]]
