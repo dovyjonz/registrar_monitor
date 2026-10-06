@@ -65,8 +65,8 @@ markers = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.5",
-    "ty==0.0.75",
+    "ruff==0.16.10",
+    "ty==0.0.84",
     "types-fpdf2==2.8.4.20260724",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
