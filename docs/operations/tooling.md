@@ -102,5 +102,9 @@ the upstream Miniflare and Worker test-pool pins include the patched versions.
 `make security` verifies both lockfiles; `make worker-check` verifies the overridden
 dependencies in the actual Worker test runtime and deployment dry-run.
 
+The Cloudflare Worker test pool requires Vitest 4. Keep major Vitest updates
+separate until the pool's peer dependencies support them; Dependabot ignores
+automatic major updates for that package.
+
 Pre-commit stays fast: text hygiene, Ruff, Ty, and frontend lint. Run the broader
 gates above when a change touches their behavior.

@@ -41,6 +41,8 @@ possibly-unresolved-reference = "ignore"
 # assignability checks; the newer strict-subtype rules require typed boundaries.
 unsound-assignment = "ignore"
 unsound-return-statement = "ignore"
+# Preserve defensive validation and cleanup guards on exceptional control paths.
+redundant-condition-strict = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -65,8 +67,8 @@ markers = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.5",
-    "ty==0.0.75",
+    "ruff==0.16.10",
+    "ty==0.0.84",
     "types-fpdf2==2.8.4.20260724",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
