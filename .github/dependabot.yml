@@ -26,6 +26,11 @@ updates:
 
   - package-ecosystem: npm
     directory: /workers/preview-images
+    # The Cloudflare test pool currently requires Vitest 4. Review major
+    # upgrades together with a pool release that supports them.
+    ignore:
+      - dependency-name: vitest
+        update-types: [version-update:semver-major]
     schedule:
       interval: weekly
       day: monday
