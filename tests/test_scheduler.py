@@ -154,9 +154,7 @@ class TestGetCurrentZoneType:
             def now(cls, tz=None):
                 return mock_now
 
-        with patch(
-            "registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime
-        ):
+        with patch("registrarmonitor.automation.scheduler.dt.datetime", MockDateTime):
             result = get_current_zone_type()
             assert result == SchedulingLevel.HOT
 
@@ -175,9 +173,7 @@ class TestGetCurrentZoneType:
             def now(cls, tz=None):
                 return mock_now
 
-        with patch(
-            "registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime
-        ):
+        with patch("registrarmonitor.automation.scheduler.dt.datetime", MockDateTime):
             result = get_current_zone_type()
             assert result == SchedulingLevel.SLEEP
 
@@ -209,7 +205,7 @@ class TestGetCurrentZoneType:
 
         try:
             with patch(
-                "registrarmonitor.automation.scheduler.datetime.datetime", MockDateTime
+                "registrarmonitor.automation.scheduler.dt.datetime", MockDateTime
             ):
                 assert get_current_zone_type() == SchedulingLevel.HOT
 

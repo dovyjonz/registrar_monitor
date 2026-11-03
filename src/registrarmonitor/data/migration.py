@@ -7,7 +7,7 @@ import json
 import os
 import sqlite3
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -195,7 +195,7 @@ class LegacyReader:
         self.immutable = immutable
 
     @contextmanager
-    def connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self) -> Generator[sqlite3.Connection]:
         suffix = "?mode=ro&immutable=1" if self.immutable else "?mode=ro"
         connection = sqlite3.connect(f"{self.path.as_uri()}{suffix}", uri=True)
         connection.row_factory = sqlite3.Row

@@ -1,5 +1,5 @@
 import asyncio
-import datetime
+import datetime as dt
 import json
 import os
 import subprocess
@@ -21,29 +21,27 @@ ReportingService = None  # type: ignore[misc, assignment]
 
 def get_current_time_str() -> str:
     """Get current time as formatted string."""
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _registrar_datetime(value: str, cfg: dict) -> datetime.datetime:
+def _registrar_datetime(value: str, cfg: dict) -> dt.datetime:
     """Parse a configured time as registrar-local wall time."""
-    parsed = datetime.datetime.fromisoformat(value)
+    parsed = dt.datetime.fromisoformat(value)
     if parsed.tzinfo is not None:
         return parsed.astimezone(get_timezone(cfg)).replace(tzinfo=None)
     return parsed
 
 
-def _registrar_now(cfg: dict | None = None) -> datetime.datetime:
+def _registrar_now(cfg: dict | None = None) -> dt.datetime:
     """Return current registrar-local wall time independent of the host timezone."""
     config = cfg if cfg is not None else get_config()
     return _registrar_wall_time(
-        datetime.datetime.now(get_timezone(config)),
+        dt.datetime.now(get_timezone(config)),
         config,
     )
 
 
-def _registrar_wall_time(
-    value: datetime.datetime, cfg: dict | None = None
-) -> datetime.datetime:
+def _registrar_wall_time(value: dt.datetime, cfg: dict | None = None) -> dt.datetime:
     """Convert aware values while preserving legacy naive scheduler inputs."""
     if value.tzinfo is None:
         return value
@@ -106,8 +104,8 @@ _CACHE_TTL = 60  # seconds
 
 
 def merge_time_windows(
-    windows: list[tuple[datetime.datetime, datetime.datetime]],
-) -> list[tuple[datetime.datetime, datetime.datetime]]:
+    windows: list[tuple[dt.datetime, dt.datetime]],
+) -> list[tuple[dt.datetime, dt.datetime]]:
     """Sort and merge overlapping time windows."""
     if not windows:
         return []
@@ -124,7 +122,7 @@ def merge_time_windows(
 
 def parse_schedule_file(
     force_reload: bool = False,
-) -> dict[SchedulingLevel, list[tuple[datetime.datetime, datetime.datetime]]]:
+) -> dict[SchedulingLevel, list[tuple[dt.datetime, dt.datetime]]]:
     """
     Build scheduler zones from milestones and deadlines defined in settings.toml.
     Both deadlines and milestones are treated as milestones and mapped to the HOT zone.
@@ -151,7 +149,7 @@ def parse_schedule_file(
             pass
 
     # ---- load settings.toml ----
-    zones: dict[SchedulingLevel, list[tuple[datetime.datetime, datetime.datetime]]] = {
+    zones: dict[SchedulingLevel, list[tuple[dt.datetime, dt.datetime]]] = {
         zone_type: [] for zone_type in SchedulingLevel
     }
 
@@ -187,8 +185,8 @@ def parse_schedule_file(
         # Map milestones/deadlines to HOT window: [T - 5 min, T + 30 min]
         hot_windows = []
         for t in milestone_times:
-            start = t - datetime.timedelta(minutes=5)
-            end = t + datetime.timedelta(minutes=30)
+            start = t - dt.timedelta(minutes=5)
+            end = t + dt.timedelta(minutes=30)
             hot_windows.append((start, end))
 
         zones[SchedulingLevel.HOT] = merge_time_windows(hot_windows)
@@ -210,8 +208,8 @@ def parse_schedule_file(
 
 
 def get_next_zone_start(
-    now: datetime.datetime | None = None,
-) -> datetime.datetime | None:
+    now: dt.datetime | None = None,
+) -> dt.datetime | None:
     """
     Find the start time of the next scheduled HOT zone window after now.
     """
@@ -230,7 +228,7 @@ def get_next_zone_start(
     return next_start
 
 
-def get_current_zone_type(now: datetime.datetime | None = None) -> SchedulingLevel:
+def get_current_zone_type(now: dt.datetime | None = None) -> SchedulingLevel:
     """
     Determine the current scheduling level based on milestones in settings.toml.
     """
@@ -279,7 +277,7 @@ class SchedulingDecision:
 
     def __init__(
         self,
-        timestamp: datetime.datetime,
+        timestamp: dt.datetime,
         change_score: float,
         current_heat: float,
         baseline_level: SchedulingLevel,
@@ -371,7 +369,7 @@ class TwoPhaseDecision:
 
     def __init__(
         self,
-        timestamp: datetime.datetime,
+        timestamp: dt.datetime,
         change_score: float,
         mode: str,
         consecutive_low: int,
@@ -493,15 +491,15 @@ class TwoPhaseScheduler:
             )
         except Exception:
             pass
-        self.last_website_update = datetime.datetime.now() - datetime.timedelta(
+        self.last_website_update = dt.datetime.now() - dt.timedelta(
             minutes=self.website_interval_minutes
         )
 
         # Cooldown and event-driven tracking
-        self._last_poll_time: datetime.datetime | None = None
+        self._last_poll_time: dt.datetime | None = None
         self._last_change_score: float = 0.0
-        self.last_report_sent_time: datetime.datetime | None = None
-        self.last_website_updated_time: datetime.datetime | None = None
+        self.last_report_sent_time: dt.datetime | None = None
+        self.last_website_updated_time: dt.datetime | None = None
         self.report_cooldown_seconds: float = 300.0  # 5 minutes
         self.website_cooldown_seconds: float = 300.0  # 5 minutes
 
@@ -696,7 +694,7 @@ class TwoPhaseScheduler:
             is_worth_updating = status_changed or score >= 1.0
 
             if is_worth_updating:
-                now = datetime.datetime.now()
+                now = dt.datetime.now()
                 self.logger_ops.info(
                     f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})"
                 )
@@ -793,7 +791,7 @@ class TwoPhaseScheduler:
         else:
             return self.BURST_INTERVALS["low"]
 
-    def get_all_milestones(self) -> list[datetime.datetime]:
+    def get_all_milestones(self) -> list[dt.datetime]:
         """Extract all milestone and deadline datetimes from the settings.toml."""
         milestone_times = []
         try:
@@ -929,7 +927,7 @@ class TwoPhaseScheduler:
                     result = await poll_command.run_with_result(file_path=file_path)
 
                     if result.success:
-                        self._last_poll_time = datetime.datetime.now()
+                        self._last_poll_time = dt.datetime.now()
                         self._last_change_score = result.change_score
                         self._new_poll_processed = True
 
@@ -958,7 +956,7 @@ class TwoPhaseScheduler:
     def get_next_poll_interval(
         self,
         last_change_score: float = 0,
-        timestamp: datetime.datetime | None = None,
+        timestamp: dt.datetime | None = None,
         update_state: bool = True,
     ) -> tuple[int, TwoPhaseDecision]:
         """
@@ -968,7 +966,7 @@ class TwoPhaseScheduler:
             Tuple of (interval_seconds, TwoPhaseDecision)
         """
         if timestamp is None:
-            timestamp = datetime.datetime.now()
+            timestamp = dt.datetime.now()
 
         current_is_day = 8 <= timestamp.hour < 20
 
@@ -1161,7 +1159,7 @@ class TwoPhaseScheduler:
 
         return final_interval_int, decision
 
-    def _get_next_report_time(self) -> datetime.datetime:
+    def _get_next_report_time(self) -> dt.datetime:
         """
         Calculate the next :15 or :45 report in registrar-local wall time.
 
@@ -1175,7 +1173,7 @@ class TwoPhaseScheduler:
             t = now.replace(minute=minute, second=0, microsecond=0)
             if t > now:
                 candidates.append(t)
-            t_next = (now + datetime.timedelta(hours=1)).replace(
+            t_next = (now + dt.timedelta(hours=1)).replace(
                 minute=minute, second=0, microsecond=0
             )
             candidates.append(t_next)
@@ -1202,7 +1200,7 @@ class TwoPhaseScheduler:
             print("🔄 Fetching fresh data for report...")
             start_time = time.time()
             change_score = await self._single_poll_and_process()
-            self._last_poll_time = datetime.datetime.now()
+            self._last_poll_time = dt.datetime.now()
             self._last_change_score = change_score
             self._new_poll_processed = True
             duration = time.time() - start_time
@@ -1302,7 +1300,7 @@ class TwoPhaseScheduler:
         start_time = time.time()
         try:
             change_score = await self._single_poll_and_process()
-            self._last_poll_time = datetime.datetime.now()
+            self._last_poll_time = dt.datetime.now()
             self._last_change_score = change_score
             self._new_poll_processed = True
             duration = time.time() - start_time
@@ -1342,7 +1340,7 @@ class TwoPhaseScheduler:
                 # 3. Trigger Async Polling and Queue it
                 print("\n🔄 Triggering async poll download...")
                 download_task = asyncio.create_task(self.downloader.download())
-                await self.pending_polls.put((download_task, datetime.datetime.now()))
+                await self.pending_polls.put((download_task, dt.datetime.now()))
 
         except KeyboardInterrupt:
             print("\n⚠️  Scheduler interrupted by user.")
@@ -1366,7 +1364,7 @@ class TwoPhaseScheduler:
 
     def _show_schedule_status(self):
         """Show current schedule status and upcoming zones."""
-        now = datetime.datetime.now()
+        now = dt.datetime.now()
         current_zone = get_current_zone_type()
 
         print(f"📅 Schedule Status (Current time: {now.strftime('%Y-%m-%d %H:%M')})")
@@ -1416,7 +1414,7 @@ class TwoPhaseScheduler:
         recent_decisions = self.logger.get_recent_decisions(10)
         if recent_decisions:
             for i, decision in enumerate(recent_decisions[-5:], 1):
-                timestamp = datetime.datetime.fromisoformat(decision["timestamp"])
+                timestamp = dt.datetime.fromisoformat(decision["timestamp"])
                 mode = decision.get("mode", "N/A")
                 print(
                     f"  {i}. {timestamp.strftime('%m/%d %H:%M')} | "
@@ -1448,14 +1446,14 @@ def is_hot_zone() -> bool:
     return get_current_zone_type() == SchedulingLevel.HOT
 
 
-def get_next_zone_change() -> tuple[datetime.datetime | None, SchedulingLevel]:
+def get_next_zone_change() -> tuple[dt.datetime | None, SchedulingLevel]:
     """
     Get the next time when the zone type will change.
 
     Returns:
         Tuple of (next_change_time, new_zone_type) or (None, current_zone) if no changes
     """
-    now = datetime.datetime.now()
+    now = dt.datetime.now()
     zones = parse_schedule_file()
     current_zone = get_current_zone_type()
 

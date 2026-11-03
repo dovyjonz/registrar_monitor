@@ -350,9 +350,7 @@ class TestGetTimestampFromFile:
             "registrarmonitor.data.excel_reader.os.path.getmtime",
             side_effect=FileNotFoundError,
         ):
-            with patch(
-                "registrarmonitor.data.excel_reader.datetime.datetime"
-            ) as mock_dt:
+            with patch("registrarmonitor.data.excel_reader.dt.datetime") as mock_dt:
                 mock_dt.now.return_value.strftime.return_value = "2024-01-15 10:30:00"
                 result = reader.get_timestamp_from_file("missing.xls")
         assert result == "2024-01-15 10:30:00"

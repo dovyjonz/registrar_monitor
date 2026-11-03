@@ -428,13 +428,13 @@ class ScheduleCommand:
                 print("🔍 DEBUG: Scheduler will show detailed logs")
 
             # Display next sync and report times
-            import datetime
+            import datetime as dt
 
-            now = datetime.datetime.now()
+            now = dt.datetime.now()
             poll_interval, _ = scheduler.get_next_poll_interval(0)
-            next_sync_time = now + datetime.timedelta(seconds=poll_interval)
+            next_sync_time = now + dt.timedelta(seconds=poll_interval)
             next_report_time = scheduler._get_next_report_time()
-            pre_report_sync_time = next_report_time - datetime.timedelta(seconds=60)
+            pre_report_sync_time = next_report_time - dt.timedelta(seconds=60)
 
             # Determine which sync comes first
             if pre_report_sync_time > now and pre_report_sync_time < next_sync_time:

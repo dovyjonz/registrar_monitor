@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,7 +83,7 @@ class CheckpointedStateStore:
         self._initialize()
 
     @contextmanager
-    def connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self) -> Generator[sqlite3.Connection]:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

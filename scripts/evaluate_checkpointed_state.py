@@ -14,7 +14,7 @@ import statistics
 import tempfile
 import time
 from collections import defaultdict
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict
@@ -93,7 +93,7 @@ class LegacyReader:
         self.path = path.resolve()
 
     @contextmanager
-    def connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self) -> Generator[sqlite3.Connection]:
         uri = f"file:{self.path}?mode=ro&immutable=1"
         connection = sqlite3.connect(uri, uri=True)
         connection.row_factory = sqlite3.Row
@@ -1385,7 +1385,7 @@ class _ReadOnlyWebsiteDatabase:
         self.storage_mode = "legacy"
 
     @contextmanager
-    def get_connection(self) -> Iterator[sqlite3.Connection]:
+    def get_connection(self) -> Generator[sqlite3.Connection]:
         connection = sqlite3.connect(
             f"file:{self.path.resolve()}?mode=ro&immutable=1", uri=True
         )

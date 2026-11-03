@@ -820,13 +820,13 @@ class WebsiteService:
 
     def is_any_semester_active(self, buffer_days: int = 7) -> bool:
         """Check if we are currently within an active registration window."""
-        import datetime
+        import datetime as dt
 
         from ..config import get_timezone
         from ..website.config import get_configured_semesters, get_milestones
 
         registrar_timezone = get_timezone()
-        now = datetime.datetime.now(registrar_timezone)
+        now = dt.datetime.now(registrar_timezone)
 
         for semester in get_configured_semesters():
             try:
@@ -836,14 +836,14 @@ class WebsiteService:
 
                 times = []
                 for milestone in milestones:
-                    value = datetime.datetime.fromisoformat(milestone["time"])
+                    value = dt.datetime.fromisoformat(milestone["time"])
                     if value.tzinfo is None:
                         value = value.replace(tzinfo=registrar_timezone)
                     else:
                         value = value.astimezone(registrar_timezone)
                     times.append(value)
-                earliest = min(times) - datetime.timedelta(days=buffer_days)
-                latest = max(times) + datetime.timedelta(days=buffer_days)
+                earliest = min(times) - dt.timedelta(days=buffer_days)
+                latest = max(times) + dt.timedelta(days=buffer_days)
 
                 if earliest <= now <= latest:
                     return True

@@ -244,11 +244,11 @@ class TestIsAnySemesterActive:
             assert service.is_any_semester_active() is False
 
     def test_returns_true_when_within_window(self):
-        import datetime
+        import datetime as dt
 
-        now = datetime.datetime.now()
-        past = (now - datetime.timedelta(hours=1)).isoformat()
-        future = (now + datetime.timedelta(hours=1)).isoformat()
+        now = dt.datetime.now()
+        past = (now - dt.timedelta(hours=1)).isoformat()
+        future = (now + dt.timedelta(hours=1)).isoformat()
 
         with (
             patch(
@@ -264,10 +264,10 @@ class TestIsAnySemesterActive:
             assert service.is_any_semester_active() is True
 
     def test_accepts_timezone_aware_milestones(self):
-        import datetime
+        import datetime as dt
         from zoneinfo import ZoneInfo
 
-        now = datetime.datetime.now(ZoneInfo("Asia/Almaty"))
+        now = dt.datetime.now(ZoneInfo("Asia/Almaty"))
 
         with (
             patch(

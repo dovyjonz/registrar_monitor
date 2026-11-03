@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,7 +98,7 @@ class CheckpointedStateStore:
             self._initialize(set_user_version=set_user_version)
 
     @contextmanager
-    def connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self) -> Generator[sqlite3.Connection]:
         connection = sqlite3.connect(
             f"file:{self.path}?mode=ro" if self.read_only else self.path,
             uri=self.read_only,
