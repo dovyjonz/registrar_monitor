@@ -242,36 +242,18 @@ const resolvedCourseComparisons = new Map();
 const resolvedProfessorComparisons = new Map();
 
 // The generated semester page receives its v3 summary through the manifest
-// pointer in the body data attribute. Combined prototype pages may still
-// provide their own in-memory dataset below.
+// pointer in the body data attribute.
 let DATA = null;
 let MILESTONES = [];
-const COMBINED_DATA = window.COMBINED_DATA;
-
-// Determine mode from data structure
-const IS_COMBINED = typeof COMBINED_DATA !== 'undefined';
-
-// For combined mode: active semester state
-let activeSemester = IS_COMBINED && COMBINED_DATA
-    ? (localStorage.getItem('activeSemester') || COMBINED_DATA.as)
-    : null;
-
-// Validate stored semester exists (combined mode)
-if (IS_COMBINED && COMBINED_DATA && !COMBINED_DATA.sems.includes(activeSemester)) {
-    activeSemester = COMBINED_DATA.as;
-}
 
 // Bookmarks/Favorites State
 const bookmarks = new Set(JSON.parse(localStorage.getItem('courseBookmarks') || '[]'));
 const telegramBookmarkImport = document.getElementById('telegramBookmarkImport');
 
 /**
- * Get current semester data based on mode.
+ * Get the current semester data.
  */
 function getData() {
-    if (IS_COMBINED && COMBINED_DATA) {
-        return COMBINED_DATA.sd[activeSemester];
-    }
     return DATA;
 }
 
@@ -295,11 +277,7 @@ function refreshCourseMaps() {
 
     for (const [code, course] of Object.entries(data.cr)) {
         summaryCourses.set(code, course);
-        // Combined prototype pages keep their complete course data in memory;
-        // generated semester pages hydrate details from the v3 department blob.
-        if (IS_COMBINED) {
-            hydratedCourses.set(code, course);
-        }
+        // Course details hydrate lazily from the v3 department blob.
     }
     updateTelegramBookmarkImport();
 }
@@ -332,7 +310,7 @@ function getCourseSnapshots(course) {
 }
 
 function getSemesterSlug() {
-    return semesterToSlug(IS_COMBINED ? activeSemester : getData().sem || '');
+    return semesterToSlug(getData().sem || '');
 }
 
 async function getCourseRouteIdentity(courseCode) {
@@ -359,12 +337,9 @@ async function showCourseRoute(courseCode) {
 }
 
 /**
- * Get current milestones based on mode.
+ * Get the current semester milestones.
  */
 function getMilestones() {
-    if (IS_COMBINED) {
-        return COMBINED_DATA.md[activeSemester] || [];
-    }
     return MILESTONES;
 }
 
@@ -372,11 +347,11 @@ function getCurrentSemesterLabel() {
     return staticManifest?.semester
         || getData()?.semester
         || getData()?.sem
-        || (IS_COMBINED ? activeSemester : '');
+        || '';
 }
 
 function getHistoricalSemesterCandidates() {
-    if (IS_COMBINED || !staticManifest) return [];
+    if (!staticManifest) return [];
     const currentSemester = getCurrentSemesterLabel();
     const links = [...document.querySelectorAll('.semester-nav-link')];
     const currentIndex = links.findIndex(link => (
@@ -585,7 +560,7 @@ function resetHistoricalComparisonState() {
 }
 
 function initializeHistoricalComparisonControl(course) {
-    if (IS_COMBINED || !staticManifest) {
+    if (!staticManifest) {
         setHistoricalComparisonState('hidden', null);
         return;
     }
@@ -712,7 +687,7 @@ async function resolveHistoricalAvailability(courseCode, course, requestVersion)
     historicalComparisonData = null;
     historicalComparisonMode = selectedSection ? 'professor' : 'course';
 
-    if (IS_COMBINED || !staticManifest) {
+    if (!staticManifest) {
         setHistoricalComparisonState('hidden', null);
         updateHistoricalLegend();
         return;
@@ -944,7 +919,7 @@ function buildHistoricalChartState({
         ? historicalMapper.domainXValues
         : historicalMapper.xValues;
     // A current semester may have only its first observation. Keep the
-    // historical shadow drawable until the current domain has two anchors.
+    // historical overlay drawable until the current domain has two anchors.
     const targetDomain = currentComparisonDomain.length > 1
         ? currentComparisonDomain
         : historicalDomain;
@@ -1076,39 +1051,6 @@ function formatDate(isoString) {
     });
 }
 
-/**
- * Render semester toggle buttons (combined mode only).
- */
-function renderSemesterToggle() {
-    if (!IS_COMBINED) return;
-
-    const toggle = document.getElementById('semesterToggle');
-    if (!toggle) return;
-
-    toggle.textContent = '';
-    for (const sem of COMBINED_DATA.sems) {
-        const btn = document.createElement('button');
-        btn.className = `semester-btn${sem === activeSemester ? ' active' : ''}`;
-        btn.textContent = sem;
-        btn.addEventListener('click', () => window.switchSemester(sem));
-        toggle.appendChild(btn);
-    }
-}
-
-/**
- * Switch to a different semester (combined mode).
- */
-// Export to window so it can be called from HTML onclick
-window.switchSemester = function(semester) {
-    if (!IS_COMBINED) return;
-
-    activeSemester = semester;
-    localStorage.setItem('activeSemester', semester);
-    closeModal();
-    renderSemesterToggle();
-    renderCourseGrid();
-}
-
 // Export to window so it can be called from HTML onclick
 window.closeModal = closeModal;
 
@@ -1180,7 +1122,7 @@ function renderCourseGrid() {
     // Update header text
     const lastUpdatedEl = document.getElementById('lastUpdated');
     if (lastUpdatedEl) {
-        const semester = IS_COMBINED ? activeSemester : (data.semester || data.sem);
+        const semester = data.semester || data.sem;
         const staleLabel = staticManifestStale ? 'Stale data • ' : '';
         lastUpdatedEl.textContent = `${staleLabel}${semester} • Last updated ${formatDate(
             data.lastReportTime ?? data.lrt,
@@ -1291,11 +1233,6 @@ async function hydrateCourse(courseCode) {
     const summaryCourse = summaryCourses.get(courseCode);
     if (!summaryCourse) return null;
 
-    // Combined prototype pages keep their complete course data in memory.
-    if (IS_COMBINED) {
-        hydratedCourses.set(courseCode, summaryCourse);
-        return summaryCourse;
-    }
 
     const department = getCourseDepartment(summaryCourse, courseCode);
     const payload = await loadDepartmentPayload(
@@ -3215,7 +3152,7 @@ function saveBookmarks() {
 }
 
 function currentSemesterLabel() {
-    return activeSemester || document.body.dataset.semester || '';
+    return document.body.dataset.semester || '';
 }
 
 function currentSemesterBookmarks() {
@@ -3451,10 +3388,6 @@ async function initApp() {
     }
 
     if (!summaryReadyMarked) markPerformance('registrar:summary-ready');
-
-    if (IS_COMBINED) {
-        renderSemesterToggle();
-    }
 
     // Render page-level progress bar
     renderMilestoneProgress();

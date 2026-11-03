@@ -651,7 +651,6 @@ class DeployCommand:
         minify: bool = True,
         project_name: str = "registrar-monitor",
         branch: str | None = None,
-        prototype: bool = False,
         output_dir: Path | None = None,
     ) -> bool:
         """Run the deploy command."""
@@ -667,12 +666,6 @@ class DeployCommand:
             if output_dir is not None
             else WebsiteService()
         )
-
-        if prototype:
-            if deploy:
-                print("❌ Prototype generation is local-only; refusing deploy.")
-                return False
-            return service.generate_prototype(semester_key=semester)
 
         # Step 1: Generate
         success = service.generate(semester_key=semester, force=force, minify=minify)

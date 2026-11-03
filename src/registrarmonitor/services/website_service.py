@@ -17,7 +17,7 @@ from ..website.config import (
     semester_key_map,
     semester_to_slug,
 )
-from ..website.data import get_prototype_payloads, get_semester_data
+from ..website.data import get_semester_data
 from ..website.preview import (
     build_course_preview_state,
     build_semester_preview_state,
@@ -25,7 +25,6 @@ from ..website.preview import (
 )
 from ..website.static_manifest import build_frontend_payloads_v3, publish_semester
 from ..website.templates import (
-    build_prototype_page,
     build_redirect_index,
     build_semester_page,
 )
@@ -286,143 +285,6 @@ class WebsiteService:
         print(f"  Published {len(states)} clean course routes", flush=True)
         return len(states)
 
-    def generate_prototype(self, semester_key: str | None = None) -> bool:
-        """Generate the local-only dashboard redesign prototype."""
-        if self._output_dir is not None:
-            print(
-                "❌ Prototype generation does not support an isolated output directory."
-            )
-            return False
-        try:
-            key_map = semester_key_map()
-            target_semester = (
-                key_map[semester_key] if semester_key else key_map["summer2026"]
-            )
-        except KeyError:
-            print(f"Error: Unknown semester key '{semester_key}'")
-            return False
-
-        try:
-            OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
-
-            if not self.build_frontend_assets():
-                print("❌ Frontend build failed. Aborting prototype generation.")
-                return False
-
-            import json
-
-            prototype_data_dir = OUTPUT_DIR / "prototype-data"
-            if prototype_data_dir.exists():
-                shutil.rmtree(prototype_data_dir)
-            prototype_data_dir.mkdir(parents=True, exist_ok=True)
-
-            candidate_semesters = (
-                [target_semester]
-                if semester_key
-                else [
-                    target_semester,
-                    *[
-                        semester
-                        for semester in get_configured_semesters()
-                        if semester != target_semester
-                    ],
-                ]
-            )
-            generated_payloads: list[
-                tuple[str, str, dict[str, object], dict[str, dict[str, object]]]
-            ] = []
-
-            print(f"Generating local dashboard prototype for {target_semester}...")
-            for semester in candidate_semesters:
-                sem_slug = semester_to_slug(semester)
-                detail_base_url = f"prototype-data/{sem_slug}"
-                index_payload, detail_payloads = get_prototype_payloads(
-                    semester,
-                    detail_base_url=detail_base_url,
-                )
-                if not index_payload.get("courseRows"):
-                    print(f"  Skipping {semester}: no courses found")
-                    continue
-                generated_payloads.append(
-                    (semester, sem_slug, index_payload, detail_payloads)
-                )
-
-            if not generated_payloads:
-                print(f"Warning: No courses found for {target_semester}")
-                return False
-
-            semester_options = [
-                {
-                    "semester": semester,
-                    "indexUrl": f"prototype-data/{sem_slug}/index.json",
-                }
-                for semester, sem_slug, _, _ in generated_payloads
-            ]
-
-            active_index_payload: dict[str, object] | None = None
-            total_detail_files = 0
-            for (
-                semester,
-                sem_slug,
-                index_payload,
-                detail_payloads,
-            ) in generated_payloads:
-                index_payload["semesters"] = semester_options
-                semester_dir = prototype_data_dir / sem_slug
-                semester_dir.mkdir(parents=True, exist_ok=True)
-
-                index_path = semester_dir / "index.json"
-                index_path.write_text(
-                    json.dumps(index_payload, separators=(",", ":")),
-                    encoding="utf-8",
-                )
-
-                for slug, payload in detail_payloads.items():
-                    detail_path = semester_dir / f"{slug}.json"
-                    detail_path.write_text(
-                        json.dumps(payload, separators=(",", ":")),
-                        encoding="utf-8",
-                    )
-                    total_detail_files += 1
-
-                if semester == target_semester:
-                    active_index_payload = index_payload
-
-            if active_index_payload is None:
-                active_index_payload = generated_payloads[0][2]
-
-            root_index_path = prototype_data_dir / "index.json"
-            root_index_path.write_text(
-                json.dumps(active_index_payload, separators=(",", ":")),
-                encoding="utf-8",
-            )
-
-            html = build_prototype_page(
-                semester=target_semester,
-                index_json="prototype-data/index.json",
-            )
-            output_path = OUTPUT_DIR / "prototype.html"
-            output_path.write_text(html, encoding="utf-8")
-
-            active_course_rows = active_index_payload.get("courseRows", [])
-            active_course_count = (
-                len(active_course_rows) if isinstance(active_course_rows, list) else 0
-            )
-            print(
-                f"Prototype written to {output_path} "
-                f"({active_course_count} active courses, "
-                f"{total_detail_files} detail files)"
-            )
-            print(
-                "Serve assets/website/public locally and open "
-                "http://127.0.0.1:8000/prototype.html"
-            )
-            return True
-        except Exception as e:
-            self.logger.error(f"Prototype generation failed: {e}")
-            print(f"❌ Prototype generation failed: {e}")
-            return False
-
     def _patch_asset_hashes_in_html(self) -> bool:
         """Update JS/CSS asset references in all deployed HTML files after a Vite build.
 
@@ -577,8 +439,6 @@ class WebsiteService:
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"
         env["REGISTRAR_VITE_OUTPUT_DIR"] = str(self.output_dir / "assets")
-        if self._output_dir is not None:
-            env["REGISTRAR_MAIN_ONLY"] = "1"
 
         try:
             if self._frontend_dependencies_need_install():
@@ -607,24 +467,24 @@ class WebsiteService:
             return False
 
     def _remove_obsolete_html(self) -> None:
-        """Remove generated legacy files now represented by exact redirects."""
+        """Remove generated .html files now represented by exact redirects."""
         for semester in get_configured_semesters():
-            legacy = self.output_dir / f"{semester.replace(' ', '').lower()}.html"
-            legacy.unlink(missing_ok=True)
+            old_page = self.output_dir / f"{semester.replace(' ', '').lower()}.html"
+            old_page.unlink(missing_ok=True)
         courses = self.output_dir / "courses"
         if courses.exists():
-            for legacy in courses.glob("*/*.html"):
-                legacy.unlink()
+            for old_page in courses.glob("*/*.html"):
+                old_page.unlink()
 
     def _build_redirects(self) -> str:
-        """Build exact legacy redirects only for clean targets that exist."""
+        """Build exact .html redirects only for clean targets that exist."""
         redirects: list[str] = []
         for semester in get_configured_semesters():
             sem_slug = semester_to_slug(semester)
             target = self.output_dir / "semesters" / sem_slug / "index.html"
             if target.is_file():
-                legacy = f"/{semester.replace(' ', '').lower()}.html"
-                redirects.append(f"{legacy} /semesters/{sem_slug}/ 301")
+                old_path = f"/{semester.replace(' ', '').lower()}.html"
+                redirects.append(f"{old_path} /semesters/{sem_slug}/ 301")
         courses = self.output_dir / "courses"
         if courses.exists():
             for target in sorted(courses.glob("*/*/index.html")):
@@ -960,7 +820,7 @@ class WebsiteService:
                 self._remove_obsolete_html()
                 redirects_path = self.output_dir / "_redirects"
                 redirects_path.write_text(self._build_redirects(), encoding="utf-8")
-                print("Generated narrow legacy redirects")
+                print("Generated narrow .html redirects")
 
             removed = self._prune_unreferenced_publication_files()
             print(
