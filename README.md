@@ -1,8 +1,8 @@
 # Registrar Monitor
 
 Registrar Monitor downloads registrar spreadsheets, stores enrollment history in
-SQLite, reports changes to Telegram, and publishes a static Cloudflare Pages
-dashboard. Telegram users can also watch courses or sections in a private chat.
+SQLite, reports changes to Telegram, and publishes a static dashboard as
+Cloudflare Workers Static Assets. Telegram users can also watch courses or sections in a private chat.
 Design and glossary: [`docs/architecture.md`](docs/architecture.md). Production,
 publication, and Telegram operations: [`docs/operations.md`](docs/operations.md).
 
@@ -33,7 +33,7 @@ monitor run                          # poll, report, and generate the dashboard
 monitor schedule                     # run the monitoring daemon
 monitor bot                          # run private Telegram subscriptions
 monitor deploy                       # generate the dashboard
-monitor deploy --deploy              # generate and upload to Cloudflare Pages
+monitor deploy --deploy              # generate and `wrangler deploy` the site Worker
 monitor analyze                      # list saved DuckDB queries (analysis/*.sql)
 monitor analyze fill_curves_by_department --csv out.csv
 monitor export-parquet "Fall 2026"   # write data/open-data/fall_2026.parquet
@@ -50,7 +50,7 @@ global `--debug` option before the command. `monitor --help` is the full referen
 make check-fast        # Python format, lint, types, and tests
 make check             # add frontend lint, typecheck, unit tests, and build
 make test-browser      # Chromium smoke tests
-make worker-check      # preview-image Worker
+make worker-check      # site Worker: types, tests, deploy dry-run
 make deploy-vm REV=<revision> UNIT=<unit>.service   # authorized VM deploy only
 ```
 
@@ -59,7 +59,7 @@ make deploy-vm REV=<revision> UNIT=<unit>.service   # authorized VM deploy only
 ```text
 src/registrarmonitor/  automation, data, reporting, services, subscriptions, website
 frontend/              Vite dashboard
-workers/               preview-images Worker
+workers/site/          Worker: /preview/* images; serves frontend/public as Static Assets
 scripts/               host setup and maintenance
 tests/                 Python tests
 settings.toml          non-secret configuration

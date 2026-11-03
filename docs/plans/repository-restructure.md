@@ -23,7 +23,7 @@ This is a personal project. Every stage is judged by these:
 - **Tests guard behavior users notice.** No tests for timing, file layout,
   script text, or deleted paths.
 - **Docs describe the current system only.** History lives in git.
-- **Production is separate.** VM sync, Pages upload, Worker deploys, database
+- **Production is separate.** VM sync, Worker deploys (which publish the site), database
   changes, and service state each need explicit authorization, in every stage.
 
 ## Current system and findings
@@ -32,8 +32,8 @@ This is a personal project. Every stage is judged by these:
 registrar XLS → automation/ → data/ (per-semester SQLite, v2 finalized)
                                  ├─ services/reporting → reporting/ → Telegram channel
                                  │                    └─ subscriptions/ (bot DB, digests)
-                                 └─ services/website → website/ → static site → Pages
-workers/preview-images  (separate Worker, /preview/*)
+                                 └─ services/website → website/ → static site → wrangler deploy
+workers/site            (Worker: Static Assets + /preview/*)
 frontend/               (Vite + Chart.js dashboard source)
 GCP VM                  (scheduler, bot, Cloudflare Tunnel, Litestream, watchdog)
 ```
@@ -46,7 +46,7 @@ path that regenerates and uploads the whole site.
 | Migration machinery outlives the migration | `data/migration.py` (2.7k lines), `migration_rehearsal.py`, CLI `migrate`/`finalize-storage`/`rehearse-migration`, `[storage]` in `settings.toml`, shadow paths in `checkpointed_state.py`; every semester is finalized | 1 |
 | Prototype dashboard is a second UI | `prototype.{js,css}`, `prototype.html.jinja`, `deploy --prototype` | 1 |
 | Local debris, unused scaffolds, dated evidence docs | See Stage 1 | 1 |
-| Every publish regenerates and uploads ~1,200 files | `static_manifest.py`, `website_service.py` (~2k lines), 3,600 s generation limit | 7 |
+| Every publish regenerates ~1,200 files (uploads are now incremental) | `static_manifest.py`, `website_service.py` (~2k lines), 3,600 s generation limit | 7 |
 
 ## Decisions (resolved 2026-11-01)
 
@@ -68,7 +68,7 @@ path that regenerates and uploads the whole site.
 | Stage | Theme | Size | Depends on |
 |---|---|---|---|
 | 1 | Delete dead files and code | M | — |
-| 7 | Publish data through a Worker | L | Litestream/R2 (landed) |
+| 7 | Telegram Mini App (the Worker and Static Assets part has landed) | M | Litestream/R2 (landed) |
 | 9 | Optional: shrink or leave the VM | L | 7 |
 
 Stage 1 changes no behavior. Each stage is one or a few jj changes, each
@@ -88,33 +88,44 @@ What remains needs the VM or a decision:
 - Finalized databases still carry an unused `storage_control` table; drop it
   or leave it.
 
-### Stage 7 — Publish data through a Worker
+### Stage 7 — Telegram Mini App (site Worker landed)
 
-- After each poll, the VM pushes only changed state to Cloudflare: rows to
-  **D1**, or the compact per-semester database to **R2** (Litestream already
-  replicates the databases there).
-- One **Hono** Worker (see "Tool choices") serves:
-  - the dashboard shell via Workers Static Assets, replacing Pages;
-  - the JSON the dashboard already fetches (`/api/semesters/:s/courses/:c`),
-    edge-cached by state hash;
-  - clean course routes and `/preview/*`, absorbing
-    `workers/preview-images`.
-- Delete most of `static_manifest.py` and the upload path in
-  `website_service.py`.
+**Landed:** one Worker (`workers/site`) replaces Pages. The dashboard, its JSON, and
+the per-course pages are Workers Static Assets deployed with `wrangler deploy`
+(wrangler uploads only changed files, so VM egress stays small); the Worker runs
+code only for `/preview/*` and `/api/*` (`assets.run_worker_first`). Decision: data
+stays on static assets rather than D1/R2 behind Worker routes, because asset
+requests are free and unlimited while Worker invocations are capped at 100,000 per
+day on the free plan and the Cache API does nothing on `workers.dev`. Hono was not
+needed for two route families; add it with the Mini App if its middleware (auth,
+CORS) pays off.
+
 - **Telegram Mini App.** Open the dashboard inside Telegram and add or remove
-  watches from the course modal. The Worker validates `initData` and writes
-  through to the bot store. Shrink the matching command flows in
+  watches from the course modal. A Worker route under `/api/miniapp/*` validates
+  `initData` and writes through to the bot store (reachable from the Worker, for
+  example through the Stage 6 Tunnel). Shrink the matching command flows in
   `interactions.py` (1.6k lines).
-- **Small wins:** Cloudflare Web Analytics (cookieless); long-lived cache
-  headers on content-addressed files.
 - **Optional:** evaluate uPlot instead of Chart.js and its two plugins if chart
   code is being rewritten anyway; Biome instead of ESLint.
 
-**Sentry for the Worker was skipped:** this stage replaces the preview Worker, so add
-Sentry to the new Worker rather than the old one.
+**Sentry for the Worker was skipped:** add it to `workers/site` if the Worker gains
+more than the preview route.
 
-**Invariant:** VM SQLite stays the source of truth; D1 and R2 are read replicas
-rebuilt from it. The Worker becomes a runtime dependency of the dashboard.
+**Production steps for the landed part (each needs authorization):** set
+`CLOUDFLARE_API_TOKEN` (Workers Scripts edit) and `CLOUDFLARE_ACCOUNT_ID` in the VM
+`.env`; sync the code and run `npm ci --prefix frontend` on the VM; `make
+worker-check`; `monitor deploy --deploy --force` (first deploy creates the
+`registrar-monitor` Worker); verify the live shell, a course page, and a
+`/preview/*` image. Existing Telegram posts and shared links point at the old public
+site, `https://registrar-monitor.pages.dev`. Keep `website.base_url` at
+`https://registrar-monitor.spooktaken.workers.dev`, and keep the Pages project as a
+redirect-only deployment instead of deleting it: a directory containing just
+`_redirects` with `/* https://registrar-monitor.spooktaken.workers.dev/:splat 301`,
+deployed once with `npx wrangler pages deploy <dir> --project-name registrar-monitor`.
+Alternatively, set a custom domain and update `base_url`.
+
+**Invariant:** VM SQLite stays the source of truth; the deployed site is a
+rebuildable copy. The Worker is a runtime dependency of the dashboard.
 
 ### Stage 9 — Optional: shrink or leave the VM
 
@@ -130,9 +141,10 @@ fire at most once a minute, so they cannot replace the scheduler.
 | Durable Object alarm driving a Python Worker | seconds | partly (Pyodide; `xlrd` is pure Python) | Storage moves to DO SQLite or D1: full data-layer rewrite |
 
 After Stage 7, a poller-only VM has little left on it: the bot already uses
-webhooks through a Tunnel, backups are on R2, and the heartbeat is external; the site
-and previews move to the Worker. The network watchdog stays: it is generic VM network
-recovery, not tied to polling.
+webhooks through a Tunnel, backups are on R2, the heartbeat is external, and the site
+and previews are on the Worker. The VM still generates and deploys the site (Node and
+wrangler); moving that to CI is the remaining step to a poller-only VM. The network
+watchdog stays: it is generic VM network recovery, not tied to polling.
 
 **Test before choosing a Cloudflare option:**
 
@@ -143,7 +155,7 @@ recovery, not tied to polling.
   Cloudflare egress IPs without blocking.
 
 **Moving the bot fully to Workers** (webhook Worker, D1 bot store, Queue for
-digests) is possible after Stage 7 but means rewriting about 2.5k lines of
+digests) is possible but means rewriting about 2.5k lines of
 subscription code in TypeScript. Do it only together with leaving the VM
 entirely.
 
@@ -197,12 +209,9 @@ authorization.
 
 | Area | Chosen | Alternatives weighed | Why |
 |---|---|---|---|
-| Worker routing (Stage 7) | **Hono** | Plain `fetch` handler (what `workers/preview-images` uses today), itty-router, Worktop | Stage 7 adds ~8 routes plus Mini App `initData` auth, ETag/cache, and CORS middleware; Hono provides those built in, has zero dependencies, and tests via `app.request()` without a runtime. itty-router is smaller (<1 KB) but has no middleware ecosystem; Worktop is effectively superseded. Router speed is irrelevant because the runtime dominates. If Stage 7 ends up with only data and preview routes, keep the plain `fetch` handler instead. |
+| Worker routing (Stage 7) | Plain `fetch` handler now; **Hono** for the Mini App if it pays off | itty-router, Worktop | With data on Static Assets the Worker has only `/preview/*`, so a plain handler is enough. Mini App `initData` auth and CORS middleware are where Hono (zero dependencies, tests via `app.request()`) would earn its place; itty-router has no middleware ecosystem and Worktop is superseded. |
 | Charts (Stage 7, optional) | Keep **Chart.js** | uPlot, ECharts | uPlot is about 50 KB versus about 250 KB, with much lower CPU and memory on long time series, but it lacks built-in annotation and zoom plugins that the dashboard relies on. ECharts is about 1 MB. Switch only if the chart code is being rewritten anyway; prototype the annotation, pinch-zoom, and pinned-readout behavior first. |
 | XLS parsing | Keep **xlrd** | python-calamine (Rust) | Calamine is about 1.5x faster in pandas' general benchmarks, but scores lower on `.xls` read fidelity in ExcelBench (2/4 versus 4/4). One 770 KB file per poll does not need the speed; fidelity matters more. Revisit only if parsing shows up in profiles. |
-
-Correction to the earlier review: `workers/preview-images` uses a plain
-`fetch` handler, not Hono.
 
 ## Considered and rejected
 
@@ -211,4 +220,4 @@ Correction to the earlier review: `workers/preview-images` uses a plain
   Chart.js code would stay, and search would become a network round trip.
 - **Postgres or another server database:** each semester's database is 3 MB or
   less.
-- **Microservices or an event bus:** Stage 7 gives enough separation.
+- **Microservices or an event bus:** the Worker split gives enough separation.

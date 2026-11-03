@@ -58,7 +58,7 @@ root or `.env` permissions to fix a nested-path problem.
 
 ### Change boundaries
 
-Code sharing, VM synchronization, Pages upload, Worker deployment, database
+Code sharing, VM synchronization, Worker deployment (which publishes the site), database
 mutation, and service state are separate actions; each production mutation needs
 explicit operator authorization. A code sync does not reload a running process. After
 an authorized restart, verify unit state, PID and start time, and source checksums.
@@ -106,8 +106,9 @@ polling.
 
 ## Website publication
 
-The dashboard is a static Cloudflare Pages site generated from matching, non-empty
-SQLite snapshots (`monitor deploy`, `--deploy` to upload). `settings.toml` defines
+The dashboard is a static site generated from matching, non-empty SQLite snapshots
+(`monitor deploy`; `--deploy` runs `wrangler deploy`) and served as the Static Assets
+of the `registrar-monitor` Worker (`workers/site`). `settings.toml` defines
 registrar sources, milestones, and publication settings; configured terms without
 valid stored courses are not published. Terms order Fall, Spring, Summer within
 registrar years.
@@ -116,15 +117,32 @@ registrar years.
 
 - `/` redirects to the newest publishable semester.
 - `/semesters/<semester>/` is the dashboard shell; `/courses/<semester>/<course>/`
-  opens a course in it.
+  opens a course in it. Every course route is its own generated page, because each
+  carries its own Open Graph tags.
 - `/data/<semester>/manifest.json` is the revalidating pointer. Versioned manifests,
   blobs, preview JSON and images, and hashed assets are immutable.
+- `_headers` (security headers and the cache rules above) and `_redirects` are
+  generated into `frontend/public` and applied by Static Assets.
+- Static Assets requests are free, unlimited, and never invoke the Worker. Only
+  `/preview/*` and `/api/*` do (`assets.run_worker_first`), which keeps the site far
+  under the free plan's 100,000 daily Worker invocations. Keep the file count under
+  the free plan's 20,000 assets per version (about 1,300 now).
+- Cloudflare Web Analytics: set `website.web_analytics_token` in `settings.toml`
+  (a 32-character hex site token); the cookieless beacon is added to generated pages
+  only when it is non-empty.
 
 Only generated `.html` routes get exact redirects. Removed courses keep their last
 route and modal state. Live course share and Open Graph URLs carry the preview token
 as `?v=<token>`; closing a course restores the clean semester route. Generated-output
 validation rejects private files, root JSON payloads, and obsolete non-index HTML.
 Every page is `noindex, nofollow`; `robots.txt` lets crawlers read that directive.
+`.checksums.json` and `.frontend-build-hash` stay local (`.assetsignore`).
+
+The frontend bundle is rebuilt only when `frontend/src`, `package.json`,
+`package-lock.json`, or `vite.config.js` change (hash in `.frontend-build-hash`), so
+routine publications do not run Node builds on the 1 GB VM. Wrangler uploads only
+assets Cloudflare does not already have, so each deploy sends just the changed pages
+and data.
 
 ### Enrollment semantics
 
@@ -142,37 +160,39 @@ average enrollment exceeds capacity. Charts normalize the limiting section type'
 enrollment and capacity against its active sections' opening capacities; a later
 section contributes its own initial capacity from when it becomes active.
 
-### Preview Worker
+### Site Worker
 
 Preview tokens are the first 48 bits of the preview-visible SHA-256 identity as eight
 unpadded URL-safe Base64 characters. A course identity covers only the observations
 and events it references, so unrelated changes and no-op polls do not churn its URL;
 a semester identity includes the displayed observation time.
 
-`workers/preview-images` validates state-addressed paths, fetches exact preview JSON
-from the fixed Pages origin, verifies identity, renders with the Browser binding, and
-caches only successful PNGs. It never reads SQLite, contacts the registrar, or
-uploads Pages assets. Invalid state is a non-cacheable 404; fetch or render failure
-is a non-cacheable 5xx and never blocks publication or substitutes stale content.
+`workers/site` validates state-addressed `/preview/*` paths, reads the exact preview
+JSON from its own Static Assets, verifies identity, renders with the Browser binding,
+and caches only successful PNGs. It never reads SQLite or contacts the registrar.
+Invalid state is a non-cacheable 404; read or render failure is a non-cacheable 5xx
+and never blocks publication or substitutes stale content. `/api/*` is reserved for
+Telegram Mini App endpoints.
 
-Pages upload, VM sync, and restarts do not deploy it. Deploy it separately, with
-authorization, whenever its source or configuration changes or the preview token
-format, preview schema, or card model changes; otherwise Telegram shows only title
-and description.
+`monitor deploy --deploy` (and the scheduler) runs `wrangler deploy` for the Worker
+and the site together; it needs `CLOUDFLARE_API_TOKEN` (Workers Scripts edit) and
+`CLOUDFLARE_ACCOUNT_ID` in `.env`. Deploy by hand, with authorization, whenever the
+Worker source or configuration changes or the preview token format, preview schema,
+or card model changes; otherwise Telegram shows only title and description.
 
 ```bash
 make worker-check
-npm --prefix workers/preview-images exec wrangler -- deploy \
-  --config workers/preview-images/wrangler.jsonc --strict --message "<what changed>"
-npm --prefix workers/preview-images exec wrangler -- deployments list \
-  --name registrar-monitor-preview-images --json
+npm --prefix frontend exec wrangler -- deploy \
+  --config workers/site/wrangler.jsonc --strict --message "<what changed>"
+npm --prefix frontend exec wrangler -- deployments list --name registrar-monitor --json
 curl --fail -sSL -o /dev/null -w 'status=%{http_code} type=%{content_type} size=%{size_download}\n' \
-  'https://registrar-monitor-preview-images.spooktaken.workers.dev/preview/course/<semester>/<course>/<hash>.png'
+  'https://registrar-monitor.spooktaken.workers.dev/preview/course/<semester>/<course>/<hash>.png'
 ```
 
 The probe must return 200, `image/png`, and a nonzero size using an exact `og:image`
 URL from a live course page; a 200 course page or preview JSON does not exercise the
-Worker. Re-send the course URL afterwards so Telegram refetches the image.
+Worker. Re-send the course URL afterwards so Telegram refetches the image. Roll back
+with `wrangler rollback`.
 
 ## Telegram
 
@@ -251,8 +271,8 @@ reporting position per semester, check the bot store without printing user
 identifiers, and generate the dashboard locally. For an incident, with authorization
 stop affected writers, preserve the damaged files, restore under the runtime owner,
 verify, then restart. Bot recovery can replay deliveries or lose watches created
-after the last replicated write; reconcile before resuming. Pages upload stays
-separately authorized.
+after the last replicated write; reconcile before resuming. Site Worker deployment
+stays separately authorized.
 
 ## Analysis and open data
 
@@ -271,7 +291,7 @@ Neither command writes to SQLite.
   SQLite databases; never overwrites an existing database), and runs the Chromium
   smoke tests in `frontend/test/browser-smoke.spec.mjs`. Reports are under
   `output/playwright/`.
-- `make worker-check`: preview Worker tests, types, and deployment dry-run.
+- `make worker-check`: site Worker tests, types, and `wrangler deploy --dry-run`.
 - `make site-generate`: builds the dashboard and generates the production site.
 - `make deploy-vm`: authorized VM deploy of one revision and unit (see Deploy).
 
@@ -285,7 +305,8 @@ Dependabot runs monthly with grouped updates; the `uv` ecosystem keeps `uv.lock`
 current. Lockfile changes are verified by CI; syncing the VM is a separate
 production action. Pass Playwright options after npm's `--` (for example
 `npm --prefix frontend exec -- playwright install --with-deps chromium`). Wrangler is
-pinned to the same version in both JavaScript packages; the `sharp` and Worker
+pinned to the same version in both JavaScript packages (the frontend copy deploys
+from the VM); the `sharp` and Worker
 `undici` overrides address advisories and can go once upstream Miniflare and the
 Worker test pool pin patched versions. The Worker test pool requires Vitest 4, so
 Dependabot ignores major Vitest updates.

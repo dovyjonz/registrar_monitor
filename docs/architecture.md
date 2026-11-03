@@ -1,16 +1,16 @@
 # Architecture
 
 Registrar Monitor downloads registrar spreadsheets, stores enrollment history in
-SQLite, reports changes to Telegram, and publishes a static Cloudflare Pages
-dashboard. Telegram users can also watch courses or sections in a private chat.
+SQLite, reports changes to Telegram, and publishes a static dashboard as
+Cloudflare Workers Static Assets. Telegram users can also watch courses or sections in a private chat.
 
 ```text
 registrar XLS → automation/ → data/ (per-semester SQLite)
                                 ├─ services/reporting → reporting/ → Telegram channel
                                 │                     └─ subscriptions/ (bot DB, digests)
-                                └─ services/website → website/ → static site → Pages
+                                └─ services/website → website/ → static site → wrangler deploy
 Telegram → Cloudflare Tunnel → bot webhook (subscriptions/)
-workers/preview-images  separate Worker serving /preview/*
+workers/site            Worker: Static Assets (the site) + /preview/* images
 frontend/               Vite + Chart.js dashboard source
 ```
 
@@ -38,8 +38,8 @@ frontend/               Vite + Chart.js dashboard source
   and delivery state. It never copies enrollment state.
 - **Watch deep link**: `t.me/<bot>?start=watch_<semester>_<course>`, placed on each
   course heading in a channel report; the bot confirms before it adds the watch.
-- **Generated dashboard**: static HTML and immutable data files uploaded directly
-  to Cloudflare Pages.
+- **Generated dashboard**: static HTML and immutable data files in `frontend/public`,
+  deployed as the Static Assets of the `workers/site` Worker.
 
 ## Enrollment storage
 
@@ -176,8 +176,8 @@ retired entities, and a local timestamp table. The browser fetches a department 
 when its first course opens and reuses it afterwards.
 
 Publication order is blobs, then the versioned manifest, then the pointer. An
-unchanged build writes no blobs and leaves the pointer byte-identical. Rollback
-points the stable pointer at the previous manifest. Size targets: manifest and
+unchanged build writes no blobs and leaves the pointer byte-identical. Cloudflare
+versions each deploy atomically, so rollback is `wrangler rollback`. Size targets: manifest and
 pointer under 10 KB, summary under 100 KB, each department blob under 150 KB.
 
 ## Decisions worth remembering
@@ -186,6 +186,9 @@ pointer under 10 KB, summary under 100 KB, each department blob under 150 KB.
 - Fill, status, and averages are derived, not stored.
 - Latest-state tables plus checkpoints keep reads simple and replay bounded;
   pure event sourcing and full snapshots per change were rejected.
-- No dynamic web backend for the dashboard; static Pages output is intentional.
+- No dynamic web backend for the dashboard; static output served as Worker Static
+  Assets is intentional: asset requests are free and never invoke the Worker, so
+  traffic cannot exhaust the free plan's daily Worker-invocation cap. Only
+  `/preview/*` (and later `/api/*`) run code.
 - One monolithic semester JSON and one blob per course were rejected in favor of
   department-level blobs.

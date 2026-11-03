@@ -23,7 +23,7 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: npm
-    directory: /workers/preview-images
+    directory: /workers/site
     # The Cloudflare test pool currently requires Vitest 4. Review major
     # upgrades together with a pool release that supports them.
     ignore:
@@ -32,7 +32,7 @@ updates:
     schedule:
       interval: monthly
     groups:
-      preview-worker-development:
+      site-worker-development:
         dependency-type: development
     open-pull-requests-limit: 5
 

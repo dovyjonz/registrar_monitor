@@ -1,13 +1,13 @@
 # Agent guide
 
 Python 3.13 app with a Vite dashboard: stores enrollment history in SQLite, reports
-changes to Telegram, uploads a static site to Cloudflare Pages.
+changes to Telegram, deploys a static site to Cloudflare as Workers Static Assets.
 ```text
 registrar XLS -> automation/ -> data/ (per-semester SQLite)
                                  |- services/reporting -> reporting/ -> Telegram channel
                                  |                     `- subscriptions/ (bot DB, digests)
-                                 `- services/website -> website/ -> static site -> Pages
-frontend/ (Vite + Chart.js)   workers/preview-images/ (Worker, /preview/*)
+                                 `- services/website -> website/ -> static site -> site Worker
+frontend/ (Vite + Chart.js)   workers/site/ (Worker: static assets + /preview/*)
 ```
 
 ## Sources of truth
@@ -26,7 +26,7 @@ lasting decisions), `docs/operations.md` (production), `README.md` (setup).
 - Keep runtime/generated output untracked: `data/`, logs, downloads, reports,
   generated site, `output/`, coverage, caches.
 - Remove obsolete paths instead of adding compatibility layers.
-- Code sharing, VM sync, Pages upload, Worker deploys, database changes, and service
+- Code sharing, VM sync, Worker deploys (site), database changes, and service
   state are separate actions; each production mutation needs explicit authorization.
 
 ## Boundaries
@@ -41,7 +41,7 @@ Reusable pytest fixtures go in `tests/conftest.py`. Prefer existing libraries.
 
 - Setup: `make bootstrap` (uv and npm installs).
 - One test: `uv run pytest tests/test_x.py -k name`;
-  `node --test frontend/test/x.test.mjs`; `npm --prefix workers/preview-images test`.
+  `node --test frontend/test/x.test.mjs`; `npm --prefix workers/site test`.
 - `make check-fast`: Ruff, ty, pytest. `make check`: that plus frontend lint,
   typecheck, unit tests, build. Both run offline.
 - Network or browsers: `make test-browser` (Chromium), `make worker-check`

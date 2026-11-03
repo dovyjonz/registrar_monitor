@@ -15,7 +15,7 @@ Read the Production section of `docs/operations.md` completely before acting.
 - Preview every SSH command with `gcloud compute ssh --dry-run`.
 - Keep output bounded and secret-free. Never inspect `.env`, process environments,
   Telegram IDs, or unrestricted journals.
-- Default to read-only checks. Production sync, database mutation, Pages upload,
+- Default to read-only checks. Production sync, database mutation, Worker deployment,
   unit installation, and service-state changes each need explicit authorization.
 - Never revive `registrar-monitor.service`.
 - Units: scheduler, bot, `registrarmonitor-tunnel` (Cloudflare Tunnel for the

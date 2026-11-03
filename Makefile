@@ -22,15 +22,15 @@ help:
 		'  check-fast      Run Ruff format check, Ruff lint, ty, and pytest' \
 		'  check           Run check-fast plus frontend lint, typecheck, unit tests, and build' \
 		'  test-browser    Run Chromium smoke tests against generated output' \
-		'  site-generate   Build the dashboard and generate the production site' \
-		'  worker-check    Run preview Worker types, tests, TypeScript, and dry-run' \
+		'  site-generate   Build the dashboard and generate the site (frontend/public)' \
+		'  worker-check    Run site Worker types, tests, TypeScript, and deploy dry-run' \
 		'  deploy-vm       Deploy REV to the VM and restart UNIT (make deploy-vm REV=main UNIT=<unit>.service)' \
 		'  clean           Remove reproducible website output artifacts'
 
 bootstrap:
 	$(UV) sync --locked --group dev
 	$(NPM) ci --prefix frontend
-	$(NPM) ci --prefix workers/preview-images
+	$(NPM) ci --prefix workers/site
 
 check-fast:
 	$(UV) run ruff format --check
@@ -55,7 +55,7 @@ test-browser:
 	$(NPM) --prefix frontend run test:e2e
 
 worker-check:
-	$(NPM) --prefix workers/preview-images run check
+	$(NPM) --prefix workers/site run check
 
 deploy-vm:
 	@test -n "$(REV)" -a -n "$(UNIT)" || { echo "usage: make deploy-vm REV=<revision> UNIT=<unit>.service"; exit 2; }
