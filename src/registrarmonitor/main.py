@@ -226,6 +226,31 @@ Telegram Control:
         help="Also write the JSON report to this path",
     )
 
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Run a saved cross-semester DuckDB query",
+        description="Run analysis/<name>.sql read-only against every semester database",
+    )
+    analyze_parser.add_argument(
+        "name", nargs="?", help="Query name (omit to list the saved queries)"
+    )
+    analyze_parser.add_argument(
+        "--csv", type=Path, metavar="PATH", help="Write CSV instead of a table"
+    )
+
+    export_parser = subparsers.add_parser(
+        "export-parquet",
+        help="Export one semester's per-snapshot enrollment as Parquet",
+        description="Write <semester>.parquet, one row per section per snapshot",
+    )
+    export_parser.add_argument("semester", help='Semester name, e.g. "Fall 2026"')
+    export_parser.add_argument(
+        "--out",
+        type=Path,
+        metavar="DIR",
+        help="Output directory (default: output/open-data)",
+    )
+
     # Database commands
     db_parser = subparsers.add_parser(
         "db",
@@ -336,6 +361,45 @@ async def handle_status_command(args) -> int:
     return 0 if success else 1
 
 
+async def handle_analyze_command(args) -> int:
+    """Run a saved DuckDB analysis query."""
+    from . import analysis
+
+    if not args.name:
+        print("\n".join(analysis.available_queries()))
+        return 0
+    try:
+        connection = analysis.open_analysis(analysis.configured_databases())
+        try:
+            columns, rows = analysis.run_query(connection, args.name)
+        finally:
+            connection.close()
+    except analysis.AnalysisError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    if args.csv:
+        analysis.write_csv(args.csv, columns, rows)
+        print(f"Wrote {len(rows)} rows to {args.csv}")
+    else:
+        print(analysis.format_table(columns, rows))
+    return 0
+
+
+async def handle_export_parquet_command(args) -> int:
+    """Export one semester as Parquet."""
+    from . import analysis
+
+    try:
+        target = analysis.export_parquet(
+            args.semester, args.out or analysis.DEFAULT_EXPORT_DIR
+        )
+    except analysis.AnalysisError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    print(f"Wrote {target}")
+    return 0
+
+
 async def handle_db_command(args) -> int:
     """Handle database commands."""
     command = DatabaseCommands(debug=args.debug)
@@ -425,6 +489,10 @@ async def async_main() -> int:
             return await handle_deploy_command(args)
         elif args.command == "doctor":
             return await handle_doctor_command(args)
+        elif args.command == "analyze":
+            return await handle_analyze_command(args)
+        elif args.command == "export-parquet":
+            return await handle_export_parquet_command(args)
         elif args.command == "db":
             return await handle_db_command(args)
         else:
