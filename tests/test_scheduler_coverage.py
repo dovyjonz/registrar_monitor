@@ -1,7 +1,7 @@
 """Additional scheduler tests to increase coverage of untested paths."""
 
 import asyncio
-import datetime
+import datetime as dt
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,7 +16,6 @@ def _use_mock_decision_logger(mock_decision_logger):
 
 from registrarmonitor.automation.scheduler import TwoPhaseScheduler
 
-
 HEARTBEAT = "registrarmonitor.automation.scheduler.send_heartbeat"
 
 
@@ -25,20 +24,20 @@ class TestGetNextReportTime:
         ("now", "expected"),
         [
             (
-                datetime.datetime(2024, 1, 15, 10, 10),
-                datetime.datetime(2024, 1, 15, 10, 15),
+                dt.datetime(2024, 1, 15, 10, 10),
+                dt.datetime(2024, 1, 15, 10, 15),
             ),
             (
-                datetime.datetime(2024, 1, 15, 10, 15),
-                datetime.datetime(2024, 1, 15, 10, 45),
+                dt.datetime(2024, 1, 15, 10, 15),
+                dt.datetime(2024, 1, 15, 10, 45),
             ),
             (
-                datetime.datetime(2024, 1, 15, 10, 46),
-                datetime.datetime(2024, 1, 15, 11, 15),
+                dt.datetime(2024, 1, 15, 10, 46),
+                dt.datetime(2024, 1, 15, 11, 15),
             ),
             (
-                datetime.datetime(2024, 1, 15, 23, 46),
-                datetime.datetime(2024, 1, 16, 0, 15),
+                dt.datetime(2024, 1, 15, 23, 46),
+                dt.datetime(2024, 1, 16, 0, 15),
             ),
         ],
     )
@@ -52,29 +51,27 @@ class TestGetNextReportTime:
         assert result == expected
 
     def test_uses_configured_registrar_timezone(self):
-        aware_now = datetime.datetime(
+        aware_now = dt.datetime(
             2024,
             7,
             15,
             5,
             10,
-            tzinfo=datetime.UTC,
+            tzinfo=dt.UTC,
         )
         with (
-            patch(
-                "registrarmonitor.automation.scheduler.datetime.datetime"
-            ) as mock_datetime,
+            patch("registrarmonitor.automation.scheduler.dt.datetime") as mock_datetime,
             patch(
                 "registrarmonitor.automation.scheduler.get_config",
                 return_value={"timezone": "Asia/Almaty"},
             ),
         ):
             mock_datetime.now.return_value = aware_now
-            mock_datetime.fromisoformat = datetime.datetime.fromisoformat
+            mock_datetime.fromisoformat = dt.datetime.fromisoformat
             scheduler = TwoPhaseScheduler(no_telegram=True)
             result = scheduler._get_next_report_time()
 
-        assert result == datetime.datetime(2024, 7, 15, 10, 15)
+        assert result == dt.datetime(2024, 7, 15, 10, 15)
 
 
 class TestScheduledReportLoop:
@@ -82,13 +79,13 @@ class TestScheduledReportLoop:
     async def test_runs_without_forcing_poll_and_honors_no_telegram(self):
         scheduler = TwoPhaseScheduler(no_telegram=True)
         scheduler._get_next_report_time = MagicMock(
-            return_value=datetime.datetime(2024, 1, 15, 10, 15)
+            return_value=dt.datetime(2024, 1, 15, 10, 15)
         )
 
         with (
             patch(
                 "registrarmonitor.automation.scheduler._registrar_now",
-                return_value=datetime.datetime(2024, 1, 15, 10, 10),
+                return_value=dt.datetime(2024, 1, 15, 10, 10),
             ),
             patch(
                 "registrarmonitor.automation.scheduler.asyncio.sleep",
@@ -110,13 +107,13 @@ class TestScheduledReportLoop:
     async def test_report_failure_does_not_stop_loop(self):
         scheduler = TwoPhaseScheduler(no_telegram=True)
         scheduler._get_next_report_time = MagicMock(
-            return_value=datetime.datetime(2024, 1, 15, 10, 15)
+            return_value=dt.datetime(2024, 1, 15, 10, 15)
         )
 
         with (
             patch(
                 "registrarmonitor.automation.scheduler._registrar_now",
-                return_value=datetime.datetime(2024, 1, 15, 10, 10),
+                return_value=dt.datetime(2024, 1, 15, 10, 10),
             ),
             patch(
                 "registrarmonitor.automation.scheduler.asyncio.sleep",
@@ -219,7 +216,6 @@ class TestSinglePollAndProcess:
 
 
 class TestCheckAndTriggerUpdates:
-
     @pytest.mark.asyncio
     async def test_first_run_sets_baseline(self):
         import registrarmonitor.cli.utils as cli_utils
@@ -275,7 +271,6 @@ class TestCheckAndTriggerUpdates:
 
         run_report.assert_awaited_once_with(force_poll=False)
         db_cls.return_value.add_reporting_log.assert_not_called()
-
 
 
 class TestStartInitialization:

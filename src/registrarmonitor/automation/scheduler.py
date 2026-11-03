@@ -13,7 +13,7 @@ next window start or milestone.
 """
 
 import asyncio
-import datetime
+import datetime as dt
 import json
 import subprocess
 import sys
@@ -43,7 +43,7 @@ DAY_HOURS = range(8, 20)
 DAY_CAP_SECONDS = 7200
 NIGHT_CAP_SECONDS = 14400
 RESET_INTERVAL_SECONDS = 300
-HOT_WINDOW = (datetime.timedelta(minutes=-5), datetime.timedelta(minutes=30))
+HOT_WINDOW = (dt.timedelta(minutes=-5), dt.timedelta(minutes=30))
 HOT_CAP_SECONDS = 300
 COOLDOWN_SECONDS = 300.0
 
@@ -52,18 +52,18 @@ def _tier(table: tuple[tuple[int, int], ...], score: float) -> int:
     return next(seconds for minimum, seconds in table if score >= minimum)
 
 
-def _registrar_datetime(value: str, cfg: dict) -> datetime.datetime:
+def _registrar_datetime(value: str, cfg: dict) -> dt.datetime:
     """Parse a configured time as registrar-local wall time."""
-    parsed = datetime.datetime.fromisoformat(value)
+    parsed = dt.datetime.fromisoformat(value)
     if parsed.tzinfo is not None:
         return parsed.astimezone(get_timezone(cfg)).replace(tzinfo=None)
     return parsed
 
 
-def _registrar_now(cfg: dict | None = None) -> datetime.datetime:
+def _registrar_now(cfg: dict | None = None) -> dt.datetime:
     """Return current registrar-local wall time independent of the host timezone."""
     config = cfg if cfg is not None else get_config()
-    now = datetime.datetime.now(datetime.UTC).astimezone(get_timezone(config))
+    now = dt.datetime.now(dt.UTC).astimezone(get_timezone(config))
     return now.replace(tzinfo=None)
 
 
@@ -71,7 +71,7 @@ def _registrar_now(cfg: dict | None = None) -> datetime.datetime:
 class Schedule:
     """Registration milestones and deadlines in registrar-local wall time."""
 
-    milestones: tuple[datetime.datetime, ...] = ()
+    milestones: tuple[dt.datetime, ...] = ()
 
     @classmethod
     def from_config(cls, cfg: dict | None = None) -> "Schedule":
@@ -84,11 +84,11 @@ class Schedule:
             times.update(_registrar_datetime(entry[0], config) for entry in entries)
         return cls(tuple(sorted(times)))
 
-    def in_hot_zone(self, now: datetime.datetime) -> bool:
+    def in_hot_zone(self, now: dt.datetime) -> bool:
         before, after = HOT_WINDOW
         return any(m + before <= now <= m + after for m in self.milestones)
 
-    def seconds_until_next_event(self, now: datetime.datetime) -> float | None:
+    def seconds_until_next_event(self, now: dt.datetime) -> float | None:
         """Seconds to the next hot window start or milestone, if any."""
         starts = (m + HOT_WINDOW[0] for m in self.milestones)
         upcoming = [
@@ -117,7 +117,7 @@ class Cadence:
     def step(
         self,
         score: float,
-        now: datetime.datetime,
+        now: dt.datetime,
         schedule: Schedule,
         *,
         update: bool = True,
@@ -254,11 +254,11 @@ class TwoPhaseScheduler:
 
         self.cadence = Cadence()
         self._new_poll_processed = False
-        self._last_poll_time: datetime.datetime | None = None
+        self._last_poll_time: dt.datetime | None = None
         self._last_change_score = 0.0
         self._deferred = False  # an update was held back by a cooldown
-        self.last_report_sent_time: datetime.datetime | None = None
-        self.last_website_updated_time: datetime.datetime | None = None
+        self.last_report_sent_time: dt.datetime | None = None
+        self.last_website_updated_time: dt.datetime | None = None
         self.report_cooldown_seconds = COOLDOWN_SECONDS
         self.website_cooldown_seconds = COOLDOWN_SECONDS
 
@@ -288,7 +288,7 @@ class TwoPhaseScheduler:
     def get_next_poll_interval(
         self,
         last_change_score: float = 0,
-        timestamp: datetime.datetime | None = None,
+        timestamp: dt.datetime | None = None,
         update_state: bool = True,
     ) -> tuple[int, Decision]:
         """Return the wait before the next poll and log the decision."""
@@ -320,14 +320,12 @@ class TwoPhaseScheduler:
                 "Failed to write scheduler decision log %s", self.log_file
             )
 
-    def _get_next_report_time(self) -> datetime.datetime:
+    def _get_next_report_time(self) -> dt.datetime:
         """Next :15 or :45 in registrar-local wall time."""
         now = _registrar_now()
         hour = now.replace(minute=0, second=0, microsecond=0)
         slots = [
-            hour + datetime.timedelta(hours=h, minutes=m)
-            for h in (0, 1)
-            for m in (15, 45)
+            hour + dt.timedelta(hours=h, minutes=m) for h in (0, 1) for m in (15, 45)
         ]
         return min(t for t in slots if t > now)
 
@@ -363,7 +361,7 @@ class TwoPhaseScheduler:
         except Exception as e:
             print(f"❌ Website update failed: {e}")
 
-    def _cooled_down(self, last, seconds: float, now: datetime.datetime) -> bool:
+    def _cooled_down(self, last, seconds: float, now: dt.datetime) -> bool:
         return last is None or (now - last).total_seconds() >= seconds
 
     async def _check_and_trigger_updates(self):
@@ -425,7 +423,7 @@ class TwoPhaseScheduler:
             self.logger_ops.info(
                 f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})"
             )
-            now = datetime.datetime.now()
+            now = dt.datetime.now()
             if not self.no_telegram:
                 if self._cooled_down(
                     self.last_report_sent_time, self.report_cooldown_seconds, now
@@ -488,7 +486,7 @@ class TwoPhaseScheduler:
                             f"🔄 Processing poll from {poll_start_time.strftime('%H:%M:%S')}..."
                         )
                         score = await self._process_file(file_path)
-                        self._last_poll_time = datetime.datetime.now()
+                        self._last_poll_time = dt.datetime.now()
                         await self._check_and_trigger_updates()
                     else:
                         self.logger_ops.info("No registrar changes; skipping parse.")
@@ -520,7 +518,7 @@ class TwoPhaseScheduler:
         if force_poll:
             start_time = time.time()
             change_score = await self._single_poll_and_process()
-            self._last_poll_time = datetime.datetime.now()
+            self._last_poll_time = dt.datetime.now()
             self._last_change_score = change_score
             self._new_poll_processed = True
             print(
@@ -584,7 +582,7 @@ class TwoPhaseScheduler:
         print("\n🔄 Performing Initial Sync...")
         try:
             self._last_change_score = await self._single_poll_and_process()
-            self._last_poll_time = datetime.datetime.now()
+            self._last_poll_time = dt.datetime.now()
             self._new_poll_processed = True
         except Exception as e:
             print(f"❌ Initial sync failed: {e}")
@@ -608,7 +606,7 @@ class TwoPhaseScheduler:
                 download_task = asyncio.create_task(
                     self.downloader.download(skip_unchanged=True)
                 )
-                await self.pending_polls.put((download_task, datetime.datetime.now()))
+                await self.pending_polls.put((download_task, dt.datetime.now()))
         except KeyboardInterrupt:
             print("\n⚠️  Scheduler interrupted by user.")
         finally:
