@@ -30,11 +30,12 @@ PUBLIC_URL = "https://bot.example.test/telegram"
 
 
 def webhook_settings(**overrides):
-    values = {"telegram_webhook_url": PUBLIC_URL, "telegram_webhook_secret": SECRET}
-    values.update(overrides)
-    for key in ("telegram_webhook_url", "telegram_webhook_secret"):
-        if key == "telegram_webhook_secret" and values[key] is not None:
-            values[key] = SecretStr(values[key])
+    secret = overrides.pop("telegram_webhook_secret", SECRET)
+    values = {
+        "telegram_webhook_url": PUBLIC_URL,
+        "telegram_webhook_secret": None if secret is None else SecretStr(secret),
+        **overrides,
+    }
     return get_settings().model_copy(update=values)
 
 
