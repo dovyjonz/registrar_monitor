@@ -17,7 +17,6 @@ Requirements:
 jj git clone <repo-url>
 cd registrar_monitor
 make bootstrap
-make doctor
 ```
 
 For an existing Git checkout, run `jj git init --colocate .` once.
@@ -103,8 +102,7 @@ make check-fast        # Python format, lint, types, and tests
 make check             # add frontend lint, tests, and build
 ```
 
-Use focused tests while iterating. Browser, Worker, security, smoke, and release
-gates are opt-in; see
+Use focused tests while iterating. Browser and Worker checks are opt-in; see
 [`docs/operations/tooling.md`](docs/operations/tooling.md).
 
 ## Production

@@ -1,4 +1,4 @@
-"""Create a deterministic generated-site fixture for browser and crawl CI jobs."""
+"""Create a deterministic generated-site fixture for browser smoke tests."""
 
 from datetime import datetime, timedelta
 from pathlib import Path

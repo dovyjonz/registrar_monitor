@@ -3,8 +3,7 @@ updates:
   - package-ecosystem: uv
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     groups:
       python-runtime:
         dependency-type: production
@@ -15,8 +14,7 @@ updates:
   - package-ecosystem: npm
     directory: /assets/website
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     groups:
       frontend-runtime:
         dependency-type: production
@@ -32,8 +30,7 @@ updates:
       - dependency-name: vitest
         update-types: [version-update:semver-major]
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     groups:
       preview-worker-development:
         dependency-type: development

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   python:
-    name: Python 3.13 canonical checks
+    name: Python 3.13
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +23,7 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install canonical Python
+      - name: Install Python
         run: uv python install 3.13.5
 
       - name: Install dependencies
@@ -39,163 +39,15 @@ jobs:
         run: uv run ty check
 
       - name: Test
-        run: |
-          mkdir -p output/tests
-          uv run pytest \
-            --junitxml=output/tests/pytest-3.13.xml \
-            --cov-report=xml:output/tests/coverage-3.13.xml \
-            --cov-report=term-missing
+        run: uv run pytest
 
-      - name: Upload Python test reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: python-3.13-test-reports
-          path: output/tests/
-          if-no-files-found: error
-
-  python-3-14:
-    name: Python 3.14 compatibility
-    runs-on: ubuntu-latest
-    env:
-      UV_PYTHON: "3.14"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: true
-
-      - name: Install compatibility Python
-        run: uv python install 3.14
-
-      - name: Install dependencies
-        run: uv sync --python 3.14 --locked --group dev
-
-      - name: Test compatibility
-        run: |
-          mkdir -p output/tests
-          uv run --python 3.14 python --version
-          uv run --python 3.14 pytest \
-            --junitxml=output/tests/pytest-3.14.xml \
-            --cov-report=xml:output/tests/coverage-3.14.xml \
-            --cov-report=term-missing
-
-      - name: Upload compatibility test reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: python-3.14-test-reports
-          path: output/tests/
-          if-no-files-found: error
-
-  website:
-    name: Frontend unit tests and build
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: assets/website
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24.18.0
-          cache: npm
-          cache-dependency-path: assets/website/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Run pure JavaScript unit tests
-        run: npm run test:unit
-
-      - name: Build
-        run: npm run build
-
-  generated-site:
-    name: Generated output crawl and Chromium smoke
+  frontend-worker:
+    name: Frontend and Worker
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: true
-
-      - name: Install Python
-        run: uv python install 3.13.5
-
-      - name: Install Python dependencies
-        run: uv sync --locked --group dev
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24.18.0
-          cache: npm
-          cache-dependency-path: assets/website/package-lock.json
-
-      - name: Install frontend dependencies
-        run: npm ci --prefix assets/website
-
-      - name: Install browsers
-        run: npm --prefix assets/website exec -- playwright install --with-deps chromium webkit
-
-      - name: Seed deterministic smoke data
-        run: uv run python scripts/seed_smoke_data.py
-
-      - name: Generate and crawl production output
-        run: make site-smoke
-
-      - name: Run Playwright against generated output
-        run: npm --prefix assets/website run test:e2e
-
-      - name: Run focused Mobile Safari regressions
-        run: npm --prefix assets/website run test:e2e:webkit
-
-      - name: Prove affected browser regressions are stable
-        run: make test-browser-stability
-
-      - name: Upload generated-site and Playwright reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: generated-site-smoke-reports
-          path: |
-            output/generated-site-crawl.json
-            output/playwright/
-          if-no-files-found: warn
-
-  dependency-review:
-    name: Dependency and security review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@v5
-        with:
-          fail-on-severity: moderate
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -206,67 +58,86 @@ jobs:
             assets/website/package-lock.json
             workers/preview-images/package-lock.json
 
-      - name: Audit npm lockfiles
-        run: make security
+      - name: Install frontend dependencies
+        run: npm ci --prefix assets/website
 
-  preview-worker:
-    name: Preview Worker checks
-    runs-on: ubuntu-latest
+      - name: Lint
+        run: npm --prefix assets/website run lint
 
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - name: Unit tests
+        run: npm --prefix assets/website run test:unit
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24.18.0
-          cache: npm
-          cache-dependency-path: workers/preview-images/package-lock.json
+      - name: Build
+        run: npm --prefix assets/website run build
 
       - name: Install Worker dependencies
         run: npm ci --prefix workers/preview-images
 
       - name: Check Worker
-        run: make worker-check
+        run: npm --prefix workers/preview-images run check
 
-  benchmark:
-    name: Synthetic performance benchmark artifact
+  browser:
+    name: Browser smoke
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect frontend or website changes
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE" "$GITHUB_SHA" | grep -qE '^(assets/website/|src/registrarmonitor/website/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No frontend or website changes; skipping browser smoke."
+          fi
 
       - name: Install uv
+        if: steps.changes.outputs.run == 'true'
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
 
-      - name: Install Python and dependencies
-        run: |
-          uv python install 3.13.5
-          uv sync --locked --group dev
+      - name: Install Python
+        if: steps.changes.outputs.run == 'true'
+        run: uv python install 3.13.5
+
+      - name: Install Python dependencies
+        if: steps.changes.outputs.run == 'true'
+        run: uv sync --locked --group dev
 
       - name: Set up Node.js
+        if: steps.changes.outputs.run == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: 24.18.0
           cache: npm
           cache-dependency-path: assets/website/package-lock.json
 
-      - name: Install frontend dependencies and Chromium
-        run: |
-          npm ci --prefix assets/website
-          npm --prefix assets/website exec -- playwright install --with-deps chromium
+      - name: Install frontend dependencies
+        if: steps.changes.outputs.run == 'true'
+        run: npm ci --prefix assets/website
 
-      - name: Record short synthetic benchmark
-        run: make benchmark-synthetic PERF_COLD=1 PERF_WARM=2
+      - name: Install Chromium
+        if: steps.changes.outputs.run == 'true'
+        run: npm --prefix assets/website exec -- playwright install --with-deps chromium
 
-      - name: Upload benchmark
-        if: always()
+      - name: Browser smoke
+        if: steps.changes.outputs.run == 'true'
+        run: make test-browser
+
+      - name: Upload Playwright report
+        if: always() && steps.changes.outputs.run == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: performance-baseline-synthetic
-          path: |
-            output/performance-baseline.json
-            output/benchmark-browser/
+          name: playwright-report
+          path: output/playwright/
           if-no-files-found: warn

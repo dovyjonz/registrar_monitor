@@ -103,7 +103,6 @@ URL after this probe succeeds so Telegram fetches that exact image identity.
 
 ## Verification
 
-Use `make site-smoke` for generated-output integrity, `make test-browser` for the
-generated-site browser contract, `make worker-check` for preview rendering, and
-`make release-candidate` for the integrated gate. Production deployment and Worker
+Use `make test-browser` for the generated-site browser contract and
+`make worker-check` for preview rendering. Production deployment and Worker
 deployment require separate operator authorization.

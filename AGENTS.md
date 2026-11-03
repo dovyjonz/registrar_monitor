@@ -64,9 +64,9 @@ and the simplest complete design.
 ## Verification
 
 Run the closest focused test while iterating. Use `make check-fast` for Python
-changes and `make check` for cross-cutting or frontend changes. Browser, generated
-site, Worker, security, benchmark, and release gates are opt-in and documented in
-`docs/operations/tooling.md`.
+changes and `make check` for cross-cutting or frontend changes. Browser and
+Worker checks (`make test-browser`, `make worker-check`) are opt-in and documented
+in `docs/operations/tooling.md`.
 
 If the default uv cache is unavailable, use
 `UV_CACHE_DIR=/private/tmp/uv-cache`.

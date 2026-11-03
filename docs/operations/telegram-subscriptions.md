@@ -110,7 +110,7 @@ deletes their data. Data and settings in My watches provides immediate deletion.
 ## Checks
 
 ```bash
-uv run pytest --no-cov \
+uv run pytest \
   tests/test_subscription_store.py \
   tests/test_subscription_publication.py \
   tests/test_subscription_dispatcher.py \

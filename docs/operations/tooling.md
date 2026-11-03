@@ -6,24 +6,27 @@ command name.
 
 ## Quality layers
 
-- `make check` is the standard local gate: Python formatting, linting, typing,
-  coverage/tests, frontend unit tests, lint, and build. It does not run Playwright.
-- `make site-smoke` builds and generates the dashboard, validates public output,
-  and crawls generated same-origin HTML, assets, and JSON. Its structured result is
-  `output/generated-site-crawl.json`.
-- `make test-browser` exercises generated `assets/website/public` output with
-  Playwright. Traces, screenshots, and HTML reports are under `output/playwright/`.
+- `make check-fast` runs Ruff format check, Ruff lint, ty, and pytest.
+- `make check` adds frontend lint, Node unit tests, and the Vite build. It does
+  not run Playwright.
+- `make test-browser` generates a deterministic fixture site and runs the Chromium
+  smoke tests in `assets/website/test/browser-smoke.spec.mjs` against it. Traces,
+  screenshots, and HTML reports are under `output/playwright/`.
 - `make worker-check` validates the isolated preview-image Worker, including its
   tests, types, and deployment dry-run.
-- `make security` audits both JavaScript lockfiles at moderate severity or higher.
-- `make release-candidate` assembles the broader stabilization release gate.
+- `make site-generate` builds the dashboard and generates the production site.
 
-Generated-site CI seeds isolated, ignored SQLite fixtures for every configured
+CI runs three jobs: Python 3.13 (Ruff, ty, pytest), Frontend and Worker (lint, unit
+tests, build, Worker checks), and Browser smoke, which runs only when files under
+`assets/website/` or `src/registrarmonitor/website/` change. Coverage is optional:
+`uv run pytest --cov=src/registrarmonitor`.
+
+The browser fixture seeds isolated, ignored SQLite databases for every configured
 semester. Local test setup must not overwrite an existing database.
 
 ## Doctor
 
-Use `make doctor` or `monitor doctor` locally. On a runtime host, run
+Use `monitor doctor` locally. On a runtime host, run
 `scripts/runtime_doctor.sh` as the application user; it uses locked dependencies
 without syncing or requiring a writable uv cache.
 
@@ -53,7 +56,7 @@ log Telegram identifiers, tokens, or environment contents.
 The subscription bot's focused gate is:
 
 ```bash
-uv run pytest --no-cov \
+uv run pytest \
   tests/test_subscription_store.py \
   tests/test_subscription_publication.py \
   tests/test_subscription_dispatcher.py \
@@ -63,48 +66,29 @@ uv run pytest --no-cov \
 The generated `registrarmonitor-bot.service` is a deployment artifact, not a
 signal that production activation is authorized.
 
-## Baselines and benchmarks
-
-Routine reports go to ignored `output/`. Dated, intentionally recorded baselines
-live under `docs/baselines/`; database copies remain ignored and are never uploaded.
-
-Benchmark inputs must be disposable local SQLite copies. The runner hashes the
-input before and after and performs writes only on disposable copies. Synthetic
-benchmarks provide the non-secret CI/contributor path.
-
-The suite separates readiness/infrastructure failures from performance-budget
-failures and retains browser diagnostics under `output/benchmark-browser/`. It
-measures full, no-change, and one-course generation; navigation and course-open
-readiness; and publication file/byte shape. Remote Cloudflare latency is recorded
-separately from deterministic CI budgets.
-
 ## CI and hooks
 
-Python 3.13 is canonical; Python 3.14 is a compatibility job. Generated-site CI
-uploads crawl and browser diagnostics, while benchmark CI uploads structured
-results. Dependency review and lockfile audits enforce the repository security
-policy.
+Dependabot runs monthly and groups updates per ecosystem.
 
 Dependabot uses the `uv` ecosystem so Python updates include `uv.lock`, following
 [uv's integration guidance](https://docs.astral.sh/uv/guides/integration/dependabot/).
 The lockfile includes AnyIO 4.14.2, which fixes GHSA-82r6-8w77-94w6. Runtime
-lockfile changes require both canonical and compatibility test jobs; synchronizing
-the VM remains a separate production action.
+lockfile changes are verified by the Python job; synchronizing the VM remains a
+separate production action.
 
 Pass Playwright options after npm's `--` separator so npm does not consume
-`--with-deps`. Generated-site CI installs Chromium and WebKit's system libraries
-through that option.
+`--with-deps`. The browser job installs Chromium and its system libraries through
+that option.
 
 Wrangler is pinned to 4.147.0 in both JavaScript packages. The `sharp` 0.35.5
 override addresses GHSA-wq5f-xc86-pv6w; the Worker also pins transitive `undici`
 7.29.1 to address the advisories affecting 7.29.0. Remove these overrides when
 the upstream Miniflare and Worker test-pool pins include the patched versions.
-`make security` verifies both lockfiles; `make worker-check` verifies the overridden
+`make worker-check` verifies the overridden
 dependencies in the actual Worker test runtime and deployment dry-run.
 
 The Cloudflare Worker test pool requires Vitest 4. Keep major Vitest updates
 separate until the pool's peer dependencies support them; Dependabot ignores
 automatic major updates for that package.
 
-Pre-commit stays fast: text hygiene, Ruff, Ty, and frontend lint. Run the broader
-gates above when a change touches their behavior.
+Pre-commit runs Ruff (format and lint) and the private-key check; CI runs the rest.

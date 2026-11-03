@@ -46,7 +46,6 @@ that does more than it needs to.
 | Migration machinery outlives the migration | `data/migration.py` (2.7k lines), `migration_rehearsal.py`, CLI `migrate`/`finalize-storage`/`rehearse-migration`, `[storage]` in `settings.toml`, shadow paths in `checkpointed_state.py`; every semester is finalized | 1 |
 | Prototype dashboard is a second UI | `prototype.{js,css}`, `prototype.html.jinja`, `deploy --prototype` | 1 |
 | Local debris, unused scaffolds, dated evidence docs | See Stage 1 | 1 |
-| Test suite (17.5k lines) is close to source size (22k); CI has seven jobs | `tests/`, `.github/workflows/ci.yml` | 2 |
 | `main.js` (3.5k lines) is the most-changed file | last three months of history | 3 |
 | Docs are spread over 20+ files | `docs/`, `DATABASE.md`, `CONTEXT.md` | 3 |
 | Agent instructions are scattered and carry Matt Pocock skill wiring | `AGENTS.md`, `docs/agents/`, `opencode.json` | 4 |
@@ -77,7 +76,6 @@ that does more than it needs to.
 | Stage | Theme | Size | Depends on |
 |---|---|---|---|
 | 1 | Delete dead files and code | M | — |
-| 2 | Cut testing, CI, and process | M | 1 |
 | 3 | Reorganize layout and docs | M–L | 1 |
 | 4 | Consolidate agent instructions | S | 3 |
 | 5 | Harden the VM runtime | M | — |
@@ -104,45 +102,6 @@ What remains needs the VM or a decision:
   backups or keep it.
 - Finalized databases still carry an unused `storage_control` table; drop it
   or leave it.
-
-### Stage 2 — Cut testing, CI, and process
-
-**Tests**
-
-- Remove `test_performance_benchmark.py` and all timing budgets,
-  `test_systemd_setup.py` and `test_runtime_doctor.py` string checks; merge the
-  unique cases of `test_website_service_extended.py` into
-  `test_website_service.py`.
-- Keep: storage reads and reconstruction, report → batch → digest, report
-  formatting, static data pipeline, CLI smoke, frontend `.mjs` units, Worker
-  units.
-- Trim `browser-smoke.spec.mjs` (1.6k lines) to about 10 journeys: load,
-  search, modal open/close, chart renders, share route, mobile layout. Drop the
-  WebKit-only and repeated-run stability gates; Chromium only.
-- Remove `--cov-fail-under` and the default `htmlcov` report.
-
-**CI**: three jobs instead of seven.
-
-1. Python 3.13: ruff format and lint, ty, pytest. Drop the 3.14 job.
-2. Frontend and Worker: lint, unit tests, build, Worker typecheck.
-3. Browser smoke on generated output, only for changes under the frontend or
-   `website/`.
-
-Drop the benchmark and dependency-review jobs. Keep Dependabot, grouped and
-monthly.
-
-**Process**
-
-- Delete `docs/baselines/`, `scripts/write_baseline.py`,
-  `scripts/benchmark_performance.py`, and the `baseline`, `benchmark-*`,
-  `benchmark-record*`, and `release-candidate` targets.
-- Makefile keeps: `bootstrap`, `check-fast`, `check`, `test-browser`,
-  `site-generate`, `worker-check`, `clean`.
-- Pre-commit keeps ruff and the private-key check; CI runs the rest.
-- Production verification goes in the commit message, not a document.
-
-**Done when** CI finishes in under five minutes and the suite is roughly half
-its current size with the kept seams covered.
 
 ### Stage 3 — Reorganize layout and docs
 
