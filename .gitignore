@@ -72,3 +72,4 @@ scripts/registrarmonitor-bot.service
 
 # Local jj metadata
 .jj/
+.claude/worktrees/
