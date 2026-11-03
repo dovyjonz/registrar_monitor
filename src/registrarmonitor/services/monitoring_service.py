@@ -13,6 +13,7 @@ from ..core.exceptions import FileProcessingError
 from ..data.database_manager import DatabaseManager
 from ..data.excel_reader import ExcelReader
 from ..data.snapshot_processor import SnapshotProcessor
+from ..heartbeat import send_heartbeat
 from ..models import EnrollmentSnapshot
 
 
@@ -72,6 +73,7 @@ class MonitoringService:
             self.logger.info(
                 f"Successfully processed data into snapshot with {len(snapshot.courses)} courses"
             )
+            await send_heartbeat()
             return True, snapshot, downloaded_file
 
         except Exception as e:

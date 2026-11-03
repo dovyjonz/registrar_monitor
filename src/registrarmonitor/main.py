@@ -12,7 +12,6 @@ Usage:
     monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
     monitor [--debug] bot
-    monitor [--debug] health-monitor
     monitor [--debug] deploy [--deploy]
     monitor [--debug] doctor [--json]
     monitor [--debug] db <command>
@@ -21,6 +20,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -34,6 +34,7 @@ from .cli import (
     StatusCommand,
 )
 from .core import get_logger, setup_logging
+from .observability import init_sentry
 from .operational import build_doctor_report, write_json
 
 
@@ -53,7 +54,6 @@ Examples:
   monitor run                           # Complete workflow (poll + report + website)
   monitor schedule                      # Run the scheduler
   monitor bot                           # Run the subscription bot
-  monitor health-monitor                # Alert the test operator about service outages
   monitor db stats                      # Show database statistics
 
 Debug Mode:
@@ -164,15 +164,6 @@ Telegram Control:
         "bot",
         help="Run the Telegram subscription bot",
         description="Start private-chat subscription commands and digest delivery",
-    )
-
-    subparsers.add_parser(
-        "health-monitor",
-        help="Monitor the scheduler and subscription bot services",
-        description=(
-            "Monitor the two production systemd services and alert the configured "
-            "Telegram test operator when either service is unavailable"
-        ),
     )
 
     # Deploy command
@@ -320,14 +311,6 @@ async def handle_bot_command(_args) -> int:
     return 0
 
 
-async def handle_health_monitor_command(_args) -> int:
-    """Run the independent systemd health monitor."""
-    from .services.health_monitor import run_health_monitor
-
-    await run_health_monitor()
-    return 0
-
-
 async def handle_deploy_command(args) -> int:
     """Handle the deploy command."""
     command = DeployCommand(debug=args.debug)
@@ -404,11 +387,19 @@ async def async_main() -> int:
     # Keep structured doctor output free of log lines and side effects.
     log_level = "DEBUG" if args.debug else args.log_level
     is_doctor = args.command == "doctor"
+    # Long-running services log JSON lines for journald; the interactive CLI
+    # keeps colored human-readable output.
+    is_service = args.command in ("schedule", "bot") or (
+        os.environ.get("LOG_FORMAT", "").lower() == "json"
+    )
     setup_logging(
         level=log_level,
         enable_console=not is_doctor,
         enable_file=not is_doctor,
+        json_logs=is_service,
     )
+    if not is_doctor:
+        init_sentry()
 
     logger = get_logger(__name__)
     logger.info("Starting Registrar Monitor CLI with command: %s", args.command)
@@ -430,8 +421,6 @@ async def async_main() -> int:
             return await handle_schedule_command(args)
         elif args.command == "bot":
             return await handle_bot_command(args)
-        elif args.command == "health-monitor":
-            return await handle_health_monitor_command(args)
         elif args.command == "deploy":
             return await handle_deploy_command(args)
         elif args.command == "doctor":
