@@ -27,7 +27,7 @@ from registrarmonitor.subscriptions.runtime import (
 pytestmark = pytest.mark.unit
 
 
-SECRET = "s3cret_Token-123"
+SECRET = "test-webhook-secret"
 PUBLIC_URL = "https://bot.example.test/telegram"
 
 
