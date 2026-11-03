@@ -64,9 +64,9 @@ class ReportingService:
     def subscription_store(self) -> SubscriptionStore:
         """Lazy-load the bot database only for a live Telegram report."""
         if self._subscription_store is None:
-            from ..config import get_config
+            from ..config import get_settings
 
-            path = get_config()["directories"]["telegram_bot_state"]
+            path = get_settings().directories.telegram_bot_state
             self._subscription_store = SubscriptionStore(path)
         return self._subscription_store
 
@@ -315,10 +315,10 @@ class ReportingService:
             List of report information dictionaries
         """
         try:
-            from ..config import get_config
+            from ..config import get_settings
 
-            config = get_config()
-            txt_dir = Path(config["directories"]["text_reports"])
+            settings = get_settings()
+            txt_dir = Path(settings.directories.text_reports)
 
             reports: list[dict] = []
 
@@ -361,9 +361,9 @@ class ReportingService:
             Path to generated text file
         """
         try:
-            from ..config import get_config
+            from ..config import get_settings
 
-            config = get_config()
+            settings = get_settings()
 
             # Compare snapshots
             comparison = self.snapshot_comparator.compare_snapshots(
@@ -384,7 +384,7 @@ class ReportingService:
 
             # Construct output path
             txt_path = construct_output_path(
-                config["directories"]["text_reports"],
+                settings.directories.text_reports,
                 current_snapshot.semester,
                 current_snapshot.timestamp,
                 ".txt",
@@ -445,10 +445,10 @@ class ReportingService:
             Number of text files deleted
         """
         try:
-            from ..config import get_config
+            from ..config import get_settings
 
-            config = get_config()
-            txt_dir = Path(config["directories"]["text_reports"])
+            settings = get_settings()
+            txt_dir = Path(settings.directories.text_reports)
 
             txt_deleted = 0
 

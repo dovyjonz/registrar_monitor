@@ -5,11 +5,10 @@ and website behavior. Secrets come only from the environment or ``.env`` and are
 held as ``SecretStr``. Both are loaded and validated once; invalid
 configuration fails at startup.
 
-Most call sites read the plain dictionary from :func:`get_config` (secrets are
-never part of it). Code that needs a secret or a typed value calls
-:func:`get_settings`.
+Call sites read typed values from :func:`get_settings`.
 """
 
+import re
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -35,17 +34,6 @@ from pydantic_settings import (
 ROOT = Path(__file__).resolve().parent.parent.parent
 SETTINGS_PATH = ROOT / "settings.toml"
 ENV_PATH = ROOT / ".env"
-
-# Env-only values that must never appear in the dictionary view.
-_SECRET_FIELDS = {
-    "telegram_bot_token",
-    "telegram_chat_id",
-    "telegram_bot_test_user_id",
-    "telegram_webhook_url",
-    "telegram_webhook_secret",
-    "cloudflare_api_token",
-    "cloudflare_account_id",
-}
 
 
 class _Section(BaseModel):
@@ -90,6 +78,22 @@ class Website(_Section):
     generation_timeout_seconds: PositiveInt = 3600
     base_url: str
     web_analytics_token: str = ""
+
+    @field_validator("base_url")
+    @classmethod
+    def _origin(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if not value:
+            raise ValueError("website.base_url must be configured")
+        return value
+
+    @field_validator("web_analytics_token")
+    @classmethod
+    def _analytics_token(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.fullmatch(r"[0-9a-fA-F]{32}", value):
+            raise ValueError("must be 32 hexadecimal characters")
+        return value
 
 
 class TelegramBot(_Section):
@@ -200,10 +204,6 @@ class Settings(BaseSettings):
             TomlConfigSettingsSource(settings_cls, toml_file=SETTINGS_PATH),
         )
 
-    def as_config(self) -> dict[str, Any]:
-        """Plain dictionary of the non-secret settings."""
-        return self.model_dump(exclude=_SECRET_FIELDS)
-
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -211,13 +211,6 @@ def get_settings() -> Settings:
     return Settings()
 
 
-@lru_cache(maxsize=1)
-def get_config() -> dict[str, Any]:
-    """Return the non-secret settings as a dictionary."""
-    return get_settings().as_config()
-
-
-def get_timezone(config: dict[str, Any] | None = None) -> ZoneInfo:
+def get_timezone(settings: Settings | None = None) -> ZoneInfo:
     """Return the registrar timezone configured in settings.toml."""
-    cfg = config if config is not None else get_config()
-    return ZoneInfo(cfg.get("timezone", "Asia/Almaty"))
+    return ZoneInfo((settings if settings is not None else get_settings()).timezone)

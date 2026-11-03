@@ -1,7 +1,6 @@
 """Tests for the snapshot processor module."""
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -13,11 +12,7 @@ from registrarmonitor.data.snapshot_processor import SnapshotProcessor
 @pytest.fixture
 def processor(tmp_path: Path) -> SnapshotProcessor:
     """Create a SnapshotProcessor with a temporary data directory."""
-    with patch("registrarmonitor.data.snapshot_processor.get_config") as mock_config:
-        mock_config.return_value = {
-            "directories": {"data_storage": str(tmp_path)},
-        }
-        return SnapshotProcessor(data_dir=str(tmp_path))
+    return SnapshotProcessor(data_dir=str(tmp_path))
 
 
 class TestProcessData:

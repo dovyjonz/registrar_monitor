@@ -7,7 +7,7 @@ import os
 from telegram import Bot
 from telegram.constants import ParseMode
 
-from ..config import get_config, get_settings
+from ..config import get_settings
 from ..models import EnrollmentSnapshot
 from ..subscriptions.models import SubscriptionTarget
 from ..subscriptions.payloads import watch_deep_link
@@ -18,7 +18,6 @@ class TelegramReporter:
     """Telegram reporting with configuration-managed credentials."""
 
     def __init__(self):
-        self.config = get_config()
         settings = get_settings()
         token, chat = settings.telegram_bot_token, settings.telegram_chat_id
         if token is None or chat is None:
@@ -28,11 +27,9 @@ class TelegramReporter:
             )
         self.bot_token = token.get_secret_value()
         self.chat_id = chat.get_secret_value()
-        self.text_reports_dir = self.config["directories"]["text_reports"]
-        self.file_write_delay = self.config.get("notifications", {}).get(
-            "file_write_delay", 3
-        )
-        self.dry_run = self.config.get("notifications", {}).get("dry_run", False)
+        self.text_reports_dir = settings.directories.text_reports
+        self.file_write_delay = settings.notifications.file_write_delay
+        self.dry_run = settings.notifications.dry_run
         self.bot = Bot(token=self.bot_token)
         self._bot_username: str | None = None
 

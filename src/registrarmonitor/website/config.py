@@ -2,29 +2,9 @@
 
 import re
 from pathlib import Path
-from typing import Any
 
+from registrarmonitor.config import get_settings, get_timezone
 from registrarmonitor.registration import get_priority_milestones
-
-
-def _get_base_url() -> str:
-    """Get the public origin of the site Worker (links, Open Graph, previews)."""
-    base = _load_settings().get("website", {}).get("base_url", "").strip().rstrip("/")
-    if not base:
-        raise ValueError("website.base_url must be configured")
-    return base
-
-
-def _get_web_analytics_token() -> str:
-    """Cloudflare Web Analytics site token; empty disables the beacon."""
-    token = str(
-        _load_settings().get("website", {}).get("web_analytics_token", "")
-    ).strip()
-    if token and not re.fullmatch(r"[0-9a-fA-F]{32}", token):
-        raise ValueError(
-            "website.web_analytics_token must be 32 hexadecimal characters"
-        )
-    return token
 
 
 def semester_to_slug(semester: str) -> str:
@@ -76,13 +56,11 @@ def semester_sort_key(semester: str) -> tuple[int, int]:
 
 def get_configured_semesters(*, newest_first: bool = True) -> list[str]:
     """Return canonical semesters with registrar sources from settings."""
-    semesters = _load_settings().get("semesters", {})
     configured = [
         label
-        for label, value in semesters.items()
-        if isinstance(value, dict)
-        and isinstance(value.get("registrar_url"), str)
-        and value["registrar_url"].strip()
+        for label, value in get_settings().semesters.items()
+        if value.registrar_url
+        and value.registrar_url.strip()
         and _SEMESTER_PATTERN.fullmatch(label)
     ]
     return sorted(configured, key=semester_sort_key, reverse=newest_first)
@@ -98,9 +76,9 @@ def semester_key_map() -> dict[str, str]:
 
 def get_registrar_url(semester: str) -> str:
     """Return the configured registrar source for one canonical semester."""
-    value = _load_settings().get("semesters", {}).get(semester, {})
-    url = value.get("registrar_url") if isinstance(value, dict) else None
-    if not isinstance(url, str) or not url.strip():
+    value = get_settings().semesters.get(semester)
+    url = value.registrar_url if value else None
+    if not url or not url.strip():
         raise ValueError(f"no registrar source configured for {semester!r}")
     return url.strip()
 
@@ -137,16 +115,9 @@ _PRIORITY_PALETTES: list[list[str]] = [
 _DEADLINE_COLORS = ["#78909C", "#546E7A", "#E040FB"]
 
 
-def _load_settings() -> dict[str, Any]:
-    """Return the validated, non-secret settings dictionary."""
-    from registrarmonitor.config import get_config
-
-    return get_config()
-
-
-# Settings-dependent constants (must come after _load_settings)
-BASE_URL: str = _get_base_url()
-WEB_ANALYTICS_TOKEN: str = _get_web_analytics_token()
+# Settings-dependent constants
+BASE_URL: str = get_settings().website.base_url
+WEB_ANALYTICS_TOKEN: str = get_settings().website.web_analytics_token
 
 
 def _assign_deadline_colors(
@@ -166,11 +137,9 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
     Returns a list of dicts with keys: time, label, color, and optional priority.
     Colors are auto-assigned based on explicit priority groups in TOML.
     """
-    cfg = _load_settings()
-    from registrarmonitor.config import get_timezone
-
-    registrar_timezone = get_timezone(cfg)
-    sem_data = cfg.get("semesters", {}).get(semester, {})
+    settings = get_settings()
+    registrar_timezone = get_timezone(settings)
+    sem_data = settings.semesters.get(semester)
 
     colored_milestones = []
 
@@ -198,7 +167,7 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
             "time": _serialize_registrar_time(d[0], registrar_timezone),
             "label": d[1],
         }
-        for d in sem_data.get("deadlines", [])
+        for d in (sem_data.deadlines if sem_data else [])
     ]
     colored_deadlines = _assign_deadline_colors(raw_deadlines)
 

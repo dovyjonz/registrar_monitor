@@ -20,7 +20,7 @@ from typing import Any
 
 import duckdb
 
-from .config import get_config, get_timezone
+from .config import Settings, get_settings, get_timezone
 
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent.parent / "analysis"
 DEFAULT_EXPORT_DIR = Path("data") / "open-data"
@@ -51,14 +51,12 @@ def semester_file_stem(semester: str) -> str:
     return re.sub(r"[-\s]+", "_", name).lower()
 
 
-def configured_databases(
-    config: Mapping[str, Any] | None = None,
-) -> dict[str, Path]:
+def configured_databases(settings: Settings | None = None) -> dict[str, Path]:
     """Existing ``enrollment_*.db`` files for the semesters in settings.toml."""
-    cfg = config if config is not None else get_config()
-    data_dir = Path(cfg["directories"]["data_storage"])
+    settings = settings if settings is not None else get_settings()
+    data_dir = Path(settings.directories.data_storage)
     databases: dict[str, Path] = {}
-    for name in cfg.get("semesters", {}):
+    for name in settings.semesters:
         path = data_dir / f"enrollment_{semester_file_stem(name)}.db"
         if path.is_file():
             databases[name] = path
@@ -66,12 +64,12 @@ def configured_databases(
 
 
 def registration_rows(
-    config: Mapping[str, Any], semesters: Sequence[str]
+    settings: Settings, semesters: Sequence[str]
 ) -> tuple[
     list[tuple[str, int, str, datetime]], list[tuple[str, datetime, datetime | None]]
 ]:
     """Registration gates and windows from settings.toml, as naive local times."""
-    zone = get_timezone(dict(config))
+    zone = get_timezone(settings)
 
     def naive(text: str) -> datetime:
         value = datetime.fromisoformat(text)
@@ -82,10 +80,12 @@ def registration_rows(
     gates: list[tuple[str, int, str, datetime]] = []
     windows: list[tuple[str, datetime, datetime | None]] = []
     for semester in semesters:
-        semester_config = config.get("semesters", {}).get(semester, {})
+        semester_config = settings.semesters.get(semester)
+        if semester_config is None:
+            continue
         semester_gates = [
             (semester, int(priority), str(label), naive(text))
-            for priority, items in semester_config.get("priorities", {}).items()
+            for priority, items in semester_config.priorities.items()
             for text, label in items
         ]
         gates.extend(semester_gates)
@@ -93,7 +93,7 @@ def registration_rows(
             continue
         closes = [
             naive(text)
-            for text, label in semester_config.get("deadlines", [])
+            for text, label in semester_config.deadlines
             if str(label).lower() == "close"
         ]
         windows.append(
@@ -150,7 +150,7 @@ def _attach_database(
 
 def open_analysis(
     databases: Mapping[str, Path],
-    config: Mapping[str, Any] | None = None,
+    settings: Settings | None = None,
 ) -> duckdb.DuckDBPyConnection:
     """Open an in-memory DuckDB spanning ``databases`` (semester name -> path).
 
@@ -161,7 +161,7 @@ def open_analysis(
     """
     if not databases:
         raise AnalysisError("no enrollment databases found")
-    cfg = config if config is not None else get_config()
+    settings = settings if settings is not None else get_settings()
     for path in databases.values():
         _check_v2(Path(path))
 
@@ -182,7 +182,7 @@ def open_analysis(
             connection.execute(
                 f"CREATE VIEW {table} AS " + " UNION ALL BY NAME ".join(parts)
             )
-        gates, windows = registration_rows(cfg, list(databases))
+        gates, windows = registration_rows(settings, list(databases))
         connection.execute(
             "CREATE TABLE registration_gate (semester VARCHAR, priority INTEGER, "
             "label VARCHAR, gate_at TIMESTAMP)"
@@ -278,11 +278,11 @@ EXPORT_QUERY = """
 def export_parquet(
     semester: str,
     out_dir: Path | str = DEFAULT_EXPORT_DIR,
-    config: Mapping[str, Any] | None = None,
+    settings: Settings | None = None,
 ) -> Path:
     """Write ``<out_dir>/<semester stem>.parquet``: one row per section per snapshot."""
-    cfg = config if config is not None else get_config()
-    databases = configured_databases(cfg)
+    settings = settings if settings is not None else get_settings()
+    databases = configured_databases(settings)
     if semester not in databases:
         known = ", ".join(databases) or "none"
         raise AnalysisError(f"no database for semester {semester!r}; found: {known}")
@@ -290,7 +290,7 @@ def export_parquet(
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{semester_file_stem(semester)}.parquet"
     partial = target.with_name(target.name + ".partial")
-    connection = open_analysis({semester: databases[semester]}, cfg)
+    connection = open_analysis({semester: databases[semester]}, settings)
     try:
         connection.execute(
             f"COPY ({EXPORT_QUERY}) TO {_quote(str(partial))} (FORMAT parquet)"

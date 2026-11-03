@@ -7,7 +7,7 @@ from datetime import datetime
 
 import httpx
 
-from ..config import get_config
+from ..config import get_settings
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError
 from ..validation import validate_directory_exists
@@ -18,31 +18,27 @@ class DataDownloader:
     """Downloads enrollment data from the university registrar."""
 
     def __init__(self, semester: str | None = None):
-        self.config = get_config()
+        self.settings = get_settings()
         self.logger = get_logger(__name__)
-        semester_configs = self.config.get("semesters", {})
+        semester_configs = self.settings.semesters
         if semester is None:
             candidates = [
                 label
                 for label, value in semester_configs.items()
-                if isinstance(value, dict) and value.get("registrar_url")
+                if value.registrar_url
             ]
             if not candidates:
                 raise ValueError("no semester registrar source is configured")
             semester = max(candidates, key=semester_sort_key)
-        semester_config = semester_configs.get(semester, {})
-        registrar_url = (
-            semester_config.get("registrar_url")
-            if isinstance(semester_config, dict)
-            else None
-        )
-        if not isinstance(registrar_url, str) or not registrar_url.strip():
+        semester_config = semester_configs.get(semester)
+        registrar_url = semester_config.registrar_url if semester_config else None
+        if not registrar_url or not registrar_url.strip():
             raise ValueError(f"no registrar source configured for {semester!r}")
         self.semester = semester
         self.url = registrar_url.strip()
-        self.raw_xls_directory = self.config["directories"]["raw_downloads"]
+        self.raw_xls_directory = self.settings.directories.raw_downloads
         self.state_path = os.path.join(
-            self.config["directories"]["data_storage"], "download_state.json"
+            self.settings.directories.data_storage, "download_state.json"
         )
 
     def _load_state(self) -> dict:
@@ -81,7 +77,7 @@ class DataDownloader:
 
     def _tls_verification(self) -> bool | str:
         """Return httpx's ``verify=`` value; verification is never disabled."""
-        ca_bundle = self.config["data_source"].get("ca_bundle")
+        ca_bundle = self.settings.data_source.ca_bundle
         if not ca_bundle:
             return True
         if not os.path.isfile(ca_bundle):

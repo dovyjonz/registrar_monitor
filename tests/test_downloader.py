@@ -12,21 +12,21 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def mock_config(tmp_path):
+def mock_config(tmp_path, make_settings):
     download_dir = tmp_path / "downloads"
     download_dir.mkdir()
-    with patch("registrarmonitor.automation.downloader.get_config") as mock:
-        mock.return_value = {
-            "data_source": {},
-            "directories": {
-                "raw_downloads": str(download_dir),
-                "data_storage": str(tmp_path / "data"),
-            },
-            "semesters": {
-                "Fall 2026": {"registrar_url": "http://test.url"},
-            },
-        }
-        yield mock
+    settings = make_settings(
+        data_source={"ca_bundle": None},
+        directories={
+            "raw_downloads": str(download_dir),
+            "data_storage": str(tmp_path / "data"),
+        },
+        semesters={"Fall 2026": {"registrar_url": "http://test.url"}},
+    )
+    with patch(
+        "registrarmonitor.automation.downloader.get_settings", return_value=settings
+    ):
+        yield settings
 
 
 @pytest.fixture
@@ -124,7 +124,7 @@ async def test_configured_ca_bundle_is_passed_to_httpx(
 ):
     ca_bundle = tmp_path / "registrar-ca.pem"
     ca_bundle.write_text("pem")
-    mock_config.return_value["data_source"]["ca_bundle"] = str(ca_bundle)
+    mock_config.data_source.ca_bundle = str(ca_bundle)
     mock_httpx_client.get.side_effect = __import__("httpx").ConnectError(
         "certificate verify failed"
     )
@@ -151,7 +151,7 @@ async def test_unset_ca_bundle_uses_default_verification(
 
 @pytest.mark.asyncio
 async def test_missing_ca_bundle_fails_closed(mock_config, mock_httpx_client, tmp_path):
-    mock_config.return_value["data_source"]["ca_bundle"] = str(tmp_path / "none.pem")
+    mock_config.data_source.ca_bundle = str(tmp_path / "none.pem")
     downloader = DataDownloader()
 
     with pytest.raises(FileProcessingError, match="fetch_registrar_ca"):

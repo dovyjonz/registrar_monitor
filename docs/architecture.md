@@ -144,8 +144,7 @@ coupled to it:
 `settings.toml` and `.env` load once through pydantic-settings
 (`registrarmonitor.config`). Invalid configuration fails at startup; secrets are
 `SecretStr` values read only from the environment. `get_settings()` gives typed
-access. `get_config()` returns the same non-secret settings as a plain dictionary for
-older call sites.
+access.
 
 The scheduler derives a `Schedule` from milestones in `settings.toml` and a small
 `Cadence` state machine from tier tables (quiet 5/15/30 minutes with backoff, burst

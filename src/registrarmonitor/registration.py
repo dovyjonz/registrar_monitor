@@ -26,12 +26,12 @@ def format_priority_full(priority: object, label: object) -> str:
 
 def get_priority_milestones(semester: str) -> list[dict[str, str]]:
     """Load configured registration gates without presentation metadata."""
-    from .config import get_config, get_timezone
+    from .config import get_settings, get_timezone
 
-    config = get_config()
-    timezone = get_timezone(config)
-    semester_config = config.get("semesters", {}).get(semester, {})
-    priorities = semester_config.get("priorities", {})
+    settings = get_settings()
+    timezone = get_timezone(settings)
+    semester_config = settings.semesters.get(semester)
+    priorities = semester_config.priorities if semester_config else {}
     milestones = []
     for priority in sorted(priorities, key=int):
         for time_text, label in priorities[priority]:

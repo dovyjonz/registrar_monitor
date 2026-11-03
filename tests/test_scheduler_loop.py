@@ -21,30 +21,27 @@ class TestTwoPhaseSchedulerLoop:
     """Tests for TwoPhaseScheduler loop and orchestration."""
 
     @pytest.fixture
-    def scheduler(self):
-        """Create a scheduler with mocked config and zone."""
+    def scheduler(self, make_settings):
+        """Create a scheduler with mocked settings."""
         with (
             patch(
-                "registrarmonitor.automation.scheduler.get_config",
-                return_value={"semesters": {}},
+                "registrarmonitor.automation.scheduler.get_settings",
+                return_value=make_settings(semesters={}),
             ),
         ):
             yield TwoPhaseScheduler(no_telegram=True)
 
-    def test_run_website_update(self):
+    def test_run_website_update(self, make_settings):
         """Generates in a child process before deploying from the scheduler."""
         mock_service = MagicMock()
         mock_service.is_any_semester_active.return_value = True
 
         with (
             patch(
-                "registrarmonitor.automation.scheduler.get_config",
-                return_value={
-                    "website": {
-                        "generation_timeout_seconds": 7200,
-                    },
-                    "semesters": {},
-                },
+                "registrarmonitor.automation.scheduler.get_settings",
+                return_value=make_settings(
+                    website={"generation_timeout_seconds": 7200}, semesters={}
+                ),
             ),
             patch(
                 "registrarmonitor.services.website_service.WebsiteService",
@@ -63,18 +60,17 @@ class TestTwoPhaseSchedulerLoop:
         assert run.call_args.kwargs["timeout"] == 7200
         mock_service.deploy.assert_called_once_with()
 
-    def test_run_website_update_generate_failure_skips_deploy(self):
+    def test_run_website_update_generate_failure_skips_deploy(self, make_settings):
         """A failed isolated generation never publishes stale output."""
         mock_service = MagicMock()
         mock_service.is_any_semester_active.return_value = True
 
         with (
             patch(
-                "registrarmonitor.automation.scheduler.get_config",
-                return_value={
-                    "website": {"generation_timeout_seconds": 3600},
-                    "semesters": {},
-                },
+                "registrarmonitor.automation.scheduler.get_settings",
+                return_value=make_settings(
+                    website={"generation_timeout_seconds": 3600}, semesters={}
+                ),
             ),
             patch(
                 "registrarmonitor.services.website_service.WebsiteService",
@@ -90,12 +86,12 @@ class TestTwoPhaseSchedulerLoop:
 
         mock_service.deploy.assert_not_called()
 
-    def test_run_website_update_failure(self):
+    def test_run_website_update_failure(self, make_settings):
         """Handles exception from WebsiteService gracefully."""
         with (
             patch(
-                "registrarmonitor.automation.scheduler.get_config",
-                return_value={"semesters": {}},
+                "registrarmonitor.automation.scheduler.get_settings",
+                return_value=make_settings(semesters={}),
             ),
             patch(
                 "registrarmonitor.services.website_service.WebsiteService",

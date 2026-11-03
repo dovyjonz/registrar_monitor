@@ -48,15 +48,28 @@ def load():
 
 def test_repository_settings_are_valid():
     settings = load()
-    cfg = settings.as_config()
-    assert "ca_bundle" in cfg["data_source"]
-    for key, value in cfg["directories"].items():
+    assert settings.website.base_url.startswith("https://")
+    for key, value in settings.directories:
         assert Path(value).is_absolute(), key
 
 
-def test_get_config_is_cached_dict():
-    assert config_mod.get_config() is config_mod.get_config()
-    assert "telegram" not in config_mod.get_config()
+def test_get_settings_is_cached():
+    assert config_mod.get_settings() is config_mod.get_settings()
+
+
+def test_website_origin_and_analytics_token_are_validated(toml_file):
+    toml_file.write_text(
+        MINIMAL_TOML.replace("https://site.example", " https://site.example/ ")
+    )
+    assert load().website.base_url == "https://site.example"
+    toml_file.write_text(MINIMAL_TOML.replace("https://site.example", " "))
+    with pytest.raises(ValidationError):
+        load()
+    toml_file.write_text(MINIMAL_TOML + 'web_analytics_token = "xyz"\n')
+    with pytest.raises(ValidationError):
+        load()
+    toml_file.write_text(MINIMAL_TOML + f'web_analytics_token = "{"a" * 32}"\n')
+    assert load().website.web_analytics_token == "a" * 32
 
 
 def test_relative_paths_resolve_against_project_root(toml_file):
@@ -72,7 +85,7 @@ def test_ca_bundle_is_resolved(toml_file):
     assert load().data_source.ca_bundle == str(config_mod.ROOT / "certs" / "x.pem")
 
 
-def test_secrets_are_secretstr_and_never_in_config_dict(toml_file, monkeypatch):
+def test_secrets_are_secretstr_and_hidden_from_repr(toml_file, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok-123")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100")
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-secret")
@@ -82,7 +95,6 @@ def test_secrets_are_secretstr_and_never_in_config_dict(toml_file, monkeypatch):
     assert settings.telegram_bot_token.get_secret_value() == "tok-123"
     assert "tok-123" not in repr(settings)
     assert "cf-secret" not in repr(settings)
-    assert "tok-123" not in str(settings.as_config())
 
 
 def test_blank_secret_is_unset(toml_file, monkeypatch):

@@ -15,6 +15,7 @@ import duckdb
 import pytest
 
 from registrarmonitor import analysis
+from registrarmonitor.config import Settings
 from registrarmonitor.data.checkpointed_state import CheckpointedStateStore
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 
@@ -84,7 +85,7 @@ def _snapshot(
 
 
 @pytest.fixture
-def config(tmp_path: Path) -> dict[str, Any]:
+def config(tmp_path: Path, make_settings) -> Settings:
     data = tmp_path / "data"
     data.mkdir()
 
@@ -107,30 +108,30 @@ def config(tmp_path: Path) -> dict[str, Any]:
     ]:
         fall26.write_snapshot(_snapshot("Fall 2026", stamp, sections))
 
-    return {
-        "timezone": "Asia/Almaty",
-        "directories": {"data_storage": str(data)},
-        "semesters": {
+    return make_settings(
+        timezone="Asia/Almaty",
+        directories={"data_storage": str(data)},
+        semesters={
             "Fall 2025": {},
             "Spring 2027": {},
             "Fall 2026": {
-                "deadlines": [["2026-08-28T17:30:00", "Close"]],
+                "deadlines": [("2026-08-28T17:30:00", "Close")],
                 "priorities": {
-                    "1": [["2026-08-05T09:00:00", "Y4+"]],
-                    "2": [["2026-08-13T09:00:00", "ALL"]],
+                    "1": [("2026-08-05T09:00:00", "Y4+")],
+                    "2": [("2026-08-13T09:00:00", "ALL")],
                 },
             },
         },
-    }
+    )
 
 
 def test_configured_databases_skips_semesters_without_a_file(
-    config: dict[str, Any],
+    config: Settings,
 ) -> None:
     assert list(analysis.configured_databases(config)) == ["Fall 2025", "Fall 2026"]
 
 
-def test_union_views_span_semesters(config: dict[str, Any], copy_attach: None) -> None:
+def test_union_views_span_semesters(config: Settings, copy_attach: None) -> None:
     connection = analysis.open_analysis(analysis.configured_databases(config), config)
     rows = connection.execute(
         "SELECT semester, count(*) FROM snapshots GROUP BY semester ORDER BY 1"
@@ -144,7 +145,7 @@ def test_union_views_span_semesters(config: dict[str, Any], copy_attach: None) -
     connection.close()
 
 
-def test_saved_query_results(config: dict[str, Any], copy_attach: None) -> None:
+def test_saved_query_results(config: Settings, copy_attach: None) -> None:
     connection = analysis.open_analysis(analysis.configured_databases(config), config)
 
     columns, rows = analysis.run_query(connection, "fill_speed_after_gates")
@@ -172,16 +173,16 @@ def test_saved_query_results(config: dict[str, Any], copy_attach: None) -> None:
     connection.close()
 
 
-def test_non_v2_database_is_rejected(tmp_path: Path) -> None:
+def test_non_v2_database_is_rejected(tmp_path: Path, config: Settings) -> None:
     legacy = tmp_path / "legacy.db"
     with closing(sqlite3.connect(legacy)) as connection:
         connection.execute("CREATE TABLE snapshots (id INTEGER)")
     with pytest.raises(analysis.AnalysisError, match="not a v2"):
-        analysis.open_analysis({"Old": legacy}, {})
+        analysis.open_analysis({"Old": legacy}, config)
 
 
 def test_export_parquet_writes_flat_per_snapshot_rows(
-    config: dict[str, Any], copy_attach: None, tmp_path: Path
+    config: Settings, copy_attach: None, tmp_path: Path
 ) -> None:
     out = tmp_path / "open"
     target = analysis.export_parquet("Fall 2026", out, config)
@@ -209,13 +210,13 @@ def test_export_parquet_writes_flat_per_snapshot_rows(
     assert semesters == ["Fall 2026"]
 
 
-def test_export_unknown_semester(config: dict[str, Any], tmp_path: Path) -> None:
+def test_export_unknown_semester(config: Settings, tmp_path: Path) -> None:
     with pytest.raises(analysis.AnalysisError, match="no database"):
         analysis.export_parquet("Spring 2027", tmp_path, config)
 
 
 def test_real_sqlite_extension_attaches_read_only(
-    config: dict[str, Any], tmp_path: Path
+    config: Settings, tmp_path: Path
 ) -> None:
     probe = duckdb.connect()
     try:
@@ -233,7 +234,7 @@ def test_real_sqlite_extension_attaches_read_only(
 
 
 def test_cli_handlers_print_table_write_csv_and_export(
-    config: dict[str, Any],
+    config: Settings,
     copy_attach: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -244,7 +245,7 @@ def test_cli_handlers_print_table_write_csv_and_export(
 
     from registrarmonitor import main
 
-    monkeypatch.setattr(analysis, "get_config", lambda: config)
+    monkeypatch.setattr(analysis, "get_settings", lambda: config)
     ask = argparse.Namespace(name=None, csv=None)
     assert asyncio.run(main.handle_analyze_command(ask)) == 0
     assert "year_over_year_courses" in capsys.readouterr().out
@@ -269,7 +270,7 @@ def test_cli_handlers_print_table_write_csv_and_export(
 
 
 def test_missing_extension_is_reported(
-    config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    config: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fail(connection: Any) -> None:
         raise analysis.ExtensionUnavailableError("offline")

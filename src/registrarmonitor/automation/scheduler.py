@@ -22,7 +22,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import get_config, get_timezone
+from ..config import Settings, get_settings, get_timezone
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..heartbeat import send_heartbeat
@@ -52,18 +52,17 @@ def _tier(table: tuple[tuple[int, int], ...], score: float) -> int:
     return next(seconds for minimum, seconds in table if score >= minimum)
 
 
-def _registrar_datetime(value: str, cfg: dict) -> dt.datetime:
+def _registrar_datetime(value: str, settings: Settings) -> dt.datetime:
     """Parse a configured time as registrar-local wall time."""
     parsed = dt.datetime.fromisoformat(value)
     if parsed.tzinfo is not None:
-        return parsed.astimezone(get_timezone(cfg)).replace(tzinfo=None)
+        return parsed.astimezone(get_timezone(settings)).replace(tzinfo=None)
     return parsed
 
 
-def _registrar_now(cfg: dict | None = None) -> dt.datetime:
+def _registrar_now(settings: Settings | None = None) -> dt.datetime:
     """Return current registrar-local wall time independent of the host timezone."""
-    config = cfg if cfg is not None else get_config()
-    now = dt.datetime.now(dt.UTC).astimezone(get_timezone(config))
+    now = dt.datetime.now(dt.UTC).astimezone(get_timezone(settings))
     return now.replace(tzinfo=None)
 
 
@@ -74,14 +73,14 @@ class Schedule:
     milestones: tuple[dt.datetime, ...] = ()
 
     @classmethod
-    def from_config(cls, cfg: dict | None = None) -> "Schedule":
-        config = cfg if cfg is not None else get_config()
+    def from_settings(cls, settings: Settings | None = None) -> "Schedule":
+        settings = settings if settings is not None else get_settings()
         times = set()
-        for semester in config.get("semesters", {}).values():
-            entries = list(semester.get("deadlines", []))
-            for milestones in semester.get("priorities", {}).values():
+        for semester in settings.semesters.values():
+            entries = list(semester.deadlines)
+            for milestones in semester.priorities.values():
                 entries.extend(milestones)
-            times.update(_registrar_datetime(entry[0], config) for entry in entries)
+            times.update(_registrar_datetime(entry[0], settings) for entry in entries)
         return cls(tuple(sorted(times)))
 
     def in_hot_zone(self, now: dt.datetime) -> bool:
@@ -248,7 +247,7 @@ class TwoPhaseScheduler:
         self.no_telegram = no_telegram
         self.logger_ops = get_logger(__name__)
         if log_file is None:
-            log_dir = get_config().get("directories", {}).get("logs", "logs")
+            log_dir = get_settings().directories.logs
             log_file = Path(log_dir) / "scheduler_decisions.jsonl"
         self.log_file = Path(log_file)
 
@@ -294,7 +293,7 @@ class TwoPhaseScheduler:
         """Return the wait before the next poll and log the decision."""
         now = timestamp if timestamp is not None else _registrar_now()
         decision = self.cadence.step(
-            last_change_score, now, Schedule.from_config(), update=update_state
+            last_change_score, now, Schedule.from_settings(), update=update_state
         )
         self._log_decision(
             {
@@ -334,8 +333,9 @@ class TwoPhaseScheduler:
         try:
             from ..services.website_service import WebsiteService
 
-            website_config = get_config().get("website", {})
-            generation_timeout_seconds = website_config["generation_timeout_seconds"]
+            generation_timeout_seconds = (
+                get_settings().website.generation_timeout_seconds
+            )
 
             print("\n🌐 Starting Website Update...")
             service = WebsiteService()
@@ -571,7 +571,7 @@ class TwoPhaseScheduler:
     async def start(self):
         """Run the polling loop."""
         print("🚀 Starting Two-Phase Scheduler (Event-Driven Polling)")
-        schedule = Schedule.from_config()
+        schedule = Schedule.from_settings()
         upcoming = [m for m in schedule.milestones if m > _registrar_now()]
         print(
             f"   📅 {len(schedule.milestones)} milestones, next: "

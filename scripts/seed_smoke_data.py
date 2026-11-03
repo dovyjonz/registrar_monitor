@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from registrarmonitor.config import get_config
+from registrarmonitor.config import get_settings
 from registrarmonitor.data.checkpointed_state import CheckpointedStateStore
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
@@ -271,14 +271,8 @@ def main(
     *,
     data_dir: Path | None = None,
 ) -> None:
-    config = get_config()
     if data_dir is None:
-        directories = config.get("directories", {})
-        if not isinstance(directories, dict) or not isinstance(
-            directories.get("data_storage"), str
-        ):
-            raise ValueError("settings.toml must define directories.data_storage")
-        data_dir = Path(directories["data_storage"])
+        data_dir = Path(get_settings().directories.data_storage)
 
     for semester in get_configured_semesters():
         timestamps = _SNAPSHOT_TIMESTAMPS.get(semester)

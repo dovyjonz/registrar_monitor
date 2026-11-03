@@ -1,6 +1,5 @@
 """Tests for the Telegram reporter module."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,24 +13,21 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def mock_config():
-    """Mock configuration dictionary."""
-    return {
-        "directories": {
-            "text_reports": "/tmp/txt",
-        },
-        "notifications": {
-            "file_write_delay": 0.01,
-            "dry_run": False,
-        },
-    }
+def mock_config(make_settings):
+    """Settings with a temporary report directory and a short write delay."""
+    return make_settings(
+        directories={"text_reports": "/tmp/txt"},
+        notifications={"file_write_delay": 0.01, "dry_run": False},
+    )
 
 
 @pytest.fixture
-def credentials():
-    return SimpleNamespace(
-        telegram_bot_token=SecretStr("test_token"),
-        telegram_chat_id=SecretStr("123456789"),
+def credentials(mock_config):
+    return mock_config.model_copy(
+        update={
+            "telegram_bot_token": SecretStr("test_token"),
+            "telegram_chat_id": SecretStr("123456789"),
+        }
     )
 
 
@@ -43,10 +39,6 @@ def reporter(mock_config, credentials):
             "registrarmonitor.reporting.telegram_reporter.get_settings",
             return_value=credentials,
         ),
-        patch(
-            "registrarmonitor.reporting.telegram_reporter.get_config",
-            return_value=mock_config,
-        ),
         patch("registrarmonitor.reporting.telegram_reporter.Bot"),
     ):
         reporter = TelegramReporter()
@@ -56,16 +48,14 @@ def reporter(mock_config, credentials):
 
 def test_telegram_reporter_requires_credentials(mock_config):
     """Missing Telegram credentials should fail with an actionable message."""
-    missing = SimpleNamespace(telegram_bot_token=None, telegram_chat_id=None)
+    missing = mock_config.model_copy(
+        update={"telegram_bot_token": None, "telegram_chat_id": None}
+    )
 
     with (
         patch(
             "registrarmonitor.reporting.telegram_reporter.get_settings",
             return_value=missing,
-        ),
-        patch(
-            "registrarmonitor.reporting.telegram_reporter.get_config",
-            return_value=mock_config,
         ),
         patch("registrarmonitor.reporting.telegram_reporter.Bot"),
         pytest.raises(ValueError, match="TELEGRAM_BOT_TOKEN"),

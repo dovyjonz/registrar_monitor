@@ -59,26 +59,21 @@ def test_link_url_special_characters_are_escaped():
 
 
 @pytest.fixture
-def reporter(tmp_path):
+def reporter(tmp_path, make_settings):
     from unittest.mock import patch
 
     from registrarmonitor.reporting.telegram_reporter import TelegramReporter
 
-    credentials = SimpleNamespace(
-        telegram_bot_token=SecretStr("t"), telegram_chat_id=SecretStr("1")
+    settings = make_settings(
+        directories={"text_reports": str(tmp_path)},
+        notifications={"file_write_delay": 0, "dry_run": False},
+        telegram_bot_token=SecretStr("t"),
+        telegram_chat_id=SecretStr("1"),
     )
-    config = {
-        "directories": {"text_reports": str(tmp_path)},
-        "notifications": {"file_write_delay": 0, "dry_run": False},
-    }
     with (
         patch(
             "registrarmonitor.reporting.telegram_reporter.get_settings",
-            return_value=credentials,
-        ),
-        patch(
-            "registrarmonitor.reporting.telegram_reporter.get_config",
-            return_value=config,
+            return_value=settings,
         ),
         patch("registrarmonitor.reporting.telegram_reporter.Bot"),
     ):

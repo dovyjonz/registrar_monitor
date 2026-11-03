@@ -220,7 +220,35 @@ def _fresh_settings(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config_mod, "ENV_PATH", tmp_path / "missing.env")
     config_mod.get_settings.cache_clear()
-    config_mod.get_config.cache_clear()
     yield
     config_mod.get_settings.cache_clear()
-    config_mod.get_config.cache_clear()
+
+
+@pytest.fixture
+def make_settings():
+    """Build ``Settings`` from the repository settings with targeted overrides.
+
+    Dict overrides for section fields (``website={"base_url": ...}``) update that
+    section; ``semesters`` takes ``Semester`` models or dicts of their fields.
+    """
+    from pydantic import BaseModel
+
+    from registrarmonitor.config import Semester, get_settings
+
+    def build(**overrides):
+        base = get_settings()
+        updates = {}
+        for name, value in overrides.items():
+            if name == "semesters":
+                value = {
+                    key: Semester(**item) if isinstance(item, dict) else item
+                    for key, item in value.items()
+                }
+            elif isinstance(value, dict):
+                current = getattr(base, name)
+                if isinstance(current, BaseModel):
+                    value = current.model_copy(update=value)
+            updates[name] = value
+        return base.model_copy(update=updates)
+
+    return build

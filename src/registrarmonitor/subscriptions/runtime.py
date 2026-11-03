@@ -16,7 +16,7 @@ from telegram import BotCommand, BotCommandScopeChat, Update
 from telegram.ext import Application, BaseUpdateProcessor, ChatMemberHandler
 
 from ..cli.utils import find_active_semester
-from ..config import Settings, get_config, get_settings
+from ..config import Settings, get_settings
 from ..data.database_manager import DatabaseManager
 from .catalog import SubscriptionCatalog
 from .dispatcher import SubscriptionDispatcher
@@ -213,15 +213,14 @@ class SubscriptionBotRuntime:
     """Own the Telegram webhook, command handlers, recovery, and delivery dispatch."""
 
     def __init__(self) -> None:
-        config = get_config()
         settings = get_settings()
         if settings.telegram_bot_token is None:
             raise ValueError("TELEGRAM_BOT_TOKEN is required for the subscription bot")
         token = settings.telegram_bot_token.get_secret_value()
-        self.config = config
+        self.settings = settings
         self.webhook = WebhookConfig.from_settings(settings)
         self.test_user_id = settings.telegram_bot_test_user_id
-        self.store = SubscriptionStore(config["directories"]["telegram_bot_state"])
+        self.store = SubscriptionStore(settings.directories.telegram_bot_state)
         self.diagnostics = BotRuntimeDiagnostics(self.store)
         self._diagnostics_log_handler = RecentSubscriptionLogHandler(self.diagnostics)
         self._catalog_lock = asyncio.Lock()
@@ -326,18 +325,18 @@ class SubscriptionBotRuntime:
         return database.get_snapshot_data(snapshot_id)
 
     async def _delivery_loop(self) -> None:
-        bot_config = self.config.get("telegram_bot", {})
+        bot_config = self.settings.telegram_bot
         dispatcher = SubscriptionDispatcher(
             self.store,
             None,
             self.application.bot,
             reader_for_semester=DatabaseManager.create_read_only_for_semester,
-            retry_base_seconds=bot_config.get("retry_base_seconds", 5),
-            retry_max_seconds=bot_config.get("retry_max_seconds", 900),
-            per_chat_interval=bot_config.get("per_chat_interval_seconds", 1),
-            global_interval=1 / bot_config.get("global_rate_per_second", 25),
+            retry_base_seconds=bot_config.retry_base_seconds,
+            retry_max_seconds=bot_config.retry_max_seconds,
+            per_chat_interval=bot_config.per_chat_interval_seconds,
+            global_interval=1 / bot_config.global_rate_per_second,
         )
-        cleanup_interval = bot_config.get("cleanup_interval_seconds", 3600)
+        cleanup_interval = bot_config.cleanup_interval_seconds
         recovery_interval = 60
         next_cleanup = 0.0
         next_recovery = 0.0
@@ -349,8 +348,8 @@ class SubscriptionBotRuntime:
             if loop.time() >= next_cleanup:
                 await asyncio.to_thread(
                     self.store.cleanup,
-                    completed_batch_days=bot_config.get("completed_batch_days", 90),
-                    inactive_user_days=bot_config.get("inactive_user_days", 180),
+                    completed_batch_days=bot_config.completed_batch_days,
+                    inactive_user_days=bot_config.inactive_user_days,
                 )
                 next_cleanup = loop.time() + cleanup_interval
             if not await dispatcher.dispatch_one():

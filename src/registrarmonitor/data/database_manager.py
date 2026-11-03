@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..config import get_config
+from ..config import get_settings
 from ..core import get_logger
 from ..models import EnrollmentSnapshot
 from ..validation import validate_directory_exists
@@ -41,8 +41,7 @@ class DatabaseManager:
         self._uses_configured_path = db_path is None
         self._read_only = read_only
         if db_path is None:
-            config = get_config()
-            data_dir = config["directories"]["data_storage"]
+            data_dir = get_settings().directories.data_storage
             validate_directory_exists(data_dir, create_if_missing=not read_only)
 
             if semester:
@@ -188,8 +187,7 @@ class DatabaseManager:
             Dict[str, Path]: Dictionary mapping semester names to database paths
         """
         if data_dir is None:
-            config = get_config()
-            data_dir = config["directories"]["data_storage"]
+            data_dir = get_settings().directories.data_storage
 
         data_path = Path(data_dir)
         if not data_path.exists():

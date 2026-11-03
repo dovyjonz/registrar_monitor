@@ -50,7 +50,7 @@ class TestGetNextReportTime:
             result = scheduler._get_next_report_time()
         assert result == expected
 
-    def test_uses_configured_registrar_timezone(self):
+    def test_uses_configured_registrar_timezone(self, make_settings):
         aware_now = dt.datetime(
             2024,
             7,
@@ -62,8 +62,8 @@ class TestGetNextReportTime:
         with (
             patch("registrarmonitor.automation.scheduler.dt.datetime") as mock_datetime,
             patch(
-                "registrarmonitor.automation.scheduler.get_config",
-                return_value={"timezone": "Asia/Almaty"},
+                "registrarmonitor.automation.scheduler.get_settings",
+                return_value=make_settings(timezone="Asia/Almaty"),
             ),
         ):
             mock_datetime.now.return_value = aware_now

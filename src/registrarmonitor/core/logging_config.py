@@ -14,7 +14,7 @@ from collections.abc import Callable
 from copy import copy
 from pathlib import Path
 
-from ..config import get_config
+from ..config import get_settings
 
 # Global flag to prevent multiple logging setups
 _logging_setup_done = False
@@ -92,8 +92,7 @@ def setup_logging(
     # Get log directory from config or use default
     if log_dir is None:
         try:
-            config = get_config()
-            log_dir = config.get("directories", {}).get("logs", "./logs")
+            log_dir = get_settings().directories.logs
         except Exception:
             log_dir = "./logs"
 

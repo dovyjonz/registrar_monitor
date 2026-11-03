@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import get_config
+from ..config import get_settings
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.checkpointed_state import (
@@ -469,8 +469,7 @@ class DatabaseCommands:
             if not semester.strip():
                 raise ValueError("fresh-semester initialization requires a semester")
             if database is None:
-                config = get_config()
-                data_dir = Path(config["directories"]["data_storage"])
+                data_dir = Path(get_settings().directories.data_storage)
                 slug = DatabaseManager._sanitize_semester_name_static(semester)
                 database = data_dir / f"enrollment_{slug}.db"
             if database.exists() and database.stat().st_size > 0:

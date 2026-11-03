@@ -117,28 +117,30 @@ class TestSchedule:
         enter_burst(cadence, now)
         assert cadence.step(30.0, now, self.schedule()).interval == 10
 
-    def test_from_config_collects_deadlines_and_priorities(self):
-        cfg = {
-            "timezone": "Asia/Almaty",
-            "semesters": {
+    def test_from_settings_collects_deadlines_and_priorities(self, make_settings):
+        settings = make_settings(
+            timezone="Asia/Almaty",
+            semesters={
                 "Fall 2026": {
                     "deadlines": [("2026-08-26T12:00:00", "Drop")],
                     "priorities": {"1": [("2026-08-05T09:00:00", "Y4+")]},
                 },
                 "Old": {},
             },
-        }
-        assert Schedule.from_config(cfg).milestones == (
+        )
+        assert Schedule.from_settings(settings).milestones == (
             datetime(2026, 8, 5, 9, 0),
             datetime(2026, 8, 26, 12, 0),
         )
 
-    def test_from_config_converts_aware_times_to_registrar_time(self):
-        cfg = {
-            "timezone": "Asia/Almaty",
-            "semesters": {"S": {"deadlines": [("2026-08-26T07:00:00+00:00", "x")]}},
-        }
-        assert Schedule.from_config(cfg).milestones == (datetime(2026, 8, 26, 12, 0),)
+    def test_from_settings_converts_aware_times_to_registrar_time(self, make_settings):
+        settings = make_settings(
+            timezone="Asia/Almaty",
+            semesters={"S": {"deadlines": [("2026-08-26T07:00:00+00:00", "x")]}},
+        )
+        assert Schedule.from_settings(settings).milestones == (
+            datetime(2026, 8, 26, 12, 0),
+        )
 
     def test_repository_settings_produce_a_schedule(self):
-        assert Schedule.from_config().milestones
+        assert Schedule.from_settings().milestones

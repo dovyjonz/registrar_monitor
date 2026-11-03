@@ -5,7 +5,7 @@ from shutil import rmtree
 
 from seed_smoke_data import main as seed_smoke_data
 
-from registrarmonitor.config import get_config
+from registrarmonitor.config import get_settings
 from registrarmonitor.services.website_service import WebsiteService
 
 
@@ -15,8 +15,7 @@ def main() -> None:
     data_dir = fixture_root / "data"
     data_dir.mkdir(parents=True)
 
-    config = get_config()
-    config["directories"]["data_storage"] = str(data_dir)
+    get_settings().directories.data_storage = str(data_dir)
     seed_smoke_data(data_dir=data_dir)
 
     if not WebsiteService().generate(force=True):
