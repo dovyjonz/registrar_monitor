@@ -2,10 +2,9 @@
 timezone = "Asia/Almaty"
 
 [directories]
-text_reports = "assets/changes"
+text_reports = "data/changes"
 data_storage = "data"
-raw_downloads = "assets/downloads"
-input_files = "assets/input"
+raw_downloads = "data/downloads"
 logs = "logs"
 telegram_bot_state = "data/telegram_bot.db"
 

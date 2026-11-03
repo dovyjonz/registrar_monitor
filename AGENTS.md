@@ -6,9 +6,9 @@ site to Cloudflare Pages.
 
 ## Start here
 
-- `CONTEXT.md` defines domain terms.
 - `settings.toml`, `Makefile`, and `monitor --help` are executable sources of truth.
-- `README.md`, `DATABASE.md`, and `docs/adr/` explain the current system.
+- `README.md` covers setup; `docs/architecture.md` and `docs/operations.md`
+  explain the current system and define domain terms.
 - Use the focused repo skill under `.agents/skills/` for storage, Telegram,
   dashboard, or production work.
 
@@ -30,7 +30,7 @@ Matt's five canonical triage roles use their default label names. See
 
 ### Domain docs
 
-This is a single-context repository with `CONTEXT.md` and root `docs/adr/`. See
+This is a single-context repository; domain terms are in `docs/architecture.md`. See
 `docs/agents/domain.md`.
 
 ## Invariants
@@ -52,7 +52,7 @@ This is a single-context repository with `CONTEXT.md` and root `docs/adr/`. See
 
 - `automation/`: downloads and scheduling
 - `data/`: parsing, SQLite, and comparisons
-- `reporting/`: channel text, Telegram, and PDF output
+- `reporting/`: channel text and Telegram
 - `services/`: workflow orchestration
 - `subscriptions/`: private bot interactions and delivery state
 - `website/`: static read models and page generation
@@ -66,7 +66,7 @@ and the simplest complete design.
 Run the closest focused test while iterating. Use `make check-fast` for Python
 changes and `make check` for cross-cutting or frontend changes. Browser and
 Worker checks (`make test-browser`, `make worker-check`) are opt-in and documented
-in `docs/operations/tooling.md`.
+in `docs/operations.md`.
 
 If the default uv cache is unavailable, use
 `UV_CACHE_DIR=/private/tmp/uv-cache`.

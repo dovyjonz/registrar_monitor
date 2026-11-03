@@ -12,7 +12,7 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: npm
-    directory: /assets/website
+    directory: /frontend
     schedule:
       interval: monthly
     groups:

@@ -39,20 +39,16 @@ scheduler_decisions*.log
 /data/
 *.db
 
-# Generated assets
-assets/downloads/
-assets/changes/
-assets/pdf/
-assets/index.html
-assets/website/public/
+# Generated site
+frontend/public/
 
 # Cloudflare Wrangler cache
 .wrangler/
-assets/website/.wrangler/
+frontend/.wrangler/
 
 # Node modules
 node_modules/
-assets/website/node_modules/
+frontend/node_modules/
 
 # macOS
 .DS_Store

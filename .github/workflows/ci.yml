@@ -55,20 +55,20 @@ jobs:
           node-version: 24.18.0
           cache: npm
           cache-dependency-path: |
-            assets/website/package-lock.json
+            frontend/package-lock.json
             workers/preview-images/package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --prefix assets/website
+        run: npm ci --prefix frontend
 
       - name: Lint
-        run: npm --prefix assets/website run lint
+        run: npm --prefix frontend run lint
 
       - name: Unit tests
-        run: npm --prefix assets/website run test:unit
+        run: npm --prefix frontend run test:unit
 
       - name: Build
-        run: npm --prefix assets/website run build
+        run: npm --prefix frontend run build
 
       - name: Install Worker dependencies
         run: npm ci --prefix workers/preview-images
@@ -93,7 +93,7 @@ jobs:
         run: |
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE" "$GITHUB_SHA" | grep -qE '^(assets/website/|src/registrarmonitor/website/)'; then
+          elif git diff --name-only "$BASE" "$GITHUB_SHA" | grep -qE '^(frontend/|src/registrarmonitor/website/)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -120,15 +120,15 @@ jobs:
         with:
           node-version: 24.18.0
           cache: npm
-          cache-dependency-path: assets/website/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         if: steps.changes.outputs.run == 'true'
-        run: npm ci --prefix assets/website
+        run: npm ci --prefix frontend
 
       - name: Install Chromium
         if: steps.changes.outputs.run == 'true'
-        run: npm --prefix assets/website exec -- playwright install --with-deps chromium
+        run: npm --prefix frontend exec -- playwright install --with-deps chromium
 
       - name: Browser smoke
         if: steps.changes.outputs.run == 'true'

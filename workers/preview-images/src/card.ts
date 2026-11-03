@@ -2,7 +2,7 @@ import type { PreviewState } from './model';
 
 // This renderer deliberately consumes the dashboard's pure JavaScript chart contract.
 // @ts-expect-error The shared browser module intentionally has no TypeScript declaration.
-import { buildAverageChartPoints, buildChartPresentation, buildCourseChartDomain, buildSectionActivityTimeline, buildSectionChartPoints, getEnrollmentScaleMax, getSectionTypeName } from '../../../assets/website/src/chartMapping.mjs';
+import { buildAverageChartPoints, buildChartPresentation, buildCourseChartDomain, buildSectionActivityTimeline, buildSectionChartPoints, getEnrollmentScaleMax, getSectionTypeName } from '../../../frontend/src/chartMapping.mjs';
 
 type ChartPoint = {
   snapshotIdx: number;

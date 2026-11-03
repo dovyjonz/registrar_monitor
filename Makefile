@@ -28,7 +28,7 @@ help:
 
 bootstrap:
 	$(UV) sync --locked --group dev
-	$(NPM) ci --prefix assets/website
+	$(NPM) ci --prefix frontend
 	$(NPM) ci --prefix workers/preview-images
 
 check-fast:
@@ -38,23 +38,23 @@ check-fast:
 	$(UV) run pytest
 
 check: check-fast
-	$(NPM) --prefix assets/website run lint
-	$(NPM) --prefix assets/website run test:unit
-	$(NPM) --prefix assets/website run build
+	$(NPM) --prefix frontend run lint
+	$(NPM) --prefix frontend run test:unit
+	$(NPM) --prefix frontend run build
 
 site-generate:
-	$(NPM) --prefix assets/website run build
+	$(NPM) --prefix frontend run build
 	$(UV) run monitor deploy --force
 
 test-browser:
-	$(NPM) --prefix assets/website run build
+	$(NPM) --prefix frontend run build
 	$(UV) run python scripts/generate_smoke_site.py
-	$(NPM) --prefix assets/website exec -- playwright install chromium
-	$(NPM) --prefix assets/website run test:e2e
+	$(NPM) --prefix frontend exec -- playwright install chromium
+	$(NPM) --prefix frontend run test:e2e
 
 worker-check:
 	$(NPM) --prefix workers/preview-images run check
 
 clean:
-	rm -f assets/website/public/*.html assets/website/public/*.json assets/website/public/_headers assets/website/public/robots.txt assets/website/public/.checksums.json
-	rm -rf assets/website/public/assets assets/website/public/courses assets/website/public/data assets/website/public/.vite
+	rm -f frontend/public/*.html frontend/public/*.json frontend/public/_headers frontend/public/robots.txt frontend/public/.checksums.json
+	rm -rf frontend/public/assets frontend/public/courses frontend/public/data frontend/public/.vite

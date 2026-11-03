@@ -79,8 +79,8 @@ def _configuration_checks(root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         root / "settings.toml",
         root / "pyproject.toml",
         root / "uv.lock",
-        root / "assets/website/package.json",
-        root / "assets/website/package-lock.json",
+        root / "frontend/package.json",
+        root / "frontend/package-lock.json",
     ]
     checks = [
         _check(
@@ -190,11 +190,9 @@ def build_doctor_report(root: Path = ROOT) -> dict[str, Any]:
         configured = directories.get(key)
         if configured:
             checks.append(_writable_check(f"path:{key}", root / configured))
-    checks.append(
-        _writable_check("path:generated-site", root / "assets/website/public")
-    )
+    checks.append(_writable_check("path:generated-site", root / "frontend/public"))
 
-    frontend_bin = root / "assets/website/node_modules/.bin"
+    frontend_bin = root / "frontend/node_modules/.bin"
     for tool in ("vite", "playwright"):
         executable = frontend_bin / tool
         checks.append(

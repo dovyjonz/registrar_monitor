@@ -18,7 +18,7 @@ from registrarmonitor.operational import (
 
 
 def _write_required_inputs(root: Path) -> None:
-    (root / "assets/website/node_modules/.bin").mkdir(parents=True)
+    (root / "frontend/node_modules/.bin").mkdir(parents=True)
     (root / "data").mkdir()
     (root / ".node-version").write_text("24.18.0\n", encoding="utf-8")
     (root / ".python-version").write_text("3.13.5\n", encoding="utf-8")
@@ -29,14 +29,14 @@ def _write_required_inputs(root: Path) -> None:
     for relative in (
         "pyproject.toml",
         "uv.lock",
-        "assets/website/package.json",
-        "assets/website/package-lock.json",
+        "frontend/package.json",
+        "frontend/package-lock.json",
     ):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}\n", encoding="utf-8")
     for tool in ("vite", "playwright"):
-        (root / f"assets/website/node_modules/.bin/{tool}").touch()
+        (root / f"frontend/node_modules/.bin/{tool}").touch()
 
 
 def test_database_diagnostics_report_integrity_and_schema(tmp_path: Path):

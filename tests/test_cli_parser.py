@@ -47,7 +47,7 @@ from registrarmonitor.main import create_parser
                 "--semester",
                 "Summer 2025",
                 "--output-dir",
-                "assets/website/public",
+                "frontend/public",
                 "--report",
                 "output/rollback.json",
             ],

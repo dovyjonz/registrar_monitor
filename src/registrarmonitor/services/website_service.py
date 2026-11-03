@@ -42,10 +42,9 @@ class WebsiteService:
         self.logger = get_logger(__name__)
         self.last_generation_skipped = False
         self._output_dir = output_dir.resolve() if output_dir is not None else None
-        # Correct path to assets/website
-        # src/registrarmonitor/services/website_service.py -> .../repo/assets/website
+        # src/registrarmonitor/services/website_service.py -> .../repo/frontend
         self._default_website_assets_dir = (
-            Path(__file__).parent.parent.parent.parent / "assets" / "website"
+            Path(__file__).parent.parent.parent.parent / "frontend"
         )
         self.website_assets_dir = self._default_website_assets_dir
         self._semester_data_cache: dict[tuple[str, bool], dict] = {}

@@ -5,7 +5,7 @@ description: Safely inspect or operate the Registrar Monitor Google Cloud VM, sh
 
 # Registrar Monitor production
 
-Read `docs/operations/production-topology.md` completely before acting.
+Read the Production section of `docs/operations.md` completely before acting.
 
 ## Guardrails
 

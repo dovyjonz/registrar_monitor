@@ -118,9 +118,7 @@ def latest_configured_semester() -> str:
 
 
 # Default output directory
-OUTPUT_DIR = (
-    Path(__file__).parent.parent.parent.parent / "assets" / "website" / "public"
-)
+OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / "frontend" / "public"
 
 
 # ---------------------------------------------------------------------------

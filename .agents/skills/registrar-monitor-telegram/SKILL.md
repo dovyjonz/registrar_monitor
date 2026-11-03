@@ -5,8 +5,8 @@ description: Implement or review Registrar Monitor Telegram channel reports, pri
 
 # Registrar Monitor Telegram
 
-Read `CONTEXT.md`, `docs/adr/0002-telegram-subscription-delivery.md`, and
-`docs/operations/telegram-subscriptions.md`.
+Read the notification delivery section of `docs/architecture.md` and the Telegram
+section of `docs/operations.md`.
 
 ## Product contract
 

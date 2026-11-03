@@ -5,12 +5,11 @@ description: Build, debug, verify, or deploy the Registrar Monitor generated Vit
 
 # Registrar Monitor dashboard
 
-Read `docs/operations/website-publication.md` and the website section of
-`docs/operations/tooling.md`.
+Read the website publication and tooling sections of `docs/operations.md`.
 
 ## Rules
 
-- Generate and test `assets/website/public`, not Vite's source shell.
+- Generate and test `frontend/public`, not Vite's source shell.
 - Publish static v3 data through no-cache pointers and immutable content-addressed
   assets.
 - Deploy Pages by direct upload through `WebsiteService`. The preview-image Worker

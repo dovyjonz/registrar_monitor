@@ -5,7 +5,7 @@ description: Work on Registrar Monitor SQLite enrollment storage, snapshots, rep
 
 # Registrar Monitor storage
 
-Read `DATABASE.md`, `CONTEXT.md`, and the relevant ADR before editing.
+Read `docs/architecture.md` before editing.
 
 ## Rules
 
