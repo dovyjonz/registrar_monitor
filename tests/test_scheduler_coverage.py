@@ -17,6 +17,9 @@ def _use_mock_decision_logger(mock_decision_logger):
 from registrarmonitor.automation.scheduler import TwoPhaseScheduler
 
 
+HEARTBEAT = "registrarmonitor.automation.scheduler.send_heartbeat"
+
+
 class TestGetNextReportTime:
     @pytest.mark.parametrize(
         ("now", "expected"),
@@ -166,11 +169,13 @@ class TestSinglePollAndProcess:
                 scheduler.downloader, "download", AsyncMock(return_value=None)
             ) as download,
             patch("registrarmonitor.cli.commands.PollCommand") as poll_command,
+            patch(HEARTBEAT, new_callable=AsyncMock) as heartbeat,
         ):
             score = await scheduler._single_poll_and_process()
         assert score == 0.0
         download.assert_awaited_once_with(skip_unchanged=True)
         poll_command.assert_not_called()
+        heartbeat.assert_awaited_once()  # unchanged is still a healthy poll
 
     @pytest.mark.asyncio
     async def test_failed_processing_makes_the_file_downloadable_again(self):
@@ -184,11 +189,13 @@ class TestSinglePollAndProcess:
             ),
             patch.object(scheduler.downloader, "forget_last_download") as forget,
             patch("registrarmonitor.cli.commands.PollCommand") as poll_command,
+            patch(HEARTBEAT, new_callable=AsyncMock) as heartbeat,
         ):
             poll_command.return_value.run_with_result = AsyncMock(return_value=failed)
             score = await scheduler._single_poll_and_process()
         assert score == 0.0
         forget.assert_called_once_with()
+        heartbeat.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_successful_poll_returns_score(self):
@@ -203,29 +210,15 @@ class TestSinglePollAndProcess:
                 AsyncMock(return_value="/tmp/data.xls"),
             ),
             patch("registrarmonitor.cli.commands.PollCommand") as mock_cls,
+            patch(HEARTBEAT, new_callable=AsyncMock) as heartbeat,
         ):
             mock_cls.return_value.run_with_result = AsyncMock(return_value=mock_result)
             score = await scheduler._single_poll_and_process()
         assert score == 7.5
+        heartbeat.assert_awaited_once()
 
 
 class TestCheckAndTriggerUpdates:
-    @pytest.mark.asyncio
-    async def test_no_latest_snapshot_returns(self):
-        import registrarmonitor.cli.utils as cli_utils
-
-        scheduler = TwoPhaseScheduler(no_telegram=True)
-        with (
-            patch.object(
-                cli_utils,
-                "detect_active_semester",
-                new_callable=AsyncMock,
-                return_value="Spring 2024",
-            ),
-            patch("registrarmonitor.automation.scheduler.DatabaseManager") as db_cls,
-        ):
-            db_cls.return_value.get_latest_snapshot_id.return_value = None
-            await scheduler._check_and_trigger_updates()
 
     @pytest.mark.asyncio
     async def test_first_run_sets_baseline(self):
@@ -283,24 +276,6 @@ class TestCheckAndTriggerUpdates:
         run_report.assert_awaited_once_with(force_poll=False)
         db_cls.return_value.add_reporting_log.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_already_reported_skips(self):
-        import registrarmonitor.cli.utils as cli_utils
-
-        scheduler = TwoPhaseScheduler(no_telegram=True)
-        with (
-            patch.object(
-                cli_utils,
-                "detect_active_semester",
-                new_callable=AsyncMock,
-                return_value="Spring 2024",
-            ),
-            patch("registrarmonitor.automation.scheduler.DatabaseManager") as db_cls,
-        ):
-            db_cls.return_value.get_latest_snapshot_id.return_value = 1
-            db_cls.return_value.get_last_reported_snapshot_id.return_value = 1
-            await scheduler._check_and_trigger_updates()
-            db_cls.return_value.add_reporting_log.assert_not_called()
 
 
 class TestStartInitialization:

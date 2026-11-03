@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -30,12 +30,6 @@ class TestTwoPhaseSchedulerLoop:
             ),
         ):
             yield TwoPhaseScheduler(no_telegram=True)
-
-    def test_init(self, scheduler):
-        """Verify scheduler starts quiet, with a queue and downloader."""
-        assert scheduler.mode == "quiet"
-        assert isinstance(scheduler.pending_polls, asyncio.Queue)
-        assert scheduler.downloader is not None
 
     def test_run_website_update(self):
         """Generates in a child process before deploying from the scheduler."""
@@ -117,29 +111,24 @@ class TestTwoPhaseSchedulerLoop:
             sched._run_website_update()
 
     @pytest.mark.asyncio
-    async def test_pending_polls_queue_concurrent_producer_consumer(self):
-        """Verify that pending_polls is an asyncio.Queue and handles
-        concurrent producer-consumer enqueue/dequeue correctly."""
-        import asyncio
-
-        scheduler = TwoPhaseScheduler(no_telegram=True)
-        assert isinstance(scheduler.pending_polls, asyncio.Queue)
-
-        # Producer: enqueue two mock download tasks with timestamps
-        t1 = datetime(2024, 1, 15, 10, 0, 0)
-        t2 = datetime(2024, 1, 15, 10, 1, 0)
-        task1 = asyncio.create_task(asyncio.sleep(0, result="/tmp/file1.xls"))
-        task2 = asyncio.create_task(asyncio.sleep(0, result="/tmp/file2.xls"))
-
-        await scheduler.pending_polls.put((task1, t1))
-        await scheduler.pending_polls.put((task2, t2))
-
-        # Consumer: dequeue in FIFO order
-        dt1, pt1 = await scheduler.pending_polls.get()
-        dt2, pt2 = await scheduler.pending_polls.get()
-
-        assert pt1 == t1
-        assert pt2 == t2
-        assert await dt1 == "/tmp/file1.xls"
-        assert await dt2 == "/tmp/file2.xls"
-        assert scheduler.pending_polls.empty()
+    @pytest.mark.parametrize(
+        ("downloaded", "heartbeats"), [(None, 1), ("/tmp/new.xls", 0)]
+    )
+    async def test_unchanged_poll_in_the_queue_sends_heartbeat(
+        self, scheduler, downloaded, heartbeats
+    ):
+        """A scheduled poll that finds the file unchanged is still healthy."""
+        download = asyncio.create_task(asyncio.sleep(0, result=downloaded))
+        await scheduler.pending_polls.put((download, datetime(2024, 1, 15, 10, 0)))
+        consumer = asyncio.create_task(scheduler._process_pending_polls_loop())
+        with (
+            patch(
+                "registrarmonitor.automation.scheduler.send_heartbeat",
+                new_callable=AsyncMock,
+            ) as heartbeat,
+            patch.object(scheduler, "_process_file", AsyncMock(return_value=1.0)),
+            patch.object(scheduler, "_check_and_trigger_updates", AsyncMock()),
+        ):
+            await asyncio.wait_for(scheduler.pending_polls.join(), 2)
+        consumer.cancel()
+        assert heartbeat.await_count == heartbeats

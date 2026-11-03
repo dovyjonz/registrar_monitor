@@ -25,6 +25,7 @@ from pathlib import Path
 from ..config import get_config, get_timezone
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
+from ..heartbeat import send_heartbeat
 from .downloader import DataDownloader
 
 # ReportingService is imported lazily to avoid circular import
@@ -456,6 +457,7 @@ class TwoPhaseScheduler:
         """Download and process the latest file once; return its change score."""
         file_path = await self.downloader.download(skip_unchanged=True)
         if not file_path:
+            await send_heartbeat()  # an unchanged file is still a healthy poll
             return 0.0
         return await self._process_file(file_path)
 
@@ -469,7 +471,9 @@ class TwoPhaseScheduler:
         if not result.success:
             # Fetch the same file again next time instead of treating it as seen.
             self.downloader.forget_last_download()
-        return result.change_score if result.success else 0.0
+            return 0.0
+        await send_heartbeat()
+        return result.change_score
 
     async def _process_pending_polls_loop(self):
         """Process downloads in chronological FIFO order and trigger updates."""
@@ -488,6 +492,7 @@ class TwoPhaseScheduler:
                         await self._check_and_trigger_updates()
                     else:
                         self.logger_ops.info("No registrar changes; skipping parse.")
+                        await send_heartbeat()  # still a healthy poll
                         if self._deferred:
                             await self._check_and_trigger_updates()
                     self._last_change_score = score
