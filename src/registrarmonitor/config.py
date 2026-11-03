@@ -88,9 +88,8 @@ class Notifications(_Section):
 class Website(_Section):
     update_interval: PositiveInt = 30
     generation_timeout_seconds: PositiveInt = 3600
-    pages_project_name: str = "registrar-monitor"
-    base_url: str = ""
-    preview_base_url: str
+    base_url: str
+    web_analytics_token: str = ""
 
 
 class TelegramBot(_Section):

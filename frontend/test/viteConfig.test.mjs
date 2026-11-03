@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { build } from 'vite';
 
-test('package scripts cannot bypass the validated Pages deploy path', async () => {
+test('package scripts cannot bypass the validated Worker deploy path', async () => {
     const packageJson = JSON.parse(
         await readFile(new URL('../package.json', import.meta.url), 'utf8'),
     );

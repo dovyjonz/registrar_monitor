@@ -18,7 +18,7 @@ logs = "logs"
 telegram_bot_state = "data/bot.db"
 
 [website]
-preview_base_url = "https://preview.example"
+base_url = "https://site.example"
 """
 
 
