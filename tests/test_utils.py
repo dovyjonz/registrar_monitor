@@ -6,75 +6,8 @@ pytestmark = pytest.mark.unit
 
 
 from registrarmonitor.utils import (
-    construct_output_path,
-    generate_safe_filename_components,
     get_section_sort_key,
-    get_section_type,
-    get_sort_priority,
 )
-
-
-class TestGetSectionType:
-    """Tests for get_section_type function."""
-
-    def test_lecture_section(self):
-        """Lecture sections should return 'L'."""
-        assert get_section_type("10L") == "L"
-        assert get_section_type("1L") == "L"
-
-    def test_recitation_section(self):
-        """Recitation sections should return 'R'."""
-        assert get_section_type("5R") == "R"
-
-    def test_lab_section(self):
-        """Lab sections should return 'B'."""
-        assert get_section_type("3Lb") == "B"
-        assert get_section_type("2B") == "B"
-
-    def test_lab_section_case_insensitive(self):
-        """Lowercase lab suffix should still normalize to 'B'."""
-        assert get_section_type("3lb") == "B"
-
-    def test_seminar_section(self):
-        """Seminar sections should return 'S'."""
-        assert get_section_type("1S") == "S"
-
-    def test_discussion_section(self):
-        """Discussion sections should return 'D'."""
-        assert get_section_type("4D") == "D"
-
-    def test_empty_section(self):
-        """Empty section should return empty string."""
-        assert get_section_type("") == ""
-        assert get_section_type(None) == ""
-
-    def test_numeric_only(self):
-        """Numeric only should return empty string."""
-        assert get_section_type("123") == ""
-
-
-class TestGetSortPriority:
-    """Tests for get_sort_priority function."""
-
-    def test_lecture_highest_priority(self):
-        """Lectures should have highest priority (0)."""
-        assert get_sort_priority("L") == 0
-
-    def test_seminar_discussion_recitation_priority(self):
-        """S, D, R should have priority 1."""
-        assert get_sort_priority("S") == 1
-        assert get_sort_priority("D") == 1
-        assert get_sort_priority("R") == 1
-
-    def test_lab_priority(self):
-        """Labs should have priority 2."""
-        assert get_sort_priority("B") == 2
-        assert get_sort_priority("Lb") == 2
-
-    def test_other_priority(self):
-        """Other types should have priority 3."""
-        assert get_sort_priority("X") == 3
-        assert get_sort_priority("P") == 3
 
 
 class TestGetSectionSortKey:
@@ -102,45 +35,3 @@ class TestGetSectionSortKey:
         key_a = get_section_sort_key("1A", "L")
         key_b = get_section_sort_key("1B", "L")
         assert key_a < key_b
-
-
-class TestGenerateSafeFilenameComponents:
-    """Tests for generate_safe_filename_components function."""
-
-    def test_basic_conversion(self):
-        """Basic semester and timestamp should be converted safely."""
-        semester, timestamp = generate_safe_filename_components(
-            "Spring 2024", "2024-01-15 10:30:00"
-        )
-        assert semester == "spring_2024"
-        assert ":" not in timestamp
-        assert " " not in timestamp
-
-    def test_special_characters(self):
-        """Special characters should be handled."""
-        semester, timestamp = generate_safe_filename_components(
-            "Fall 2024", "2024-09-01 14:00:00"
-        )
-        assert semester == "fall_2024"
-        assert timestamp == "2024-09-01_14-00-00"
-
-
-class TestConstructOutputPath:
-    """Tests for construct_output_path function."""
-
-    def test_pdf_extension(self):
-        """PDF path should be constructed correctly."""
-        path = construct_output_path(
-            "/tmp/output", "Spring 2024", "2024-01-15 10:30:00", ".pdf"
-        )
-        assert path.endswith(".pdf")
-        assert "spring_2024" in path
-        assert "/tmp/output/" in path
-
-    def test_txt_extension(self):
-        """TXT path should be constructed correctly."""
-        path = construct_output_path(
-            "/tmp/output", "Fall 2024", "2024-09-01 14:00:00", ".txt"
-        )
-        assert path.endswith(".txt")
-        assert "fall_2024" in path

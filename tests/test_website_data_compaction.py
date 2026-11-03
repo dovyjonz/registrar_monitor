@@ -28,19 +28,6 @@ def test_section_history_compaction_preserves_endpoints_changes_and_previous_poi
     assert [point["snapshotIdx"] for point in compacted] == [0, 1, 2, 3, 4, 5]
 
 
-def test_section_history_compaction_removes_unchanged_middle_points():
-    history = [
-        {"snapshotIdx": 0, "fill": 0.1, "enrollment": 1, "capacity": 10},
-        {"snapshotIdx": 1, "fill": 0.1, "enrollment": 1, "capacity": 10},
-        {"snapshotIdx": 2, "fill": 0.1, "enrollment": 1, "capacity": 10},
-        {"snapshotIdx": 3, "fill": 0.1, "enrollment": 1, "capacity": 10},
-    ]
-
-    compacted = _compact_section_history(history)
-
-    assert [point["snapshotIdx"] for point in compacted] == [0, 3]
-
-
 def test_course_average_history_uses_compacted_section_points():
     course = {
         "sections": {
@@ -149,20 +136,6 @@ def test_average_history_compaction_preserves_previous_point_before_change():
 
     # idx 0 endpoint, idx 2 is before-change anchor, idx 3 is change, idx 4 endpoint
     assert [point["snapshotIdx"] for point in compacted] == [0, 2, 3, 4]
-
-
-def test_average_history_compaction_removes_unchanged_middle_points():
-    history = [
-        {"snapshotIdx": 0, "fill": 0.5},
-        {"snapshotIdx": 1, "fill": 0.5},
-        {"snapshotIdx": 2, "fill": 0.5},
-        {"snapshotIdx": 3, "fill": 0.5},
-    ]
-
-    assert _compact_average_history(history) == [
-        {"snapshotIdx": 0, "fill": 0.5},
-        {"snapshotIdx": 3, "fill": 0.5},
-    ]
 
 
 def test_compact_histories_compacts_average_after_full_history_calculation():

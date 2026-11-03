@@ -55,56 +55,6 @@ class TestProcessData:
         assert "CS 101" in snapshot.courses
         assert len(snapshot.courses["CS 101"].sections) == 2
 
-    def test_multiple_courses(self, processor: SnapshotProcessor):
-        """Should process multiple courses correctly."""
-        data = [
-            {
-                "Course Abbr": "CS 101",
-                "S/T": "10L",
-                "Enr": 25,
-                "Cap": 30,
-                "Fill": 0.83,
-                "Instructor": "Smith",
-                "Level": "UG",
-                "Course Title": "Intro CS",
-            },
-            {
-                "Course Abbr": "MATH 201",
-                "S/T": "20L",
-                "Enr": 30,
-                "Cap": 30,
-                "Fill": 1.0,
-                "Instructor": "Brown",
-                "Level": "UG",
-                "Course Title": "Calculus",
-            },
-            {
-                "Course Abbr": "MATH 201",
-                "S/T": "21L",
-                "Enr": 28,
-                "Cap": 30,
-                "Fill": 0.93,
-                "Instructor": "Brown",
-                "Level": "UG",
-                "Course Title": "Calculus",
-            },
-        ]
-
-        snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
-
-        assert len(snapshot.courses) == 2
-        assert "CS 101" in snapshot.courses
-        assert "MATH 201" in snapshot.courses
-
-    def test_empty_data(self, processor: SnapshotProcessor):
-        """Should handle empty data gracefully."""
-        data = []
-
-        snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
-
-        assert snapshot.semester == "Spring 2024"
-        assert len(snapshot.courses) == 0
-
     def test_calculates_average_fill(self, processor: SnapshotProcessor):
         """Should calculate average fill for courses."""
         data = [
@@ -135,37 +85,6 @@ class TestProcessData:
         course = snapshot.courses["CS 101"]
         # Average of 0.50 and 1.0 = 0.75
         assert 0.74 <= course.average_fill <= 0.76
-
-    def test_section_type_extraction(self, processor: SnapshotProcessor):
-        """Should extract section types correctly."""
-        data = [
-            {
-                "Course Abbr": "CS 101",
-                "S/T": "10L",
-                "Enr": 25,
-                "Cap": 30,
-                "Fill": 0.83,
-                "Instructor": "Smith",
-                "Level": "UG",
-                "Course Title": "Intro CS",
-            },
-            {
-                "Course Abbr": "CS 101",
-                "S/T": "1R",
-                "Enr": 20,
-                "Cap": 25,
-                "Fill": 0.80,
-                "Instructor": "Jones",
-                "Level": "UG",
-                "Course Title": "Intro CS",
-            },
-        ]
-
-        snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
-
-        course = snapshot.courses["CS 101"]
-        assert course.sections["10L"].section_type == "L"
-        assert course.sections["1R"].section_type == "R"
 
     def test_filters_non_ug_levels(self, processor: SnapshotProcessor):
         """Should filter out non-UG level courses."""

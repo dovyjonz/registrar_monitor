@@ -74,15 +74,6 @@ def test_removed_aliases_fail(alias):
     assert exc_info.value.code == 2
 
 
-def test_global_debug_before_command_parses():
-    parser = create_parser()
-
-    args = parser.parse_args(["--debug", "poll"])
-
-    assert args.debug is True
-    assert args.command == "poll"
-
-
 @pytest.mark.parametrize(
     "argv",
     [

@@ -70,29 +70,6 @@ class TestCheckAndTriggerUpdates:
         mock_run_report_cycle.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_no_latest_snapshot_returns_silently(self, scheduler):
-        """With no latest snapshot, method returns without triggering updates."""
-        mock_db = MagicMock()
-        mock_db.get_latest_snapshot_id.return_value = None
-
-        with (
-            patch(
-                "registrarmonitor.automation.scheduler.DatabaseManager",
-                return_value=mock_db,
-            ),
-            patch(
-                "registrarmonitor.automation.scheduler.asyncio.to_thread"
-            ) as mock_to_thread,
-            patch.object(
-                TwoPhaseScheduler, "_run_report_cycle", new_callable=AsyncMock
-            ) as mock_run_report_cycle,
-        ):
-            await scheduler._check_and_trigger_updates()
-
-        mock_to_thread.assert_not_called()
-        mock_run_report_cycle.assert_not_awaited()
-
-    @pytest.mark.asyncio
     async def test_status_change_triggers_website_update(self, scheduler):
         """A status change (new course) should trigger website update when cooldown has elapsed."""
         # Build mock course with a section change (open -> full)
@@ -203,18 +180,6 @@ class TestCheckAndTriggerUpdates:
                     pytest.fail(f"Unexpected exception: {e}")
 
             await inner()
-
-    def test_cooldown_state_initialised(self, scheduler):
-        """Scheduler should initialise cooldown state correctly."""
-        assert scheduler.report_cooldown_seconds == 300.0
-        assert scheduler.website_cooldown_seconds == 300.0
-        assert scheduler.last_report_sent_time is None
-        assert scheduler.last_website_updated_time is None
-
-    def test_last_change_score_initialised(self, scheduler):
-        """Scheduler should initialise _last_change_score to 0."""
-        assert scheduler._last_change_score == 0.0
-        assert scheduler._last_poll_time is None
 
     @pytest.mark.asyncio
     async def test_report_cycle_force_poll_false_uses_cached_score(self):

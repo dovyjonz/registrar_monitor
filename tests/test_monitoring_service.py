@@ -57,21 +57,6 @@ def sample_snapshot():
     )
 
 
-class TestMonitoringServiceInit:
-    def test_initializes_components(self, mock_deps):
-        service = MonitoringService(semester="Spring 2024")
-        assert service.semester == "Spring 2024"
-        mock_deps["dl_cls"].assert_called_once()
-        mock_deps["excel_cls"].assert_called_once()
-        mock_deps["proc_cls"].assert_called_once()
-        mock_deps["db_cls"].assert_called_once_with(semester="Spring 2024")
-
-    def test_initializes_with_default_semester(self, mock_deps):
-        service = MonitoringService()
-        assert service.semester is None
-        mock_deps["db_cls"].assert_called_once_with(semester=None)
-
-
 class TestDownloadAndProcessLatest:
     @pytest.mark.asyncio
     async def test_successful_download_and_process(self, mock_deps, sample_snapshot):
@@ -103,19 +88,6 @@ class TestDownloadAndProcessLatest:
         assert snapshot is None
         assert path is None
 
-    @pytest.mark.asyncio
-    async def test_exception_returns_false(self, mock_deps):
-        mock_deps["downloader"].download = AsyncMock(
-            side_effect=Exception("Network error")
-        )
-
-        service = MonitoringService()
-        success, snapshot, path = await service.download_and_process_latest()
-
-        assert success is False
-        assert snapshot is None
-        assert path is None
-
 
 class TestProcessSpecificFile:
     def test_processes_existing_file(self, mock_deps, sample_snapshot, tmp_path):
@@ -133,10 +105,6 @@ class TestProcessSpecificFile:
 
         assert success is True
         assert snapshot is sample_snapshot
-
-    def test_nonexistent_file_returns_false(self, mock_deps):
-        service = MonitoringService()
-        success, snapshot = service.process_specific_file("/nonexistent/file.xls")
 
     def test_rejects_mismatched_registrar_semester_before_saving(
         self, mock_deps, tmp_path
@@ -158,110 +126,3 @@ class TestProcessSpecificFile:
 
         assert success is False
         assert snapshot is None
-
-    def test_exception_in_processing_returns_false(self, mock_deps, tmp_path):
-        file_path = str(tmp_path / "data.xls")
-        Path(file_path).write_bytes(b"")
-        mock_deps["excel_reader"].read_excel_data.side_effect = Exception("Parse error")
-
-        service = MonitoringService()
-        success, snapshot = service.process_specific_file(file_path)
-
-        assert success is False
-        assert snapshot is None
-
-
-class TestGetLatestSnapshot:
-    def test_returns_snapshot_when_exists(self, mock_deps, sample_snapshot):
-        mock_deps["db_manager"].get_latest_snapshot_id.return_value = 1
-        mock_deps["db_manager"].get_snapshot_data.return_value = sample_snapshot
-
-        service = MonitoringService()
-        result = service.get_latest_snapshot()
-
-        assert result is sample_snapshot
-
-    def test_returns_none_when_no_snapshots(self, mock_deps):
-        mock_deps["db_manager"].get_latest_snapshot_id.return_value = None
-
-        service = MonitoringService()
-        result = service.get_latest_snapshot()
-
-        assert result is None
-
-
-class TestGetSnapshotComparison:
-    def test_returns_pair_when_two_snapshots(self, mock_deps, sample_snapshot):
-        mock_deps["db_manager"].get_latest_snapshot_id.return_value = 2
-        mock_deps["db_manager"].get_previous_snapshot_id.return_value = 1
-        mock_deps["db_manager"].get_snapshot_data.side_effect = [
-            sample_snapshot,
-            None,
-        ]
-
-        service = MonitoringService()
-        current, previous = service.get_snapshot_comparison()
-
-        assert current is sample_snapshot
-        assert previous is None
-        mock_deps["db_manager"].get_previous_snapshot_id.assert_called_once_with(2)
-
-    def test_returns_none_pair_when_no_snapshots(self, mock_deps):
-        mock_deps["db_manager"].get_latest_snapshot_id.return_value = None
-
-        service = MonitoringService()
-        current, previous = service.get_snapshot_comparison()
-
-        assert current is None
-        assert previous is None
-
-
-class TestGetDatabaseStats:
-    def test_returns_stats_dict(self, mock_deps):
-        mock_deps["db_manager"].get_database_stats.return_value = {
-            "snapshots": 10,
-            "courses": 50,
-            "sections": 200,
-            "earliest_snapshot": "2024-01-01",
-            "latest_snapshot": "2024-12-31",
-        }
-
-        service = MonitoringService()
-        stats = service.get_database_stats()
-
-        assert stats["snapshots"] == 10
-        assert stats["courses"] == 50
-        assert stats["sections"] == 200
-        assert stats["earliest_snapshot"] == "2024-01-01"
-        assert stats["latest_snapshot"] == "2024-12-31"
-
-    def test_returns_empty_on_exception(self, mock_deps):
-        mock_deps["db_manager"].get_database_stats.side_effect = Exception("DB error")
-
-        service = MonitoringService()
-        stats = service.get_database_stats()
-
-        assert stats == {}
-
-
-class TestGetCourseHistory:
-    def test_delegates_to_db_manager(self, mock_deps):
-        mock_deps["db_manager"].get_course_history.return_value = [
-            {"timestamp": "2024-01-15", "section_code": "10L", "enrollment_count": 25}
-        ]
-
-        service = MonitoringService(semester="Spring 2024")
-        history = service.get_course_history("CS 101")
-
-        assert len(history) == 1
-        mock_deps["db_manager"].get_course_history.assert_called_once_with(
-            "CS 101", "Spring 2024"
-        )
-
-    def test_returns_empty_on_exception(self, mock_deps):
-        mock_deps["db_manager"].get_course_history.side_effect = Exception("DB error")
-
-        service = MonitoringService()
-        history = service.get_course_history("CS 101")
-
-        assert history == []

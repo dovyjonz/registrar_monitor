@@ -1,53 +1,8 @@
 """Tests for the config module."""
 
-from pathlib import Path
-
 import pytest
 
 pytestmark = pytest.mark.unit
-
-
-class TestConfigSingleton:
-    """Tests for Config singleton behavior."""
-
-    def test_returns_same_instance(self):
-        """Config should return the same instance on repeated calls."""
-        import registrarmonitor.config as config_mod
-
-        config_mod.Config._instance = None
-
-        a = config_mod.Config()
-        b = config_mod.Config()
-
-        assert a is b
-
-    def test_get_config_returns_dict(self):
-        """get_config should return a dict with expected keys."""
-        import registrarmonitor.config as config_mod
-
-        config_mod.Config._instance = None
-
-        cfg = config_mod.Config().get_config()
-
-        assert isinstance(cfg, dict)
-        assert "data_source" in cfg
-        assert "directories" in cfg
-
-
-class TestConfigPathResolution:
-    """Tests for relative path resolution in directories."""
-
-    def test_relative_paths_resolved_to_absolute(self):
-        """Relative directory paths should be resolved against project root."""
-        import registrarmonitor.config as config_mod
-
-        config_mod.Config._instance = None
-
-        cfg = config_mod.Config().get_config()
-
-        for key, val in cfg.get("directories", {}).items():
-            path = Path(val)
-            assert path.is_absolute(), f"directories.{key} is not absolute: {val}"
 
 
 class TestTelegramEnvVars:

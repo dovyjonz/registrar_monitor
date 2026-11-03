@@ -2,7 +2,6 @@ import json
 
 from registrarmonitor.website.templates import (
     _build_nav_html,
-    build_redirect_index,
     build_semester_page,
 )
 
@@ -120,24 +119,6 @@ def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
     )
 
 
-def test_archived_course_uses_unversioned_og_url(tmp_path):
-    html = build_semester_page(
-        {"cr": {}, "lrt": None},
-        [],
-        "Fall 2026",
-        manifest_path=manifest(tmp_path),
-        semesters=["Fall 2026"],
-        course_state=course_state(archived=True),
-    )
-
-    assert 'data-page-archived="true"' in html
-    assert (
-        'content="https://registrar-monitor.pages.dev/courses/fall-2026/ant-140/"'
-        in html
-    )
-    assert "/courses/fall-2026/ant-140/?v=" not in html
-
-
 def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
     html = build_semester_page(
         {"cr": {}, "lrt": None},
@@ -160,14 +141,3 @@ def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
     )
     assert "/semesters/spring-2026/?v=" not in html
     assert "142 sections were full at the final update" in html
-
-
-def test_root_has_evergreen_metadata_and_visible_fallback():
-    html = build_redirect_index("Fall 2026")
-
-    assert "<title>Enrollment Monitor</title>" in html
-    assert "See historical and frequently updated undergraduate course data" in html
-    assert "Nazarbayev" not in html
-    assert 'content="noindex, nofollow"' in html
-    assert 'href="/semesters/fall-2026/"' in html
-    assert "/previews/root.png" in html

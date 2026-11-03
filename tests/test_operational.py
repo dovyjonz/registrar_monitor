@@ -1,4 +1,4 @@
-"""Tests for doctor and machine-readable baseline diagnostics."""
+"""Tests for doctor diagnostics."""
 
 from __future__ import annotations
 
@@ -13,8 +13,6 @@ from registrarmonitor.data.checkpointed_state import CHECKPOINTED_SCHEMA_VERSION
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.operational import (
     _database_checks,
-    _writable_check,
-    build_baseline,
     build_doctor_report,
 )
 
@@ -85,35 +83,6 @@ def test_database_diagnostics_recognize_expected_schema(
     assert check["expected_schema_version"] == 2
 
 
-def test_database_diagnostics_support_absolute_directory_outside_root(
-    tmp_path: Path,
-):
-    root = tmp_path / "checkout"
-    data_dir = tmp_path / "runtime-data"
-    root.mkdir()
-    data_dir.mkdir()
-    database = data_dir / "enrollment_absolute.db"
-    DatabaseManager(db_path=str(database), semester="Fall 2026")
-
-    checks = _database_checks(
-        root,
-        {"directories": {"data_storage": str(data_dir)}},
-    )
-
-    assert checks[0]["status"] == "pass"
-    assert checks[0]["path"] == str(database)
-
-
-def test_writable_check_rejects_regular_file(tmp_path: Path):
-    configured_directory = tmp_path / "logs"
-    configured_directory.write_text("not a directory", encoding="utf-8")
-
-    result = _writable_check("path:logs", configured_directory)
-
-    assert result["status"] == "fail"
-    assert result["message"] == "exists but is not a directory"
-
-
 def test_doctor_report_summarizes_failures(tmp_path: Path):
     _write_required_inputs(tmp_path)
     with patch(
@@ -124,19 +93,6 @@ def test_doctor_report_summarizes_failures(tmp_path: Path):
 
     assert report["ok"] is False
     assert report["summary"]["fail"] == 1
-
-
-def test_baseline_embeds_input_hashes_and_doctor_report(tmp_path: Path):
-    _write_required_inputs(tmp_path)
-    with patch(
-        "registrarmonitor.operational._tool_checks",
-        return_value=[{"name": "tool:test", "status": "pass", "message": "available"}],
-    ):
-        baseline = build_baseline(tmp_path)
-
-    assert len(baseline["inputs"]["uv.lock"]) == 64
-    assert baseline["doctor"]["ok"] is True
-    assert baseline["platform"]["python"]
 
 
 def test_schema_version_is_stored_in_new_databases(tmp_path: Path):

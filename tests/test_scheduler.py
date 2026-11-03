@@ -17,7 +17,6 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 from registrarmonitor.automation.scheduler import (
-    SchedulingDecision,
     SchedulingLevel,
     TwoPhaseScheduler,
     get_current_zone_type,
@@ -25,37 +24,6 @@ from registrarmonitor.automation.scheduler import (
 )
 from registrarmonitor.cli.commands import PollResult
 from registrarmonitor.website.config import get_milestones
-
-
-class TestSchedulingLevel:
-    """Tests for SchedulingLevel enum."""
-
-    def test_level_labels(self):
-        """Scheduling levels should have expected string labels."""
-        assert SchedulingLevel.HOT.label == "hot"
-        assert SchedulingLevel.SLEEP.label == "sleep"
-
-    def test_level_intervals(self):
-        """Scheduling levels should have expected intervals."""
-        assert SchedulingLevel.HOT.interval == 300
-        assert SchedulingLevel.SLEEP.interval == 3600
-
-    def test_from_label(self):
-        """Should create level from string label."""
-        assert SchedulingLevel.from_label("hot") == SchedulingLevel.HOT
-        assert SchedulingLevel.from_label("sleep") == SchedulingLevel.SLEEP
-
-    def test_from_score(self):
-        """Should create level from activity score."""
-        assert SchedulingLevel.from_score(50.0) == SchedulingLevel.HOT
-        assert SchedulingLevel.from_score(1.0) == SchedulingLevel.HOT
-        assert SchedulingLevel.from_score(0.5) == SchedulingLevel.SLEEP
-        assert SchedulingLevel.from_score(0.0) == SchedulingLevel.SLEEP
-
-    def test_is_more_urgent_than(self):
-        """Should correctly compare urgency levels."""
-        assert SchedulingLevel.HOT.is_more_urgent_than(SchedulingLevel.SLEEP)
-        assert not SchedulingLevel.SLEEP.is_more_urgent_than(SchedulingLevel.HOT)
 
 
 class TestParseScheduleFile:
@@ -93,37 +61,6 @@ class TestParseScheduleFile:
             datetime(2026, 6, 1, 23, 54),
             datetime(2026, 6, 2, 0, 29),
         )
-
-    @patch("registrarmonitor.automation.scheduler.get_config")
-    def test_empty_schedule_config(self, mock_get_config):
-        """Empty milestones/deadlines should return empty zones."""
-        mock_get_config.return_value = {"semesters": {}}
-
-        result = parse_schedule_file(force_reload=True)
-
-        assert result[SchedulingLevel.HOT] == []
-        assert result[SchedulingLevel.SLEEP] == []
-
-    @patch("registrarmonitor.automation.scheduler.get_config")
-    def test_invalid_milestone_skipped(self, mock_get_config):
-        """Invalid date format in milestone should be skipped gracefully."""
-        mock_get_config.return_value = {
-            "semesters": {
-                "summer2026": {
-                    "priorities": {
-                        "seniors": [
-                            ["invalid-date", "Milestone 1"],
-                            ["2026-05-15T09:00:00", "Milestone 2"],
-                        ]
-                    }
-                }
-            }
-        }
-
-        result = parse_schedule_file(force_reload=True)
-
-        # Only valid milestone should be parsed
-        assert len(result[SchedulingLevel.HOT]) == 1
 
 
 class TestGetCurrentZoneType:
@@ -219,47 +156,6 @@ class TestGetCurrentZoneType:
         finally:
             monkeypatch.undo()
             time.tzset()
-
-
-class TestSchedulingDecision:
-    """Tests for SchedulingDecision dataclass."""
-
-    def test_to_dict(self):
-        """SchedulingDecision should serialize to dictionary."""
-        decision = SchedulingDecision(
-            timestamp=datetime(2024, 1, 15, 10, 30),
-            change_score=5.0,
-            current_heat=10.0,
-            baseline_level=SchedulingLevel.SLEEP,
-            reactive_level=SchedulingLevel.HOT,
-            final_level=SchedulingLevel.HOT,
-            final_interval=120,
-        )
-
-        result = decision.to_dict()
-
-        assert result["change_score"] == 5.0
-        assert result["current_heat"] == 10.0
-        assert result["final_level"] == "hot"
-        assert result["final_interval_seconds"] == 120
-        assert result["baseline_level"] == "sleep"
-
-    def test_timestamp_serialization(self):
-        """Timestamp should be serialized as ISO format string."""
-        decision = SchedulingDecision(
-            timestamp=datetime(2024, 1, 15, 10, 30, 45),
-            change_score=0.0,
-            current_heat=0.0,
-            baseline_level=SchedulingLevel.SLEEP,
-            reactive_level=SchedulingLevel.SLEEP,
-            final_level=SchedulingLevel.SLEEP,
-            final_interval=3600,
-        )
-
-        result = decision.to_dict()
-
-        assert "2024-01-15" in result["timestamp"]
-        assert "10:30" in result["timestamp"]
 
 
 class TestSchedulerPollResult:

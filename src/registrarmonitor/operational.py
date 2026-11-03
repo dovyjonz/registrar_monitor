@@ -12,7 +12,6 @@ import sys
 import tempfile
 import tomllib
 from contextlib import closing
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -221,28 +220,6 @@ def build_doctor_report(root: Path = ROOT) -> dict[str, Any]:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def build_baseline(root: Path = ROOT) -> dict[str, Any]:
-    """Build a machine-readable snapshot of reproducibility and health inputs."""
-    report = build_doctor_report(root)
-    return {
-        "format": 1,
-        "generated_at": datetime.now(UTC).isoformat(),
-        "platform": {
-            "python": platform.python_version(),
-            "system": platform.system(),
-            "machine": platform.machine(),
-        },
-        "inputs": {
-            ".node-version": (root / ".node-version").read_text().strip(),
-            ".python-version": (root / ".python-version").read_text().strip(),
-            "package-lock.json": _sha256(root / "assets/website/package-lock.json"),
-            "pyproject.toml": _sha256(root / "pyproject.toml"),
-            "uv.lock": _sha256(root / "uv.lock"),
-        },
-        "doctor": report,
-    }
 
 
 def write_json(payload: dict[str, Any], output: Path) -> None:

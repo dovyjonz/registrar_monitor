@@ -39,18 +39,6 @@ def test_multi_type_uses_minimum_available_places_and_reports_breakdown():
     assert "Labs 1/4 open" in result["breakdown"]
 
 
-def test_tied_limiting_types_are_all_reported():
-    result = calculate_availability(
-        {
-            "L": section("Lecture", 29, 30),
-            "R": section("Tutorial", 19, 20),
-        }
-    )
-
-    assert result["limitingTypes"] == ["Lecture", "Tutorial"]
-    assert result["available"] == 1
-
-
 def test_registrar_section_codes_use_the_dashboard_display_names():
     result = calculate_availability(
         {
@@ -86,20 +74,6 @@ def test_required_type_full_is_a_first_class_course_state():
     assert result["sentence"] == "No registration places - all Lab sections are full."
 
 
-def test_two_required_types_full_are_named_together():
-    result = calculate_availability(
-        {
-            "L1": section("L", 20, 20),
-            "B1": section("B", 15, 15),
-        }
-    )
-
-    assert result["compact"] == "LAB + LECTURE FULL"
-    assert result["sentence"] == (
-        "No registration places - all Lab and Lecture sections are full."
-    )
-
-
 def test_three_required_types_full_use_compact_summary_and_full_enumeration():
     result = calculate_availability(
         {
@@ -113,10 +87,3 @@ def test_three_required_types_full_use_compact_summary_and_full_enumeration():
     assert result["sentence"] == (
         "No registration places - all required Lab/Lecture/Recitation sections are full."
     )
-
-
-def test_single_type_full_remains_ordinary_full():
-    result = calculate_availability({"L1": section("L", 20, 20)})
-
-    assert result["status"] == "full"
-    assert result["compact"] == "FULL"

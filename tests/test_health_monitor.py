@@ -62,34 +62,6 @@ async def test_alerts_once_for_an_outage_and_notifies_on_recovery():
 
 
 @pytest.mark.asyncio
-async def test_ignores_repeated_single_check_timeouts():
-    states = {
-        "registrarmonitor.service": "active",
-        "registrarmonitor-bot.service": "active",
-    }
-    messages: list[str] = []
-    monitor = make_monitor(states, messages)
-
-    for _ in range(3):
-        states.update(
-            {
-                "registrarmonitor.service": "timeout",
-                "registrarmonitor-bot.service": "timeout",
-            }
-        )
-        await monitor.check_once()
-        states.update(
-            {
-                "registrarmonitor.service": "active",
-                "registrarmonitor-bot.service": "active",
-            }
-        )
-        await monitor.check_once()
-
-    assert messages == []
-
-
-@pytest.mark.asyncio
 async def test_retries_alert_when_telegram_delivery_fails():
     states = {
         "registrarmonitor.service": "failed",

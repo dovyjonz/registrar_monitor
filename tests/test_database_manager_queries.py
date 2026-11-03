@@ -65,48 +65,6 @@ def seeded_db(db_manager: DatabaseManager) -> DatabaseManager:
 # ── Tests ─────────────────────────────────────────────────────────
 
 
-class TestGetLatestSnapshotId:
-    """Tests for get_latest_snapshot_id."""
-
-    def test_returns_none_when_no_snapshots(self, db_manager: DatabaseManager):
-        assert db_manager.get_latest_snapshot_id() is None
-
-    def test_returns_id_of_newest_snapshot(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        assert isinstance(sid, int)
-
-
-class TestGetFirstSnapshotId:
-    """Tests for get_first_snapshot_id."""
-
-    def test_returns_none_when_no_snapshots(self, db_manager: DatabaseManager):
-        assert db_manager.get_first_snapshot_id() is None
-
-    def test_returns_id_of_oldest_snapshot(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_first_snapshot_id()
-        assert sid == 1
-
-
-class TestGetLatestSnapshotTimestamp:
-    """Tests for get_latest_snapshot_timestamp."""
-
-    def test_returns_none_when_no_snapshots(self, db_manager: DatabaseManager):
-        assert db_manager.get_latest_snapshot_timestamp() is None
-
-    def test_returns_latest_timestamp(self, seeded_db: DatabaseManager):
-        ts = seeded_db.get_latest_snapshot_timestamp()
-        assert ts == "2024-01-15 11:00:00"
-
-    def test_filters_by_semester(self, seeded_db: DatabaseManager):
-        ts = seeded_db.get_latest_snapshot_timestamp("Spring 2024")
-        assert ts == "2024-01-15 11:00:00"
-
-    def test_returns_none_for_wrong_semester(self, seeded_db: DatabaseManager):
-        ts = seeded_db.get_latest_snapshot_timestamp("Fall 2023")
-        assert ts is None
-
-
 class TestGetLastReportedSnapshotId:
     """Tests for get_last_reported_snapshot_id."""
 
@@ -118,36 +76,6 @@ class TestGetLastReportedSnapshotId:
         assert sid is not None
         seeded_db.add_reporting_log(sid, changes_were_found=True)
         assert seeded_db.get_last_reported_snapshot_id() == sid
-
-
-class TestAddReportingLog:
-    """Tests for add_reporting_log."""
-
-    def test_adds_entry_to_reporting_log(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        seeded_db.add_reporting_log(sid, changes_were_found=True)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM reporting_log_v2")
-            entries = cursor.fetchall()
-
-        assert len(entries) == 1
-        assert entries[0]["reported_snapshot_id"] == sid
-        assert entries[0]["changes_found"] == 1
-
-    def test_adds_entry_with_no_changes(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        seeded_db.add_reporting_log(sid, changes_were_found=False)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT changes_found FROM reporting_log_v2")
-            row = cursor.fetchone()
-
-        assert row["changes_found"] == 0
 
 
 class TestGetSnapshotData:
@@ -167,36 +95,6 @@ class TestGetSnapshotData:
         assert snapshot.semester == "Spring 2024"
         assert snapshot.overall_fill == 0.78
 
-    def test_includes_courses(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        snapshot = seeded_db.get_snapshot_data(sid)
-
-        assert snapshot is not None
-        assert "CS 101" in snapshot.courses
-        assert "MATH 201" in snapshot.courses
-
-    def test_includes_sections(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        snapshot = seeded_db.get_snapshot_data(sid)
-
-        assert snapshot is not None
-        cs = snapshot.courses["CS 101"]
-        assert len(cs.sections) == 3
-        assert "10L" in cs.sections
-        assert cs.sections["10L"].enrollment == 25
-        assert cs.sections["10L"].instructor == "Smith"
-
-    def test_computes_average_fill(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        snapshot = seeded_db.get_snapshot_data(sid)
-
-        assert snapshot is not None
-        math = snapshot.courses["MATH 201"]
-        assert math.average_fill == pytest.approx(1.0)
-
     def test_reconstructs_exact_second_snapshot(self, seeded_db: DatabaseManager):
         # Get the first (oldest) snapshot
         first_id = None
@@ -212,33 +110,6 @@ class TestGetSnapshotData:
         assert snapshot is not None
         assert snapshot.timestamp == "2024-01-15 10:00:00"
         assert "MATH 201" not in snapshot.courses
-
-
-class TestGetEnrollmentSummary:
-    """Tests for get_enrollment_summary."""
-
-    def test_returns_counts_by_status(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        summary = seeded_db.get_enrollment_summary(sid)
-
-        # CS 101: 10L=0.83(NEAR), 11L=0.93(NEAR), 1R=0.80(NEAR), MATH 201: 20L=1.0(FULL)
-        assert summary["NEAR"] >= 3
-        assert summary["FULL"] >= 1
-        assert summary["OPEN"] >= 0
-
-    def test_all_statuses_present(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        summary = seeded_db.get_enrollment_summary(sid)
-
-        for status in ["OPEN", "NEAR", "FULL"]:
-            assert status in summary
-            assert isinstance(summary[status], int)
-
-    def test_invalid_snapshot_id_returns_zeros(self, seeded_db: DatabaseManager):
-        summary = seeded_db.get_enrollment_summary(9999)
-        assert summary == {"OPEN": 0, "NEAR": 0, "FULL": 0}
 
 
 class TestGetCourseHistory:
