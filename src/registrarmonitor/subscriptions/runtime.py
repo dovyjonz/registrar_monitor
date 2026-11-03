@@ -1,6 +1,7 @@
-"""Webhook runtime for the Telegram subscription bot."""
+"""Webhook and Mini App runtime for the Telegram subscription bot."""
 
 import asyncio
+import hmac
 import logging
 import re
 import sqlite3
@@ -12,7 +13,21 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 from weakref import WeakValueDictionary
 
-from telegram import BotCommand, BotCommandScopeChat, Update
+import uvicorn
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Route
+from telegram import (
+    BotCommand,
+    BotCommandScopeChat,
+    MenuButtonDefault,
+    MenuButtonWebApp,
+    Update,
+    WebAppInfo,
+)
 from telegram.ext import Application, BaseUpdateProcessor, ChatMemberHandler
 
 from ..cli.utils import find_active_semester
@@ -21,6 +36,7 @@ from ..data.database_manager import DatabaseManager
 from .catalog import SubscriptionCatalog
 from .dispatcher import SubscriptionDispatcher
 from .interactions import SubscriptionInteractions
+from .miniapp import MiniAppApi
 from .models import BotDiagnostics
 from .publication import ReportPublication
 from .store import SubscriptionStore
@@ -38,6 +54,7 @@ BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEM
 MAX_CONCURRENT_UPDATES = 8
 MAX_QUEUED_UPDATES = 1024
 SLOW_UPDATE_SECONDS = 3.0
+MENU_BUTTON_TEXT = "Open app"
 
 
 SECRET_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}")  # Telegram's alphabet
@@ -82,6 +99,49 @@ class WebhookConfig:
             listen=settings.telegram_bot.webhook_listen,
             port=settings.telegram_bot.webhook_port,
         )
+
+
+def create_web_app(
+    application: Application,
+    webhook: WebhookConfig,
+    *,
+    miniapp: MiniAppApi | None = None,
+    site_origin: str = "",
+) -> Starlette:
+    """Build the ASGI app: the Telegram webhook plus the optional Mini App routes.
+
+    Follows python-telegram-bot's custom webhook pattern: verify the secret header,
+    then hand the update to the application's own queue.
+    """
+    expected = webhook.secret_token.encode()
+
+    async def telegram(request: Request) -> Response:
+        received = request.headers.get("x-telegram-bot-api-secret-token", "")
+        if not hmac.compare_digest(received.encode(), expected):
+            return Response(status_code=403)
+        try:
+            update = Update.de_json(await request.json(), application.bot)
+        except (ValueError, TypeError):
+            return Response(status_code=400)
+        if update is None:
+            return Response(status_code=400)
+        await application.update_queue.put(update)
+        return Response()
+
+    routes = [Route(f"/{webhook.url_path}", telegram, methods=["POST"])]
+    middleware = []
+    if miniapp is not None:
+        routes.extend(miniapp.routes())
+        middleware.append(
+            Middleware(
+                CORSMiddleware,
+                allow_origins=[site_origin],
+                allow_methods=["GET", "POST", "DELETE"],
+                allow_headers=["Authorization", "Content-Type"],
+                max_age=600,
+            )
+        )
+    return Starlette(routes=routes, middleware=middleware)
 
 
 class OperationalStatsStore(Protocol):
@@ -236,6 +296,19 @@ class SubscriptionBotRuntime:
             .concurrent_updates(update_processor)
             .build()
         )
+        self.miniapp_enabled = bool(settings.website.miniapp_api_url)
+        site = urlsplit(settings.website.base_url)
+        self.site_origin = f"{site.scheme}://{site.netloc}"
+        self.web_app = create_web_app(
+            self.application,
+            self.webhook,
+            miniapp=(
+                MiniAppApi(self.store, self._latest_catalog, token, self.site_origin)
+                if self.miniapp_enabled
+                else None
+            ),
+            site_origin=self.site_origin,
+        )
         SubscriptionInteractions(
             self.store,
             self._latest_catalog,
@@ -247,10 +320,12 @@ class SubscriptionBotRuntime:
         )
 
     async def run(self) -> None:
-        """Serve webhook updates until cancelled, then stop Telegram cleanly."""
+        """Serve webhook and Mini App requests until cancelled, then stop cleanly."""
         initialized = False
         started = False
-        serving = False
+        server: uvicorn.Server | None = None
+        serve_task: asyncio.Task | None = None
+        delivery_task: asyncio.Task | None = None
         subscription_logger = logging.getLogger("registrarmonitor.subscriptions")
         diagnostics_handler = getattr(self, "_diagnostics_log_handler", None)
         if diagnostics_handler is not None:
@@ -259,27 +334,46 @@ class SubscriptionBotRuntime:
             await self.application.initialize()
             initialized = True
             await self._configure_commands()
+            await self._configure_menu_button()
             await self.application.start()
             started = True
-            updater = self.application.updater
-            if updater is None:
-                raise RuntimeError("The bot application has no updater")
-            # Registers the webhook with Telegram and serves it on the local port.
-            # PTB rejects requests whose secret-token header does not match.
-            await updater.start_webhook(
-                listen=self.webhook.listen,
-                port=self.webhook.port,
-                url_path=self.webhook.url_path,
-                webhook_url=self.webhook.public_url,
+            server = uvicorn.Server(
+                uvicorn.Config(
+                    self.web_app,
+                    host=self.webhook.listen,
+                    port=self.webhook.port,
+                    log_config=None,
+                    access_log=False,
+                )
+            )
+            serve_task = asyncio.create_task(server.serve())
+            while not server.started:
+                if serve_task.done():
+                    serve_task.result()
+                    raise RuntimeError("The bot web server stopped during startup")
+                await asyncio.sleep(0.05)
+            # Telegram only learns the URL once the listener accepts requests.
+            await self.application.bot.set_webhook(
+                self.webhook.public_url,
                 secret_token=self.webhook.secret_token,
                 allowed_updates=BOT_ALLOWED_UPDATES,
             )
-            serving = True
             logger.info("Telegram webhook listening on port %d", self.webhook.port)
-            await self._delivery_loop()
+            delivery_task = asyncio.create_task(self._delivery_loop())
+            done, _ = await asyncio.wait(
+                {serve_task, delivery_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                task.result()
         finally:
-            if serving and self.application.updater is not None:
-                await self.application.updater.stop()
+            if server is not None:
+                server.should_exit = True
+            if delivery_task is not None:
+                delivery_task.cancel()
+            await asyncio.gather(
+                *(task for task in (serve_task, delivery_task) if task is not None),
+                return_exceptions=True,
+            )
             if started:
                 await self.application.stop()
             if initialized:
@@ -295,6 +389,17 @@ class SubscriptionBotRuntime:
                 scope=BotCommandScopeChat(self.test_user_id),
             )
             logger.info("Telegram developer diagnostics access is enabled")
+
+    async def _configure_menu_button(self) -> None:
+        """Point the chat menu button at the Mini App, or restore Telegram's default."""
+        button = (
+            MenuButtonWebApp(
+                MENU_BUTTON_TEXT, WebAppInfo(url=self.settings.website.base_url)
+            )
+            if self.miniapp_enabled
+            else MenuButtonDefault()
+        )
+        await self.application.bot.set_chat_menu_button(menu_button=button)
 
     async def _latest_catalog(self) -> SubscriptionCatalog | None:
         async with self._catalog_lock:

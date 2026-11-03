@@ -72,6 +72,17 @@ def test_website_origin_and_analytics_token_are_validated(toml_file):
     assert load().website.web_analytics_token == "a" * 32
 
 
+def test_miniapp_api_url_is_off_by_default_and_must_be_https(toml_file):
+    assert load().website.miniapp_api_url == ""
+    toml_file.write_text(
+        MINIMAL_TOML + 'miniapp_api_url = "https://bot.example/miniapp/"\n'
+    )
+    assert load().website.miniapp_api_url == "https://bot.example/miniapp"
+    toml_file.write_text(MINIMAL_TOML + 'miniapp_api_url = "http://bot.example"\n')
+    with pytest.raises(ValidationError):
+        load()
+
+
 def test_relative_paths_resolve_against_project_root(toml_file):
     settings = load()
     assert settings.directories.data_storage == str(

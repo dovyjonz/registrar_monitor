@@ -20,6 +20,7 @@ from registrarmonitor.subscriptions.runtime import (
     SubscriptionBotRuntime,
     WebhookConfig,
     bot_commands,
+    create_web_app,
 )
 
 pytestmark = pytest.mark.unit
@@ -74,107 +75,109 @@ def test_webhook_config_requires_public_https_url(url):
         WebhookConfig.from_settings(webhook_settings(telegram_webhook_url=url))
 
 
-@pytest.mark.asyncio
-async def test_runtime_serves_webhook_with_secret_and_shuts_down_in_order():
-    calls = []
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
 
+
+def fake_application(calls: list):
     def recorder(name):
         async def record(*args, **kwargs):
             calls.append((name, kwargs))
 
         return record
 
-    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
-    runtime.webhook = WebhookConfig(PUBLIC_URL, SECRET, port=9000)
-    runtime.test_user_id = None
-    runtime._delivery_loop = AsyncMock(side_effect=asyncio.CancelledError)
-    runtime.application = cast(
-        Any,
-        SimpleNamespace(
-            initialize=recorder("initialize"),
-            start=recorder("start"),
-            stop=recorder("stop"),
-            shutdown=recorder("shutdown"),
-            bot=SimpleNamespace(set_my_commands=AsyncMock()),
-            updater=SimpleNamespace(
-                start_webhook=recorder("start_webhook"), stop=recorder("updater.stop")
-            ),
+    return SimpleNamespace(
+        initialize=recorder("initialize"),
+        start=recorder("start"),
+        stop=recorder("stop"),
+        shutdown=recorder("shutdown"),
+        update_queue=asyncio.Queue(),
+        bot=SimpleNamespace(
+            set_my_commands=recorder("set_my_commands"),
+            set_chat_menu_button=recorder("set_chat_menu_button"),
+            set_webhook=recorder("set_webhook"),
         ),
     )
 
-    with pytest.raises(asyncio.CancelledError):
-        await runtime.run()
 
-    assert [name for name, _ in calls] == [
+@pytest.mark.asyncio
+async def test_runtime_registers_webhook_and_enforces_the_secret_header(monkeypatch):
+    """Run the real ASGI server: only Telegram's secret reaches the update queue."""
+    calls: list = []
+    port = free_port()
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.webhook = WebhookConfig(PUBLIC_URL, SECRET, port=port)
+    runtime.test_user_id = None
+    runtime.miniapp_enabled = False
+    runtime.settings = get_settings()
+    application = fake_application(calls)
+    runtime.application = cast(Any, application)
+    runtime.web_app = create_web_app(cast(Any, application), runtime.webhook)
+    monkeypatch.setattr(runtime, "_delivery_loop", lambda: asyncio.sleep(3600))
+
+    task = asyncio.create_task(runtime.run())
+    url = f"http://127.0.0.1:{port}/telegram"
+    try:
+        async with httpx.AsyncClient() as client:
+            for _ in range(100):
+                if any(name == "set_webhook" for name, _ in calls):
+                    break
+                await asyncio.sleep(0.05)
+            missing = await client.post(url, json={"update_id": 7})
+            wrong = await client.post(
+                url,
+                json={"update_id": 7},
+                headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+            )
+            assert application.update_queue.empty()
+            accepted = await client.post(
+                url,
+                json={"update_id": 7},
+                headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+            )
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert (missing.status_code, wrong.status_code, accepted.status_code) == (
+        403,
+        403,
+        200,
+    )
+    assert (await application.update_queue.get()).update_id == 7
+    names = [name for name, _ in calls]
+    assert names == [
         "initialize",
+        "set_my_commands",
+        "set_chat_menu_button",
         "start",
-        "start_webhook",
-        "updater.stop",
+        "set_webhook",
         "stop",
         "shutdown",
     ]
-    webhook_kwargs = calls[2][1]
+    webhook_kwargs = calls[names.index("set_webhook")][1]
     assert webhook_kwargs["secret_token"] == SECRET
-    assert webhook_kwargs["webhook_url"] == PUBLIC_URL
-    assert webhook_kwargs["listen"] == "127.0.0.1"
-    assert webhook_kwargs["port"] == 9000
-    assert webhook_kwargs["url_path"] == "telegram"
     assert webhook_kwargs["allowed_updates"] == BOT_ALLOWED_UPDATES
 
 
 @pytest.mark.asyncio
-async def test_webhook_server_rejects_requests_without_the_secret_header():
-    """Exercise PTB's real webhook server: only Telegram's secret is accepted."""
-    from telegram import Bot
-    from telegram.ext import Updater
+async def test_menu_button_opens_the_site_only_when_the_mini_app_is_enabled():
+    calls: list = []
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.settings = get_settings()
+    runtime.application = cast(Any, fake_application(calls))
 
-    class OfflineBot(Bot):
-        async def initialize(self):
-            pass
+    runtime.miniapp_enabled = True
+    await runtime._configure_menu_button()
+    runtime.miniapp_enabled = False
+    await runtime._configure_menu_button()
 
-        async def shutdown(self):
-            pass
-
-        async def set_webhook(self, *args, **kwargs):
-            return True
-
-    port = socket.socket()
-    port.bind(("127.0.0.1", 0))
-    free_port = port.getsockname()[1]
-    port.close()
-    queue: asyncio.Queue = asyncio.Queue()
-    updater = Updater(OfflineBot("123:token"), queue)
-    await updater.initialize()
-    await updater.start_webhook(
-        listen="127.0.0.1",
-        port=free_port,
-        url_path="telegram",
-        webhook_url=PUBLIC_URL,
-        secret_token=SECRET,
-    )
-    url = f"http://127.0.0.1:{free_port}/telegram"
-    body = {"update_id": 7}
-    try:
-        async with httpx.AsyncClient() as client:
-            missing = await client.post(url, json=body)
-            wrong = await client.post(
-                url,
-                json=body,
-                headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
-            )
-            assert queue.empty()
-            accepted = await client.post(
-                url,
-                json=body,
-                headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
-            )
-    finally:
-        await updater.stop()
-        await updater.shutdown()
-
-    assert missing.status_code == 403
-    assert wrong.status_code == 403
-    assert accepted.status_code == 200
+    enabled, disabled = (kwargs["menu_button"] for _, kwargs in calls)
+    assert enabled.web_app.url == runtime.settings.website.base_url
+    assert disabled.type == "default"
 
 
 def test_public_command_menu_never_exposes_developer_command():

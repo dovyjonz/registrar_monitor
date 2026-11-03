@@ -13,6 +13,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from pydantic import (
@@ -78,6 +79,9 @@ class Website(_Section):
     generation_timeout_seconds: PositiveInt = 3600
     base_url: str
     web_analytics_token: str = ""
+    # Public https URL of the bot's Telegram Mini App API (Cloudflare Tunnel
+    # hostname plus /miniapp). Empty turns the Mini App off.
+    miniapp_api_url: str = ""
 
     @field_validator("base_url")
     @classmethod
@@ -85,6 +89,16 @@ class Website(_Section):
         value = value.strip().rstrip("/")
         if not value:
             raise ValueError("website.base_url must be configured")
+        return value
+
+    @field_validator("miniapp_api_url")
+    @classmethod
+    def _miniapp_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        if value:
+            parts = urlsplit(value)
+            if parts.scheme != "https" or not parts.hostname or parts.query:
+                raise ValueError("website.miniapp_api_url must be a public https URL")
         return value
 
     @field_validator("web_analytics_token")

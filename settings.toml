@@ -31,6 +31,9 @@ generation_timeout_seconds = 3600
 base_url = "https://registrar-monitor.spooktaken.workers.dev"
 # Cloudflare Web Analytics site token (cookieless beacon); leave empty to disable.
 web_analytics_token = ""
+# Telegram Mini App API served by the bot behind the Cloudflare Tunnel, for example
+# "https://bot.<domain>/miniapp". Leave empty to disable the Mini App.
+miniapp_api_url = ""
 
 # Secrets are never read from this file. TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
 # CLOUDFLARE_API_TOKEN, and CLOUDFLARE_ACCOUNT_ID come from the environment or a
