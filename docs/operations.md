@@ -292,6 +292,21 @@ use). `monitor export-parquet "<semester>" [--out DIR]` writes one row per secti
 per snapshot to `<DIR>/<semester>.parquet` (default `data/open-data/`, untracked).
 Neither command writes to SQLite.
 
+## Free tiers
+
+| Service | Free limit | How the design stays within it |
+|---|---|---|
+| Cloudflare Workers | 100k Worker invocations/day | Only `/preview/*` and future `/api/*` invoke the Worker; static asset requests are free and unlimited |
+| Workers Static Assets | 20,000 assets per version, 25 MiB per file | About 1,300 files now; keep the count well under the cap |
+| Cache API | Does nothing on `workers.dev` | Works on a custom domain, which matters only for Worker-handled `/preview/*` responses |
+| Cloudflare R2 | 10 GB-month, 1M Class A, 10M Class B per month | Litestream only; a 5-minute sync interval is about 8.6k PUTs/month per active database |
+| GCP Always Free | One e2-micro in us-west1, us-central1, or us-east1 | The VM is in us-east1-c |
+| GCP disk | 30 GB standard persistent disk (not balanced, the default for new VMs) | Boot disk must be standard PD |
+| GCP egress | 1 GB/month from North America | Tightest limit: Litestream, `wrangler deploy` (uploads only changed assets), Telegram, and Sentry all count |
+| Healthchecks.io | 20 checks | One heartbeat check |
+| Sentry | Free tier event quota | Unhandled errors only |
+| Custom domain | Not free | The one paid item, about $10/year (Cloudflare Registrar) |
+
 ## Tooling and CI
 
 - `make check-fast`: Ruff format check, Ruff lint, ty, pytest.

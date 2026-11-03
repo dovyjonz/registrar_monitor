@@ -128,6 +128,10 @@ Custom domain (planned): buy it in Cloudflare Registrar; add
 then redeploy the Pages redirect with `/* https://<domain>/:splat 301`. Do not add
 the routes entry before the domain exists.
 
+**Free-tier checks (see "Free tiers" in `docs/operations.md`):** verify the VM machine
+type is e2-micro and the boot disk is standard PD, not balanced; review the billing
+report for egress and IP SKUs after the first registration period.
+
 **Invariant:** VM SQLite stays the source of truth; the deployed site is a
 rebuildable copy. The Worker is a runtime dependency of the dashboard.
 
