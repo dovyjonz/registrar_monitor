@@ -248,7 +248,7 @@ Telegram Control:
         "--out",
         type=Path,
         metavar="DIR",
-        help="Output directory (default: output/open-data)",
+        help="Output directory (default: data/open-data)",
     )
 
     # Database commands

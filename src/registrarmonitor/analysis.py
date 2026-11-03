@@ -23,9 +23,9 @@ import duckdb
 from .config import get_config, get_timezone
 
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent.parent / "analysis"
-DEFAULT_EXPORT_DIR = Path("output") / "open-data"
+DEFAULT_EXPORT_DIR = Path("data") / "open-data"
 
-# v2 tables exposed as cross-semester views (see DATABASE.md).
+# v2 tables exposed as cross-semester views.
 UNION_TABLES = (
     "course_catalog",
     "section_catalog",
@@ -57,10 +57,8 @@ def configured_databases(
     """Existing ``enrollment_*.db`` files for the semesters in settings.toml."""
     cfg = config if config is not None else get_config()
     data_dir = Path(cfg["directories"]["data_storage"])
-    names = list(cfg.get("storage", {}).get("semesters", {}))
-    names += [name for name in cfg.get("semesters", {}) if name not in names]
     databases: dict[str, Path] = {}
-    for name in names:
+    for name in cfg.get("semesters", {}):
         path = data_dir / f"enrollment_{semester_file_stem(name)}.db"
         if path.is_file():
             databases[name] = path

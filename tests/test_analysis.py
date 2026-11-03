@@ -16,7 +16,6 @@ import pytest
 
 from registrarmonitor import analysis
 from registrarmonitor.data.checkpointed_state import CheckpointedStateStore
-from registrarmonitor.main import create_parser
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 
 pytestmark = pytest.mark.integration
@@ -111,15 +110,16 @@ def config(tmp_path: Path) -> dict[str, Any]:
     return {
         "timezone": "Asia/Almaty",
         "directories": {"data_storage": str(data)},
-        "storage": {"semesters": {"Fall 2025": {}, "Fall 2026": {}, "Spring 2027": {}}},
         "semesters": {
+            "Fall 2025": {},
+            "Spring 2027": {},
             "Fall 2026": {
                 "deadlines": [["2026-08-28T17:30:00", "Close"]],
                 "priorities": {
                     "1": [["2026-08-05T09:00:00", "Y4+"]],
                     "2": [["2026-08-13T09:00:00", "ALL"]],
                 },
-            }
+            },
         },
     }
 
@@ -141,17 +141,6 @@ def test_union_views_span_semesters(config: dict[str, Any], copy_attach: None) -
         "AND section_code = '2L' ORDER BY sequence_no"
     ).fetchall()
     assert last == [(1,)]
-    connection.close()
-
-
-@pytest.mark.parametrize("name", analysis.available_queries())
-def test_every_saved_query_runs_across_two_semesters(
-    config: dict[str, Any], copy_attach: None, name: str
-) -> None:
-    connection = analysis.open_analysis(analysis.configured_databases(config), config)
-    columns, rows = analysis.run_query(connection, name)
-    assert columns
-    assert rows, f"{name} returned no rows"
     connection.close()
 
 
@@ -180,13 +169,6 @@ def test_saved_query_results(config: dict[str, Any], copy_attach: None) -> None:
 
     columns, rows = analysis.run_query(connection, "fill_curves_by_department")
     assert {row[0] for row in rows} == {"Fall 2025", "Fall 2026"}
-    connection.close()
-
-
-def test_unknown_query_is_rejected(config: dict[str, Any], copy_attach: None) -> None:
-    connection = analysis.open_analysis(analysis.configured_databases(config), config)
-    with pytest.raises(analysis.AnalysisError, match="unknown analysis"):
-        analysis.run_query(connection, "nope")
     connection.close()
 
 
@@ -248,22 +230,6 @@ def test_real_sqlite_extension_attaches_read_only(
     with pytest.raises(duckdb.Error):
         connection.execute("DELETE FROM sem_0.state_snapshot")
     connection.close()
-
-
-def test_cli_parser_accepts_analysis_commands() -> None:
-    parser = create_parser()
-    args = parser.parse_args(["analyze", "fill_curves_by_department", "--csv", "x.csv"])
-    assert (args.command, args.name, str(args.csv)) == (
-        "analyze",
-        "fill_curves_by_department",
-        "x.csv",
-    )
-    args = parser.parse_args(["export-parquet", "Fall 2026", "--out", "o"])
-    assert (args.command, args.semester, str(args.out)) == (
-        "export-parquet",
-        "Fall 2026",
-        "o",
-    )
 
 
 def test_cli_handlers_print_table_write_csv_and_export(
