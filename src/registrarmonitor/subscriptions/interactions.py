@@ -33,6 +33,7 @@ from .models import BotDiagnostics, SubscriptionTarget
 from .payloads import (
     decode_course_import,
     decode_target,
+    decode_watch_payload,
     encode_target,
 )
 from .store import SubscriptionStore
@@ -93,7 +94,7 @@ class SubscriptionInteractions:
         args = context.args or []
         if args:
             try:
-                target = decode_target(args[0])
+                link = decode_watch_payload(args[0])
             except ValueError:
                 await message.reply_text(
                     "This subscription link is invalid. Use /watch to search.",
@@ -101,7 +102,8 @@ class SubscriptionInteractions:
                 )
                 return
             catalog = await self._catalog_provider()
-            if catalog is None or not catalog.resolve(target):
+            target = catalog.resolve_link(link) if catalog else None
+            if catalog is None or target is None:
                 await message.reply_text(
                     "That course or section is not in the latest snapshot. Use "
                     "/watch to search.",

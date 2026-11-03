@@ -107,7 +107,9 @@ class ReportingService:
             # Send reports if not in debug mode
             if send_telegram and not debug_mode and generated_files:
                 txt_path = generated_files[0] if generated_files else None
-                await self._send_reports_via_telegram(txt_path)
+                await self._send_reports_via_telegram(
+                    txt_path, snapshot=current_snapshot
+                )
 
             self.logger.info(f"Successfully generated {len(generated_files)} reports")
             return True, generated_files
@@ -141,7 +143,9 @@ class ReportingService:
             )
 
             if send_telegram and txt_path:
-                await self.telegram_reporter.send_text_report(txt_path)
+                await self.telegram_reporter.send_text_report(
+                    txt_path, snapshot=current_snapshot
+                )
 
             return True, txt_path
 
@@ -405,18 +409,23 @@ class ReportingService:
             self.logger.error(f"Failed to generate text report: {e}")
             raise ReportGenerationError(f"Text report generation failed: {e}") from e
 
-    async def _send_reports_via_telegram(self, txt_path: str | None) -> None:
+    async def _send_reports_via_telegram(
+        self, txt_path: str | None, snapshot: EnrollmentSnapshot | None = None
+    ) -> None:
         """
         Send text reports via Telegram.
 
         Args:
             txt_path: Path to text report
+            snapshot: Reported snapshot, used to link courses to one-tap watches
         """
         try:
             self.logger.info("Sending reports via Telegram")
 
             if txt_path and Path(txt_path).exists():
-                await self.telegram_reporter.send_text_report(txt_path)
+                await self.telegram_reporter.send_text_report(
+                    txt_path, snapshot=snapshot
+                )
                 self.logger.info("Text report sent successfully")
             else:
                 self.logger.warning("No reports to send via Telegram")

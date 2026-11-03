@@ -11,8 +11,11 @@ from registrarmonitor.subscriptions.models import SubscriptionTarget
 from registrarmonitor.subscriptions.payloads import (
     decode_course_import,
     decode_target,
+    decode_watch_payload,
     encode_course_import,
     encode_target,
+    encode_watch_payload,
+    watch_deep_link,
 )
 
 pytestmark = pytest.mark.unit
@@ -82,3 +85,85 @@ def test_website_course_import_supports_large_pasted_selection():
     payload = encode_course_import("Fall 2026", courses)
 
     assert decode_course_import(payload) == ("Fall 2026", sorted(courses))
+
+
+def test_watch_payload_round_trip_resolves_to_the_real_course(current_snapshot):
+    target = SubscriptionTarget("Spring 2024", "CS 101")
+
+    payload = encode_watch_payload(target)
+
+    assert payload == "watch_sp24_CS101"
+    assert len(payload) <= 64
+    assert set(payload) <= set(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    )
+    catalog = SubscriptionCatalog(current_snapshot)
+    assert catalog.resolve_link(decode_watch_payload(payload)) == target
+
+
+def test_watch_payload_round_trip_with_section(current_snapshot):
+    target = SubscriptionTarget("Spring 2024", "CS 101", "10L")
+
+    payload = encode_watch_payload(target)
+
+    assert payload == "watch_sp24_CS101_10L"
+    catalog = SubscriptionCatalog(current_snapshot)
+    assert catalog.resolve_link(decode_watch_payload(payload)) == target
+
+
+@pytest.mark.parametrize(
+    ("semester", "key"),
+    [("Fall 2026", "fa26"), ("Spring 2027", "sp27"), ("Summer 2026", "su26")],
+)
+def test_watch_payload_semester_keys(semester, key):
+    assert encode_watch_payload(SubscriptionTarget(semester, "CSCI 115")) == (
+        f"watch_{key}_CSCI115"
+    )
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        SubscriptionTarget("Winter 2026", "CSCI 115"),
+        SubscriptionTarget("Fall 2026", "!!!"),
+        SubscriptionTarget("Fall 2026", "A" * 60),
+        SubscriptionTarget("Fall 2026", "CSCI 115", "S" * 60),
+    ],
+)
+def test_unrepresentable_or_overlong_targets_are_not_encoded(target):
+    with pytest.raises(ValueError, match="Telegram|link"):
+        encode_watch_payload(target)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "",
+        "start",
+        "watch_",
+        "watch_xx26_CS101",
+        "watch_fa2026_CS101",
+        "watch_fa26_cs 101",
+    ],
+)
+def test_malformed_watch_payloads_are_rejected(payload):
+    with pytest.raises(ValueError, match="Invalid subscription link"):
+        decode_watch_payload(payload)
+
+
+def test_ambiguous_compacted_codes_do_not_resolve(current_snapshot):
+    other = Course(course_code="CS101", department="CS", sections={}, average_fill=0)
+    current_snapshot.courses["CS101"] = other
+    catalog = SubscriptionCatalog(current_snapshot)
+
+    assert catalog.resolve_link(decode_watch_payload("watch_sp24_CS101")) is None
+
+
+def test_deep_link_uses_bot_username():
+    target = SubscriptionTarget("Fall 2026", "CSCI 115")
+
+    assert watch_deep_link("registrar_bot", target) == (
+        "https://t.me/registrar_bot?start=watch_fa26_CSCI115"
+    )
+    with pytest.raises(ValueError, match="bot username"):
+        watch_deep_link("bad name", target)

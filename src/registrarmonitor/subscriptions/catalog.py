@@ -4,6 +4,7 @@ import re
 
 from ..models import Course, EnrollmentSnapshot
 from .models import SubscriptionTarget
+from .payloads import WatchLink, compact_code, semester_key
 
 
 def normalize_search(value: str) -> str:
@@ -73,6 +74,35 @@ class SubscriptionCatalog:
                         section.section_id,
                     )
         return None
+
+    def resolve_link(self, link: WatchLink) -> SubscriptionTarget | None:
+        """Resolve a compacted deep link to one unambiguous target.
+
+        Returns None when the link is for another semester, matches nothing, or
+        matches more than one course (or section) once codes are compacted.
+        """
+        if link.semester_key != semester_key(self.snapshot.semester):
+            return None
+        courses = [
+            course
+            for course in self.snapshot.courses.values()
+            if compact_code(course.course_code) == link.course
+        ]
+        if len(courses) != 1:
+            return None
+        course = courses[0]
+        if not link.section:
+            return SubscriptionTarget(self.snapshot.semester, course.course_code)
+        sections = [
+            section_id
+            for section_id in course.sections
+            if compact_code(section_id) == link.section
+        ]
+        if len(sections) != 1:
+            return None
+        return SubscriptionTarget(
+            self.snapshot.semester, course.course_code, sections[0]
+        )
 
     def course(self, course_code: str) -> Course | None:
         return self.snapshot.courses.get(course_code)

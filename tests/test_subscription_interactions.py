@@ -10,7 +10,11 @@ from registrarmonitor.models import Course, Section
 from registrarmonitor.subscriptions.catalog import SubscriptionCatalog
 from registrarmonitor.subscriptions.interactions import SubscriptionInteractions
 from registrarmonitor.subscriptions.models import SubscriptionTarget
-from registrarmonitor.subscriptions.payloads import encode_course_import, encode_target
+from registrarmonitor.subscriptions.payloads import (
+    encode_course_import,
+    encode_target,
+    encode_watch_payload,
+)
 from registrarmonitor.subscriptions.store import SubscriptionStore
 
 pytestmark = pytest.mark.unit
@@ -153,7 +157,7 @@ async def test_deep_link_confirms_then_callback_subscribes(interaction):
     payload = encode_target(target)
     start_update = make_update()
 
-    await bot.start(start_update, make_context(payload))
+    await bot.start(start_update, make_context(encode_watch_payload(target)))
 
     reply = start_update.effective_message.reply_text.await_args
     assert "Watch <code>CS 101 / 10L</code>?" in reply.args[0]
@@ -424,3 +428,65 @@ async def test_large_course_is_paged_and_accepts_typed_sections(
         SubscriptionTarget("Spring 2024", "CS 101", "15L"),
         SubscriptionTarget("Spring 2024", "CS 101", "1L"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_channel_course_link_confirms_before_watching(interaction):
+    bot, store = interaction
+    target = SubscriptionTarget("Spring 2024", "CS 101")
+    update = make_update()
+
+    await bot.start(update, make_context("watch_sp24_CS101"))
+
+    reply = update.effective_message.reply_text.await_args
+    assert "Watch <code>CS 101</code>?" in reply.args[0]
+    assert store.list_subscriptions(41) == []  # nothing is added before Confirm
+    confirm = reply.kwargs["reply_markup"].inline_keyboard[0][0]
+    assert confirm.text == "Confirm"
+    assert confirm.callback_data == f"sub:{encode_target(target)}"
+
+    callback_update = make_update(callback_data=confirm.callback_data)
+    await bot.callback(callback_update, make_context())
+
+    assert store.list_subscriptions(41) == [target]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "watch_fa26_CS101",  # another semester
+        "watch_sp24_CS999",  # unknown course
+        "watch_sp24_CS101_99Z",  # unknown section
+        "garbage",
+        "watch_sp24_cs101",  # payloads are upper-case only
+        "watch_sp24_" + "A" * 60,  # over Telegram's 64-character limit
+    ],
+)
+async def test_bad_or_stale_start_links_never_add_a_watch(interaction, payload):
+    bot, store = interaction
+    update = make_update()
+
+    await bot.start(update, make_context(payload))
+
+    assert store.list_subscriptions(41) == []
+    reply = update.effective_message.reply_text.await_args
+    assert "/watch" in reply.args[0]
+    assert "Confirm" not in str(reply.kwargs.get("reply_markup"))
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_start_link_is_refused(multi_interaction):
+    bot, store = multi_interaction
+    catalog = await bot._catalog_provider()
+    # "CS 101" and "CS101" compact to the same deep-link code.
+    catalog.snapshot.courses["CS101"] = catalog.snapshot.courses["CS 101"]
+    update = make_update()
+
+    await bot.start(update, make_context("watch_sp24_CS101"))
+
+    assert store.list_subscriptions(41) == []
+    assert (
+        "not in the latest snapshot"
+        in update.effective_message.reply_text.await_args.args[0]
+    )

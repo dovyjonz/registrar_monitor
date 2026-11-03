@@ -85,7 +85,7 @@ class TestGenerateAndSendReports:
                 current_snapshot, previous_snapshot, send_telegram=True
             )
 
-        mock_send.assert_awaited_once_with("/tmp/report.txt")
+        mock_send.assert_awaited_once_with("/tmp/report.txt", snapshot=current_snapshot)
 
     @pytest.mark.asyncio
     async def test_raises_report_generation_error_on_failure(
