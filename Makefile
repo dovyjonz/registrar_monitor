@@ -13,15 +13,12 @@ RUNTIME_ENV = PATH="$(PATH)"
 UV = $(RUNTIME_ENV) uv
 NPM = $(RUNTIME_ENV) npm
 
-.PHONY: help bootstrap doctor sync format format-check lint type test website-install website-lint website-test-unit website-build worker-install worker-check security check-fast check site-generate smoke-site-generate test-browser test-browser-webkit test-browser-stability site-smoke release-candidate baseline benchmark benchmark-database benchmark-website benchmark-browser benchmark-synthetic benchmark-record benchmark-record-deploy prototype-checkpointed-state prototype-checkpointed-state-targeted clean-generated
+.PHONY: help bootstrap doctor sync format format-check lint type test website-install website-lint website-test-unit website-build worker-install worker-check security check-fast check site-generate smoke-site-generate test-browser test-browser-webkit test-browser-stability site-smoke release-candidate baseline benchmark benchmark-database benchmark-website benchmark-browser benchmark-synthetic benchmark-record benchmark-record-deploy clean-generated
 
 PERF_COLD ?= 10
 PERF_WARM ?= 20
 PERF_OUTPUT ?= output/performance-baseline.json
 PERF_RECORD_DATE ?= $(shell date +%F)
-PROTOTYPE_OUTPUT ?= output/checkpointed-state-prototype.json
-PROTOTYPE_MARKDOWN ?= output/checkpointed-state-prototype.md
-PROTOTYPE_TARGETED_SAMPLES ?= 100
 
 help:
 	@printf '%s\n' \
@@ -48,8 +45,6 @@ help:
 		'  benchmark       Run opt-in performance benchmarks' \
 		'  benchmark-synthetic Run the benchmark with deterministic synthetic data' \
 		'  benchmark-record Record the dated baseline from DATABASE=<ignored copy>' \
-		'  prototype-checkpointed-state Evaluate ADR-0001 in a temporary database' \
-		'  prototype-checkpointed-state-targeted Run targeted ADR-0001 evidence checks' \
 		'  clean-generated Remove only reproducible website output artifacts'
 
 bootstrap: sync website-install worker-install
@@ -173,23 +168,6 @@ benchmark-record-deploy: website-build
 	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
 	@mkdir -p docs/baselines
 	$(UV) run python scripts/benchmark_performance.py --database "$(DATABASE)" --cold-iterations "$(PERF_COLD)" --warm-iterations "$(PERF_WARM)" --deploy-preview --output "docs/baselines/performance-$(PERF_RECORD_DATE).json" --markdown "docs/baselines/performance-$(PERF_RECORD_DATE).md"
-
-prototype-checkpointed-state:
-	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
-	@mkdir -p output
-	$(UV) run python scripts/evaluate_checkpointed_state.py --database "$(DATABASE)" \
-		--output "$(PROTOTYPE_OUTPUT)" --markdown "$(PROTOTYPE_MARKDOWN)" \
-		$(if $(PROTOTYPE_SEMESTER),--semester "$(PROTOTYPE_SEMESTER)")
-
-prototype-checkpointed-state-targeted:
-	@test -n "$(DATABASE)" || { echo 'Set DATABASE=<ignored SQLite copy>' >&2; exit 2; }
-	@test -n "$(RAW_DIR)" || { echo 'Set RAW_DIR=<retained registrar XLS directory>' >&2; exit 2; }
-	@mkdir -p output
-	$(UV) run python scripts/evaluate_checkpointed_state.py --database "$(DATABASE)" \
-		--output "$(PROTOTYPE_OUTPUT)" --markdown "$(PROTOTYPE_MARKDOWN)" \
-		--targeted-samples "$(PROTOTYPE_TARGETED_SAMPLES)" --raw-dir "$(RAW_DIR)" \
-		--failure-injection \
-		$(if $(PROTOTYPE_SEMESTER),--semester "$(PROTOTYPE_SEMESTER)")
 
 clean-generated:
 	rm -f assets/website/public/*.html assets/website/public/*.json assets/website/public/_headers assets/website/public/robots.txt assets/website/public/.checksums.json

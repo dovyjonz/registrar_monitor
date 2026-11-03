@@ -122,7 +122,5 @@ file copy or `daemon-reload` does not authorize enablement or startup.
 - The preview-image Worker is independent and does not upload Pages assets.
 - Cron is not a Registrar Monitor execution path.
 
-Historical migration/finalization evidence remains in
-[`checkpointed-state-evidence-ledger.md`](checkpointed-state-evidence-ledger.md).
 Tool and deployment procedures are in [`tooling.md`](tooling.md) and
 [`website-publication.md`](website-publication.md).

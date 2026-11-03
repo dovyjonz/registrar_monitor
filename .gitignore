@@ -21,7 +21,9 @@ venv/
 .mypy_cache/
 .pytest_cache/
 .playwright-cli/
+.playwright-mcp/
 .ruff_cache/
+.uv-cache/
 .uv_cache/
 
 # Test coverage
@@ -31,6 +33,7 @@ htmlcov/
 # Logs
 /logs/
 *.log
+scheduler_decisions*.log
 
 # Data files (runtime data, not source code)
 /data/
@@ -54,11 +57,11 @@ assets/website/node_modules/
 # macOS
 .DS_Store
 
+# Local Claude settings
+.claude/settings.local.json
+
 # Generated schedule file
 schedule.txt
-
-# Generated wiki metadata
-meta/
 
 # Generated deployment files
 scripts/registrarmonitor.service
