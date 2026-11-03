@@ -21,6 +21,7 @@ from registrarmonitor.subscriptions.runtime import (
     WebhookConfig,
     bot_commands,
     create_web_app,
+    launch_url,
 )
 
 pytestmark = pytest.mark.unit
@@ -110,7 +111,7 @@ async def test_runtime_registers_webhook_and_enforces_the_secret_header(monkeypa
     runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
     runtime.webhook = WebhookConfig(PUBLIC_URL, SECRET, port=port)
     runtime.test_user_id = None
-    runtime.miniapp_enabled = False
+    runtime.app_url = None
     runtime.settings = get_settings()
     application = fake_application(calls)
     runtime.application = cast(Any, application)
@@ -164,20 +165,36 @@ async def test_runtime_registers_webhook_and_enforces_the_secret_header(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_menu_button_opens_the_site_only_when_the_mini_app_is_enabled():
+async def test_menu_button_opens_the_dashboard_only_when_the_mini_app_is_enabled():
     calls: list = []
     runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
     runtime.settings = get_settings()
     runtime.application = cast(Any, fake_application(calls))
 
-    runtime.miniapp_enabled = True
+    runtime.app_url = "https://site.example.test/semesters/fall-2026/"
     await runtime._configure_menu_button()
-    runtime.miniapp_enabled = False
+    runtime.app_url = None
     await runtime._configure_menu_button()
 
     enabled, disabled = (kwargs["menu_button"] for _, kwargs in calls)
-    assert enabled.web_app.url == runtime.settings.website.base_url
+    assert enabled.web_app.url == "https://site.example.test/semesters/fall-2026/"
     assert disabled.type == "default"
+
+
+@pytest.mark.parametrize(
+    ("semester", "expected"),
+    [("Fall 2026", "/semesters/fall-2026/"), (None, "")],
+)
+def test_launch_url_opens_the_semester_page_not_the_redirecting_root(
+    monkeypatch, semester, expected
+):
+    monkeypatch.setattr(
+        "registrarmonitor.subscriptions.runtime.find_active_semester",
+        lambda: semester,
+    )
+    settings = get_settings()
+
+    assert launch_url(settings) == settings.website.base_url + expected
 
 
 def test_public_command_menu_never_exposes_developer_command():

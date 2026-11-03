@@ -33,6 +33,7 @@ from telegram.ext import Application, BaseUpdateProcessor, ChatMemberHandler
 from ..cli.utils import find_active_semester
 from ..config import Settings, get_settings
 from ..data.database_manager import DatabaseManager
+from ..website.config import semester_to_slug
 from .catalog import SubscriptionCatalog
 from .dispatcher import SubscriptionDispatcher
 from .interactions import SubscriptionInteractions
@@ -264,6 +265,17 @@ class LatencyTrackingUpdateProcessor(BaseUpdateProcessor):
         return "other"
 
 
+def launch_url(settings: Settings) -> str:
+    """Return the page Telegram opens: the active semester's dashboard.
+
+    The site root is a meta-refresh redirect that would drop Telegram's launch
+    parameters, so the Mini App opens the semester page directly.
+    """
+    semester = find_active_semester()
+    base = settings.website.base_url
+    return f"{base}/semesters/{semester_to_slug(semester)}/" if semester else base
+
+
 def bot_commands() -> list[BotCommand]:
     """Return the command menu visible to ordinary users."""
     return list(BOT_COMMANDS)
@@ -280,7 +292,9 @@ class SubscriptionBotRuntime:
         self.settings = settings
         self.webhook = WebhookConfig.from_settings(settings)
         self.test_user_id = settings.telegram_bot_test_user_id
-        self.miniapp_enabled = bool(settings.website.miniapp_api_url)
+        self.app_url = (
+            launch_url(settings) if settings.website.miniapp_api_url else None
+        )
         self.store = SubscriptionStore(settings.directories.telegram_bot_state)
         self.diagnostics = BotRuntimeDiagnostics(self.store)
         self._diagnostics_log_handler = RecentSubscriptionLogHandler(self.diagnostics)
@@ -304,7 +318,7 @@ class SubscriptionBotRuntime:
             self.webhook,
             miniapp=(
                 MiniAppApi(self.store, self._latest_catalog, token, self.site_origin)
-                if self.miniapp_enabled
+                if self.app_url
                 else None
             ),
             site_origin=self.site_origin,
@@ -314,7 +328,7 @@ class SubscriptionBotRuntime:
             self._latest_catalog,
             test_user_id=self.test_user_id,
             diagnostics=self.diagnostics.snapshot,
-            app_url=settings.website.base_url if self.miniapp_enabled else None,
+            app_url=self.app_url,
         ).register(self.application)
         self.application.add_handler(
             ChatMemberHandler(self._chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
@@ -394,10 +408,8 @@ class SubscriptionBotRuntime:
     async def _configure_menu_button(self) -> None:
         """Point the chat menu button at the Mini App, or restore Telegram's default."""
         button = (
-            MenuButtonWebApp(
-                MENU_BUTTON_TEXT, WebAppInfo(url=self.settings.website.base_url)
-            )
-            if self.miniapp_enabled
+            MenuButtonWebApp(MENU_BUTTON_TEXT, WebAppInfo(url=self.app_url))
+            if self.app_url
             else MenuButtonDefault()
         )
         await self.application.bot.set_chat_menu_button(menu_button=button)
