@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "registrar-monitor",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  // The generated dashboard (frontend/public): HTML routes, /data JSON, hashed assets.
+  // Static Assets requests are free and unlimited and do not invoke the Worker;
+  // only the paths below run code. Telegram Mini App endpoints go under /api/*.
+  "assets": {
+    "directory": "../../frontend/public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/preview/*", "/api/*"]
+  },
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
+}

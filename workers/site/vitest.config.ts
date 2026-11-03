@@ -7,9 +7,6 @@ export default defineConfig({
       miniflare: {
         compatibilityDate: '2026-08-12',
         compatibilityFlags: ['nodejs_compat'],
-        bindings: {
-          PAGES_ORIGIN: 'https://registrar-monitor.pages.dev',
-        },
       },
     }),
   ],

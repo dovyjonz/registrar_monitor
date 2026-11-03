@@ -1,9 +1,9 @@
 {
-  "name": "registrar-monitor-preview-images",
+  "name": "registrar-monitor",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm run types && npm test && npx tsc --noEmit && npx wrangler deploy --dry-run",
+    "check": "mkdir -p ../../frontend/public && npm run types && npm test && npx tsc --noEmit && npx wrangler deploy --dry-run",
     "test": "vitest run",
     "types": "wrangler types"
   },

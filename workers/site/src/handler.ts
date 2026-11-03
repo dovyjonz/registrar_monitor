@@ -60,11 +60,10 @@ export async function handlePreviewRequest(
       : cached;
   }
 
-  const origin = new URL(env.PAGES_ORIGIN);
-  const stateUrl = new URL(`/data/previews/${identity.kind}/${identity.hash}.json`, origin);
+  const stateUrl = new URL(`/data/previews/${identity.kind}/${identity.hash}.json`, request.url);
   let stateResponse: Response;
   try {
-    stateResponse = await fetch(stateUrl, { redirect: 'manual' });
+    stateResponse = await env.ASSETS.fetch(new Request(stateUrl));
   } catch (error) {
     console.error(JSON.stringify({ message: 'preview state fetch failed', ...identity, error: String(error) }));
     return failure(502, 'Preview state unavailable');

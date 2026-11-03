@@ -26,7 +26,8 @@ function runtime(rendered = new Response('png', { status: 200 })) {
   } as Cache;
   const quickAction = vi.fn(async () => rendered.clone());
   const env = {
-    PAGES_ORIGIN: 'https://registrar-monitor.pages.dev',
+    // Static Assets serve the preview JSON; the tests stub it through global fetch.
+    ASSETS: { fetch: (request: Request) => fetch(request) },
     BROWSER: { quickAction },
   } as Env;
   return { cache, env, quickAction };
@@ -53,7 +54,7 @@ describe('preview request handling', () => {
 
   it('uses a distinct cache identity for a new hash', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const hash = /([A-Za-z0-9_-]{8})\.json$/.exec(String(input))?.[1] ?? '';
+      const hash = /([A-Za-z0-9_-]{8})\.json$/.exec(input instanceof Request ? input.url : String(input))?.[1] ?? '';
       return Response.json(state(hash));
     });
     const { cache, env, quickAction } = runtime();
