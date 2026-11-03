@@ -16,7 +16,8 @@ Commands: `make help` and `monitor --help`. Times use `Asia/Almaty`. Never print
 |---|---|
 | `registrarmonitor.service` | scheduler, reports, dashboard publication |
 | `registrarmonitor-bot.service` | private subscriptions and digest delivery |
-| `registrarmonitor-health.service` | alerts when either unit above leaves `active` |
+| `registrarmonitor-tunnel.service` | Cloudflare Tunnel (`cloudflared`) forwarding the Telegram webhook hostname to the bot's loopback listener |
+| `registrarmonitor-litestream.service` | continuous replication of every SQLite database to R2 |
 | `registrarmonitor-network-watchdog.timer` | restarts `systemd-networkd` when metadata connectivity is lost |
 
 `registrar-monitor.service` is retired; never revive it. Cron is not an execution
@@ -25,9 +26,27 @@ state before assuming anything is running.
 
 `scripts/setup_vps.sh` generates the units but never installs, enables, starts,
 stops, or restarts any of them. The scheduler and the bot are separate units and
-must stay separate. The health monitor checks both units every 30 seconds and
-sends one alert (and one recovery message) to `TELEGRAM_BOT_TEST_USER_ID` using
-`TELEGRAM_BOT_TOKEN`; it needs both values in `.env`.
+must stay separate. The tunnel needs `scripts/cloudflared-config.yml` (untracked,
+from `scripts/cloudflared-config.yml.template`) and the Litestream unit needs the
+`litestream` binary plus the R2 variables in `.env`.
+
+### Deploy
+
+`make deploy-vm REV=<revision> UNIT=<unit>.service` runs `scripts/deploy_vm.sh`: it
+fetches the named revision on the VM (`VM_HOST`, `VM_PATH`, optional `VM_USER` and
+`VM_REMOTE` in `.env`), runs `uv sync --locked`, restarts only that unit, and prints
+the deployed revision. Push the revision first. It runs only when explicitly
+authorized.
+
+### Registrar TLS
+
+Downloads always verify the registrar's certificate. `data_source.ca_bundle` in
+`settings.toml` names a PEM file with the intermediate and root certificates; create
+it on the polling host with `scripts/fetch_registrar_ca.sh` (defaults to
+`data/registrar-chain.pem`) and re-run it if the registrar changes its chain.
+Without a bundle, system verification applies. Scheduler polls send the stored
+`ETag`/`Last-Modified` (`data/download_state.json`) and compare a SHA-256 of the
+body, so an unchanged file skips parse, compare, and publish.
 
 ### Files and permissions
 
@@ -67,10 +86,23 @@ failures and missing required tools are errors. On the VM, run
 `monitor db stats` summarizes the databases.
 
 Commands write human-readable stdout and rotating logs in the configured logs
-directory. The scheduler also writes one JSON object per decision to
+directory; the `schedule` and `bot` services (or `LOG_FORMAT=json`) log JSON lines
+to the journal. The scheduler also writes one JSON object per decision to
 `scheduler_decisions.jsonl`. Expected no-ops are `INFO`, retryable degradation
 `WARNING`, failed operations `ERROR`. Logs must not contain secrets, Telegram
 identifiers, or full registrar payloads.
+
+### Heartbeat and errors
+
+After every successful poll, changed or unchanged, the scheduler pings
+`HEARTBEAT_URL` (a Healthchecks.io check). Configure the check's grace period and its
+Telegram integration there; a quiet scheduler alerts without a unit on the VM. A
+failed ping is logged (never the URL) and does not affect polling. Set `SENTRY_DSN`
+(and optionally `SENTRY_ENVIRONMENT`) to report unhandled errors to Sentry; unset, it
+is off.
+
+The network watchdog timer is generic VM network recovery and is independent of
+polling.
 
 ## Website publication
 
@@ -161,9 +193,10 @@ in private chats.
   removals before Save applies the scope atomically; Back and Cancel change nothing.
 - Stopping a watch, clearing all watches, and deleting bot data require
   confirmation. Data and settings in My watches deletes immediately on confirmation.
-- Deep links `t.me/<bot>?start=<payload>` open the bot at a course. They never
-  subscribe silently: the payload is resolved against the latest snapshot and needs
-  confirmation.
+- Deep links `t.me/<bot>?start=<payload>` open the bot at a course. Each course
+  heading in a channel report links to `?start=watch_<semester>_<course>`. They never
+  subscribe silently: the payload is resolved against the latest snapshot (stale,
+  unknown, or ambiguous codes are rejected) and needs confirmation.
 - A new exact watch replies with the state-addressed website link and one large
   top-aligned course preview. Saved confirmations, imports, and digests stay compact.
   If no published link exists, the link and preview button are omitted and the watch
@@ -176,8 +209,11 @@ in private chats.
 
 ### Runtime
 
-Startup refuses to poll while a webhook or another update consumer is active; the bot
-uses direct Bot API polling and never calls `deleteWebhook`. Updates from different
+The bot serves Telegram updates over a webhook behind a Cloudflare Tunnel: it listens
+on `telegram_bot.webhook_listen`:`webhook_port` (loopback by default), registers
+`TELEGRAM_WEBHOOK_URL` with Telegram, and rejects any request whose
+`X-Telegram-Bot-Api-Secret-Token` is not `TELEGRAM_WEBHOOK_SECRET`. Startup fails
+without a valid secret and an `https` URL. The VM opens no inbound port. Updates from different
 chats run concurrently (limit eight) and stay ordered within one chat. Catalog reads,
 delivery rendering, and bot-state writes run off the event loop; catalogs are reused
 until the latest snapshot ID changes. Each update logs queue wait, handler duration,
@@ -196,34 +232,36 @@ formatter without writing state. Unset it and restart to remove the command.
 
 ## Backup and recovery
 
-No backup schedule or storage destination is active. Targets for activation: daily
-backups of every enrollment database and the bot database, 30 days retention, RPO
-24 hours, RTO 4 hours, stored in private encrypted storage outside the VM, with an
-alert when the newest successful backup is older than 24 hours. Credentials in
-`.env` need a separate protected recovery process. Backups contain private bot state
-and never enter Git, CI artifacts, or public output.
+Litestream replicates every `data/enrollment_*.db` and `data/telegram_bot.db` to a
+private R2 bucket (`scripts/litestream.yml`; bucket, account, and keys come from
+`.env`, see `.env.example`) with 30-day retention and daily snapshots, which gives
+point-in-time restore. Backups contain private bot state and never enter Git, CI
+artifacts, or public output. Alert on a stale replica from R2 or Litestream logs.
 
-Use SQLite's online backup API; copying a live database's main file can omit WAL data.
+Restore to a new file, never over a live database:
 
 ```bash
-uv run python scripts/manage_database.py --semester "Fall 2026" backup \
-  output/backups/fall-2026.db
+scripts/restore_litestream.sh data/enrollment_fall_2026.db /tmp/restored.db
+scripts/restore_litestream.sh data/telegram_bot.db /tmp/bot.db 2026-11-01T12:00:00Z
 ```
 
-It validates `integrity_check` and `foreign_key_check` and never replaces an existing
-file, so use a unique dated destination with operator-only permissions. Record time,
-source and destination identity, size, SHA-256, and validation results (no
-credentials or contents), and delete expired backups only after a newer one is
-verified off-host.
+Rehearse into an isolated directory before relying on it and quarterly: verify
+`monitor doctor` integrity, foreign keys, and schema, read the latest snapshot and
+reporting position per semester, check the bot store without printing user
+identifiers, and generate the dashboard locally. For an incident, with authorization
+stop affected writers, preserve the damaged files, restore under the runtime owner,
+verify, then restart. Bot recovery can replay deliveries or lose watches created
+after the last replicated write; reconcile before resuming. Pages upload stays
+separately authorized.
 
-Restore rehearsal: download into an isolated directory; verify hash, integrity,
-foreign keys, and schema; read the latest snapshot and reporting position per
-semester; check the bot store without printing user identifiers; generate the
-dashboard locally; record elapsed time. Rehearse before activation and quarterly.
-For an incident, with authorization stop affected writers, preserve the damaged
-files, restore under the runtime owner, verify, then restart. Bot recovery can replay
-deliveries or lose watches created after the backup; reconcile before resuming. Pages
-upload stays separately authorized.
+## Analysis and open data
+
+`monitor analyze` lists the saved DuckDB queries in `analysis/*.sql`;
+`monitor analyze <name> [--csv FILE]` runs one across every configured semester
+database, attached read-only through DuckDB's `sqlite` extension (downloaded on first
+use). `monitor export-parquet "<semester>" [--out DIR]` writes one row per section
+per snapshot to `<DIR>/<semester>.parquet` (default `data/open-data/`, untracked).
+Neither command writes to SQLite.
 
 ## Tooling and CI
 
@@ -235,6 +273,7 @@ upload stays separately authorized.
   `output/playwright/`.
 - `make worker-check`: preview Worker tests, types, and deployment dry-run.
 - `make site-generate`: builds the dashboard and generates the production site.
+- `make deploy-vm`: authorized VM deploy of one revision and unit (see Deploy).
 
 CI has three jobs: Python 3.13 (Ruff, ty, pytest); Frontend and Worker (lint, unit
 tests, build, Worker checks); and Browser smoke, run only when `frontend/` or

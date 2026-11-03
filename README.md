@@ -19,7 +19,7 @@ make bootstrap
 ```
 
 For an existing Git checkout, run `jj git init --colocate .` once. Copy
-`.env.example` to `.env` and set only the credentials you need; keep secrets out of
+`.env.example` to `.env` and set only the credentials and endpoints you need; keep secrets out of
 `settings.toml`, which holds semesters, URLs, milestones, timezone, paths, and
 website settings.
 
@@ -32,9 +32,11 @@ monitor report --stateful            # report new changes
 monitor run                          # poll, report, and generate the dashboard
 monitor schedule                     # run the monitoring daemon
 monitor bot                          # run private Telegram subscriptions
-monitor health-monitor               # alert the test operator about service outages
 monitor deploy                       # generate the dashboard
 monitor deploy --deploy              # generate and upload to Cloudflare Pages
+monitor analyze                      # list saved DuckDB queries (analysis/*.sql)
+monitor analyze fill_curves_by_department --csv out.csv
+monitor export-parquet "Fall 2026"   # write data/open-data/fall_2026.parquet
 monitor db stats
 monitor doctor
 ```
@@ -49,6 +51,7 @@ make check-fast        # Python format, lint, types, and tests
 make check             # add frontend lint, typecheck, unit tests, and build
 make test-browser      # Chromium smoke tests
 make worker-check      # preview-image Worker
+make deploy-vm REV=<revision> UNIT=<unit>.service   # authorized VM deploy only
 ```
 
 ## Layout

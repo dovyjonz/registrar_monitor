@@ -9,6 +9,7 @@ registrar XLS → automation/ → data/ (per-semester SQLite)
                                 ├─ services/reporting → reporting/ → Telegram channel
                                 │                     └─ subscriptions/ (bot DB, digests)
                                 └─ services/website → website/ → static site → Pages
+Telegram → Cloudflare Tunnel → bot webhook (subscriptions/)
 workers/preview-images  separate Worker serving /preview/*
 frontend/               Vite + Chart.js dashboard source
 ```
@@ -35,6 +36,8 @@ frontend/               Vite + Chart.js dashboard source
   truth.
 - **Bot store**: the separate SQLite database for users, subscriptions, batches,
   and delivery state. It never copies enrollment state.
+- **Watch deep link**: `t.me/<bot>?start=watch_<semester>_<course>`, placed on each
+  course heading in a channel report; the bot confirms before it adds the watch.
 - **Generated dashboard**: static HTML and immutable data files uploaded directly
   to Cloudflare Pages.
 
@@ -132,8 +135,29 @@ coupled to it:
 - Delivery is retryable and restart-safe at chunk boundaries. If Telegram accepts a
   message but the process crashes before SQLite records it, the last chunk may be
   sent again; durable progress is favored over exactly-once.
-- The bot runs as its own process, separate from the scheduler, so it can be
+- The bot receives updates by webhook through a Cloudflare Tunnel and runs as its
+  own process, separate from the scheduler, so it can be
   operated or removed without touching enrollment history.
+
+## Runtime configuration
+
+`settings.toml` and `.env` load once through pydantic-settings
+(`registrarmonitor.config`). Invalid configuration fails at startup; secrets are
+`SecretStr` values read only from the environment. `get_settings()` gives typed
+access. `get_config()` returns the same non-secret settings as a plain dictionary for
+older call sites.
+
+The scheduler derives a `Schedule` from milestones in `settings.toml` and a small
+`Cadence` state machine from tier tables (quiet 5/15/30 minutes with backoff, burst
+down to 10 seconds, capped inside registration windows). A poll that finds the
+registrar file unchanged skips parse, compare, and publish but still counts as
+healthy and pings the heartbeat.
+
+## Analysis
+
+SQLite stays the write path. `analysis.py` attaches the per-semester databases to
+DuckDB read-only and exposes cross-semester views; saved queries live in `analysis/`
+and Parquet exports go to `data/open-data/`.
 
 ## Static dashboard read model
 
@@ -158,7 +182,7 @@ pointer under 10 KB, summary under 100 KB, each department blob under 150 KB.
 
 ## Decisions worth remembering
 
-- SQLite stays; one database per semester isolates identity, backup, and rollback.
+- SQLite stays; one database per semester isolates identity, replication, and rollback.
 - Fill, status, and averages are derived, not stored.
 - Latest-state tables plus checkpoints keep reads simple and replay bounded;
   pure event sourcing and full snapshots per change were rejected.

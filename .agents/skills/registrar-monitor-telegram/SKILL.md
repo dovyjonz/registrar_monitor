@@ -16,6 +16,13 @@ section of `docs/operations.md`.
 - `--no-telegram` and debug runs create no personal batch.
 - Use only the latest stored snapshot for search/status. Never poll the registrar
   from the bot.
+- The bot runs in webhook mode behind a Cloudflare Tunnel. Reject any request
+  without the `TELEGRAM_WEBHOOK_SECRET` header and fail startup without the secret
+  and an `https` `TELEGRAM_WEBHOOK_URL`. Never open an inbound VM port or bind the
+  listener publicly.
+- Channel report course headings carry one-tap deep links
+  (`/start watch_<semester>_<course>`); keep the payload compact, resolve it
+  against the latest snapshot, and keep the confirmation step.
 - Keep interactions private, acknowledge callbacks first, validate every payload,
   and require confirmation for deep links and destructive actions.
 - Course watches supersede overlapping section watches in one digest.
@@ -31,4 +38,4 @@ section of `docs/operations.md`.
 Prefer real temporary SQLite plus fake Telegram boundaries. Cover the
 report-to-batch and batch-to-digest seams; avoid exhaustive handler permutations.
 Do not start, stop, install, or enable the production bot without explicit
-authorization.
+authorization, including the tunnel unit.
