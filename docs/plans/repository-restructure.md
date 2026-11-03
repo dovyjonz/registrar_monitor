@@ -1,7 +1,7 @@
 ---
 status: proposed
 updated: 2026-11-03
-scope: cleanup, agent instructions, Cloudflare publication, optional VM shrink
+scope: cleanup, Cloudflare publication, optional VM shrink
 ---
 
 # Registrar Monitor restructure
@@ -38,15 +38,14 @@ frontend/               (Vite + Chart.js dashboard source)
 GCP VM                  (scheduler, bot, Cloudflare Tunnel, Litestream, watchdog)
 ```
 
-The package boundaries are sound. The remaining problems are leftovers, scattered
-agent instructions, and a publish path that regenerates and uploads the whole site.
+The package boundaries are sound. The remaining problems are leftovers and a publish
+path that regenerates and uploads the whole site.
 
 | Finding | Evidence | Stage |
 |---|---|---|
 | Migration machinery outlives the migration | `data/migration.py` (2.7k lines), `migration_rehearsal.py`, CLI `migrate`/`finalize-storage`/`rehearse-migration`, `[storage]` in `settings.toml`, shadow paths in `checkpointed_state.py`; every semester is finalized | 1 |
 | Prototype dashboard is a second UI | `prototype.{js,css}`, `prototype.html.jinja`, `deploy --prototype` | 1 |
 | Local debris, unused scaffolds, dated evidence docs | See Stage 1 | 1 |
-| Agent instructions are scattered and carry Matt Pocock skill wiring | `AGENTS.md`, `docs/agents/`, `opencode.json` | 4 |
 | Every publish regenerates and uploads ~1,200 files | `static_manifest.py`, `website_service.py` (~2k lines), 3,600 s generation limit | 7 |
 
 ## Decisions (resolved 2026-11-01)
@@ -59,7 +58,7 @@ agent instructions, and a publish path that regenerates and uploads the whole si
    dashboard.
 4. **`output/`:** delete everything; optionally keep the five
    `checkpointed-state-archive-*` files in the off-repo archive from (1).
-5. **GitHub labels:** delete `wayfinder:*` and unused triage labels; list them
+5. **GitHub labels:** delete the obsolete workflow and unused triage labels; list them
    first and delete only after confirmation.
 6. **VM:** keep a minimal VM as the poller (see Stage 9 for why).
 7. **Telegram Serverless:** not adopted yet (see Stage 9).
@@ -69,11 +68,10 @@ agent instructions, and a publish path that regenerates and uploads the whole si
 | Stage | Theme | Size | Depends on |
 |---|---|---|---|
 | 1 | Delete dead files and code | M | — |
-| 4 | Consolidate agent instructions | S | 1 |
 | 7 | Publish data through a Worker | L | Litestream/R2 (landed) |
 | 9 | Optional: shrink or leave the VM | L | 7 |
 
-Stages 1 and 4 change no behavior. Each stage is one or a few jj changes, each
+Stage 1 changes no behavior. Each stage is one or a few jj changes, each
 landing with `make check` green. Stages 5, 6, and 8 are in the code; their
 production steps are under "Remaining production steps".
 
@@ -89,43 +87,6 @@ What remains needs the VM or a decision:
 - Run the doctor against every live database after deploying.
 - Finalized databases still carry an unused `storage_control` table; drop it
   or leave it.
-
-### Stage 4 — Consolidate agent instructions
-
-End state: the only agent-facing files are `AGENTS.md`, `CLAUDE.md`
-(`@AGENTS.md`), and four skills in `.agents/skills/`.
-
-- Delete `docs/agents/`. Move its `gh` issue commands into `AGENTS.md`; drop
-  the rest.
-- Remove every Matt Pocock artifact: `/ask-matt`, `/domain-modeling`,
-  Wayfinding, `wayfinder:*` labels, and the triage-role mapping. Labels on
-  GitHub follow Decision 5.
-- Rewrite `AGENTS.md` in at most 90 lines:
-  1. What the project is, and the pipeline diagram.
-  2. Sources of truth: `settings.toml`, `Makefile`, `monitor --help`,
-     `docs/architecture.md`.
-  3. Invariants (current list plus "v2 schema only").
-  4. Package boundaries.
-  5. Commands: setup; one test (`uv run pytest tests/test_x.py -k name`,
-     `node --test frontend/test/x.test.mjs`, `npm test` in the Worker);
-     `check-fast`; `check`; which targets need network or browsers.
-  6. Verification: focused test, then `make check-fast`; browser tests only when
-     UI behavior changed; no evidence documents.
-  7. Version control: jj rules, unchanged.
-  8. Registrar calendar: when production is live and when changes are safe.
-  9. Skills: one line each on when to load them.
-  10. Docs rule: no ADRs or separate specs; lasting decisions go in
-      `docs/architecture.md`.
-- Skills:
-  - **storage:** "v2 is the only schema; schema changes are forward-only
-    migrations in code" replaces the migration and finalization text.
-  - **dashboard:** new paths; add a short Worker section; move the chart-radius
-    rule into a code comment.
-  - **production, telegram:** point to `docs/operations.md`; content otherwise
-    unchanged.
-
-**Done when** `git grep -iE 'matt|wayfinder|ask-matt'` returns nothing and
-every path a skill names exists.
 
 ### Stage 7 — Publish data through a Worker
 

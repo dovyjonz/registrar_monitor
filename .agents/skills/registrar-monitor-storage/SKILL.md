@@ -19,7 +19,8 @@ Read `docs/architecture.md` before editing.
   `scripts/restore_litestream.sh` into a new file; never overwrite a live database.
 - Cross-semester analysis (`monitor analyze`, `monitor export-parquet`) reads the
   databases read-only through DuckDB; never write to SQLite from it.
-- Do not add compatibility layers, JSON snapshots, or silent schema upgrades.
+- v2 is the only schema; schema changes are forward-only migrations in code. Do not
+  add compatibility layers, JSON snapshots, or silent schema upgrades.
 - New semesters are created only by `monitor db initialize`, never implicitly at runtime.
 
 ## Verification

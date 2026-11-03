@@ -788,6 +788,10 @@ export async function renderChart(
         recordedDomainEnd,
     );
 
+    // Regular and hover point radii stay zero on every dataset so the lines read
+    // as steps; only synthetic and observation-ended markers get a radius.
+    // Capacity-change markers stay visible, and horizontal guides render behind
+    // datasets with a negative z-order.
     const currentDataset = {
         id: 'enrollment',
         label: chartLabel,
