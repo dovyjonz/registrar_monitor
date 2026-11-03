@@ -18,7 +18,10 @@ def mock_config(tmp_path):
     with patch("registrarmonitor.automation.downloader.get_config") as mock:
         mock.return_value = {
             "data_source": {},
-            "directories": {"raw_downloads": str(download_dir)},
+            "directories": {
+                "raw_downloads": str(download_dir),
+                "data_storage": str(tmp_path / "data"),
+            },
             "semesters": {
                 "Fall 2026": {"registrar_url": "http://test.url"},
             },
@@ -155,3 +158,52 @@ async def test_missing_ca_bundle_fails_closed(mock_config, mock_httpx_client, tm
         await downloader.download()
 
     mock_httpx_client.client_class.assert_not_called()
+
+
+def _response(content=b"xls-v1", status=200, **headers):
+    response = MagicMock()
+    response.status_code = status
+    response.content = content
+    response.headers = headers
+    response.raise_for_status = MagicMock()
+    return response
+
+
+@pytest.mark.asyncio
+async def test_unchanged_download_is_skipped_and_changed_one_is_returned(
+    mock_config, mock_httpx_client
+):
+    downloader = DataDownloader()
+    mock_httpx_client.get.side_effect = [
+        _response(b"xls-v1", ETag='"a"', **{"Last-Modified": "Mon, 01 Jan 2026"}),
+        _response(b"xls-v1"),  # same bytes, no validators: hash match
+        _response(status=304),  # conditional request honored
+        _response(b"xls-v2", ETag='"b"'),
+    ]
+
+    first = await downloader.download(skip_unchanged=True)
+    assert first is not None
+    assert await downloader.download(skip_unchanged=True) is None
+    assert await downloader.download(skip_unchanged=True) is None
+    third = await downloader.download(skip_unchanged=True)
+    assert third is not None
+    assert third != first
+
+    sent = [call.kwargs["headers"] for call in mock_httpx_client.get.call_args_list]
+    assert sent[0] == {}
+    assert sent[1] == {"If-None-Match": '"a"', "If-Modified-Since": "Mon, 01 Jan 2026"}
+
+
+@pytest.mark.asyncio
+async def test_default_download_never_skips_and_forget_resets_state(
+    mock_config, mock_httpx_client
+):
+    downloader = DataDownloader()
+    mock_httpx_client.get.side_effect = lambda *a, **k: _response(b"same")
+
+    assert await downloader.download() is not None
+    assert await downloader.download() is not None  # manual runs always fetch
+    assert await downloader.download(skip_unchanged=True) is None
+
+    downloader.forget_last_download()
+    assert await downloader.download(skip_unchanged=True) is not None
