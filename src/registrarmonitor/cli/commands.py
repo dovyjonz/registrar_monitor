@@ -423,7 +423,7 @@ class ScheduleCommand:
             import datetime as dt
 
             now = dt.datetime.now()
-            poll_interval, _ = scheduler.get_next_poll_interval(0)
+            poll_interval, _ = scheduler.get_next_poll_interval(0, update_state=False)
             next_sync_time = now + dt.timedelta(seconds=poll_interval)
             next_report_time = scheduler._get_next_report_time()
             pre_report_sync_time = next_report_time - dt.timedelta(seconds=60)

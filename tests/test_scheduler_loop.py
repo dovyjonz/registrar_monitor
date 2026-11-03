@@ -14,10 +14,7 @@ def _use_mock_decision_logger(mock_decision_logger):
     """Pull in mock_decision_logger from conftest for this module."""
 
 
-from registrarmonitor.automation.scheduler import (
-    SchedulingLevel,
-    TwoPhaseScheduler,
-)
+from registrarmonitor.automation.scheduler import TwoPhaseScheduler
 
 
 class TestTwoPhaseSchedulerLoop:
@@ -31,12 +28,14 @@ class TestTwoPhaseSchedulerLoop:
                 "registrarmonitor.automation.scheduler.get_config",
                 return_value={"semesters": {}},
             ),
-            patch(
-                "registrarmonitor.automation.scheduler.get_current_zone_type",
-                return_value=SchedulingLevel.SLEEP,
-            ),
         ):
             yield TwoPhaseScheduler(no_telegram=True)
+
+    def test_init(self, scheduler):
+        """Verify scheduler starts quiet, with a queue and downloader."""
+        assert scheduler.mode == "quiet"
+        assert isinstance(scheduler.pending_polls, asyncio.Queue)
+        assert scheduler.downloader is not None
 
     def test_run_website_update(self):
         """Generates in a child process before deploying from the scheduler."""
@@ -55,10 +54,6 @@ class TestTwoPhaseSchedulerLoop:
                 },
             ),
             patch(
-                "registrarmonitor.automation.scheduler.get_current_zone_type",
-                return_value=SchedulingLevel.SLEEP,
-            ),
-            patch(
                 "registrarmonitor.services.website_service.WebsiteService",
                 return_value=mock_service,
             ),
@@ -75,10 +70,57 @@ class TestTwoPhaseSchedulerLoop:
         assert run.call_args.kwargs["timeout"] == 7200
         mock_service.deploy.assert_called_once_with(project_name="test-project")
 
+    def test_run_website_update_generate_failure_skips_deploy(self):
+        """A failed isolated generation never publishes stale output."""
+        mock_service = MagicMock()
+        mock_service.is_any_semester_active.return_value = True
+
+        with (
+            patch(
+                "registrarmonitor.automation.scheduler.get_config",
+                return_value={
+                    "website": {"generation_timeout_seconds": 3600},
+                    "semesters": {},
+                },
+            ),
+            patch(
+                "registrarmonitor.services.website_service.WebsiteService",
+                return_value=mock_service,
+            ),
+            patch(
+                "registrarmonitor.automation.scheduler.subprocess.run",
+                return_value=MagicMock(returncode=1),
+            ),
+        ):
+            sched = TwoPhaseScheduler(no_telegram=True)
+            sched._run_website_update()
+
+        mock_service.deploy.assert_not_called()
+
+    def test_run_website_update_failure(self):
+        """Handles exception from WebsiteService gracefully."""
+        with (
+            patch(
+                "registrarmonitor.automation.scheduler.get_config",
+                return_value={"semesters": {}},
+            ),
+            patch(
+                "registrarmonitor.services.website_service.WebsiteService",
+                side_effect=RuntimeError("deploy failed"),
+            ),
+            patch(
+                "registrarmonitor.automation.scheduler.subprocess.run",
+                return_value=MagicMock(returncode=0),
+            ),
+        ):
+            sched = TwoPhaseScheduler(no_telegram=True)
+            sched._run_website_update()
+
     @pytest.mark.asyncio
     async def test_pending_polls_queue_concurrent_producer_consumer(self):
         """Verify that pending_polls is an asyncio.Queue and handles
         concurrent producer-consumer enqueue/dequeue correctly."""
+        import asyncio
 
         scheduler = TwoPhaseScheduler(no_telegram=True)
         assert isinstance(scheduler.pending_polls, asyncio.Queue)

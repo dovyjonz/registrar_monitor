@@ -208,13 +208,8 @@ def mock_config() -> dict[str, Any]:
 
 @pytest.fixture
 def mock_decision_logger():
-    """Prevent DecisionLogger from writing to log files during tests."""
-    with (
-        patch("registrarmonitor.automation.scheduler.DecisionLogger.log_decision"),
-        patch(
-            "registrarmonitor.automation.scheduler.DecisionLogger.ensure_log_file_exists"
-        ),
-    ):
+    """Prevent the scheduler from writing decision logs during tests."""
+    with patch("registrarmonitor.automation.scheduler.TwoPhaseScheduler._log_decision"):
         yield
 
 

@@ -1,9 +1,12 @@
-"""Tests for the scheduler module (beyond heat decay)."""
+"""Tests for scheduler polling workflow."""
 
-import time
-from zoneinfo import ZoneInfo
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from registrarmonitor.automation.scheduler import TwoPhaseScheduler
+from registrarmonitor.cli.commands import PollResult
 
 pytestmark = pytest.mark.unit
 
@@ -11,151 +14,6 @@ pytestmark = pytest.mark.unit
 @pytest.fixture(autouse=True)
 def _use_mock_decision_logger(mock_decision_logger):
     """Pull in mock_decision_logger from conftest for this module."""
-
-
-from datetime import datetime
-from unittest.mock import AsyncMock, patch
-
-from registrarmonitor.automation.scheduler import (
-    SchedulingLevel,
-    TwoPhaseScheduler,
-    get_current_zone_type,
-    parse_schedule_file,
-)
-from registrarmonitor.cli.commands import PollResult
-from registrarmonitor.website.config import get_milestones
-
-
-class TestParseScheduleFile:
-    """Tests for parse_schedule_file function."""
-
-    @patch("registrarmonitor.automation.scheduler.get_config")
-    def test_valid_schedule_config(self, mock_get_config):
-        """Valid milestones/deadlines should be parsed into correct zones."""
-        mock_get_config.return_value = {
-            "semesters": {
-                "summer2026": {
-                    "deadlines": [["2026-06-01T23:59:00", "Moderate Deadline"]],
-                    "priorities": {"seniors": [["2026-05-15T09:00:00", "Milestone 1"]]},
-                }
-            }
-        }
-
-        result = parse_schedule_file(force_reload=True)
-
-        assert SchedulingLevel.HOT in result
-        assert SchedulingLevel.SLEEP in result
-
-        # Milestone 2026-05-15T09:00:00:
-        # HOT: milestone - 5 min to milestone + 30 min
-        assert len(result[SchedulingLevel.HOT]) == 2
-
-        # first window (Milestone 1):
-        assert result[SchedulingLevel.HOT][0] == (
-            datetime(2026, 5, 15, 8, 55),
-            datetime(2026, 5, 15, 9, 30),
-        )
-
-        # second window (Moderate Deadline):
-        assert result[SchedulingLevel.HOT][1] == (
-            datetime(2026, 6, 1, 23, 54),
-            datetime(2026, 6, 2, 0, 29),
-        )
-
-
-class TestGetCurrentZoneType:
-    """Tests for get_current_zone_type function."""
-
-    @patch("registrarmonitor.automation.scheduler.get_config")
-    def test_sleep_when_no_schedule(self, mock_get_config):
-        """Should return SLEEP when no milestones or deadlines are defined."""
-        mock_get_config.return_value = {"semesters": {}}
-        result = get_current_zone_type()
-        assert result == SchedulingLevel.SLEEP
-
-    @patch("registrarmonitor.automation.scheduler.get_config")
-    def test_hot_zone_active(self, mock_get_config):
-        """Should return HOT when in HOT zone time."""
-        mock_get_config.return_value = {
-            "semesters": {
-                "summer2026": {
-                    "priorities": {"seniors": [["2026-05-15T09:00:00", "Milestone"]]}
-                }
-            }
-        }
-        # HOT zone: 08:55 to 09:30
-        mock_now = datetime(2026, 5, 15, 8, 57, 0)
-
-        class MockDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return mock_now
-
-        with patch("registrarmonitor.automation.scheduler.dt.datetime", MockDateTime):
-            result = get_current_zone_type()
-            assert result == SchedulingLevel.HOT
-
-    @patch("registrarmonitor.automation.scheduler.get_config")
-    def test_sleep_outside_windows(self, mock_get_config):
-        """Should return SLEEP when outside defined zones but zones exist."""
-        mock_get_config.return_value = {
-            "semesters": {
-                "summer2026": {"deadlines": [["2026-06-01T23:59:00", "Deadline"]]}
-            }
-        }
-        mock_now = datetime(2026, 6, 1, 12, 0, 0)
-
-        class MockDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return mock_now
-
-        with patch("registrarmonitor.automation.scheduler.dt.datetime", MockDateTime):
-            result = get_current_zone_type()
-            assert result == SchedulingLevel.SLEEP
-
-    @pytest.mark.parametrize("process_timezone", ["UTC", "Asia/Almaty"])
-    @patch("registrarmonitor.automation.scheduler.get_config")
-    def test_registrar_times_are_process_timezone_independent(
-        self, mock_get_config, monkeypatch, process_timezone
-    ):
-        """Schedule decisions and browser timestamps use the registrar timezone."""
-        mock_get_config.return_value = {
-            "timezone": "Asia/Almaty",
-            "semesters": {
-                "Fall 2026": {
-                    "priorities": {
-                        "1": [["2026-08-05T09:00:00", "Y4+"]],
-                    }
-                }
-            },
-        }
-        instant = datetime(2026, 8, 5, 4, 0, tzinfo=ZoneInfo("UTC")).timestamp()
-
-        monkeypatch.setenv("TZ", process_timezone)
-        time.tzset()
-
-        class MockDateTime(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return cls.fromtimestamp(instant, tz)
-
-        try:
-            with patch(
-                "registrarmonitor.automation.scheduler.dt.datetime", MockDateTime
-            ):
-                assert get_current_zone_type() == SchedulingLevel.HOT
-
-            with patch(
-                "registrarmonitor.website.config._load_settings",
-                return_value=mock_get_config.return_value,
-            ):
-                milestone = get_milestones("Fall 2026")[0]
-                assert milestone["time"] == ("2026-08-05T09:00:00+05:00")
-                assert milestone["priority"] == "1"
-        finally:
-            monkeypatch.undo()
-            time.tzset()
 
 
 class TestSchedulerPollResult:
@@ -178,7 +36,5 @@ class TestSchedulerPollResult:
                     change_score=12.5,
                 )
                 return await scheduler._single_poll_and_process()
-
-        import asyncio
 
         assert asyncio.run(run_test()) == 12.5

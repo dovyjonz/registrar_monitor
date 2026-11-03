@@ -12,7 +12,7 @@ def _use_mock_decision_logger(mock_decision_logger):
     """Pull in mock_decision_logger from conftest for this module."""
 
 
-from registrarmonitor.automation.scheduler import SchedulingLevel, TwoPhaseScheduler
+from registrarmonitor.automation.scheduler import TwoPhaseScheduler
 
 
 def _make_snapshot(courses=None):
@@ -35,12 +35,7 @@ def _make_comparison(new=(), removed=(), changed=()):
 @pytest.fixture
 def scheduler():
     """Create a TwoPhaseScheduler with mocked low zone (no telegram)."""
-    with patch(
-        "registrarmonitor.automation.scheduler.get_current_zone_type",
-        return_value=SchedulingLevel.SLEEP,
-    ):
-        sched = TwoPhaseScheduler(no_telegram=True)
-    return sched
+    return TwoPhaseScheduler(no_telegram=True)
 
 
 class TestCheckAndTriggerUpdates:
@@ -184,11 +179,7 @@ class TestCheckAndTriggerUpdates:
     @pytest.mark.asyncio
     async def test_report_cycle_force_poll_false_uses_cached_score(self):
         """_run_report_cycle with force_poll=False should not poll for a fresh score."""
-        with patch(
-            "registrarmonitor.automation.scheduler.get_current_zone_type",
-            return_value=SchedulingLevel.SLEEP,
-        ):
-            sched = TwoPhaseScheduler(no_telegram=True)
+        sched = TwoPhaseScheduler(no_telegram=True)
 
         sched._last_change_score = 42.0
 
@@ -209,11 +200,7 @@ class TestCheckAndTriggerUpdates:
     @pytest.mark.asyncio
     async def test_report_cycle_force_poll_true_polls_for_fresh_score(self):
         """_run_report_cycle with force_poll=True should poll for a fresh score."""
-        with patch(
-            "registrarmonitor.automation.scheduler.get_current_zone_type",
-            return_value=SchedulingLevel.SLEEP,
-        ):
-            sched = TwoPhaseScheduler(no_telegram=True)
+        sched = TwoPhaseScheduler(no_telegram=True)
 
         with (
             patch.object(

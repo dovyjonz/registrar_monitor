@@ -1,12 +1,25 @@
+"""Poll scheduler.
+
+Polling cadence is declarative: ``Schedule`` holds the registration milestones
+from ``settings.toml`` and ``Cadence`` maps the last change score to the next
+interval using the tables below.
+
+Quiet mode (default) polls every 5/15/30 minutes by score and backs off by 1.5x
+after each silent poll up to 2h by day and 4h by night. A score of 12 or more
+enters burst mode (60s at 12+, 10s at 25+, 120s/180s while cooling down), which
+ends after three polls under 5. Within 5 minutes before to 30 minutes after a
+milestone the interval is at most 5 minutes, and a poll is always aligned to the
+next window start or milestone.
+"""
+
 import asyncio
-import datetime as dt
+import datetime
 import json
-import os
 import subprocess
 import sys
 import time
-from collections import deque
-from enum import Enum
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import get_config, get_timezone
@@ -15,505 +28,314 @@ from ..data.database_manager import DatabaseManager
 from .downloader import DataDownloader
 
 # ReportingService is imported lazily to avoid circular import
-# (reporting_service imports TwoPhaseScheduler, scheduler imports ReportingService)
+# (reporting_service imports the scheduler, scheduler imports ReportingService)
 ReportingService = None  # type: ignore[misc, assignment]
 
+# (minimum score, seconds), checked in order.
+QUIET_BASE_INTERVALS = ((5, 300), (2, 900), (0, 1800))
+BURST_INTERVALS = ((25, 10), (12, 60), (5, 120), (0, 180))
+BURST_ENTRY_SCORE = 12.0
+BURST_LOW_SCORE = 5.0  # polls below this count toward leaving burst mode
+BURST_EXIT_COUNT = 3
+QUIET_BACKOFF = 1.5
+DAY_HOURS = range(8, 20)
+DAY_CAP_SECONDS = 7200
+NIGHT_CAP_SECONDS = 14400
+RESET_INTERVAL_SECONDS = 300
+HOT_WINDOW = (datetime.timedelta(minutes=-5), datetime.timedelta(minutes=30))
+HOT_CAP_SECONDS = 300
+COOLDOWN_SECONDS = 300.0
 
-def get_current_time_str() -> str:
-    """Get current time as formatted string."""
-    return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def _tier(table: tuple[tuple[int, int], ...], score: float) -> int:
+    return next(seconds for minimum, seconds in table if score >= minimum)
 
 
-def _registrar_datetime(value: str, cfg: dict) -> dt.datetime:
+def _registrar_datetime(value: str, cfg: dict) -> datetime.datetime:
     """Parse a configured time as registrar-local wall time."""
-    parsed = dt.datetime.fromisoformat(value)
+    parsed = datetime.datetime.fromisoformat(value)
     if parsed.tzinfo is not None:
         return parsed.astimezone(get_timezone(cfg)).replace(tzinfo=None)
     return parsed
 
 
-def _registrar_now(cfg: dict | None = None) -> dt.datetime:
+def _registrar_now(cfg: dict | None = None) -> datetime.datetime:
     """Return current registrar-local wall time independent of the host timezone."""
     config = cfg if cfg is not None else get_config()
-    return _registrar_wall_time(
-        dt.datetime.now(get_timezone(config)),
-        config,
-    )
+    now = datetime.datetime.now(datetime.UTC).astimezone(get_timezone(config))
+    return now.replace(tzinfo=None)
 
 
-def _registrar_wall_time(value: dt.datetime, cfg: dict | None = None) -> dt.datetime:
-    """Convert aware values while preserving naive scheduler inputs."""
-    if value.tzinfo is None:
-        return value
-    config = cfg if cfg is not None else get_config()
-    return value.astimezone(get_timezone(config)).replace(tzinfo=None)
+@dataclass(frozen=True)
+class Schedule:
+    """Registration milestones and deadlines in registrar-local wall time."""
 
-
-class SchedulingLevel(Enum):
-    """Unified enum for scheduling levels (zones/tiers).
-
-    Each level has a string label and an interval in seconds.
-    """
-
-    HOT = ("hot", 300)  # 5 minutes - Inside active windows
-    SLEEP = ("sleep", 3600)  # 1 hour - Outside all windows
-
-    def __init__(self, label: str, interval: int):
-        self._label = label
-        self._interval = interval
-
-    @property
-    def label(self) -> str:
-        """String label used in schedule.txt (e.g., 'hot', 'sleep')."""
-        return self._label
-
-    @property
-    def interval(self) -> int:
-        """Polling interval in seconds."""
-        return self._interval
+    milestones: tuple[datetime.datetime, ...] = ()
 
     @classmethod
-    def from_label(cls, label: str) -> "SchedulingLevel":
-        """Create SchedulingLevel from string label."""
-        for level in cls:
-            if level.label == label.lower():
-                return level
-        raise ValueError(f"Unknown scheduling level: {label}")
+    def from_config(cls, cfg: dict | None = None) -> "Schedule":
+        config = cfg if cfg is not None else get_config()
+        times = set()
+        for semester in config.get("semesters", {}).values():
+            entries = list(semester.get("deadlines", []))
+            for milestones in semester.get("priorities", {}).values():
+                entries.extend(milestones)
+            times.update(_registrar_datetime(entry[0], config) for entry in entries)
+        return cls(tuple(sorted(times)))
 
-    @classmethod
-    def from_score(cls, score: float) -> "SchedulingLevel":
-        """Determine scheduling level from activity score."""
-        if score >= 1.0:
-            return cls.HOT
+    def in_hot_zone(self, now: datetime.datetime) -> bool:
+        before, after = HOT_WINDOW
+        return any(m + before <= now <= m + after for m in self.milestones)
+
+    def seconds_until_next_event(self, now: datetime.datetime) -> float | None:
+        """Seconds to the next hot window start or milestone, if any."""
+        starts = (m + HOT_WINDOW[0] for m in self.milestones)
+        upcoming = [
+            (t - now).total_seconds() for t in (*starts, *self.milestones) if t > now
+        ]
+        return min(upcoming, default=None)
+
+
+@dataclass
+class Decision:
+    """Outcome of one cadence step."""
+
+    interval: int
+    reset: bool
+
+
+class Cadence:
+    """Quiet/burst polling state machine."""
+
+    def __init__(self) -> None:
+        self.mode = "quiet"
+        self.consecutive_low = 0
+        self.silent_polls = 0
+        self.is_day: bool | None = None
+
+    def step(
+        self,
+        score: float,
+        now: datetime.datetime,
+        schedule: Schedule,
+        *,
+        update: bool = True,
+    ) -> Decision:
+        """Return the wait before the next poll.
+
+        With ``update`` False the interval is re-evaluated without recording the
+        score (no new poll has completed since the last step).
+        """
+        is_day = now.hour in DAY_HOURS
+        prev_mode, prev_silent, prev_is_day = self.mode, self.silent_polls, self.is_day
+        mode, low, silent = self.mode, self.consecutive_low, self.silent_polls
+
+        if update:
+            low = low + 1 if prev_mode == "burst" and score < BURST_LOW_SCORE else 0
+            if score >= BURST_ENTRY_SCORE:
+                mode = "burst"
+            elif prev_mode == "burst" and low >= BURST_EXIT_COUNT:
+                mode = "quiet"
+            silent = silent + 1 if mode == "quiet" and score == 0.0 else 0
+
+        if mode == "quiet":
+            interval = _tier(QUIET_BASE_INTERVALS, score) * (
+                QUIET_BACKOFF ** max(0, silent - 1)
+            )
         else:
-            return cls.SLEEP
+            interval = _tier(BURST_INTERVALS, score)
+        interval = min(interval, DAY_CAP_SECONDS if is_day else NIGHT_CAP_SECONDS)
 
-    def is_more_urgent_than(self, other: "SchedulingLevel") -> bool:
-        """Check if this level is more urgent (shorter interval) than another."""
-        return self._interval < other._interval
+        reset = (
+            (score > 0.0 and prev_silent > 0)
+            or (prev_is_day is not None and prev_is_day != is_day)
+            or mode != prev_mode
+        )
+        if reset:
+            interval = RESET_INTERVAL_SECONDS
+            silent = 0
+        if schedule.in_hot_zone(now):
+            interval = min(interval, HOT_CAP_SECONDS)
+        until_event = schedule.seconds_until_next_event(now)
+        if until_event is not None:
+            interval = min(interval, until_event)
+
+        if update:
+            self.mode, self.consecutive_low, self.silent_polls = mode, low, silent
+            self.is_day = is_day
+        return Decision(max(1, int(interval)), reset)
 
 
-# Cache storage
-# Key: absolute file path
-# Value: dict with keys:
-#   - 'data': The parsed zones dict
-#   - 'mtime': The modification time of the file
-#   - 'last_check': Timestamp of the last check (for TTL)
-_SCHEDULE_CACHE = {}
-_CACHE_TTL = 60  # seconds
+class _Coalesced:
+    """Run one async job at a time; a trigger during a run reruns it once."""
 
+    def __init__(self, name: str, job: Callable[[], Awaitable[object]]):
+        self.name = name
+        self.job = job
+        self.task: asyncio.Task | None = None
+        self.pending = False
+        self.log = get_logger(__name__)
 
-def merge_time_windows(
-    windows: list[tuple[dt.datetime, dt.datetime]],
-) -> list[tuple[dt.datetime, dt.datetime]]:
-    """Sort and merge overlapping time windows."""
-    if not windows:
-        return []
-    sorted_windows = sorted(windows, key=lambda x: x[0])
-    merged = [sorted_windows[0]]
-    for current_start, current_end in sorted_windows[1:]:
-        last_start, last_end = merged[-1]
-        if current_start <= last_end:
-            merged[-1] = (last_start, max(last_end, current_end))
+    def trigger(self) -> None:
+        if self.task is None or self.task.done():
+            self.task = asyncio.create_task(self._run())
         else:
-            merged.append((current_start, current_end))
-    return merged
+            self.pending = True
+
+    async def _run(self) -> None:
+        while True:
+            self.pending = False
+            try:
+                await self.job()
+            except Exception as e:
+                self.log.error(f"Error in background {self.name}: {e}")
+            if not self.pending:
+                return
+            self.log.info(f"Another {self.name} is pending. Running it again.")
+
+    async def cancel(self) -> None:
+        if self.task and not self.task.done():
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
 
 
-def parse_schedule_file(
-    force_reload: bool = False,
-) -> dict[SchedulingLevel, list[tuple[dt.datetime, dt.datetime]]]:
-    """
-    Build scheduler zones from milestones and deadlines defined in settings.toml.
-    Both deadlines and milestones are treated as milestones and mapped to the HOT zone.
-
-    HOT zone window: [time - 5 min, time + 30 min]
-    """
-    is_mocked = (
-        hasattr(get_config, "mock_add_spec") or "Mock" in type(get_config).__name__
-    )
-    abs_path = os.path.abspath("settings.toml")
-    now = time.time()
-
-    # ---- cache check (same logic as before, keyed on settings.toml) ----
-    if not force_reload and not is_mocked and abs_path in _SCHEDULE_CACHE:
-        cache_entry = _SCHEDULE_CACHE[abs_path]
-        if now - cache_entry["last_check"] < _CACHE_TTL:
-            return cache_entry["data"]
-        try:
-            current_mtime = os.path.getmtime(abs_path)
-            if current_mtime == cache_entry["mtime"]:
-                cache_entry["last_check"] = now
-                return cache_entry["data"]
-        except OSError:
-            pass
-
-    # ---- load settings.toml ----
-    zones: dict[SchedulingLevel, list[tuple[dt.datetime, dt.datetime]]] = {
-        zone_type: [] for zone_type in SchedulingLevel
-    }
-
-    current_mtime = 0.0
-    try:
-        current_mtime = os.path.getmtime(abs_path)
-    except OSError:
-        pass
-
-    try:
-        cfg = get_config()
-        semesters = cfg.get("semesters", {})
-
-        milestone_times = []
-        for sem_name, sem_data in semesters.items():
-            if not isinstance(sem_data, dict):
-                continue
-
-            priorities = sem_data.get("priorities", {})
-            for p_list in priorities.values():
-                for m_data in p_list:
-                    try:
-                        milestone_times.append(_registrar_datetime(m_data[0], cfg))
-                    except (IndexError, ValueError) as e:
-                        print(f"Warning: skipping milestone {m_data}: {e}")
-
-            for d_data in sem_data.get("deadlines", []):
-                try:
-                    milestone_times.append(_registrar_datetime(d_data[0], cfg))
-                except (IndexError, ValueError) as e:
-                    print(f"Warning: skipping deadline {d_data}: {e}")
-
-        # Map milestones/deadlines to HOT window: [T - 5 min, T + 30 min]
-        hot_windows = []
-        for t in milestone_times:
-            start = t - dt.timedelta(minutes=5)
-            end = t + dt.timedelta(minutes=30)
-            hot_windows.append((start, end))
-
-        zones[SchedulingLevel.HOT] = merge_time_windows(hot_windows)
-
-    except FileNotFoundError:
-        print("settings.toml not found. Using default scheduling.")
-    except Exception as e:
-        print(f"Error reading settings.toml for schedule: {e}")
-
-    # ---- update cache ----
-    if not is_mocked and current_mtime > 0:
-        _SCHEDULE_CACHE[abs_path] = {
-            "data": zones,
-            "mtime": current_mtime,
-            "last_check": now,
-        }
-
-    return zones
+def _pending_activity(comparison, current, previous) -> tuple[float, bool]:
+    """Score unreported changes and report whether any section changed state."""
+    score = len(comparison.new_courses) * 5.0 + len(comparison.removed_courses) * 5.0
+    status_changed = bool(comparison.new_courses or comparison.removed_courses)
+    for course in comparison.changed_courses:
+        score += (len(course.added_sections) + len(course.removed_sections)) * 2.0
+        status_changed |= bool(course.added_sections or course.removed_sections)
+        now_course = current.courses.get(course.course_code)
+        was_course = previous.courses.get(course.course_code)
+        for change in course.modified_sections:
+            score += (
+                abs(
+                    (change.current_enrollment or 0) - (change.previous_enrollment or 0)
+                )
+                / 5.0
+            )
+            if (
+                change.current_capacity is not None
+                and change.previous_capacity is not None
+                and change.current_capacity != change.previous_capacity
+            ):
+                score += 3.0
+            if now_course and was_course:
+                now_sec = now_course.sections.get(change.section_id)
+                was_sec = was_course.sections.get(change.section_id)
+                if now_sec and was_sec:
+                    status_changed |= _is_full(now_sec) != _is_full(was_sec)
+    return score, status_changed
 
 
-def get_next_zone_start(
-    now: dt.datetime | None = None,
-) -> dt.datetime | None:
-    """
-    Find the start time of the next scheduled HOT zone window after now.
-    """
-    if now is None:
-        now = _registrar_now()
-    else:
-        now = _registrar_wall_time(now)
-    zones = parse_schedule_file()
-    next_start = None
-
-    for start_time, _end_time in zones.get(SchedulingLevel.HOT, []):
-        if start_time > now:
-            if next_start is None or start_time < next_start:
-                next_start = start_time
-
-    return next_start
+def _is_full(section) -> bool:
+    return section.capacity > 0 and section.enrollment >= section.capacity
 
 
-def get_current_zone_type(now: dt.datetime | None = None) -> SchedulingLevel:
-    """
-    Determine the current scheduling level based on milestones in settings.toml.
-    """
-    if now is None:
-        now = _registrar_now()
-    else:
-        now = _registrar_wall_time(now)
-    zones = parse_schedule_file()
-
-    # Check if inside any HOT window
-    for start_time, end_time in zones.get(SchedulingLevel.HOT, []):
-        if start_time <= now <= end_time:
-            return SchedulingLevel.HOT
-
-    return SchedulingLevel.SLEEP
-
-
-async def poll_and_get_change_score() -> float:
-    """
-    Polls the system and calculates a change score based on activity.
-
-    Returns:
-        Float score representing activity level:
-        - 0: No changes
-        - 1-9: Low to medium activity
-        - 10-29: High activity
-        - 30+: Extreme activity
-    """
-    try:
-        try:
-            from ..cli.commands import PollCommand
-        except ImportError:
-            from registrarmonitor.cli.commands import PollCommand
-
-        poll_command = PollCommand(debug=False)
-        result = await poll_command.run_with_result()
-        return result.change_score if result.success else 0.0
-
-    except Exception as e:
-        print(f"ERROR: Failed to calculate change score: {e}")
-        return 0.0
-
-
-class SchedulingDecision:
-    """Represents a scheduling decision for logging."""
+class TwoPhaseScheduler:
+    """Poll the registrar on the declarative cadence and trigger reports."""
 
     def __init__(
         self,
-        timestamp: dt.datetime,
-        change_score: float,
-        current_heat: float,
-        baseline_level: SchedulingLevel,
-        reactive_level: SchedulingLevel,
-        final_level: SchedulingLevel,
-        final_interval: int,
+        log_file: str | Path | None = None,
+        no_telegram: bool = False,
     ):
-        self.timestamp = timestamp
-        self.change_score = change_score
-        self.current_heat = current_heat
-        self.baseline_level = baseline_level
-        self.reactive_level = reactive_level
-        self.final_level = final_level
-        self.final_interval = final_interval
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for JSON logging."""
-        return {
-            "timestamp": self.timestamp.isoformat(),
-            "change_score": self.change_score,
-            "current_heat": round(self.current_heat, 2),
-            "baseline_level": self.baseline_level.label,
-            "reactive_level": self.reactive_level.label,
-            "final_level": self.final_level.label,
-            "final_interval_seconds": self.final_interval,
-            "final_interval_minutes": round(self.final_interval / 60, 2),
-        }
-
-
-class DecisionLogger:
-    """Persist scheduler decisions as newline-delimited JSON for inspection."""
-
-    def __init__(self, log_file: str | Path | None = None):
+        self.no_telegram = no_telegram
+        self.logger_ops = get_logger(__name__)
         if log_file is None:
             log_dir = get_config().get("directories", {}).get("logs", "logs")
             log_file = Path(log_dir) / "scheduler_decisions.jsonl"
         self.log_file = Path(log_file)
-        self.logger = get_logger(__name__)
-        self.ensure_log_file_exists()
 
-    def ensure_log_file_exists(self):
-        """Create log file if it doesn't exist."""
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        self.log_file.touch(exist_ok=True)
+        self.cadence = Cadence()
+        self._new_poll_processed = False
+        self._last_poll_time: datetime.datetime | None = None
+        self._last_change_score = 0.0
+        self._deferred = False  # an update was held back by a cooldown
+        self.last_report_sent_time: datetime.datetime | None = None
+        self.last_website_updated_time: datetime.datetime | None = None
+        self.report_cooldown_seconds = COOLDOWN_SECONDS
+        self.website_cooldown_seconds = COOLDOWN_SECONDS
 
-    def log_decision(self, decision: "SchedulingDecision | TwoPhaseDecision"):
-        """Log a scheduling decision."""
-        try:
-            with self.log_file.open("a", encoding="utf-8") as f:
-                json.dump(decision.to_dict(), f)
-                f.write("\n")
-        except OSError:
-            self.logger.warning(
-                "Failed to write scheduler decision log %s",
-                self.log_file,
-                exc_info=True,
-            )
-
-    def get_recent_decisions(self, count: int = 10) -> list[dict]:
-        """Get the most recent scheduling decisions."""
-        decisions = []
-        try:
-            with self.log_file.open(encoding="utf-8") as f:
-                # Use deque to only keep the last `count` lines in memory
-                last_lines = deque(f, maxlen=count)
-
-            for line in last_lines:
-                line = line.strip()
-                if line:
-                    try:
-                        decisions.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        self.logger.warning(
-                            "Skipping malformed scheduler decision in %s",
-                            self.log_file,
-                        )
-            return decisions
-        except OSError:
-            self.logger.warning(
-                "Failed to read scheduler decision log %s",
-                self.log_file,
-                exc_info=True,
-            )
-            return []
-
-
-class TwoPhaseDecision:
-    """Represents a two-phase scheduling decision for logging."""
-
-    def __init__(
-        self,
-        timestamp: dt.datetime,
-        change_score: float,
-        mode: str,
-        consecutive_low: int,
-        decay_counter: int,
-        baseline_level: SchedulingLevel,
-        final_interval: int,
-        reset_condition: bool = False,
-    ):
-        self.timestamp = timestamp
-        self.change_score = change_score
-        self.mode = mode
-        self.consecutive_low = consecutive_low
-        self.decay_counter = decay_counter
-        self.baseline_level = baseline_level
-        self.final_interval = final_interval
-        self.reset_condition = reset_condition
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for JSON logging."""
-        return {
-            "timestamp": self.timestamp.isoformat(),
-            "change_score": self.change_score,
-            "mode": self.mode,
-            "consecutive_low": self.consecutive_low,
-            "decay_counter": self.decay_counter,
-            "baseline_level": self.baseline_level.label,
-            "final_interval_seconds": self.final_interval,
-            "final_interval_minutes": round(self.final_interval / 60, 2),
-            "reset_condition": self.reset_condition,
-        }
-
-
-class TwoPhaseScheduler:
-    """
-    Two-Phase scheduler that separates quiet mode from burst mode.
-
-    This scheduler is optimized for bimodal activity patterns:
-    - Quiet mode: Conservative polling when activity is low
-    - Burst mode: Aggressive polling during registration waves
-
-    The scheduler enters burst mode when a significant activity spike is detected,
-    and exits only after sustained low activity (consecutive low-score polls).
-    """
-
-    # Thresholds for mode transitions (data-driven from log analysis)
-    BURST_ENTRY_THRESHOLD = 12.0  # Score to enter burst mode
-    BURST_EXIT_THRESHOLD = 3.0  # Score below this counts toward exit
-    BURST_EXIT_COUNT = 3  # Consecutive low polls needed to exit burst mode
-
-    # Quiet mode intervals (conservative)
-    QUIET_INTERVALS = {
-        "active": 5 * 60,  # score >= 5: something happening, check in 5 min
-        "idle": 15 * 60,  # score 2-4: minor noise, check in 15 min
-        "silent": 30 * 60,  # score < 2: completely quiet, check in 30 min
-    }
-
-    # Burst mode intervals (aggressive)
-    BURST_INTERVALS = {
-        "extreme": 10,  # score >= 25: rapid fire
-        "high": 60,  # score >= 12: active period
-        "moderate": 120,  # score >= 5: trailing activity
-        "low": 180,  # score < 5: cooling down (stay elevated)
-    }
-
-    def __init__(
-        self,
-        schedule_file: str = "schedule.txt",
-        log_file: str | Path | None = None,
-        no_telegram: bool = False,
-    ):
-        self.schedule_file = schedule_file
-        self.logger = DecisionLogger(log_file)
-        self.no_telegram = no_telegram
-        self.logger_ops = get_logger(__name__)
-
-        # Two-phase state
-        self.mode: str = "quiet"  # "quiet" or "burst"
-        self.consecutive_low: int = 0
-        self.decay_counter: int = 0
-        self._new_poll_processed: bool = False
-        self.quiet_interval: float = 300.0
-        self.last_is_day: bool | None = None
-
-        # Concurrency tasks and pending flags
-        self._website_update_task: asyncio.Task | None = None
-        self._website_update_pending: bool = False
-        self._telegram_report_task: asyncio.Task | None = None
-        self._telegram_report_pending: bool = False
         self._report_cycle_lock = asyncio.Lock()
-
-        # Initialize ReportingService (lazy import to avoid circular dep)
-        self._detected_semester: str | None = None
+        self._report_job = _Coalesced(
+            "Telegram report", lambda: self._run_report_cycle(force_poll=False)
+        )
+        self._website_job = _Coalesced(
+            "website update", lambda: asyncio.to_thread(self._run_website_update)
+        )
         self.reporting_service = None
         self._reporting_service_class = None
-
         try:
             from ..services.reporting_service import ReportingService as RS
 
             self._reporting_service_class = RS  # type: ignore[assignment]
         except ImportError:
-            try:
-                from registrarmonitor.services.reporting_service import (
-                    ReportingService as RS,
-                )
+            print("⚠️  Warning: ReportingService unavailable")
 
-                self._reporting_service_class = RS  # type: ignore[assignment]
-            except ImportError:
-                print("⚠️  Warning: ReportingService unavailable")
-
-        # Initialize caffeinate process for sleep prevention
-        self.caffeinate_process = None
-
-        # Website update configuration
-        self.website_interval_minutes = 30
-        try:
-            config = get_config()
-            self.website_interval_minutes = config.get("website", {}).get(
-                "update_interval", 30
-            )
-        except Exception:
-            pass
-        self.last_website_update = dt.datetime.now() - dt.timedelta(
-            minutes=self.website_interval_minutes
-        )
-
-        # Cooldown and event-driven tracking
-        self._last_poll_time: dt.datetime | None = None
-        self._last_change_score: float = 0.0
-        self.last_report_sent_time: dt.datetime | None = None
-        self.last_website_updated_time: dt.datetime | None = None
-        self.report_cooldown_seconds: float = 300.0  # 5 minutes
-        self.website_cooldown_seconds: float = 300.0  # 5 minutes
-
-        # Initialize queue and downloader for parallel asynchronous polling & FIFO commits
         self.downloader = DataDownloader()
         self.pending_polls: asyncio.Queue = asyncio.Queue()
+
+    @property
+    def mode(self) -> str:
+        return self.cadence.mode
+
+    def get_next_poll_interval(
+        self,
+        last_change_score: float = 0,
+        timestamp: datetime.datetime | None = None,
+        update_state: bool = True,
+    ) -> tuple[int, Decision]:
+        """Return the wait before the next poll and log the decision."""
+        now = timestamp if timestamp is not None else _registrar_now()
+        decision = self.cadence.step(
+            last_change_score, now, Schedule.from_config(), update=update_state
+        )
+        self._log_decision(
+            {
+                "timestamp": now.isoformat(),
+                "change_score": last_change_score,
+                "mode": self.cadence.mode,
+                "consecutive_low": self.cadence.consecutive_low,
+                "silent_polls": self.cadence.silent_polls,
+                "final_interval_seconds": decision.interval,
+                "reset_condition": decision.reset,
+            }
+        )
+        return decision.interval, decision
+
+    def _log_decision(self, entry: dict) -> None:
+        """Append one decision to the JSON-lines log."""
+        try:
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.log_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            self.logger_ops.warning(
+                "Failed to write scheduler decision log %s", self.log_file
+            )
+
+    def _get_next_report_time(self) -> datetime.datetime:
+        """Next :15 or :45 in registrar-local wall time."""
+        now = _registrar_now()
+        hour = now.replace(minute=0, second=0, microsecond=0)
+        slots = [
+            hour + datetime.timedelta(hours=h, minutes=m)
+            for h in (0, 1)
+            for m in (15, 45)
+        ]
+        return min(t for t in slots if t > now)
 
     def _run_website_update(self):
         """Generate in a disposable process, then deploy the completed output."""
         try:
             from ..services.website_service import WebsiteService
 
-            config = get_config()
-            website_config = config.get("website", {})
+            website_config = get_config().get("website", {})
             project_name = website_config.get("pages_project_name", "registrar-monitor")
             generation_timeout_seconds = website_config["generation_timeout_seconds"]
 
@@ -540,44 +362,11 @@ class TwoPhaseScheduler:
         except Exception as e:
             print(f"❌ Website update failed: {e}")
 
-    async def _run_report_cycle_async(self, force_poll: bool = True):
-        self.logger_ops.info("Background Telegram report task started.")
-        while True:
-            self._telegram_report_pending = False
-            try:
-                await self._run_report_cycle(force_poll=force_poll)
-            except Exception as e:
-                self.logger_ops.error(f"Error in background Telegram report cycle: {e}")
-
-            if not self._telegram_report_pending:
-                break
-            self.logger_ops.info(
-                "Another Telegram report is pending. Running report cycle again."
-            )
-        self.logger_ops.info("Background Telegram report task finished.")
-
-    async def _run_website_update_async(self):
-        self.logger_ops.info("Background website update task started.")
-        while True:
-            self._website_update_pending = False
-            try:
-                await asyncio.to_thread(self._run_website_update)
-            except Exception as e:
-                self.logger_ops.error(f"Error in background website update: {e}")
-
-            if not self._website_update_pending:
-                break
-            self.logger_ops.info(
-                "Another website update is pending. Running website update again."
-            )
-        self.logger_ops.info("Background website update task finished.")
+    def _cooled_down(self, last, seconds: float, now: datetime.datetime) -> bool:
+        return last is None or (now - last).total_seconds() >= seconds
 
     async def _check_and_trigger_updates(self):
-        """
-        Check if the database contains new snapshots that haven't been reported yet.
-        If there are new snapshots, compare them and determine if the changes are significant
-        enough to warrant a report / website update.
-        """
+        """Report and publish when unreported snapshots hold significant changes."""
         try:
             from ..cli.utils import detect_active_semester
             from ..data.snapshot_comparator import SnapshotComparator
@@ -586,13 +375,11 @@ class TwoPhaseScheduler:
             from registrarmonitor.data.snapshot_comparator import SnapshotComparator
 
         try:
+            self._deferred = False
             semester = await detect_active_semester()
             db_manager = DatabaseManager(semester=semester)
-            comparator = SnapshotComparator()
-
             latest_snapshot_id = db_manager.get_latest_snapshot_id()
             last_reported_id = db_manager.get_last_reported_snapshot_id()
-
             if not latest_snapshot_id:
                 return
 
@@ -620,565 +407,102 @@ class TwoPhaseScheduler:
             if latest_snapshot_id == last_reported_id:
                 return
 
-            # Fetch snapshot data
-            current_snapshot = db_manager.get_snapshot_data(latest_snapshot_id)
-            previous_snapshot = db_manager.get_snapshot_data(last_reported_id)
-
-            if not current_snapshot or not previous_snapshot:
+            current = db_manager.get_snapshot_data(latest_snapshot_id)
+            previous = db_manager.get_snapshot_data(last_reported_id)
+            if not current or not previous:
                 return
 
-            # Compare snapshots
-            comparison = comparator.compare_snapshots(
-                current_snapshot, previous_snapshot
-            )
-
-            # Determine if there is a status change or a high activity score
-            score = 0.0
-            score += len(comparison.new_courses) * 5.0
-            score += len(comparison.removed_courses) * 5.0
-            for course_change in comparison.changed_courses:
-                score += len(course_change.added_sections) * 2.0
-                score += len(course_change.removed_sections) * 2.0
-                for section_change in course_change.modified_sections:
-                    enrollment_delta = abs(
-                        (section_change.current_enrollment or 0)
-                        - (section_change.previous_enrollment or 0)
-                    )
-                    score += enrollment_delta / 5.0
-                    if (
-                        section_change.current_capacity is not None
-                        and section_change.previous_capacity is not None
-                        and section_change.current_capacity
-                        != section_change.previous_capacity
-                    ):
-                        score += 3.0
-
-            # Check for section status changes (open <-> full)
-            status_changed = False
-            if comparison.new_courses or comparison.removed_courses:
-                status_changed = True
-            else:
-                for course_change in comparison.changed_courses:
-                    if course_change.added_sections or course_change.removed_sections:
-                        status_changed = True
-                        break
-                    # Check modified sections for open/full changes
-                    current_course = current_snapshot.courses.get(
-                        course_change.course_code
-                    )
-                    previous_course = previous_snapshot.courses.get(
-                        course_change.course_code
-                    )
-                    if current_course and previous_course:
-                        for sec_mod in course_change.modified_sections:
-                            curr_sec = current_course.sections.get(sec_mod.section_id)
-                            prev_sec = previous_course.sections.get(sec_mod.section_id)
-                            if curr_sec and prev_sec:
-                                was_full = (
-                                    prev_sec.enrollment >= prev_sec.capacity
-                                    if prev_sec.capacity > 0
-                                    else False
-                                )
-                                is_full = (
-                                    curr_sec.enrollment >= curr_sec.capacity
-                                    if curr_sec.capacity > 0
-                                    else False
-                                )
-                                if was_full != is_full:
-                                    status_changed = True
-                                    break
-                    if status_changed:
-                        break
-
-            # Define thresholds:
-            is_worth_updating = status_changed or score >= 1.0
-
-            if is_worth_updating:
-                now = dt.datetime.now()
-                self.logger_ops.info(
-                    f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})"
-                )
-
-                # 1. Trigger Report
-                if not self.no_telegram:
-                    # Check report cooldown
-                    seconds_since_last_report = (
-                        (now - self.last_report_sent_time).total_seconds()
-                        if self.last_report_sent_time
-                        else None
-                    )
-                    if (
-                        seconds_since_last_report is None
-                        or seconds_since_last_report >= self.report_cooldown_seconds
-                    ):
-                        self.logger_ops.info("📝 Triggering Telegram Report...")
-                        if (
-                            self._telegram_report_task is None
-                            or self._telegram_report_task.done()
-                        ):
-                            self._telegram_report_task = asyncio.create_task(
-                                self._run_report_cycle_async(force_poll=False)
-                            )
-                        else:
-                            self._telegram_report_pending = True
-                        self.last_report_sent_time = now
-                    else:
-                        cooldown_remaining = int(
-                            self.report_cooldown_seconds - seconds_since_last_report
-                        )
-                        self.logger_ops.info(
-                            f"⏳ Telegram Report is on cooldown ({cooldown_remaining}s remaining). Will report next cycle."
-                        )
-
-                # 2. Trigger Website Update
-                seconds_since_last_website = (
-                    (now - self.last_website_updated_time).total_seconds()
-                    if self.last_website_updated_time
-                    else None
-                )
-                if (
-                    seconds_since_last_website is None
-                    or seconds_since_last_website >= self.website_cooldown_seconds
-                ):
-                    self.logger_ops.info("🌐 Triggering Website Update...")
-                    if (
-                        self._website_update_task is None
-                        or self._website_update_task.done()
-                    ):
-                        self._website_update_task = asyncio.create_task(
-                            self._run_website_update_async()
-                        )
-                    else:
-                        self._website_update_pending = True
-                    self.last_website_updated_time = now
-                else:
-                    cooldown_remaining = int(
-                        self.website_cooldown_seconds - seconds_since_last_website
-                    )
-                    self.logger_ops.info(
-                        f"⏳ Website Update is on cooldown ({cooldown_remaining}s remaining). Will update next cycle."
-                    )
-            else:
-                # If changes are minor, print notice and let them accumulate (do not update reporting log)
+            comparison = SnapshotComparator().compare_snapshots(current, previous)
+            score, status_changed = _pending_activity(comparison, current, previous)
+            if not (status_changed or score >= 1.0):
+                # Minor changes accumulate; the reporting log is not advanced.
                 self.logger_ops.info(
                     f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes."
+                )
+                return
+
+            self.logger_ops.info(
+                f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})"
+            )
+            now = datetime.datetime.now()
+            if not self.no_telegram:
+                if self._cooled_down(
+                    self.last_report_sent_time, self.report_cooldown_seconds, now
+                ):
+                    self.logger_ops.info("📝 Triggering Telegram Report...")
+                    self._report_job.trigger()
+                    self.last_report_sent_time = now
+                else:
+                    self._deferred = True
+                    self.logger_ops.info(
+                        "⏳ Telegram Report is on cooldown. Will report next cycle."
+                    )
+            if self._cooled_down(
+                self.last_website_updated_time, self.website_cooldown_seconds, now
+            ):
+                self.logger_ops.info("🌐 Triggering Website Update...")
+                self._website_job.trigger()
+                self.last_website_updated_time = now
+            else:
+                self._deferred = True
+                self.logger_ops.info(
+                    "⏳ Website Update is on cooldown. Will update next cycle."
                 )
 
         except Exception as e:
             self.logger_ops.error(f"❌ Error in check_and_trigger_updates: {e}")
 
-    def _get_baseline_level(self) -> SchedulingLevel:
-        """Get baseline level from configuration (predictive component)."""
-        return get_current_zone_type()
-
-    def _quiet_interval(self, score: float) -> int:
-        """Calculate interval in quiet mode (conservative)."""
-        if score >= 5:
-            return self.QUIET_INTERVALS["active"]
-        elif score >= 2:
-            return self.QUIET_INTERVALS["idle"]
-        else:
-            return self.QUIET_INTERVALS["silent"]
-
-    def _burst_interval(self, score: float) -> int:
-        """Calculate interval in burst mode (aggressive)."""
-        if score >= 25:
-            return self.BURST_INTERVALS["extreme"]
-        elif score >= 12:
-            return self.BURST_INTERVALS["high"]
-        elif score >= 5:
-            return self.BURST_INTERVALS["moderate"]
-        else:
-            return self.BURST_INTERVALS["low"]
-
-    def get_all_milestones(self) -> list[dt.datetime]:
-        """Extract all milestone and deadline datetimes from the settings.toml."""
-        milestone_times = []
-        try:
-            cfg = get_config()
-            semesters = cfg.get("semesters", {})
-            for sem_data in semesters.values():
-                if not isinstance(sem_data, dict):
-                    continue
-
-                priorities = sem_data.get("priorities", {})
-                for p_list in priorities.values():
-                    for m_data in p_list:
-                        try:
-                            milestone_times.append(_registrar_datetime(m_data[0], cfg))
-                        except (IndexError, ValueError):
-                            pass
-
-                for d_data in sem_data.get("deadlines", []):
-                    try:
-                        milestone_times.append(_registrar_datetime(d_data[0], cfg))
-                    except (IndexError, ValueError):
-                        pass
-        except Exception as e:
-            print(f"Warning: failed to read milestones from config: {e}")
-
-        return sorted(list(set(milestone_times)))
-
-    async def _calculate_change_score_for_poll(self, semester: str) -> float:
-        """Calculate the change score for the latest poll compared to the previous one."""
-        try:
-            try:
-                from ..data.snapshot_comparator import SnapshotComparator
-                from ..services.monitoring_service import MonitoringService
-            except ImportError:
-                from registrarmonitor.data.snapshot_comparator import SnapshotComparator
-                from registrarmonitor.services.monitoring_service import (
-                    MonitoringService,
-                )
-
-            monitoring_service = MonitoringService(semester=semester)
-            comparator = SnapshotComparator()
-
-            latest_snapshot, previous_snapshot = (
-                monitoring_service.get_snapshot_comparison()
-            )
-            if not latest_snapshot:
-                return 0.0
-
-            if not previous_snapshot:
-                return 1.0
-
-            comparison = comparator.compare_snapshots(
-                latest_snapshot, previous_snapshot
-            )
-            score = 0.0
-
-            score += len(comparison.new_courses) * 5.0
-            score += len(comparison.removed_courses) * 5.0
-
-            for course_change in comparison.changed_courses:
-                score += len(course_change.added_sections) * 2.0
-                score += len(course_change.removed_sections) * 2.0
-
-                for section_change in course_change.modified_sections:
-                    enrollment_delta = abs(
-                        (section_change.current_enrollment or 0)
-                        - (section_change.previous_enrollment or 0)
-                    )
-                    score += enrollment_delta / 5.0
-
-                    if (
-                        section_change.current_capacity is not None
-                        and section_change.previous_capacity is not None
-                    ):
-                        if (
-                            section_change.current_capacity
-                            != section_change.previous_capacity
-                        ):
-                            score += 3.0
-
-                    if (
-                        section_change.current_instructor
-                        != section_change.previous_instructor
-                    ):
-                        score += 1.0
-
-            return min(score, 100.0)
-
-        except Exception as e:
-            print(f"ERROR: Failed to calculate change score: {e}")
-            return 0.0
-
     async def _single_poll_and_process(self) -> float:
-        """Downloads data and processes it sequentially, returning the change score."""
+        """Download and process the latest file once; return its change score."""
+        file_path = await self.downloader.download(skip_unchanged=True)
+        if not file_path:
+            return 0.0
+        return await self._process_file(file_path)
+
+    async def _process_file(self, file_path: str) -> float:
         try:
             from ..cli.commands import PollCommand
         except ImportError:
             from registrarmonitor.cli.commands import PollCommand
 
-        file_path = await self.downloader.download()
-        if not file_path:
-            return 0.0
-
-        poll_command = PollCommand(debug=False)
-        result = await poll_command.run_with_result(file_path=file_path)
+        result = await PollCommand(debug=False).run_with_result(file_path=file_path)
+        if not result.success:
+            # Fetch the same file again next time instead of treating it as seen.
+            self.downloader.forget_last_download()
         return result.change_score if result.success else 0.0
 
     async def _process_pending_polls_loop(self):
-        """Processes downloaded files in strict chronological FIFO order, committing and triggering updates."""
+        """Process downloads in chronological FIFO order and trigger updates."""
         while True:
             try:
                 download_task, poll_start_time = await self.pending_polls.get()
                 try:
+                    score = 0.0
                     file_path = await download_task
-                    if not file_path:
-                        self.logger_ops.error(
-                            "❌ Download failed (returned None). Skipping process."
-                        )
-                        self._last_change_score = 0.0
-                        self._new_poll_processed = True
-                        continue
-
-                    self.logger_ops.info(
-                        f"🔄 Sequentially processing poll from {poll_start_time.strftime('%H:%M:%S')}..."
-                    )
-
-                    try:
-                        from ..cli.commands import PollCommand
-                    except ImportError:
-                        from registrarmonitor.cli.commands import PollCommand
-
-                    poll_command = PollCommand(debug=False)
-                    result = await poll_command.run_with_result(file_path=file_path)
-
-                    if result.success:
-                        self._last_poll_time = dt.datetime.now()
-                        self._last_change_score = result.change_score
-                        self._new_poll_processed = True
-
+                    if file_path:
                         self.logger_ops.info(
-                            f"✅ Sequentially processed poll. Score: {result.change_score:.2f}"
+                            f"🔄 Processing poll from {poll_start_time.strftime('%H:%M:%S')}..."
                         )
+                        score = await self._process_file(file_path)
+                        self._last_poll_time = datetime.datetime.now()
                         await self._check_and_trigger_updates()
                     else:
-                        self.logger_ops.error("❌ Poll command execution failed.")
-                        self._last_change_score = 0.0
-                        self._new_poll_processed = True
-
+                        self.logger_ops.info("No registrar changes; skipping parse.")
+                        if self._deferred:
+                            await self._check_and_trigger_updates()
+                    self._last_change_score = score
+                    self._new_poll_processed = True
                 except Exception as e:
                     self.logger_ops.error(f"❌ Error processing pending poll: {e}")
                     self._last_change_score = 0.0
                     self._new_poll_processed = True
                 finally:
                     self.pending_polls.task_done()
-
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 print(f"❌ Error in process pending polls loop: {e}")
                 await asyncio.sleep(1)
-
-    def get_next_poll_interval(
-        self,
-        last_change_score: float = 0,
-        timestamp: dt.datetime | None = None,
-        update_state: bool = True,
-    ) -> tuple[int, TwoPhaseDecision]:
-        """
-        Determine how long to wait before the NEXT poll based on two-phase logic.
-
-        Returns:
-            Tuple of (interval_seconds, TwoPhaseDecision)
-        """
-        if timestamp is None:
-            timestamp = dt.datetime.now()
-
-        current_is_day = 8 <= timestamp.hour < 20
-
-        # Step 1: Mode Transition and Counters Evaluation
-        previous_mode = self.mode
-        previous_decay = self.decay_counter
-        previous_consecutive_low = self.consecutive_low
-        previous_is_day = self.last_is_day
-
-        if update_state:
-            # 1. Update b_n (consecutive_low)
-            if previous_mode == "burst" and last_change_score < 5.0:
-                self.consecutive_low = previous_consecutive_low + 1
-            else:
-                self.consecutive_low = 0
-
-            # 2. Update Mode_n
-            if last_change_score >= 12.0:
-                self.mode = "burst"
-            elif previous_mode == "burst" and self.consecutive_low >= 3:
-                self.mode = "quiet"
-            else:
-                self.mode = previous_mode
-
-            # 3. Update k_n (decay_counter)
-            if self.mode == "quiet" and last_change_score == 0.0:
-                self.decay_counter = previous_decay + 1
-            else:
-                self.decay_counter = 0
-
-            # 4. Update diurnal tracker
-            self.last_is_day = current_is_day
-
-            self.logger_ops.info(
-                f"[Scheduler Step 1] State updated: Mode {previous_mode} -> {self.mode}, "
-                f"Low count b: {previous_consecutive_low} -> {self.consecutive_low}, "
-                f"Decay k: {previous_decay} -> {self.decay_counter}"
-            )
-        else:
-            self.logger_ops.debug(
-                f"[Scheduler Step 1] Re-evaluating interval without updating state. "
-                f"Current Mode: {self.mode}, b: {self.consecutive_low}, k: {self.decay_counter}"
-            )
-
-        # Step 2: Calculate Mode-Specific Base Interval
-        if self.mode == "quiet":
-            if last_change_score >= 5.0:
-                i_base = 300.0
-            elif last_change_score >= 2.0:
-                i_base = 900.0
-            else:
-                i_base = 1800.0
-
-            decay_exponent = max(0, self.decay_counter - 1)
-            i_mode = i_base * (1.5**decay_exponent)
-
-            self.logger_ops.debug(
-                f"[Scheduler Step 2] Quiet base calculation: i_base={i_base}s, decay_exp={decay_exponent}, i_mode={i_mode}s"
-            )
-        else:
-            if last_change_score >= 25.0:
-                i_mode = 10.0
-            elif last_change_score >= 12.0:
-                i_mode = 60.0
-            elif last_change_score >= 5.0:
-                i_mode = 120.0
-            else:
-                i_mode = 180.0
-
-            self.logger_ops.debug(
-                f"[Scheduler Step 2] Burst base calculation: i_mode={i_mode}s"
-            )
-
-        # Step 3: Apply Diurnal Caps and Reset Overrides
-        c_tn = 7200.0 if current_is_day else 14400.0
-        i_capped = min(i_mode, c_tn)
-
-        reset_condition = False
-        reset_reasons = []
-
-        # Predicate 1: Significant activity resumes (Sn > 0) and (kn-1 > 0)
-        if last_change_score > 0.0 and previous_decay > 0:
-            reset_condition = True
-            reset_reasons.append(
-                f"activity resumption (S={last_change_score:.1f}, prev_k={previous_decay})"
-            )
-
-        # Predicate 2: Diurnal shift
-        if previous_is_day is not None and previous_is_day != current_is_day:
-            reset_condition = True
-            reset_reasons.append(
-                f"diurnal shift ({previous_is_day} -> {current_is_day})"
-            )
-
-        # Predicate 3: Mode boundary change
-        if self.mode != previous_mode:
-            reset_condition = True
-            reset_reasons.append(f"mode change ({previous_mode} -> {self.mode})")
-
-        if reset_condition:
-            i_reactive = 300.0
-            if update_state:
-                self.quiet_interval = 300.0
-                self.decay_counter = 0
-            self.logger_ops.info(
-                f"[Scheduler Step 3] Reset Condition Met due to: {', '.join(reset_reasons)}. Interval set to 300.0s"
-            )
-        else:
-            i_reactive = i_capped
-            if update_state:
-                self.quiet_interval = i_reactive
-            self.logger_ops.debug(
-                f"[Scheduler Step 3] Cap={c_tn}s, Capped={i_capped}s, Reactive={i_reactive}s"
-            )
-
-        # Step 4: Integrate Predictive Component (Zone Scaling)
-        baseline_level = self._get_baseline_level()
-        zone_type = get_current_zone_type(timestamp)
-        if zone_type == SchedulingLevel.HOT:
-            i_sleep = min(i_reactive, 300.0)
-            self.logger_ops.debug(
-                f"[Scheduler Step 4] HOT Zone active: i_sleep scaled to {i_sleep}s (original reactive={i_reactive}s)"
-            )
-        else:
-            i_sleep = i_reactive
-            self.logger_ops.debug(
-                f"[Scheduler Step 4] SLEEP Zone active: i_sleep={i_sleep}s"
-            )
-
-        # Step 5: Boundary Preemption Alignment
-        final_interval = i_sleep
-        preemption_reasons = []
-
-        # T_next_hot - t_n
-        next_hot_start = get_next_zone_start(timestamp)
-        if next_hot_start is not None:
-            seconds_until_next_hot = (next_hot_start - timestamp).total_seconds()
-            if seconds_until_next_hot > 0:
-                if seconds_until_next_hot < final_interval:
-                    final_interval = seconds_until_next_hot
-                    preemption_reasons.append(
-                        f"next HOT zone start alignment ({seconds_until_next_hot:.1f}s remaining)"
-                    )
-
-        # T_milestone - t_n
-        milestones = self.get_all_milestones()
-        closest_milestone_diff = None
-        closest_milestone = None
-        for milestone in milestones:
-            if milestone > timestamp:
-                seconds_until_milestone = (milestone - timestamp).total_seconds()
-                if seconds_until_milestone > 0:
-                    if (
-                        closest_milestone_diff is None
-                        or seconds_until_milestone < closest_milestone_diff
-                    ):
-                        closest_milestone_diff = seconds_until_milestone
-                        closest_milestone = milestone
-
-        if closest_milestone_diff is not None and closest_milestone is not None:
-            if closest_milestone_diff < final_interval:
-                final_interval = closest_milestone_diff
-                preemption_reasons.append(
-                    f"closest milestone alignment at {closest_milestone.isoformat()} ({closest_milestone_diff:.1f}s remaining)"
-                )
-
-        final_interval_int = max(1, int(final_interval))
-
-        if preemption_reasons:
-            self.logger_ops.info(
-                f"[Scheduler Step 5] Preemption Applied: interval shortened to {final_interval_int}s due to: {', '.join(preemption_reasons)}"
-            )
-        else:
-            self.logger_ops.debug(
-                f"[Scheduler Step 5] No preemption applied. Final interval: {final_interval_int}s"
-            )
-
-        # Log decision
-        decision = TwoPhaseDecision(
-            timestamp=timestamp,
-            change_score=last_change_score,
-            mode=self.mode,
-            consecutive_low=self.consecutive_low,
-            decay_counter=self.decay_counter,
-            baseline_level=baseline_level,
-            final_interval=final_interval_int,
-            reset_condition=reset_condition,
-        )
-        self.logger.log_decision(decision)
-
-        return final_interval_int, decision
-
-    def _get_next_report_time(self) -> dt.datetime:
-        """
-        Calculate the next :15 or :45 report in registrar-local wall time.
-
-        Returns a naive datetime for compatibility with the scheduler's existing
-        wall-time calculations.
-        """
-        now = _registrar_now()
-        candidates = []
-
-        for minute in [15, 45]:
-            t = now.replace(minute=minute, second=0, microsecond=0)
-            if t > now:
-                candidates.append(t)
-            t_next = (now + dt.timedelta(hours=1)).replace(
-                minute=minute, second=0, microsecond=0
-            )
-            candidates.append(t_next)
-
-        return min(candidates)
 
     async def _run_report_cycle(self, force_poll: bool = True) -> float:
         """Serialize stateful reporting across scheduled and event-driven triggers."""
@@ -1186,79 +510,55 @@ class TwoPhaseScheduler:
             return await self._run_report_cycle_unlocked(force_poll=force_poll)
 
     async def _run_report_cycle_unlocked(self, force_poll: bool = True) -> float:
-        """
-        Execute the reporting cycle:
-        1. Force fresh poll (if force_poll is True)
-        2. Generate/Send report via ReportingService
-        Returns the change score.
-        """
+        """Optionally poll, then generate and send the stateful report."""
         print("\n📝 Starting Scheduled Reporting Cycle...")
-        print("-" * 40)
-
         if force_poll:
-            # 1. Fresh Poll (runs sequentially)
-            print("🔄 Fetching fresh data for report...")
             start_time = time.time()
             change_score = await self._single_poll_and_process()
-            self._last_poll_time = dt.datetime.now()
+            self._last_poll_time = datetime.datetime.now()
             self._last_change_score = change_score
             self._new_poll_processed = True
-            duration = time.time() - start_time
-
             print(
-                f"✅ Data fetched ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
+                f"✅ Data fetched ({time.time() - start_time:.1f}s). "
+                f"Activity: {change_score:.2f}, Mode: {self.mode}"
             )
         else:
-            print("ℹ️  Using fresh data from recent poll (skipping redundant fetch).")
             change_score = self._last_change_score
 
-        # 2. Detect semester and initialize ReportingService if needed
         if self._reporting_service_class and not self.reporting_service:
             try:
                 from ..cli.utils import detect_active_semester
             except ImportError:
                 from registrarmonitor.cli.utils import detect_active_semester
 
-            self._detected_semester = await detect_active_semester()
-            self.reporting_service = self._reporting_service_class(
-                semester=self._detected_semester
-            )
-            print(f"📋 Using semester: {self._detected_semester or 'default'}")
+            semester = await detect_active_semester()
+            self.reporting_service = self._reporting_service_class(semester=semester)
+            print(f"📋 Using semester: {semester or 'default'}")
 
-        # 3. Run Stateful Report
         if self.reporting_service:
-            print("📊 Generating report (if needed)...")
             try:
                 changes_found = await self.reporting_service.run_stateful_report_cycle(
                     send_telegram=not self.no_telegram,
                     debug_mode=False,
                 )
-                if changes_found:
-                    print("✅ Report generated and sent.")
-                else:
-                    print("ℹ️  No significant changes to report.")
+                print(
+                    "✅ Report generated and sent."
+                    if changes_found
+                    else "ℹ️  No significant changes to report."
+                )
             except Exception as e:
                 print(f"❌ Error during reporting: {e}")
         else:
             print("❌ ReportingService not initialized, skipping report.")
-
-        print("-" * 40)
         return change_score
 
     async def _scheduled_report_loop(self) -> None:
         """Run stateful reports at :15 and :45 without forcing an extra poll."""
         while True:
             next_report_time = self._get_next_report_time()
-            wait_seconds = max(
-                0.0,
-                (next_report_time - _registrar_now()).total_seconds(),
+            await asyncio.sleep(
+                max(0.0, (next_report_time - _registrar_now()).total_seconds())
             )
-            self.logger_ops.info(
-                "Next scheduled stateful report at %s registrar time",
-                next_report_time.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-            await asyncio.sleep(wait_seconds)
-
             try:
                 await self._run_report_cycle(force_poll=False)
             except asyncio.CancelledError:
@@ -1267,81 +567,43 @@ class TwoPhaseScheduler:
                 self.logger_ops.error(f"Scheduled stateful report failed: {e}")
 
     async def start(self):
-        """The main execution loop for two-phase scheduling (event-driven)."""
+        """Run the polling loop."""
         print("🚀 Starting Two-Phase Scheduler (Event-Driven Polling)")
-        print("=" * 50)
-        print(f"   📈 Burst entry threshold: {self.BURST_ENTRY_THRESHOLD}")
-        print(f"   📉 Burst exit threshold: {self.BURST_EXIT_THRESHOLD}")
-        print(f"   🔢 Burst exit count: {self.BURST_EXIT_COUNT}")
-        print(f"   📢 Report cooldown: {int(self.report_cooldown_seconds // 60)}m")
-        print(f"   🌐 Website cooldown: {int(self.website_cooldown_seconds // 60)}m")
+        schedule = Schedule.from_config()
+        upcoming = [m for m in schedule.milestones if m > _registrar_now()]
+        print(
+            f"   📅 {len(schedule.milestones)} milestones, next: "
+            f"{upcoming[0].isoformat() if upcoming else 'none'}"
+        )
 
-        # Start caffeinate
-        try:
-            self.caffeinate_process = await asyncio.create_subprocess_exec(
-                "caffeinate",
-                "-d",
-                "-i",
-                "-m",
-                "-s",
-                "-w",
-                str(os.getpid()),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            print("☕ Preventing macOS sleep mode (Display/Idle/System)")
-        except Exception:
-            print("⚠️  Could not start sleep prevention")
-
-        self._show_schedule_status()
-
-        # Initial sync on startup (synchronously/sequentially before background loops start)
         print("\n🔄 Performing Initial Sync...")
-        start_time = time.time()
         try:
-            change_score = await self._single_poll_and_process()
-            self._last_poll_time = dt.datetime.now()
-            self._last_change_score = change_score
+            self._last_change_score = await self._single_poll_and_process()
+            self._last_poll_time = datetime.datetime.now()
             self._new_poll_processed = True
-            duration = time.time() - start_time
-            print(
-                f"✅ Initial sync done ({duration:.1f}s). Activity: {change_score:.2f}, Mode: {self.mode}"
-            )
         except Exception as e:
             print(f"❌ Initial sync failed: {e}")
-            change_score = 0.0
-
-        # Initialize reporting baseline after first poll
+            self._last_change_score = 0.0
         await self._check_and_trigger_updates()
 
-        # Start background processor for sequential processing in FIFO order
         processor_task = asyncio.create_task(self._process_pending_polls_loop())
         scheduled_report_task = asyncio.create_task(self._scheduled_report_loop())
-
         try:
             while True:
-                # 1. Determine adaptive sleep duration based on the last processed score
-                wait_time_poll, decision = self.get_next_poll_interval(
-                    self._last_change_score,
-                    update_state=self._new_poll_processed,
+                wait, _ = self.get_next_poll_interval(
+                    self._last_change_score, update_state=self._new_poll_processed
                 )
                 self._new_poll_processed = False
-
-                mode_indicator = "🔥" if self.mode == "burst" else "😴"
                 print(
-                    f"\n⏱️  Next poll in {int(wait_time_poll // 60)}m {int(wait_time_poll % 60)}s"
-                    f"   {mode_indicator} Mode: {self.mode.upper()}"
+                    f"\n⏱️  Next poll in {wait // 60}m {wait % 60}s   Mode: {self.mode.upper()}"
                 )
                 sys.stdout.flush()
+                await asyncio.sleep(wait)
 
-                # 2. Sleep
-                await asyncio.sleep(wait_time_poll)
-
-                # 3. Trigger Async Polling and Queue it
-                print("\n🔄 Triggering async poll download...")
-                download_task = asyncio.create_task(self.downloader.download())
-                await self.pending_polls.put((download_task, dt.datetime.now()))
-
+                download_task = asyncio.create_task(
+                    self.downloader.download(skip_unchanged=True)
+                )
+                await self.pending_polls.put((download_task, datetime.datetime.now()))
         except KeyboardInterrupt:
             print("\n⚠️  Scheduler interrupted by user.")
         finally:
@@ -1351,167 +613,6 @@ class TwoPhaseScheduler:
                     await task
                 except asyncio.CancelledError:
                     pass
-            for task in (self._website_update_task, self._telegram_report_task):
-                if task and not task.done():
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-            if self.caffeinate_process:
-                self.caffeinate_process.terminate()
+            await self._report_job.cancel()
+            await self._website_job.cancel()
             print("📊 Scheduler stopped")
-
-    def _show_schedule_status(self):
-        """Show current schedule status and upcoming zones."""
-        now = dt.datetime.now()
-        current_zone = get_current_zone_type()
-
-        print(f"📅 Schedule Status (Current time: {now.strftime('%Y-%m-%d %H:%M')})")
-        print(f"   Current zone: {current_zone.label.upper()}")
-
-        zones = parse_schedule_file()
-        active_zones = []
-        upcoming_zones = []
-
-        for zone_type, time_ranges in zones.items():
-            if zone_type == SchedulingLevel.SLEEP:
-                continue
-
-            for start_time, end_time in time_ranges:
-                if start_time <= now <= end_time:
-                    active_zones.append(
-                        f"{zone_type.label} ({start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')})"
-                    )
-                elif start_time > now:
-                    time_until = start_time - now
-                    if time_until.total_seconds() < 86400:
-                        upcoming_zones.append(
-                            f"{zone_type.label} in {int(time_until.total_seconds() // 60)}m ({start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')})"
-                        )
-
-        if active_zones:
-            print(f"   Active: {', '.join(active_zones)}")
-        if upcoming_zones:
-            print(f"   Upcoming: {', '.join(upcoming_zones[:3])}")
-        if not active_zones and not upcoming_zones:
-            print("   No hot zones scheduled for today")
-
-    def print_status(self):
-        """Print current scheduler status and recent decisions."""
-        print("🔍 Two-Phase Scheduler Status")
-        print("=" * 30)
-
-        current_zone = get_current_zone_type()
-        baseline_level = self._get_baseline_level()
-
-        print(f"Current Mode: {self.mode.upper()}")
-        print(f"Consecutive Low: {self.consecutive_low}")
-        print(f"Current Zone: {current_zone.label}")
-        print(f"Baseline Level: {baseline_level.label}")
-
-        print("\n📋 Recent Decisions:")
-        recent_decisions = self.logger.get_recent_decisions(10)
-        if recent_decisions:
-            for i, decision in enumerate(recent_decisions[-5:], 1):
-                timestamp = dt.datetime.fromisoformat(decision["timestamp"])
-                mode = decision.get("mode", "N/A")
-                print(
-                    f"  {i}. {timestamp.strftime('%m/%d %H:%M')} | "
-                    f"Score: {decision['change_score']:5.1f} | "
-                    f"Mode: {mode:5} | "
-                    f"{decision['final_interval_minutes']:5.1f}m"
-                )
-        else:
-            print("  No decisions logged yet.")
-
-
-def is_extreme_zone() -> bool:
-    """
-    Checks if the current time falls within any extreme zone.
-
-    Returns:
-        True if current time is in an extreme zone, False otherwise
-    """
-    return get_current_zone_type() == SchedulingLevel.HOT
-
-
-def is_hot_zone() -> bool:
-    """
-    Checks if the current time falls within any hot/high zone.
-
-    Returns:
-        True if current time is in a high zone, False otherwise
-    """
-    return get_current_zone_type() == SchedulingLevel.HOT
-
-
-def get_next_zone_change() -> tuple[dt.datetime | None, SchedulingLevel]:
-    """
-    Get the next time when the zone type will change.
-
-    Returns:
-        Tuple of (next_change_time, new_zone_type) or (None, current_zone) if no changes
-    """
-    now = dt.datetime.now()
-    zones = parse_schedule_file()
-    current_zone = get_current_zone_type()
-
-    # Collect all zone boundaries after current time
-    future_events = []
-
-    for start_time, end_time in zones.get(SchedulingLevel.HOT, []):
-        if start_time > now:
-            future_events.append((start_time, SchedulingLevel.HOT))
-        if end_time > now:
-            future_events.append((end_time, SchedulingLevel.SLEEP))
-
-    if not future_events:
-        return None, current_zone
-
-    # Sort by time and return the next event
-    future_events.sort(key=lambda x: x[0])
-    next_time, next_zone = future_events[0]
-
-    return next_time, next_zone
-
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--summary":
-            scheduler = TwoPhaseScheduler()
-            zones = parse_schedule_file()
-            current_zone = get_current_zone_type()
-            baseline_level = scheduler._get_baseline_level()
-
-            print("=== Two-Phase Scheduler Summary ===")
-            print(f"Current level: {current_zone.label}")
-            print(f"Baseline level: {baseline_level.label}")
-            print(f"Baseline interval: {baseline_level.interval}s")
-            print()
-
-            for zone_type in SchedulingLevel:
-                zone_list = zones[zone_type]
-                if zone_list:
-                    print(
-                        f"{zone_type.label.capitalize()} zones ({len(zone_list)} configured):"
-                    )
-                    for start_time, end_time in zone_list:
-                        print(
-                            f"  - {start_time.strftime('%Y-%m-%d %H:%M')} to {end_time.strftime('%Y-%m-%d %H:%M')}"
-                        )
-                else:
-                    print(f"{zone_type.label.capitalize()} zones: None configured")
-        elif sys.argv[1] == "--status":
-            scheduler = TwoPhaseScheduler()
-            scheduler.print_status()
-        else:
-            print("Usage: python scheduler.py [--summary|--status]")
-            print("  --summary     Show schedule configuration summary")
-            print("  --status      Show current scheduler status")
-    else:
-        # Default to TwoPhaseScheduler
-        scheduler = TwoPhaseScheduler()
-        asyncio.run(scheduler.start())
