@@ -130,7 +130,7 @@ async def test_start_text_adds_watch_and_invalid_text_reprompts(interaction):
     await bot.watch_text(invalid_update, context)
 
     invalid_reply = invalid_update.effective_message.reply_text.await_args.args[0]
-    assert "No matching course found" in invalid_reply
+    assert "No exact match found" in invalid_reply
     assert "Send a course code" in invalid_reply
     assert "<code>CSCI 115</code>" in invalid_reply
     assert (
@@ -202,41 +202,6 @@ async def test_single_watch_removal_requires_confirmation(interaction):
 
 
 @pytest.mark.asyncio
-async def test_section_watches_are_compact_and_apply_together(interaction):
-    bot, store = interaction
-    context = make_context()
-    section = SubscriptionTarget("Spring 2024", "CS 101", "10L")
-    course = SubscriptionTarget("Spring 2024", "CS 101")
-
-    pick_update = make_update(callback_data=f"pick:{encode_target(section)}")
-    await bot.callback(pick_update, context)
-
-    assert store.list_subscriptions(41) == []
-    keyboard = pick_update.callback_query.edit_message_text.await_args.kwargs[
-        "reply_markup"
-    ].inline_keyboard
-    assert [button.text for button in keyboard[1]] == ["10L selected", "11L"]
-    assert keyboard[-2][0].text == "Review changes"
-    assert keyboard[-1][0].url == COURSE_SHARE_URL
-
-    apply_update = make_update(callback_data=f"apply:{encode_target(course)}")
-    await bot.callback(apply_update, context)
-
-    assert store.list_subscriptions(41) == []
-    assert (
-        "Review changes"
-        in (apply_update.callback_query.edit_message_text.await_args.args[0])
-    )
-
-    confirm_update = make_update(callback_data="sections:confirm")
-    await bot.callback(confirm_update, context)
-
-    assert store.list_subscriptions(41) == [section]
-    confirmation = confirm_update.callback_query.edit_message_text.await_args.args[0]
-    assert "Watch updated" in confirmation
-
-
-@pytest.mark.asyncio
 async def test_watches_group_semester_and_open_details_safely(interaction):
     bot, store = interaction
     store.touch_user(telegram_user_id=41, private_chat_id=91)
@@ -265,7 +230,7 @@ async def test_watches_group_semester_and_open_details_safely(interaction):
         for row in detail.kwargs["reply_markup"].inline_keyboard
         for button in row
     ]
-    assert detail_buttons == ["Change sections", "Stop watching", "Back to my watches"]
+    assert detail_buttons == ["Stop watching", "Back to my watches"]
 
 
 @pytest.mark.asyncio
@@ -331,30 +296,22 @@ async def test_exact_watch_command_adds_course_or_section_immediately(interactio
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("url", [COURSE_SHARE_URL, None])
-async def test_course_text_and_preview_button_share_one_published_identity(
+async def test_watch_details_link_to_the_published_course_only_when_it_exists(
     interaction, url
 ):
-    bot, _store = interaction
+    bot, store = interaction
+    store.touch_user(telegram_user_id=41, private_chat_id=91)
+    target = SubscriptionTarget("Spring 2024", "CS 101")
+    store.subscribe(41, target)
     provider = Mock(side_effect=[url])
     bot._course_share_url = provider
-    target = SubscriptionTarget("Spring 2024", "CS 101")
-    update = make_update(callback_data=f"sections:{encode_target(target)}")
+    update = make_update(callback_data=f"detail:{encode_target(target)}")
+
     await bot.callback(update, make_context())
-    reply = update.callback_query.edit_message_text.await_args
-    links = [
-        button.url
-        for row in reply.kwargs["reply_markup"].inline_keyboard
-        for button in row
-        if button.url
-    ]
-    assert links == ([url] if url else [])
-    assert (f'href="{url}"' in reply.args[0]) if url else ("href=" not in reply.args[0])
+
+    text = update.callback_query.edit_message_text.await_args.args[0]
+    assert (f'href="{url}"' in text) if url else ("href=" not in text)
     provider.assert_called_once_with("Spring 2024", "CS 101")
-    assert "Review changes" in [
-        button.text
-        for row in reply.kwargs["reply_markup"].inline_keyboard
-        for button in row
-    ]
 
 
 @pytest.mark.asyncio
@@ -377,55 +334,51 @@ async def test_website_import_requires_receipt_confirmation(interaction):
 
 
 @pytest.mark.asyncio
-async def test_large_course_is_paged_and_accepts_typed_sections(
+async def test_exact_watch_list_adds_every_code_or_none(multi_interaction):
+    bot, store = multi_interaction
+    update = make_update(text="CS 101, MATH 202 / 1L")
+
+    await bot.watch_text(update, make_context())
+
+    assert store.list_subscriptions(41) == [
+        SubscriptionTarget("Spring 2024", "CS 101"),
+        SubscriptionTarget("Spring 2024", "MATH 202", "1L"),
+    ]
+    assert "Added 2 watches" in update.effective_message.reply_text.await_args.args[0]
+
+    typo = make_update(text="CS 101, NOPE 1")
+    await bot.watch_text(typo, make_context())
+
+    assert len(store.list_subscriptions(41)) == 2
+    assert "NOPE 1" in typo.effective_message.reply_text.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_prompts_offer_the_app_only_when_it_is_enabled(
     tmp_path, current_snapshot
 ):
-    for index in range(1, 21):
-        section_id = f"{index}L"
-        current_snapshot.courses["CS 101"].sections[section_id] = Section(
-            section_id=section_id,
-            section_type="L",
-            enrollment=index,
-            capacity=30,
-            fill=index / 30,
-        )
-    store = SubscriptionStore(tmp_path / "subscriptions.db")
     catalog = SubscriptionCatalog(current_snapshot)
 
     async def provide_catalog():
         return catalog
 
-    bot = SubscriptionInteractions(store, provide_catalog)
-    context = make_context()
-    course = SubscriptionTarget("Spring 2024", "CS 101")
-    view_update = make_update(callback_data=f"sections:{encode_target(course)}")
+    store = SubscriptionStore(tmp_path / "subscriptions.db")
+    off = SubscriptionInteractions(store, provide_catalog)
+    on = SubscriptionInteractions(
+        store, provide_catalog, app_url="https://site.example.test"
+    )
 
-    await bot.callback(view_update, context)
-
-    reply = view_update.callback_query.edit_message_text.await_args
-    assert "Sections 1-12 of 20" in reply.args[0]
-    keyboard = reply.kwargs["reply_markup"].inline_keyboard
-    assert any(row[0].text == "Type section IDs" for row in keyboard)
-    assert keyboard[-1][-1].text == "Cancel"
-
-    target = SubscriptionTarget("Spring 2024", "CS 101")
-    type_update = make_update(callback_data=f"type:{encode_target(target)}")
-    await bot.callback(type_update, context)
-    typed_update = make_update(text="1L, 15L")
-    await bot.watch_text(typed_update, context)
-
-    receipt = typed_update.effective_message.reply_text.await_args.args[0]
-    assert "Review changes" in receipt
-    assert "1L" in receipt
-    assert "15L" in receipt
-
-    confirm_update = make_update(callback_data="sections:confirm")
-    await bot.callback(confirm_update, context)
-
-    assert store.list_subscriptions(41) == [
-        SubscriptionTarget("Spring 2024", "CS 101", "15L"),
-        SubscriptionTarget("Spring 2024", "CS 101", "1L"),
-    ]
+    for bot, expected in ((off, False), (on, True)):
+        update = make_update(callback_data="watch")
+        await bot.callback(update, make_context())
+        reply = update.callback_query.edit_message_text.await_args
+        web_apps = [
+            button.web_app.url
+            for row in reply.kwargs["reply_markup"].inline_keyboard
+            for button in row
+            if button.web_app
+        ]
+        assert web_apps == (["https://site.example.test"] if expected else [])
 
 
 @pytest.mark.asyncio

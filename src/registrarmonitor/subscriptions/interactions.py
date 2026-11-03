@@ -12,6 +12,7 @@ from telegram import (
     InlineKeyboardMarkup,
     LinkPreviewOptions,
     Update,
+    WebAppInfo,
 )
 from telegram.constants import ChatType, ParseMode
 from telegram.ext import (
@@ -42,8 +43,7 @@ CatalogProvider = Callable[[], Awaitable[SubscriptionCatalog | None]]
 DiagnosticsProvider = Callable[[], Awaitable[BotDiagnostics]]
 CourseShareUrlProvider = Callable[[str, str], str | None]
 PAGE_SIZE = 6
-CATALOG_PAGE_SIZE = 8
-SECTION_PAGE_SIZE = 12
+MAX_COURSE_SECTIONS = 12
 SECTION_TYPE_LABELS = {
     "L": "Lectures",
     "S": "Seminars",
@@ -65,12 +65,15 @@ class SubscriptionInteractions:
         test_user_id: int | None = None,
         diagnostics: DiagnosticsProvider | None = None,
         course_share_url: CourseShareUrlProvider = published_course_share_url,
+        app_url: str | None = None,
     ) -> None:
         self.store = store
         self._catalog_provider = catalog
         self.test_user_id = test_user_id
         self._diagnostics_provider = diagnostics
         self._course_share_url = course_share_url
+        # Set when the Mini App is enabled: the site to open inside Telegram.
+        self._app_url = app_url
 
     def register(self, application: Application) -> None:
         application.add_handler(CommandHandler("start", self.start))
@@ -155,9 +158,7 @@ class SubscriptionInteractions:
             return
         user = update.effective_user
         if user is not None:
-            await self._show_search(
-                message.reply_text, query, user.id, context.user_data
-            )
+            await self._add_exact_watches(message.reply_text, query, user.id)
 
     async def watch_text(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -168,16 +169,7 @@ class SubscriptionInteractions:
         user = update.effective_user
         if message is None or message.text is None or user is None:
             return
-        if context.user_data is not None and context.user_data.pop(
-            "awaiting_sections", False
-        ):
-            await self._accept_typed_sections(
-                message.reply_text, message.text, user.id, context.user_data
-            )
-            return
-        await self._show_search(
-            message.reply_text, message.text, user.id, context.user_data
-        )
+        await self._add_exact_watches(message.reply_text, message.text, user.id)
 
     async def import_watches(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -212,11 +204,12 @@ class SubscriptionInteractions:
             return
         await message.reply_text(
             "<b>Add a watch</b>\n"
-            "Use /watch, then type a course code, section, or title. Exact formats:\n"
+            "Use /watch, then type an exact course code or section:\n"
             "<code>CSCI 115</code>\n"
             "<code>CSCI 115 / 1L</code>\n\n"
-            "You can also paste the message copied from the website.\n\n"
-            "<b>My watches</b>\n"
+            "You can also paste the message copied from the website."
+            + (" To browse and search, open the app." if self._app_url else "")
+            + "\n\n<b>My watches</b>\n"
             "Use /watches to review watches. Data and settings is available there.",
             parse_mode=ParseMode.HTML,
         )
@@ -298,52 +291,10 @@ class SubscriptionInteractions:
         user_id = user.id
 
         if data.startswith("detail:"):
-            await self._view_watch(
-                query.edit_message_text, data[7:], user_id, context.user_data
-            )
-        elif data.startswith("sections:") and data != "sections:confirm":
-            await self._show_section_picker(
-                query.edit_message_text, data[9:], user_id, context.user_data
-            )
-        elif data.startswith("view:"):
-            await self._view_target(
-                query.edit_message_text, data[5:], user_id, context.user_data
-            )
-        elif data.startswith("pick:"):
-            await self._toggle_section_selection(
-                query.edit_message_text, data[5:], user_id, context.user_data
-            )
-        elif data.startswith("apply:"):
-            await self._apply_section_selection(
-                query.edit_message_text, data[6:], user_id, context.user_data
-            )
-        elif data == "sections:confirm":
-            await self._confirm_section_selection(
-                query.edit_message_text, user_id, context.user_data
-            )
-        elif data.startswith("spage:"):
-            try:
-                page = max(0, int(data[6:]))
-            except ValueError:
-                page = 0
-            await self._show_current_course_page(
-                query.edit_message_text, user_id, context.user_data, page
-            )
-        elif data.startswith("type:"):
-            await self._request_typed_sections(
-                query.edit_message_text, data[5:], user_id, context.user_data
-            )
+            await self._view_watch(query.edit_message_text, data[7:], user_id)
         elif data == "import:confirm":
             await self._confirm_import(
                 query.edit_message_text, user_id, context.user_data
-            )
-        elif data.startswith("catalog:"):
-            try:
-                page = max(0, int(data[8:]))
-            except ValueError:
-                page = 0
-            await self._show_catalog(
-                query.edit_message_text, user_id, context.user_data, page=page
             )
         elif data == "test:simulate" and self.test_user_id == user_id:
             await self._simulate_change_preview(query.edit_message_text, user_id)
@@ -433,13 +384,10 @@ class SubscriptionInteractions:
         )
         return True
 
-    async def _show_search(
-        self,
-        send,
-        query: str,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
+    async def _add_exact_watches(self, send, query: str, user_id: int) -> None:
+        """Add watches for exact course or section codes; browsing is in the app."""
+        # Mini App-superseded multi-step search, browsing, and section pickers are
+        # gone: anything that is not an exact code gets the prompt back.
         catalog = await self._catalog_provider()
         if catalog is None:
             await send(
@@ -450,9 +398,7 @@ class SubscriptionInteractions:
             return
         parts = self._watch_query_parts(query)
         if len(parts) > 1:
-            await self._show_multiple_exact_watches(
-                send, parts, catalog, user_id, user_data
-            )
+            await self._show_multiple_exact_watches(send, parts, catalog, user_id)
             return
         exact_target = catalog.exact_target(query)
         if exact_target is not None:
@@ -479,9 +425,8 @@ class SubscriptionInteractions:
                 share_url = None
             if not changed and not exact_target.is_course:
                 message = (
-                    f"Your whole-course watch already includes "
-                    f"<code>{escape(self._target_label(exact_target))}</code>. Use Edit watch to switch "
-                    "to selected sections."
+                    "Your whole-course watch already includes "
+                    f"<code>{escape(self._target_label(exact_target))}</code>."
                 )
             else:
                 message = (
@@ -499,34 +444,17 @@ class SubscriptionInteractions:
                 ),
                 reply_markup=InlineKeyboardMarkup(
                     [
-                        [self._target_button("Edit watch", "view", exact_target)],
+                        [self._target_button("Stop watching", "rm", exact_target)],
                         [InlineKeyboardButton("My watches", callback_data="subs:0")],
                     ]
                 ),
             )
             return
-        matches = catalog.search(query)
-        if not matches:
-            await send(
-                "No matching course found.\n\n" + self._watch_prompt(),
-                parse_mode=ParseMode.HTML,
-                reply_markup=self._add_watch_keyboard(),
-            )
-            return
-        if len(matches) == 1:
-            await self._show_course(send, catalog, matches[0], user_id, user_data)
-            return
-        keyboard = [
-            [
-                self._target_button(
-                    course.course_code,
-                    "view",
-                    SubscriptionTarget(catalog.snapshot.semester, course.course_code),
-                )
-            ]
-            for course in matches
-        ]
-        await send("Select a course:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await send(
+            "No exact match found.\n\n" + self._watch_prompt(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=self._add_watch_keyboard(),
+        )
 
     async def _show_multiple_exact_watches(
         self,
@@ -534,7 +462,6 @@ class SubscriptionInteractions:
         parts: list[str],
         catalog: SubscriptionCatalog,
         user_id: int,
-        user_data: MutableMapping | None,
     ) -> None:
         targets = []
         invalid = []
@@ -577,68 +504,11 @@ class SubscriptionInteractions:
             ),
         )
 
-    async def _show_course(
-        self,
-        send,
-        catalog: SubscriptionCatalog,
-        course,
-        user_id: int,
-        user_data: MutableMapping | None,
-        *,
-        page: int = 0,
-    ) -> None:
-        target = SubscriptionTarget(catalog.snapshot.semester, course.course_code)
-        watched = set(await asyncio.to_thread(self.store.list_subscriptions, user_id))
-        selected = set() if target in watched else self._section_codes(watched, target)
-        self._save_section_selection(user_data, target, selected)
-        self._save_current_course(user_data, target, page)
-        share_url = self._course_share_url(target.semester, course.course_code)
-        await send(
-            self._course_text(
-                target.semester,
-                course,
-                catalog.snapshot.timestamp,
-                share_url=share_url,
-                page=page,
-            ),
-            parse_mode=ParseMode.HTML,
-            link_preview_options=self._link_preview_options(),
-            reply_markup=self._course_keyboard(
-                target.semester,
-                course,
-                watched,
-                selected,
-                share_url=share_url,
-                page=page,
-            ),
-        )
-
-    async def _view_target(
-        self,
-        edit,
-        payload: str,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
-        try:
-            target = decode_target(payload)
-        except ValueError:
-            await edit("This button is no longer valid.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or not catalog.resolve(target):
-            await edit("That course is not in the latest snapshot.")
-            return
-        course = catalog.course(target.course_code)
-        if course is not None:
-            await self._show_course(edit, catalog, course, user_id, user_data)
-
     async def _view_watch(
         self,
         edit,
         payload: str,
         user_id: int,
-        user_data: MutableMapping | None,
     ) -> None:
         try:
             target = decode_target(payload)
@@ -656,11 +526,6 @@ class SubscriptionInteractions:
         course = catalog.course(target.course_code)
         if course is None:
             return
-        course_target = SubscriptionTarget(target.semester, target.course_code)
-        self._save_current_course(user_data, course_target, 0)
-        self._save_section_selection(
-            user_data, course_target, self._section_codes(watched, course_target)
-        )
         scope = (
             "Whole course"
             if target.is_course
@@ -678,16 +543,12 @@ class SubscriptionInteractions:
                 section_code=target.section_code,
             )
         )
-        change_label = (
-            "Watch selected sections" if target.is_course else "Change sections"
-        )
         await edit(
             text,
             parse_mode=ParseMode.HTML,
             link_preview_options=self._link_preview_options(),
             reply_markup=InlineKeyboardMarkup(
                 [
-                    [self._target_button(change_label, "sections", course_target)],
                     [self._target_button("Stop watching", "rm", target)],
                     [
                         InlineKeyboardButton(
@@ -696,362 +557,6 @@ class SubscriptionInteractions:
                     ],
                 ]
             ),
-        )
-
-    async def _show_section_picker(
-        self,
-        edit,
-        payload: str,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
-        try:
-            target = decode_target(payload)
-        except ValueError:
-            await edit("This button is no longer valid.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or not target.is_course or not catalog.resolve(target):
-            await edit("That course is not in the latest snapshot.")
-            return
-        course = catalog.course(target.course_code)
-        if course is None:
-            return
-        watched = set(await asyncio.to_thread(self.store.list_subscriptions, user_id))
-        selected = set() if target in watched else self._section_codes(watched, target)
-        self._save_section_selection(user_data, target, selected)
-        self._save_current_course(user_data, target, 0)
-        share_url = self._course_share_url(target.semester, course.course_code)
-        await edit(
-            self._course_text(
-                target.semester, course, catalog.snapshot.timestamp, share_url=share_url
-            ),
-            parse_mode=ParseMode.HTML,
-            link_preview_options=self._link_preview_options(),
-            reply_markup=self._course_keyboard(
-                target.semester,
-                course,
-                watched,
-                selected,
-                share_url=share_url,
-                editing_sections=True,
-            ),
-        )
-
-    async def _toggle_section_selection(
-        self,
-        edit,
-        payload: str,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
-        try:
-            target = decode_target(payload)
-        except ValueError:
-            await edit("This button is no longer valid.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or target.is_course or not catalog.resolve(target):
-            await edit("That section is not in the latest snapshot.")
-            return
-        course = catalog.course(target.course_code)
-        if course is None:
-            return
-        course_target = SubscriptionTarget(target.semester, target.course_code)
-        selected = await self._load_section_selection(user_data, course_target, user_id)
-        if target.section_code in selected:
-            selected.remove(target.section_code)
-        else:
-            selected.add(target.section_code)
-        self._save_section_selection(user_data, course_target, selected)
-        page = self._current_section_page(user_data)
-        share_url = self._course_share_url(target.semester, course.course_code)
-        await edit(
-            self._course_text(
-                target.semester,
-                course,
-                catalog.snapshot.timestamp,
-                share_url=share_url,
-                page=page,
-            ),
-            parse_mode=ParseMode.HTML,
-            link_preview_options=self._link_preview_options(),
-            reply_markup=self._course_keyboard(
-                target.semester,
-                course,
-                set(await asyncio.to_thread(self.store.list_subscriptions, user_id)),
-                selected,
-                share_url=share_url,
-                page=page,
-                editing_sections=True,
-            ),
-        )
-
-    async def _apply_section_selection(
-        self,
-        edit,
-        payload: str,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
-        try:
-            target = decode_target(payload)
-        except ValueError:
-            await edit("This button is no longer valid.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or not target.is_course or not catalog.resolve(target):
-            await edit("That course is not in the latest snapshot.")
-            return
-        course = catalog.course(target.course_code)
-        if course is None:
-            return
-        selected = await self._load_section_selection(user_data, target, user_id)
-        self._save_current_course(
-            user_data, target, self._current_section_page(user_data)
-        )
-        summary = self._section_change_summary(
-            set(await asyncio.to_thread(self.store.list_subscriptions, user_id)),
-            target,
-            selected,
-        )
-        await edit(
-            "<b>Review changes</b>\n\n"
-            f"Semester: {escape(target.semester)}\n"
-            f"<code>{escape(target.course_code)}</code>\n\n{summary}\n\n"
-            "Nothing changes until you save.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "Save changes", callback_data="sections:confirm"
-                        ),
-                    ],
-                    [InlineKeyboardButton("Cancel", callback_data="subs:0")],
-                ]
-            ),
-        )
-
-    async def _confirm_section_selection(
-        self,
-        edit,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
-        target = self._current_course(user_data)
-        if target is None:
-            await edit("This section selection has expired.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or not catalog.resolve(target):
-            await edit("That course is not in the latest snapshot.")
-            return
-        course = catalog.course(target.course_code)
-        if course is None:
-            return
-        selected = await self._load_section_selection(user_data, target, user_id)
-        await asyncio.to_thread(
-            self.store.replace_section_watches, user_id, target, selected
-        )
-        count = len(selected)
-        await edit(
-            f"<b>Watch updated</b>\n\n"
-            f"<code>{escape(target.course_code)}</code> now watches {count} "
-            f"{'section' if count == 1 else 'sections'}.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        self._target_button("Review course", "view", target),
-                        InlineKeyboardButton("My watches", callback_data="subs:0"),
-                    ]
-                ]
-            ),
-        )
-
-    async def _request_typed_sections(
-        self,
-        edit,
-        payload: str,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
-        try:
-            target = decode_target(payload)
-        except ValueError:
-            await edit("This button is no longer valid.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or not target.is_course or not catalog.resolve(target):
-            await edit("That course is not in the latest snapshot.")
-            return
-        self._save_current_course(
-            user_data, target, self._current_section_page(user_data)
-        )
-        if user_data is not None:
-            user_data["awaiting_sections"] = True
-        await edit(
-            f"<b>Type sections for <code>{escape(target.course_code)}</code></b>\n\n"
-            "Send section IDs separated by spaces or commas, for example:\n"
-            "<code>1L, 3L, 10PLb</code>\n\n"
-            "Send <code>none</code> to clear the section selection.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(
-                [[self._target_button("Cancel", "view", target)]]
-            ),
-        )
-
-    async def _accept_typed_sections(
-        self,
-        send,
-        text: str,
-        user_id: int,
-        user_data: MutableMapping | None,
-    ) -> None:
-        target = self._current_course(user_data)
-        if target is None:
-            await send("This section selection has expired. Use /watch again.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or not catalog.resolve(target):
-            await send("That course is not in the latest snapshot.")
-            return
-        course = catalog.course(target.course_code)
-        if course is None:
-            return
-        available = {section_id.upper(): section_id for section_id in course.sections}
-        requested = (
-            []
-            if text.strip().lower() == "none"
-            else [
-                value.upper() for value in re.split(r"[\s,;]+", text.strip()) if value
-            ]
-        )
-        unknown = sorted(set(requested) - available.keys())
-        if unknown:
-            await send(
-                "Unknown section IDs: "
-                + ", ".join(f"<code>{escape(value)}</code>" for value in unknown)
-                + "\nTry again with IDs shown in the course status.",
-                parse_mode=ParseMode.HTML,
-            )
-            if user_data is not None:
-                user_data["awaiting_sections"] = True
-            return
-        selected = {available[value] for value in requested}
-        self._save_section_selection(user_data, target, selected)
-        await self._apply_section_selection(
-            send, encode_target(target), user_id, user_data
-        )
-
-    async def _show_current_course_page(
-        self,
-        edit,
-        user_id: int,
-        user_data: MutableMapping | None,
-        page: int,
-    ) -> None:
-        target = self._current_course(user_data)
-        if target is None:
-            await edit("This course selection has expired.")
-            return
-        catalog = await self._catalog_provider()
-        if catalog is None or not catalog.resolve(target):
-            await edit("That course is not in the latest snapshot.")
-            return
-        course = catalog.course(target.course_code)
-        if course is not None:
-            selected = await self._load_section_selection(user_data, target, user_id)
-            page_count = max(
-                1, (len(course.sections) + SECTION_PAGE_SIZE - 1) // SECTION_PAGE_SIZE
-            )
-            page = min(page, page_count - 1)
-            self._save_current_course(user_data, target, page)
-            share_url = self._course_share_url(target.semester, course.course_code)
-            await edit(
-                self._course_text(
-                    target.semester,
-                    course,
-                    catalog.snapshot.timestamp,
-                    share_url=share_url,
-                    page=page,
-                ),
-                parse_mode=ParseMode.HTML,
-                link_preview_options=self._link_preview_options(),
-                reply_markup=self._course_keyboard(
-                    target.semester,
-                    course,
-                    set(
-                        await asyncio.to_thread(self.store.list_subscriptions, user_id)
-                    ),
-                    selected,
-                    share_url=share_url,
-                    page=page,
-                    editing_sections=True,
-                ),
-            )
-
-    async def _show_catalog(
-        self,
-        send,
-        user_id: int,
-        user_data: MutableMapping | None,
-        *,
-        page: int,
-    ) -> None:
-        del user_id, user_data
-        catalog = await self._catalog_provider()
-        if catalog is None:
-            await send("No enrollment snapshot is available.")
-            return
-        courses = sorted(
-            catalog.snapshot.courses.values(), key=lambda course: course.course_code
-        )
-        page_count = max(1, (len(courses) + CATALOG_PAGE_SIZE - 1) // CATALOG_PAGE_SIZE)
-        page = min(page, page_count - 1)
-        visible = courses[page * CATALOG_PAGE_SIZE : (page + 1) * CATALOG_PAGE_SIZE]
-        lines = []
-        buttons = []
-        for course in visible:
-            status = (
-                "FULL"
-                if course.is_filled
-                else "NEAR"
-                if course.is_near_filled
-                else "OPEN"
-            )
-            lines.append(
-                f"[{status}] <code>{escape(course.course_code)}</code>  "
-                f"{course.average_fill:.0%}"
-            )
-            buttons.append(
-                self._target_button(
-                    course.course_code,
-                    "view",
-                    SubscriptionTarget(catalog.snapshot.semester, course.course_code),
-                )
-            )
-        keyboard = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
-        navigation = []
-        if page > 0:
-            navigation.append(
-                InlineKeyboardButton("Previous", callback_data=f"catalog:{page - 1}")
-            )
-        if page + 1 < page_count:
-            navigation.append(
-                InlineKeyboardButton("Next", callback_data=f"catalog:{page + 1}")
-            )
-        if navigation:
-            keyboard.append(navigation)
-        keyboard.append([InlineKeyboardButton("Search", callback_data="watch")])
-        await send(
-            f"<b>Semester:</b> {escape(catalog.snapshot.semester)}\n"
-            f"<b>Course catalog</b> - {page + 1}/{page_count}\n\n"
-            + "\n".join(lines)
-            + "\n\n[OPEN] Open   [NEAR] Near full   [FULL] Full",
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
     async def _show_import_receipt(
@@ -1237,7 +742,7 @@ class SubscriptionInteractions:
             reply_markup=InlineKeyboardMarkup(
                 [
                     [self._target_button("Confirm remove", "unsub", target)],
-                    [self._target_button("Back", "view", target)],
+                    [self._target_button("Back", "detail", target)],
                 ]
             ),
         )
@@ -1318,8 +823,7 @@ class SubscriptionInteractions:
             callback_data=f"{action}:{encode_target(target)}",
         )
 
-    @staticmethod
-    def _home_keyboard() -> InlineKeyboardMarkup:
+    def _home_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("Add a watch", callback_data="watch")],
@@ -1327,20 +831,29 @@ class SubscriptionInteractions:
             ]
         )
 
-    @staticmethod
-    def _add_watch_keyboard() -> InlineKeyboardMarkup:
-        return InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Browse all courses", callback_data="catalog:0")]]
-        )
+    def _add_watch_keyboard(self) -> InlineKeyboardMarkup:
+        rows = [[InlineKeyboardButton("My watches", callback_data="subs:0")]]
+        if self._app_url:
+            rows.insert(
+                0,
+                [
+                    InlineKeyboardButton(
+                        "Browse courses", web_app=WebAppInfo(url=self._app_url)
+                    )
+                ],
+            )
+        return InlineKeyboardMarkup(rows)
 
-    @staticmethod
-    def _watch_prompt() -> str:
-        return (
+    def _watch_prompt(self) -> str:
+        prompt = (
             "Send a course code to add it now, for example <code>CSCI 115</code>. "
-            "For one section, send <code>CSCI 115 / 1L</code>. You can also send a title "
-            "to search. For several exact watches, separate them with commas "
-            "or new lines, for example <code>CSCI 115, PHYS 161 / 1L</code>."
+            "For one section, send <code>CSCI 115 / 1L</code>. For several exact "
+            "watches, separate them with commas or new lines, for example "
+            "<code>CSCI 115, PHYS 161 / 1L</code>."
         )
+        if self._app_url:
+            prompt += " To search and pick sections, open the app."
+        return prompt
 
     @staticmethod
     def _watch_query_parts(query: str) -> list[str]:
@@ -1368,146 +881,6 @@ class SubscriptionInteractions:
             ),
         )
 
-    def _course_keyboard(
-        self,
-        semester: str,
-        course,
-        watched: set[SubscriptionTarget],
-        selected_sections: set[str],
-        *,
-        page: int = 0,
-        editing_sections: bool = False,
-        share_url: str | None,
-    ) -> InlineKeyboardMarkup:
-        course_target = SubscriptionTarget(semester, course.course_code)
-        course_watched = course_target in watched
-        rows: list[list[InlineKeyboardButton]] = [
-            [
-                self._target_button(
-                    "Whole course selected" if course_watched else "Watch whole course",
-                    "rm" if course_watched else "sub",
-                    course_target,
-                )
-            ]
-        ]
-        if not editing_sections:
-            rows.append(
-                [self._target_button("Choose sections", "sections", course_target)]
-            )
-            rows.append(
-                [
-                    *(
-                        [InlineKeyboardButton("Website preview", url=share_url)]
-                        if share_url
-                        else []
-                    ),
-                    InlineKeyboardButton("Cancel", callback_data="subs:0"),
-                ]
-            )
-            return InlineKeyboardMarkup(rows)
-        sections = self._sorted_sections(course)
-        page_count = max(
-            1, (len(sections) + SECTION_PAGE_SIZE - 1) // SECTION_PAGE_SIZE
-        )
-        page = min(page, page_count - 1)
-        visible = sections[page * SECTION_PAGE_SIZE : (page + 1) * SECTION_PAGE_SIZE]
-        section_buttons = []
-        for section in visible:
-            target = SubscriptionTarget(
-                semester, course.course_code, section.section_id
-            )
-            section_buttons.append(
-                self._target_button(
-                    (
-                        f"{section.section_id} selected"
-                        if section.section_id in selected_sections
-                        else section.section_id
-                    ),
-                    "pick",
-                    target,
-                )
-            )
-        rows.extend(
-            section_buttons[index : index + 2]
-            for index in range(0, len(section_buttons), 2)
-        )
-        if page_count > 1:
-            navigation = []
-            if page > 0:
-                navigation.append(
-                    InlineKeyboardButton(
-                        "Previous sections", callback_data=f"spage:{page - 1}"
-                    )
-                )
-            navigation.append(
-                InlineKeyboardButton(
-                    f"{page + 1}/{page_count}", callback_data=f"spage:{page}"
-                )
-            )
-            if page + 1 < page_count:
-                navigation.append(
-                    InlineKeyboardButton(
-                        "Next sections", callback_data=f"spage:{page + 1}"
-                    )
-                )
-            rows.append(navigation)
-            rows.append(
-                [self._target_button("Type section IDs", "type", course_target)]
-            )
-        rows.append(
-            [
-                self._target_button(
-                    "Review changes",
-                    "apply",
-                    course_target,
-                )
-            ]
-        )
-        rows.append(
-            [
-                *(
-                    [InlineKeyboardButton("Website preview", url=share_url)]
-                    if share_url
-                    else []
-                ),
-                InlineKeyboardButton("Cancel", callback_data="subs:0"),
-            ]
-        )
-        return InlineKeyboardMarkup(rows)
-
-    @classmethod
-    def _section_change_summary(
-        cls,
-        watched: set[SubscriptionTarget],
-        course: SubscriptionTarget,
-        selected: set[str],
-    ) -> str:
-        existing = cls._section_codes(watched, course)
-        if course in watched:
-            current = "Whole course"
-            additions = selected
-            removals = {"whole-course watch"}
-        else:
-            current = cls._format_section_values(existing)
-            additions = selected - existing
-            removals = existing - selected
-        added = cls._format_section_values(additions)
-        removed = (
-            "whole-course watch"
-            if removals == {"whole-course watch"}
-            else cls._format_section_values(removals)
-        )
-        return (
-            f"<b>Current:</b> {current}\n<b>Add:</b> {added}\n<b>Remove:</b> {removed}"
-        )
-
-    @staticmethod
-    def _format_section_values(values: set[str]) -> str:
-        return (
-            ", ".join(f"<code>{escape(value)}</code>" for value in sorted(values))
-            or "None"
-        )
-
     @staticmethod
     def _course_text(
         semester: str,
@@ -1515,7 +888,6 @@ class SubscriptionInteractions:
         updated_at: str,
         *,
         section_code: str = "",
-        page: int = 0,
         share_url: str | None,
     ) -> str:
         title = f" - {escape(course.course_title)}" if course.course_title else ""
@@ -1530,21 +902,11 @@ class SubscriptionInteractions:
             sections = [
                 section for section in sections if section.section_id == section_code
             ]
-        elif len(sections) > SECTION_PAGE_SIZE:
-            page_count = (len(sections) + SECTION_PAGE_SIZE - 1) // SECTION_PAGE_SIZE
-            page = min(max(0, page), page_count - 1)
-            start = page * SECTION_PAGE_SIZE
+        elif len(sections) > MAX_COURSE_SECTIONS:
             lines.extend(
-                [
-                    "",
-                    (
-                        f"<i>Sections {start + 1}-"
-                        f"{min(start + SECTION_PAGE_SIZE, len(sections))} "
-                        f"of {len(sections)}</i>"
-                    ),
-                ]
+                ["", f"<i>First {MAX_COURSE_SECTIONS} of {len(sections)} sections</i>"]
             )
-            sections = sections[start : start + SECTION_PAGE_SIZE]
+            sections = sections[:MAX_COURSE_SECTIONS]
         grouped: dict[str, list] = defaultdict(list)
         for section in sections:
             grouped[section.section_type].append(section)
@@ -1574,81 +936,6 @@ class SubscriptionInteractions:
                 section.section_id, section.section_type
             ),
         )
-
-    @staticmethod
-    def _section_codes(
-        targets: set[SubscriptionTarget], course: SubscriptionTarget
-    ) -> set[str]:
-        return {
-            target.section_code
-            for target in targets
-            if target.semester == course.semester
-            and target.course_code == course.course_code
-            and not target.is_course
-        }
-
-    @staticmethod
-    def _selection_key(target: SubscriptionTarget) -> str:
-        return f"section_selection:{target.semester}:{target.course_code}"
-
-    async def _load_section_selection(
-        self,
-        user_data: MutableMapping | None,
-        target: SubscriptionTarget,
-        user_id: int,
-    ) -> set[str]:
-        key = self._selection_key(target)
-        if user_data is not None and key in user_data:
-            return set(user_data[key])
-        watched = set(await asyncio.to_thread(self.store.list_subscriptions, user_id))
-        selected = self._section_codes(watched, target)
-        self._save_section_selection(user_data, target, selected)
-        return selected
-
-    @classmethod
-    def _save_section_selection(
-        cls,
-        user_data: MutableMapping | None,
-        target: SubscriptionTarget,
-        selected: set[str],
-    ) -> None:
-        if user_data is not None:
-            user_data[cls._selection_key(target)] = sorted(selected)
-
-    @staticmethod
-    def _save_current_course(
-        user_data: MutableMapping | None,
-        target: SubscriptionTarget,
-        page: int,
-    ) -> None:
-        if user_data is not None:
-            user_data["current_course"] = encode_target(target)
-            user_data["section_page"] = page
-
-    @staticmethod
-    def _current_course(
-        user_data: MutableMapping | None,
-    ) -> SubscriptionTarget | None:
-        if user_data is None:
-            return None
-        try:
-            target = decode_target(str(user_data.get("current_course", "")))
-        except ValueError:
-            return None
-        return (
-            target
-            if target.is_course
-            else SubscriptionTarget(target.semester, target.course_code)
-        )
-
-    @staticmethod
-    def _current_section_page(user_data: MutableMapping | None) -> int:
-        if user_data is None:
-            return 0
-        try:
-            return max(0, int(user_data.get("section_page", 0)))
-        except (TypeError, ValueError):
-            return 0
 
     @staticmethod
     def _link_preview_options() -> LinkPreviewOptions:

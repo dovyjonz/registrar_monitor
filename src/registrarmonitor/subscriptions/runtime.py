@@ -280,6 +280,7 @@ class SubscriptionBotRuntime:
         self.settings = settings
         self.webhook = WebhookConfig.from_settings(settings)
         self.test_user_id = settings.telegram_bot_test_user_id
+        self.miniapp_enabled = bool(settings.website.miniapp_api_url)
         self.store = SubscriptionStore(settings.directories.telegram_bot_state)
         self.diagnostics = BotRuntimeDiagnostics(self.store)
         self._diagnostics_log_handler = RecentSubscriptionLogHandler(self.diagnostics)
@@ -296,7 +297,6 @@ class SubscriptionBotRuntime:
             .concurrent_updates(update_processor)
             .build()
         )
-        self.miniapp_enabled = bool(settings.website.miniapp_api_url)
         site = urlsplit(settings.website.base_url)
         self.site_origin = f"{site.scheme}://{site.netloc}"
         self.web_app = create_web_app(
@@ -314,6 +314,7 @@ class SubscriptionBotRuntime:
             self._latest_catalog,
             test_user_id=self.test_user_id,
             diagnostics=self.diagnostics.snapshot,
+            app_url=settings.website.base_url if self.miniapp_enabled else None,
         ).register(self.application)
         self.application.add_handler(
             ChatMemberHandler(self._chat_member, ChatMemberHandler.MY_CHAT_MEMBER)
