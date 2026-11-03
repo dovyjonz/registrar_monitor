@@ -77,3 +77,8 @@ This is a colocated Jujutsu/Git repository. Use `jj status`, bounded `jj log`, a
 `jj diff`; treat `@` as the working-copy commit and preserve unrelated changes.
 Inspect `jj op log` before recovery. Avoid Git worktree/history rewrites and do
 not add co-author trailers.
+
+Cloud sessions have no `jj`; use plain `git` on a feature branch there.
+`scripts/cloud_setup.sh` runs from `.claude/settings.json` at session start and
+installs Python and npm dependencies. Cloud sessions have no `.env`, no
+production access, and no `data/` databases; tests use temporary fixtures.
