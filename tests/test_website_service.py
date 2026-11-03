@@ -13,6 +13,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
+from registrarmonitor.config import get_settings
 from registrarmonitor.services.website_service import WebsiteService
 
 
@@ -286,6 +287,22 @@ def test_wrangler_deploy_rejects_private_output(tmp_path, monkeypatch):
         assert service.deploy() is False
 
     run.assert_not_called()
+
+
+def test_headers_let_telegram_load_and_frame_the_mini_app_only_when_enabled():
+    service = WebsiteService()
+    assert "X-Frame-Options: DENY" in service._build_headers_content()
+    assert "telegram.org" not in service._build_headers_content()
+
+    with patch.object(
+        get_settings().website, "miniapp_api_url", "https://bot.example.test/miniapp"
+    ):
+        content = service._build_headers_content()
+
+    assert "X-Frame-Options" not in content
+    assert "frame-ancestors https://web.telegram.org;" in content
+    assert "https://static.cloudflareinsights.com https://telegram.org;" in content
+    assert "https://cloudflareinsights.com https://bot.example.test;" in content
 
 
 def test_generate_headers_contains_security_headers(tmp_path):

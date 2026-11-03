@@ -4,6 +4,7 @@ import { appState, getCourseSections, getCourseTitle, getSummaryCourse, refreshC
 import { clearChartActiveElements, selectSection, setZoomControlsState, showAverageFillChart } from './chart';
 import { hasHistoricalCandidateCache, initializeHistoricalComparisonControl, resetHistoricalComparisonState, resolveHistoricalAvailability } from './comparison';
 import { showToast, updateModalBookmark } from './bookmarks';
+import { renderWatchControls } from './miniapp';
 import { getSemesterSlug, showCourseRoute } from './routing';
 import { getStatusClass } from './format';
 import { renderEventHistory } from './events';
@@ -201,6 +202,7 @@ export function openCourseModal(courseCode, summaryCourse) {
     const title = getCourseTitle(summaryCourse);
     updateModalCourseTitle(courseCode, title);
     updateModalBookmark(courseCode);
+    renderWatchControls();
     overlay.classList.add('active');
     document.documentElement.classList.add('modal-open');
     document.body.classList.add('modal-open');

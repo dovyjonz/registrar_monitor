@@ -16,6 +16,8 @@ def main() -> None:
     data_dir.mkdir(parents=True)
 
     get_settings().directories.data_storage = str(data_dir)
+    # Exercise the Telegram Mini App wiring; the browser test stubs the bot API.
+    get_settings().website.miniapp_api_url = "https://bot.smoke.test/miniapp"
     seed_smoke_data(data_dir=data_dir)
 
     if not WebsiteService().generate(force=True):

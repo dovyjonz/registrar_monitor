@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from registrarmonitor.config import get_settings, get_timezone
 from registrarmonitor.registration import get_priority_milestones
@@ -118,6 +119,40 @@ _DEADLINE_COLORS = ["#78909C", "#546E7A", "#E040FB"]
 # Settings-dependent constants
 BASE_URL: str = get_settings().website.base_url
 WEB_ANALYTICS_TOKEN: str = get_settings().website.web_analytics_token
+
+
+def content_security_policy(*, header: bool) -> str:
+    """Return the page CSP; ``header=True`` adds the directives a meta tag ignores.
+
+    The Telegram Mini App needs Telegram's script, the bot's API origin, and, for
+    Telegram Web, permission to be framed by it.
+    """
+    miniapp = get_settings().website.miniapp_api_url
+    scripts = ["'self'", "https://static.cloudflareinsights.com"]
+    connect = ["'self'", "https://cloudflareinsights.com"]
+    if miniapp:
+        parts = urlsplit(miniapp)
+        scripts.append("https://telegram.org")
+        connect.append(f"{parts.scheme}://{parts.netloc}")
+    directives = [
+        "default-src 'self'",
+        f"script-src {' '.join(scripts)}",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        f"connect-src {' '.join(connect)}",
+        "object-src 'none'",
+        "base-uri 'self'",
+    ]
+    if header:
+        directives.append(
+            "frame-ancestors https://web.telegram.org"
+            if miniapp
+            else "frame-ancestors 'none'"
+        )
+    directives.append("form-action 'self'")
+    if header:
+        directives.append("upgrade-insecure-requests")
+    return "; ".join(directives)
 
 
 def _assign_deadline_colors(

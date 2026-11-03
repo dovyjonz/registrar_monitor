@@ -3,6 +3,7 @@ import { formatPriorityCompact, formatPriorityFull } from './registrationSemanti
 import { appState, getCourseSections, getCourseSnapshots, getHydratedCourse, getMilestones } from './state';
 import { getContrastColor } from './format';
 import { enableHistoricalComparison, initializeHistoricalComparisonControl, mapHistoricalComparisonPoints, resetHistoricalComparisonState, resolveHistoricalAvailability, updateHistoricalLegend } from './comparison';
+import { renderWatchControls } from './miniapp';
 
 async function loadChartJs() {
     if (appState.chartJsLoaded) return;
@@ -626,6 +627,7 @@ export async function selectSection(sectionCode) {
         selectedItem?.classList.remove('selected');
         selectedItem?.setAttribute('aria-pressed', 'false');
         appState.selectedSection = null;
+        renderWatchControls();
         resetHistoricalComparisonState();
         initializeHistoricalComparisonControl(course);
         appState.currentEnrollmentData = [];
@@ -641,6 +643,7 @@ export async function selectSection(sectionCode) {
         previousItem?.setAttribute('aria-pressed', 'false');
     }
     appState.selectedSection = sectionCode;
+    renderWatchControls();
     resetHistoricalComparisonState();
     const selectedItem = document.getElementById(`section-${sectionCode}`);
     selectedItem?.classList.add('selected');

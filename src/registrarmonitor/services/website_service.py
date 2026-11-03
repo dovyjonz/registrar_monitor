@@ -14,6 +14,7 @@ from ..website.catalog import build_publication_catalog
 from ..website.checksums import get_semesters_needing_update, update_checksum
 from ..website.config import (
     OUTPUT_DIR,
+    content_security_policy,
     get_configured_semesters,
     get_milestones,
     semester_key_map,
@@ -542,13 +543,18 @@ class WebsiteService:
 
     def _build_headers_content(self) -> str:
         """Build Static Assets headers for generated public output."""
-        return """/*
+        # Telegram Web frames the Mini App, which X-Frame-Options cannot allow.
+        frame_options = (
+            ""
+            if get_settings().website.miniapp_api_url
+            else "  X-Frame-Options: DENY\n"
+        )
+        return f"""/*
   Cache-Control: public, max-age=0, must-revalidate
   X-Content-Type-Options: nosniff
-  X-Frame-Options: DENY
-  Referrer-Policy: strict-origin-when-cross-origin
+{frame_options}  Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: {content_security_policy(header=True)}
   X-Robots-Tag: noindex, nofollow
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

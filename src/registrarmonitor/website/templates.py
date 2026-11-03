@@ -8,9 +8,11 @@ from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader
 
+from ..config import get_settings
 from .config import (
     BASE_URL,
     WEB_ANALYTICS_TOKEN,
+    content_security_policy,
     get_configured_semesters,
     semester_to_slug,
 )
@@ -177,6 +179,8 @@ def build_semester_page(
         css_file=css_file,
         asset_base_url="/assets/",
         web_analytics_token=WEB_ANALYTICS_TOKEN,
+        csp=content_security_policy(header=False),
+        miniapp_api_url=get_settings().website.miniapp_api_url,
         canonical_url=canonical_url,
         og_url=og_url,
         image_url=image_url,

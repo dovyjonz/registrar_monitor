@@ -1,6 +1,7 @@
 import json
 from unittest.mock import patch
 
+from registrarmonitor.config import get_settings
 from registrarmonitor.website.templates import (
     _build_nav_html,
     build_semester_page,
@@ -156,3 +157,24 @@ def test_web_analytics_beacon_is_present_only_with_a_configured_token(tmp_path):
 
     html = build_semester_page(*args, manifest_path=manifest(tmp_path))
     assert "beacon.min.js" not in html
+
+
+def test_mini_app_wiring_is_present_only_with_a_configured_api(tmp_path):
+    args = ({"cr": {}}, [], "Fall 2026")
+
+    html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert 'name="miniapp-api"' not in html
+    assert "telegram.org" not in html
+
+    api = "https://bot.example.test/miniapp"
+    with patch.object(get_settings().website, "miniapp_api_url", api):
+        html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert f'<meta name="miniapp-api" content="{api}">' in html
+    assert (
+        "script-src &#39;self&#39; https://static.cloudflareinsights.com https://telegram.org"
+        in html
+    )
+    assert (
+        "connect-src &#39;self&#39; https://cloudflareinsights.com https://bot.example.test;"
+        in html
+    )

@@ -568,3 +568,67 @@ test('course modal keeps the page stable until its close transition finishes', a
     await expect(page.locator('#sectionTypeSelector')).toBeEmpty();
     await expect(page).toHaveURL(/\/semesters\/fall-2026\/$/);
 });
+
+const MINIAPP_API = 'https://bot.smoke.test/miniapp';
+
+async function stubMiniApp(page, calls) {
+    const watches = [];
+    await page.route('https://telegram.org/js/telegram-web-app.js', route => route.fulfill({
+        contentType: 'text/javascript',
+        body: 'window.Telegram = { WebApp: { initData: "user=%7B%22id%22%3A1%7D&hash=x", '
+            + 'ready() { window.tgReady = true; }, expand() { window.tgExpanded = true; } } };',
+    }));
+    await page.route(`${MINIAPP_API}/**`, async route => {
+        const request = route.request();
+        const cors = {
+            'access-control-allow-origin': 'http://127.0.0.1:4173',
+            'access-control-allow-headers': 'authorization, content-type',
+            'access-control-allow-methods': 'GET, POST, DELETE',
+        };
+        if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+        calls.push({ method: request.method(), authorization: request.headers().authorization });
+        if (request.method() === 'POST') {
+            watches.push({ id: 'w1', ...request.postDataJSON(), section: request.postDataJSON().section || '' });
+        } else if (request.method() === 'DELETE') {
+            watches.length = 0;
+        }
+        return route.fulfill({
+            headers: cors,
+            json: { semester: 'Fall 2026', watches },
+        });
+    });
+}
+
+test('Telegram launch shows Watch controls that call the bot API', async ({ page }) => {
+    const calls = [];
+    await stubMiniApp(page, calls);
+    await page.goto('/semesters/fall-2026/#tgWebAppData=user%3D1&tgWebAppVersion=8.0');
+    await page.locator('.course-cell').first().click();
+
+    const watch = page.getByRole('button', { name: 'Watch course' });
+    await expect(watch).toBeVisible();
+    expect(await page.evaluate(() => [window.tgReady, window.tgExpanded])).toEqual([true, true]);
+    await watch.click();
+    await expect(page.getByRole('button', { name: 'Unwatch course' })).toBeVisible();
+
+    await page.locator('.section-item').first().click();
+    await expect(page.getByRole('button', { name: /^Watch section / })).toBeDisabled();
+    await page.getByRole('button', { name: 'Unwatch course' }).click();
+    await expect(page.getByRole('button', { name: /^Watch section / })).toBeEnabled();
+
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'DELETE']);
+    expect(calls.every(call => call.authorization?.startsWith('tma user='))).toBe(true);
+});
+
+test('ordinary visitors never load Telegram or see Watch controls', async ({ page }) => {
+    const telegramRequests = [];
+    page.on('request', request => {
+        if (request.url().includes('telegram.org')) telegramRequests.push(request.url());
+    });
+    await page.goto('/semesters/fall-2026/');
+    await page.locator('.course-cell').first().click();
+
+    await expect(page.locator('#modalOverlay')).toHaveClass(/active/);
+    await expect(page.locator('#watchBar')).toBeHidden();
+    expect(telegramRequests).toEqual([]);
+});

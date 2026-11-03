@@ -1,4 +1,5 @@
 import './style.css';
+import './miniapp';
 import { appState, dataLoadController, departmentPayloads, hydratedCourses, refreshCourseMaps, summaryCourses } from './state';
 import { getManifestUrl } from './urlSlugs.mjs';
 import { hideTimeoutWarning, showErrorState, showTimeoutWarning } from './search';

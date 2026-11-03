@@ -1646,6 +1646,49 @@ header p {
     font-weight: 600;
 }
 
+.watch-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.watch-btn {
+    padding: 5px 14px;
+    border: 1px solid hsl(var(--accent));
+    border-radius: var(--radius);
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+    touch-action: manipulation;
+}
+
+.watch-btn.unwatch {
+    background: transparent;
+    color: hsl(var(--foreground));
+    border-color: hsl(var(--border));
+}
+
+.watch-btn:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
+}
+
+.watch-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.watch-hint {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.72rem;
+}
+
 .chart-action-controls {
     display: flex;
     align-items: center;

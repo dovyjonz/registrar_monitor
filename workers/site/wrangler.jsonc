@@ -7,11 +7,11 @@
   "workers_dev": true,
   // The generated dashboard (frontend/public): HTML routes, /data JSON, hashed assets.
   // Static Assets requests are free and unlimited and do not invoke the Worker;
-  // only the paths below run code. Telegram Mini App endpoints go under /api/*.
+  // only the path below runs code. The Telegram Mini App API lives on the bot.
   "assets": {
     "directory": "../../frontend/public",
     "binding": "ASSETS",
-    "run_worker_first": ["/preview/*", "/api/*"]
+    "run_worker_first": ["/preview/*"]
   },
   "browser": {
     "binding": "BROWSER",
