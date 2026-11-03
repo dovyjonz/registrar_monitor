@@ -1,0 +1,21 @@
+# Cloudflare Tunnel ingress for the Telegram bot webhook.
+#
+# Copy to scripts/cloudflared-config.yml (untracked), replace the placeholders,
+# and keep the tunnel credentials file outside the repository. The tunnel
+# forwards only the webhook hostname to the bot's loopback listener; the VM
+# opens no inbound port. The bot itself rejects any request that lacks
+# TELEGRAM_WEBHOOK_SECRET in the X-Telegram-Bot-Api-Secret-Token header.
+#
+# Placeholders:
+#   <TUNNEL_ID>        id printed by `cloudflared tunnel create`
+#   <CREDENTIALS_FILE> absolute path to that tunnel's <TUNNEL_ID>.json
+#   <WEBHOOK_HOSTNAME> hostname in TELEGRAM_WEBHOOK_URL, routed with
+#                      `cloudflared tunnel route dns`
+#   <WEBHOOK_PORT>     telegram_bot.webhook_port in settings.toml (default 8443)
+tunnel: <TUNNEL_ID>
+credentials-file: <CREDENTIALS_FILE>
+
+ingress:
+  - hostname: <WEBHOOK_HOSTNAME>
+    service: http://127.0.0.1:<WEBHOOK_PORT>
+  - service: http_status:404

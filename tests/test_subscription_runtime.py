@@ -1,130 +1,188 @@
-"""Telegram polling startup safety."""
+"""Telegram webhook runtime and update processing."""
 
 import asyncio
 import logging
+import socket
 import sqlite3
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-from telegram.error import NetworkError, TimedOut
+from pydantic import SecretStr
 
+from registrarmonitor.config import get_settings
 from registrarmonitor.subscriptions.runtime import (
+    BOT_ALLOWED_UPDATES,
     BOT_COMMANDS,
     LatencyTrackingUpdateProcessor,
     SubscriptionBotRuntime,
+    WebhookConfig,
     bot_commands,
 )
 
 pytestmark = pytest.mark.unit
 
 
+SECRET = "s3cret_Token-123"
+PUBLIC_URL = "https://bot.example.test/telegram"
+
+
+def webhook_settings(**overrides):
+    values = {"telegram_webhook_url": PUBLIC_URL, "telegram_webhook_secret": SECRET}
+    values.update(overrides)
+    for key in ("telegram_webhook_url", "telegram_webhook_secret"):
+        if key == "telegram_webhook_secret" and values[key] is not None:
+            values[key] = SecretStr(values[key])
+    return get_settings().model_copy(update=values)
+
+
+def test_webhook_config_reads_settings():
+    settings = webhook_settings()
+    settings.telegram_bot = settings.telegram_bot.model_copy(
+        update={"webhook_port": 9000}
+    )
+    config = WebhookConfig.from_settings(settings)
+
+    assert config.public_url == PUBLIC_URL
+    assert config.secret_token == SECRET
+    assert (config.listen, config.port) == ("127.0.0.1", 9000)
+    assert config.url_path == "telegram"
+
+
+@pytest.mark.parametrize("secret", [None, "", "   "])
+def test_webhook_config_fails_fast_without_secret(secret):
+    with pytest.raises(ValueError, match="TELEGRAM_WEBHOOK_SECRET is required"):
+        WebhookConfig.from_settings(webhook_settings(telegram_webhook_secret=secret))
+
+
+@pytest.mark.parametrize("secret", ["has space", "semi;colon", "x" * 257])
+def test_webhook_config_rejects_secret_outside_telegram_alphabet(secret):
+    with pytest.raises(ValueError, match="1-256 characters") as error:
+        WebhookConfig.from_settings(webhook_settings(telegram_webhook_secret=secret))
+
+    assert secret not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "url", [None, "", "http://bot.example.test/hook", "https://", "not a url"]
+)
+def test_webhook_config_requires_public_https_url(url):
+    with pytest.raises(ValueError, match="public https URL"):
+        WebhookConfig.from_settings(webhook_settings(telegram_webhook_url=url))
+
+
 @pytest.mark.asyncio
-async def test_runtime_refuses_active_webhook_and_shuts_down():
+async def test_runtime_serves_webhook_with_secret_and_shuts_down_in_order():
+    calls = []
+
+    def recorder(name):
+        async def record(*args, **kwargs):
+            calls.append((name, kwargs))
+
+        return record
+
     runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
-    start_polling = AsyncMock()
-    shutdown = AsyncMock()
-    get_updates = AsyncMock()
+    runtime.webhook = WebhookConfig(PUBLIC_URL, SECRET, port=9000)
+    runtime.test_user_id = None
+    runtime._delivery_loop = AsyncMock(side_effect=asyncio.CancelledError)
     runtime.application = cast(
         Any,
         SimpleNamespace(
-            initialize=AsyncMock(),
-            shutdown=shutdown,
-            bot=SimpleNamespace(
-                get_webhook_info=AsyncMock(
-                    return_value=SimpleNamespace(url="https://example.test/hook")
-                ),
-                get_updates=get_updates,
-                set_my_commands=AsyncMock(),
+            initialize=recorder("initialize"),
+            start=recorder("start"),
+            stop=recorder("stop"),
+            shutdown=recorder("shutdown"),
+            bot=SimpleNamespace(set_my_commands=AsyncMock()),
+            updater=SimpleNamespace(
+                start_webhook=recorder("start_webhook"), stop=recorder("updater.stop")
             ),
-            updater=SimpleNamespace(start_polling=start_polling, stop=AsyncMock()),
-            start=AsyncMock(),
-            stop=AsyncMock(),
         ),
     )
 
-    with pytest.raises(RuntimeError, match="active webhook"):
+    with pytest.raises(asyncio.CancelledError):
         await runtime.run()
 
-    start_polling.assert_not_awaited()
-    get_updates.assert_not_awaited()
-    shutdown.assert_awaited_once_with()
+    assert [name for name, _ in calls] == [
+        "initialize",
+        "start",
+        "start_webhook",
+        "updater.stop",
+        "stop",
+        "shutdown",
+    ]
+    webhook_kwargs = calls[2][1]
+    assert webhook_kwargs["secret_token"] == SECRET
+    assert webhook_kwargs["webhook_url"] == PUBLIC_URL
+    assert webhook_kwargs["listen"] == "127.0.0.1"
+    assert webhook_kwargs["port"] == 9000
+    assert webhook_kwargs["url_path"] == "telegram"
+    assert webhook_kwargs["allowed_updates"] == BOT_ALLOWED_UPDATES
+
+
+@pytest.mark.asyncio
+async def test_webhook_server_rejects_requests_without_the_secret_header():
+    """Exercise PTB's real webhook server: only Telegram's secret is accepted."""
+    from telegram import Bot
+    from telegram.ext import Updater
+
+    class OfflineBot(Bot):
+        async def initialize(self):
+            pass
+
+        async def shutdown(self):
+            pass
+
+        async def set_webhook(self, *args, **kwargs):
+            return True
+
+    port = socket.socket()
+    port.bind(("127.0.0.1", 0))
+    free_port = port.getsockname()[1]
+    port.close()
+    queue: asyncio.Queue = asyncio.Queue()
+    updater = Updater(OfflineBot("123:token"), queue)
+    await updater.initialize()
+    await updater.start_webhook(
+        listen="127.0.0.1",
+        port=free_port,
+        url_path="telegram",
+        webhook_url=PUBLIC_URL,
+        secret_token=SECRET,
+    )
+    url = f"http://127.0.0.1:{free_port}/telegram"
+    body = {"update_id": 7}
+    try:
+        async with httpx.AsyncClient() as client:
+            missing = await client.post(url, json=body)
+            wrong = await client.post(
+                url,
+                json=body,
+                headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+            )
+            assert queue.empty()
+            accepted = await client.post(
+                url,
+                json=body,
+                headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+            )
+    finally:
+        await updater.stop()
+        await updater.shutdown()
+
+    assert missing.status_code == 403
+    assert wrong.status_code == 403
+    assert accepted.status_code == 200
+
+
+def test_public_command_menu_never_exposes_developer_command():
     assert [command.command for command in BOT_COMMANDS] == [
         "start",
         "watch",
         "watches",
         "help",
     ]
-
-
-@pytest.mark.asyncio
-async def test_polling_logs_transport_type_and_backs_off_until_success(
-    monkeypatch, caplog
-):
-    attempts = 0
-    sleep_delays = []
-
-    async def get_updates(**_kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            try:
-                raise OSError("synthetic socket failure")
-            except OSError as cause:
-                raise TimedOut("synthetic timeout") from cause
-        if attempts == 2:
-            raise TimedOut("synthetic timeout")
-        if attempts == 4:
-            raise NetworkError("synthetic transport failure")
-        if attempts == 3:
-            return ()
-        raise asyncio.CancelledError
-
-    async def fake_sleep(delay):
-        sleep_delays.append(delay)
-
-    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
-    runtime.config = {
-        "telegram_bot": {
-            "retry_base_seconds": 5,
-            "retry_max_seconds": 20,
-        }
-    }
-    runtime.application = cast(
-        Any,
-        SimpleNamespace(
-            bot=SimpleNamespace(get_updates=get_updates),
-            update_queue=asyncio.Queue(),
-        ),
-    )
-    monkeypatch.setattr(
-        "registrarmonitor.subscriptions.runtime.asyncio.sleep", fake_sleep
-    )
-
-    with caplog.at_level(
-        logging.WARNING, logger="registrarmonitor.subscriptions.runtime"
-    ):
-        with pytest.raises(asyncio.CancelledError):
-            await runtime._poll_updates()
-
-    assert attempts == 5
-    assert sleep_delays == [5, 10, 5]
-    messages = [record.getMessage() for record in caplog.records]
-    assert len(messages) == 3
-    assert all("poll_duration_ms=" in message for message in messages)
-    assert "cause_type=OSError" in messages[0]
-    assert "cause_type=none" in messages[1]
-    assert "cause_type=none" in messages[2]
-    assert "error_type=TimedOut" in messages[0]
-    assert "error_type=TimedOut" in messages[1]
-    assert "error_type=NetworkError" in messages[2]
-    assert "synthetic" not in caplog.text
-    assert "retry_seconds=5" in messages[0]
-    assert "retry_seconds=10" in messages[1]
-
-
-def test_public_command_menu_never_exposes_developer_command():
     assert "test" not in [command.command for command in bot_commands()]
 
 

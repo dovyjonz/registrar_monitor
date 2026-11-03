@@ -304,7 +304,7 @@ async def handle_schedule_command(args) -> int:
 
 
 async def handle_bot_command(_args) -> int:
-    """Run the long-polling Telegram subscription service."""
+    """Run the webhook Telegram subscription service."""
     from .subscriptions.runtime import SubscriptionBotRuntime
 
     await SubscriptionBotRuntime().run()

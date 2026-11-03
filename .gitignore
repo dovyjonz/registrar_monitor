@@ -62,6 +62,8 @@ schedule.txt
 # Generated deployment files
 scripts/registrarmonitor.service
 scripts/registrarmonitor-bot.service
+scripts/registrarmonitor-tunnel.service
+scripts/cloudflared-config.yml
 
 # Reproducible local tooling artifacts
 /output/

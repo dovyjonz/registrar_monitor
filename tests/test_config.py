@@ -50,7 +50,6 @@ def test_repository_settings_are_valid():
     settings = load()
     cfg = settings.as_config()
     assert "ca_bundle" in cfg["data_source"]
-    assert "allow_insecure_tls" not in cfg["data_source"]
     for key, value in cfg["directories"].items():
         assert Path(value).is_absolute(), key
 
@@ -71,12 +70,6 @@ def test_relative_paths_resolve_against_project_root(toml_file):
 def test_ca_bundle_is_resolved(toml_file):
     toml_file.write_text(MINIMAL_TOML + '\n[data_source]\nca_bundle = "certs/x.pem"\n')
     assert load().data_source.ca_bundle == str(config_mod.ROOT / "certs" / "x.pem")
-
-
-def test_insecure_tls_setting_is_rejected(toml_file):
-    toml_file.write_text(MINIMAL_TOML + "\n[data_source]\nallow_insecure_tls = true\n")
-    with pytest.raises(ValidationError):
-        load()
 
 
 def test_secrets_are_secretstr_and_never_in_config_dict(toml_file, monkeypatch):
@@ -118,7 +111,7 @@ def test_invalid_milestone_time_fails_fast(toml_file):
 
 
 def test_unknown_section_key_fails_fast(toml_file):
-    toml_file.write_text(MINIMAL_TOML + "\n[health_monitor]\nintervl = 3\n")
+    toml_file.write_text(MINIMAL_TOML + '\n[data_source]\nca_bundel = "x.pem"\n')
     with pytest.raises(ValidationError):
         load()
 

@@ -1,20 +1,22 @@
-"""Long-polling runtime for the Telegram subscription bot."""
+"""Webhook runtime for the Telegram subscription bot."""
 
 import asyncio
 import logging
+import re
 import sqlite3
 from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 from weakref import WeakValueDictionary
 
 from telegram import BotCommand, BotCommandScopeChat, Update
-from telegram.error import Conflict, NetworkError
 from telegram.ext import Application, BaseUpdateProcessor, ChatMemberHandler
 
 from ..cli.utils import find_active_semester
-from ..config import get_config, get_settings
+from ..config import Settings, get_config, get_settings
 from ..data.database_manager import DatabaseManager
 from .catalog import SubscriptionCatalog
 from .dispatcher import SubscriptionDispatcher
@@ -36,6 +38,50 @@ BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEM
 MAX_CONCURRENT_UPDATES = 8
 MAX_QUEUED_UPDATES = 1024
 SLOW_UPDATE_SECONDS = 3.0
+
+
+SECRET_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}")  # Telegram's alphabet
+
+
+@dataclass(frozen=True)
+class WebhookConfig:
+    """Where Telegram reaches the bot, and how its requests are authenticated."""
+
+    public_url: str
+    secret_token: str
+    listen: str = "127.0.0.1"
+    port: int = 8443
+
+    @property
+    def url_path(self) -> str:
+        return urlsplit(self.public_url).path.lstrip("/")
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "WebhookConfig":
+        """Read the webhook settings, failing fast on anything unsafe or missing.
+
+        The secret token is mandatory: it is the only proof that a request to the
+        public tunnel hostname really comes from Telegram.
+        """
+        secret = settings.telegram_webhook_secret
+        secret_token = secret.get_secret_value().strip() if secret else ""
+        if not secret_token:
+            raise ValueError("TELEGRAM_WEBHOOK_SECRET is required for the bot webhook")
+        if SECRET_TOKEN_PATTERN.fullmatch(secret_token) is None:
+            raise ValueError(
+                "TELEGRAM_WEBHOOK_SECRET must be 1-256 characters of A-Z, a-z, "
+                "0-9, underscore, or hyphen"
+            )
+        public_url = (settings.telegram_webhook_url or "").strip()
+        parts = urlsplit(public_url)
+        if parts.scheme != "https" or not parts.hostname or parts.query:
+            raise ValueError("TELEGRAM_WEBHOOK_URL must be a public https URL")
+        return cls(
+            public_url=public_url,
+            secret_token=secret_token,
+            listen=settings.telegram_bot.webhook_listen,
+            port=settings.telegram_bot.webhook_port,
+        )
 
 
 class OperationalStatsStore(Protocol):
@@ -164,7 +210,7 @@ def bot_commands() -> list[BotCommand]:
 
 
 class SubscriptionBotRuntime:
-    """Own Telegram polling, command handlers, recovery, and delivery dispatch."""
+    """Own the Telegram webhook, command handlers, recovery, and delivery dispatch."""
 
     def __init__(self) -> None:
         config = get_config()
@@ -173,6 +219,7 @@ class SubscriptionBotRuntime:
             raise ValueError("TELEGRAM_BOT_TOKEN is required for the subscription bot")
         token = settings.telegram_bot_token.get_secret_value()
         self.config = config
+        self.webhook = WebhookConfig.from_settings(settings)
         self.test_user_id = settings.telegram_bot_test_user_id
         self.store = SubscriptionStore(config["directories"]["telegram_bot_state"])
         self.diagnostics = BotRuntimeDiagnostics(self.store)
@@ -201,10 +248,10 @@ class SubscriptionBotRuntime:
         )
 
     async def run(self) -> None:
-        """Poll until cancelled, then stop Telegram resources cleanly."""
+        """Serve webhook updates until cancelled, then stop Telegram cleanly."""
         initialized = False
         started = False
-        tasks: list[asyncio.Task[None]] = []
+        serving = False
         subscription_logger = logging.getLogger("registrarmonitor.subscriptions")
         diagnostics_handler = getattr(self, "_diagnostics_log_handler", None)
         if diagnostics_handler is not None:
@@ -212,26 +259,28 @@ class SubscriptionBotRuntime:
         try:
             await self.application.initialize()
             initialized = True
-            webhook = await self.application.bot.get_webhook_info()
-            if webhook.url:
-                raise RuntimeError(
-                    "Telegram bot has an active webhook; remove it explicitly before "
-                    "starting long polling"
-                )
             await self._configure_commands()
             await self.application.start()
             started = True
-            logger.info("Telegram bot polling started")
-            tasks = [
-                asyncio.create_task(self._poll_updates()),
-                asyncio.create_task(self._delivery_loop()),
-            ]
-            await asyncio.gather(*tasks)
+            updater = self.application.updater
+            if updater is None:
+                raise RuntimeError("The bot application has no updater")
+            # Registers the webhook with Telegram and serves it on the local port.
+            # PTB rejects requests whose secret-token header does not match.
+            await updater.start_webhook(
+                listen=self.webhook.listen,
+                port=self.webhook.port,
+                url_path=self.webhook.url_path,
+                webhook_url=self.webhook.public_url,
+                secret_token=self.webhook.secret_token,
+                allowed_updates=BOT_ALLOWED_UPDATES,
+            )
+            serving = True
+            logger.info("Telegram webhook listening on port %d", self.webhook.port)
+            await self._delivery_loop()
         finally:
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            if serving and self.application.updater is not None:
+                await self.application.updater.stop()
             if started:
                 await self.application.stop()
             if initialized:
@@ -247,44 +296,6 @@ class SubscriptionBotRuntime:
                 scope=BotCommandScopeChat(self.test_user_id),
             )
             logger.info("Telegram developer diagnostics access is enabled")
-
-    async def _poll_updates(self) -> None:
-        """Poll without PTB's webhook-deleting Updater bootstrap."""
-        offset = None
-        bot_config = self.config.get("telegram_bot", {})
-        retry_base_seconds = max(0.0, float(bot_config.get("retry_base_seconds", 5)))
-        retry_max_seconds = max(0.0, float(bot_config.get("retry_max_seconds", 900)))
-        retry_seconds = min(retry_base_seconds, retry_max_seconds)
-        while True:
-            poll_started = monotonic()
-            try:
-                updates = await self.application.bot.get_updates(
-                    offset=offset,
-                    timeout=30,
-                    allowed_updates=BOT_ALLOWED_UPDATES,
-                )
-            except Conflict as error:
-                raise RuntimeError(
-                    "Telegram updates are already being consumed by another process"
-                ) from error
-            except NetworkError as error:
-                cause = error.__cause__
-                logger.warning(
-                    "Telegram update polling failed transiently "
-                    "error_type=%s cause_type=%s poll_duration_ms=%.0f "
-                    "retry_seconds=%.0f",
-                    type(error).__name__,
-                    type(cause).__name__ if cause is not None else "none",
-                    (monotonic() - poll_started) * 1000,
-                    retry_seconds,
-                )
-                await asyncio.sleep(retry_seconds)
-                retry_seconds = min(retry_max_seconds, retry_seconds * 2)
-                continue
-            retry_seconds = min(retry_base_seconds, retry_max_seconds)
-            for update in updates:
-                offset = update.update_id + 1
-                await self.application.update_queue.put(update)
 
     async def _latest_catalog(self) -> SubscriptionCatalog | None:
         async with self._catalog_lock:

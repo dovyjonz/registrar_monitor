@@ -39,6 +39,10 @@ preview_base_url = "https://registrar-monitor-preview-images.spooktaken.workers.
 # or delivery.
 
 [telegram_bot]
+# Local webhook listener; cloudflared forwards the public hostname here. The
+# public URL and secret come from TELEGRAM_WEBHOOK_URL / TELEGRAM_WEBHOOK_SECRET.
+webhook_listen = "127.0.0.1"
+webhook_port = 8443
 retry_base_seconds = 5
 retry_max_seconds = 900
 per_chat_interval_seconds = 1

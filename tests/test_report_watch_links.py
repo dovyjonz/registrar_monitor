@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import SecretStr
 
 from registrarmonitor.models import Course, EnrollmentSnapshot
 from registrarmonitor.reporting.telegram_formatting import render_report_chunks
@@ -63,12 +64,18 @@ def reporter(tmp_path):
 
     from registrarmonitor.reporting.telegram_reporter import TelegramReporter
 
+    credentials = SimpleNamespace(
+        telegram_bot_token=SecretStr("t"), telegram_chat_id=SecretStr("1")
+    )
     config = {
-        "telegram": {"bot_token": "t", "chat_id": "1"},
         "directories": {"text_reports": str(tmp_path)},
         "notifications": {"file_write_delay": 0, "dry_run": False},
     }
     with (
+        patch(
+            "registrarmonitor.reporting.telegram_reporter.get_settings",
+            return_value=credentials,
+        ),
         patch(
             "registrarmonitor.reporting.telegram_reporter.get_config",
             return_value=config,

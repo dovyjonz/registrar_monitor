@@ -13,7 +13,7 @@ never part of it). Code that needs a secret or a typed value calls
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import (
@@ -41,6 +41,8 @@ _SECRET_FIELDS = {
     "telegram_bot_token",
     "telegram_chat_id",
     "telegram_bot_test_user_id",
+    "telegram_webhook_url",
+    "telegram_webhook_secret",
     "cloudflare_api_token",
     "cloudflare_account_id",
 }
@@ -56,7 +58,6 @@ class Directories(_Section):
     raw_downloads: str
     logs: str
     telegram_bot_state: str
-    pdf_output: str = "assets/pdf"
 
     @field_validator("*")
     @classmethod
@@ -92,16 +93,6 @@ class Website(_Section):
     preview_base_url: str
 
 
-class StorageSemester(_Section):
-    metadata_mode: Literal["raw-enriched", "legacy-preserving"]
-    mode: Literal["legacy", "shadow", "v2", "finalized"]
-
-
-class Storage(_Section):
-    migration_order: list[str] = Field(default_factory=list)
-    semesters: dict[str, StorageSemester] = Field(default_factory=dict)
-
-
 class TelegramBot(_Section):
     retry_base_seconds: float = 5
     retry_max_seconds: float = 900
@@ -110,11 +101,9 @@ class TelegramBot(_Section):
     cleanup_interval_seconds: float = 3600
     completed_batch_days: int = 90
     inactive_user_days: int = 180
-
-
-class HealthMonitor(_Section):
-    interval_seconds: PositiveInt = 30
-    unhealthy_checks_before_alert: PositiveInt = 2
+    # Local webhook listener; cloudflared forwards the public hostname here.
+    webhook_listen: str = "127.0.0.1"
+    webhook_port: PositiveInt = 8443
 
 
 class Semester(_Section):
@@ -146,11 +135,8 @@ class Settings(BaseSettings):
     data_source: DataSource = DataSource()
     notifications: Notifications = Notifications()
     website: Website
-    storage: Storage = Storage()
     telegram_bot: TelegramBot = TelegramBot()
-    health_monitor: HealthMonitor = HealthMonitor()
     semesters: dict[str, Semester] = Field(default_factory=dict)
-    pdf_settings: dict[str, Any] = Field(default_factory=dict)
 
     # Secrets and operator ids: environment or .env only.
     telegram_bot_token: SecretStr | None = Field(
@@ -161,6 +147,12 @@ class Settings(BaseSettings):
     )
     telegram_bot_test_user_id: PositiveInt | None = Field(
         default=None, validation_alias="TELEGRAM_BOT_TEST_USER_ID"
+    )
+    telegram_webhook_url: str | None = Field(
+        default=None, validation_alias="TELEGRAM_WEBHOOK_URL"
+    )
+    telegram_webhook_secret: SecretStr | None = Field(
+        default=None, validation_alias="TELEGRAM_WEBHOOK_SECRET"
     )
     cloudflare_api_token: SecretStr | None = Field(
         default=None, validation_alias="CLOUDFLARE_API_TOKEN"
@@ -179,6 +171,8 @@ class Settings(BaseSettings):
         "telegram_bot_token",
         "telegram_chat_id",
         "telegram_bot_test_user_id",
+        "telegram_webhook_url",
+        "telegram_webhook_secret",
         "cloudflare_api_token",
         "cloudflare_account_id",
         mode="before",

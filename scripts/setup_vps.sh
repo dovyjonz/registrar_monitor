@@ -16,7 +16,7 @@ PROJECT_ROOT=$(pwd)
 
 if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo "Warning: .env was not found at $PROJECT_ROOT/.env"
-    echo "Create it from .env.example and set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID before enabling Telegram sends."
+    echo "Create it from .env.example and set TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_URL, and TELEGRAM_WEBHOOK_SECRET before enabling Telegram sends."
 fi
 
 echo "Project root: $PROJECT_ROOT"
@@ -53,7 +53,7 @@ cat > scripts/registrarmonitor-bot.service <<EOF
 [Unit]
 Description=Registrar Monitor Telegram Subscription Bot
 Wants=network-online.target
-After=network-online.target registrarmonitor.service
+After=network-online.target registrarmonitor.service registrarmonitor-tunnel.service
 
 [Service]
 Type=simple
@@ -67,6 +67,28 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=registrarmonitor-bot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > scripts/registrarmonitor-tunnel.service <<EOF
+[Unit]
+Description=Registrar Monitor Cloudflare Tunnel for the Telegram webhook
+Wants=network-online.target
+After=network-online.target
+Before=registrarmonitor-bot.service
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$PROJECT_ROOT
+ExecStart=/usr/bin/env cloudflared tunnel --no-autoupdate --config $PROJECT_ROOT/scripts/cloudflared-config.yml run
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=registrarmonitor-tunnel
 
 [Install]
 WantedBy=multi-user.target
@@ -124,12 +146,14 @@ echo ""
 echo "Setup complete."
 echo "A systemd service file has been generated at scripts/registrarmonitor.service"
 echo "The subscription bot unit is at scripts/registrarmonitor-bot.service"
+echo "The webhook tunnel unit is at scripts/registrarmonitor-tunnel.service (configure scripts/cloudflared-config.yml from scripts/cloudflared-config.yml.template first)"
 echo "The Litestream replication unit is at scripts/registrarmonitor-litestream.service (needs the litestream binary and R2 variables in .env)"
 echo "The network watchdog units are at scripts/registrarmonitor-network-watchdog.service and scripts/registrarmonitor-network-watchdog.timer"
 echo ""
 echo "To install the generated units without activating them, run:"
 echo "  sudo cp scripts/registrarmonitor.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-bot.service /etc/systemd/system/"
+echo "  sudo cp scripts/registrarmonitor-tunnel.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-litestream.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-network-watchdog.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-network-watchdog.timer /etc/systemd/system/"
