@@ -9,9 +9,10 @@ logs = "logs"
 telegram_bot_state = "data/telegram_bot.db"
 
 [data_source]
-# Compatibility exception for the registrar's currently unverifiable TLS chain.
-# Remove this after configuring and proving a working ca_bundle path.
-allow_insecure_tls = true
+# PEM file with the registrar's intermediate and root certificates, written by
+# scripts/fetch_registrar_ca.sh. If unset, default system verification is used.
+# TLS verification is never disabled.
+ca_bundle = "data/registrar-chain.pem"
 
 [notifications]
 # File write delay before sending notifications (seconds)
@@ -31,15 +32,13 @@ base_url = ""
 # Separate Worker origin for state-addressed social preview images.
 preview_base_url = "https://registrar-monitor-preview-images.spooktaken.workers.dev"
 
-[telegram]
-# Bot token and chat ID are loaded from TELEGRAM_BOT_TOKEN and
-# TELEGRAM_CHAT_ID in the environment or a local .env file.
-bot_token = ""
-chat_id = ""
+# Secrets are never read from this file. TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+# CLOUDFLARE_API_TOKEN, and CLOUDFLARE_ACCOUNT_ID come from the environment or a
+# local .env file. TELEGRAM_BOT_TEST_USER_ID is also environment-only and shows
+# /test diagnostics to one operator; it does not restrict ordinary interactions
+# or delivery.
 
 [telegram_bot]
-# TELEGRAM_BOT_TEST_USER_ID is environment-only and shows /test diagnostics to
-# one operator. It does not restrict ordinary interactions or delivery.
 retry_base_seconds = 5
 retry_max_seconds = 900
 per_chat_interval_seconds = 1

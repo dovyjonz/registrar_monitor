@@ -216,3 +216,16 @@ def mock_decision_logger():
         ),
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _fresh_settings(tmp_path, monkeypatch):
+    """Isolate tests from a developer's .env and from cached settings."""
+    import registrarmonitor.config as config_mod
+
+    monkeypatch.setattr(config_mod, "ENV_PATH", tmp_path / "missing.env")
+    config_mod.get_settings.cache_clear()
+    config_mod.get_config.cache_clear()
+    yield
+    config_mod.get_settings.cache_clear()
+    config_mod.get_config.cache_clear()

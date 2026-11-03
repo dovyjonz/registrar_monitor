@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from telegram import Bot
 
-from ..config import get_config
+from ..config import get_config, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +173,10 @@ class HealthMonitor:
 async def run_health_monitor() -> None:
     """Run the configured production health monitor."""
     config = get_config()
-    telegram_config = config.get("telegram", {})
-    bot_token = telegram_config.get("bot_token")
-    test_user_id = config.get("telegram_bot", {}).get("test_user_id")
+    settings = get_settings()
+    token = settings.telegram_bot_token
+    bot_token = token.get_secret_value() if token else None
+    test_user_id = settings.telegram_bot_test_user_id
     if not bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN is required for the health monitor")
     if not test_user_id:

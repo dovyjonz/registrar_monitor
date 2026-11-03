@@ -7,7 +7,7 @@ import os
 from telegram import Bot
 from telegram.constants import ParseMode
 
-from ..config import get_config
+from ..config import get_config, get_settings
 from .telegram_formatting import render_report_chunks
 
 
@@ -16,14 +16,15 @@ class TelegramReporter:
 
     def __init__(self):
         self.config = get_config()
-        telegram_config = self.config.get("telegram", {})
-        self.bot_token = telegram_config.get("bot_token")
-        self.chat_id = telegram_config.get("chat_id")
-        if not self.bot_token or not self.chat_id:
+        settings = get_settings()
+        token, chat = settings.telegram_bot_token, settings.telegram_chat_id
+        if token is None or chat is None:
             raise ValueError(
                 "Telegram credentials are missing. Set TELEGRAM_BOT_TOKEN and "
                 "TELEGRAM_CHAT_ID in the environment or a local .env file."
             )
+        self.bot_token = token.get_secret_value()
+        self.chat_id = chat.get_secret_value()
         self.text_reports_dir = self.config["directories"]["text_reports"]
         self.file_write_delay = self.config.get("notifications", {}).get(
             "file_write_delay", 3

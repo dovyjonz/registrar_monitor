@@ -1,8 +1,10 @@
 """Tests for the Telegram reporter module."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import SecretStr
 from telegram.constants import ParseMode
 from telegram.error import NetworkError
 
@@ -15,10 +17,6 @@ pytestmark = pytest.mark.unit
 def mock_config():
     """Mock configuration dictionary."""
     return {
-        "telegram": {
-            "bot_token": "test_token",
-            "chat_id": "123456789",
-        },
         "directories": {
             "text_reports": "/tmp/txt",
         },
@@ -30,9 +28,21 @@ def mock_config():
 
 
 @pytest.fixture
-def reporter(mock_config):
+def credentials():
+    return SimpleNamespace(
+        telegram_bot_token=SecretStr("test_token"),
+        telegram_chat_id=SecretStr("123456789"),
+    )
+
+
+@pytest.fixture
+def reporter(mock_config, credentials):
     """Create a TelegramReporter instance with mocked dependencies."""
     with (
+        patch(
+            "registrarmonitor.reporting.telegram_reporter.get_settings",
+            return_value=credentials,
+        ),
         patch(
             "registrarmonitor.reporting.telegram_reporter.get_config",
             return_value=mock_config,
@@ -46,9 +56,13 @@ def reporter(mock_config):
 
 def test_telegram_reporter_requires_credentials(mock_config):
     """Missing Telegram credentials should fail with an actionable message."""
-    mock_config["telegram"] = {"bot_token": "", "chat_id": ""}
+    missing = SimpleNamespace(telegram_bot_token=None, telegram_chat_id=None)
 
     with (
+        patch(
+            "registrarmonitor.reporting.telegram_reporter.get_settings",
+            return_value=missing,
+        ),
         patch(
             "registrarmonitor.reporting.telegram_reporter.get_config",
             return_value=mock_config,

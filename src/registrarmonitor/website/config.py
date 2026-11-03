@@ -142,18 +142,10 @@ _DEADLINE_COLORS = ["#78909C", "#546E7A", "#E040FB"]
 
 
 def _load_settings() -> dict[str, Any]:
-    """Load and return the parsed settings.toml via the Config singleton."""
-    try:
-        from registrarmonitor.config import get_config
+    """Return the validated, non-secret settings dictionary."""
+    from registrarmonitor.config import get_config
 
-        return get_config()
-    except Exception:
-        # Fallback: read directly with tomllib (stdlib Python 3.11+)
-        import tomllib
-
-        settings_path = Path(__file__).parent.parent.parent.parent / "settings.toml"
-        with open(settings_path, "rb") as f:
-            return tomllib.load(f)
+    return get_config()
 
 
 # Settings-dependent constants (must come after _load_settings)

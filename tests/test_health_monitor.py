@@ -1,6 +1,9 @@
 """Tests for the independent production service health monitor."""
 
+from types import SimpleNamespace
+
 import pytest
+from pydantic import SecretStr
 
 from registrarmonitor.services import health_monitor as health_monitor_module
 from registrarmonitor.services.health_monitor import (
@@ -137,13 +140,19 @@ async def test_runtime_sends_alerts_to_configured_test_operator(monkeypatch):
         health_monitor_module,
         "get_config",
         lambda: {
-            "telegram": {"bot_token": "test-token"},
-            "telegram_bot": {"test_user_id": 41},
             "health_monitor": {
                 "interval_seconds": 7,
                 "unhealthy_checks_before_alert": 3,
             },
         },
+    )
+    monkeypatch.setattr(
+        health_monitor_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_bot_token=SecretStr("test-token"),
+            telegram_bot_test_user_id=41,
+        ),
     )
     monkeypatch.setattr(health_monitor_module, "Bot", FakeBot)
     monkeypatch.setattr(health_monitor_module, "HealthMonitor", FakeMonitor)

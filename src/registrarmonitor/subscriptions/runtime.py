@@ -14,7 +14,7 @@ from telegram.error import Conflict, NetworkError
 from telegram.ext import Application, BaseUpdateProcessor, ChatMemberHandler
 
 from ..cli.utils import find_active_semester
-from ..config import get_config
+from ..config import get_config, get_settings
 from ..data.database_manager import DatabaseManager
 from .catalog import SubscriptionCatalog
 from .dispatcher import SubscriptionDispatcher
@@ -168,11 +168,12 @@ class SubscriptionBotRuntime:
 
     def __init__(self) -> None:
         config = get_config()
-        token = config.get("telegram", {}).get("bot_token")
-        if not token:
+        settings = get_settings()
+        if settings.telegram_bot_token is None:
             raise ValueError("TELEGRAM_BOT_TOKEN is required for the subscription bot")
+        token = settings.telegram_bot_token.get_secret_value()
         self.config = config
-        self.test_user_id = config.get("telegram_bot", {}).get("test_user_id")
+        self.test_user_id = settings.telegram_bot_test_user_id
         self.store = SubscriptionStore(config["directories"]["telegram_bot_state"])
         self.diagnostics = BotRuntimeDiagnostics(self.store)
         self._diagnostics_log_handler = RecentSubscriptionLogHandler(self.diagnostics)

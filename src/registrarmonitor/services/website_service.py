@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from ..config import get_settings
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..website.catalog import build_publication_catalog
@@ -890,14 +891,15 @@ class WebsiteService:
 
         # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
         env = os.environ.copy()
-        if not env.get("CLOUDFLARE_API_TOKEN", "").strip():
+        settings = get_settings()
+        if settings.cloudflare_api_token is None:
             print("❌ Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN is not set.")
             print(
                 "   Add CLOUDFLARE_API_TOKEN=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
             )
             print("   Then restart the systemd service so EnvironmentFile is reloaded.")
             return False
-        if not env.get("CLOUDFLARE_ACCOUNT_ID", "").strip():
+        if settings.cloudflare_account_id is None:
             print("❌ Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set.")
             print(
                 "   Add CLOUDFLARE_ACCOUNT_ID=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
@@ -908,6 +910,8 @@ class WebsiteService:
             print("   Then restart the systemd service so EnvironmentFile is reloaded.")
             return False
 
+        env["CLOUDFLARE_API_TOKEN"] = settings.cloudflare_api_token.get_secret_value()
+        env["CLOUDFLARE_ACCOUNT_ID"] = settings.cloudflare_account_id.get_secret_value()
         env["NODE_OPTIONS"] = "--max_old_space_size=512"
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"
