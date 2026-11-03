@@ -47,15 +47,16 @@ class DataDownloader:
             f.write(content)
 
     def _tls_verification(self) -> bool | str:
-        data_source = self.config["data_source"]
-        if data_source.get("allow_insecure_tls", False):
-            self.logger.warning(
-                "SECURITY WARNING: TLS certificate verification is disabled "
-                "for the registrar download"
+        """Return httpx's ``verify=`` value; verification is never disabled."""
+        ca_bundle = self.config["data_source"].get("ca_bundle")
+        if not ca_bundle:
+            return True
+        if not os.path.isfile(ca_bundle):
+            raise FileProcessingError(
+                f"data_source.ca_bundle {ca_bundle} does not exist; "
+                "run scripts/fetch_registrar_ca.sh on the host"
             )
-            return False
-
-        return data_source.get("ca_bundle") or True
+        return ca_bundle
 
     async def download(self) -> str | None:
         """
@@ -75,7 +76,8 @@ class DataDownloader:
         )
 
         try:
-            async with httpx.AsyncClient(verify=self._tls_verification()) as client:
+            verify = self._tls_verification()
+            async with httpx.AsyncClient(verify=verify) as client:
                 print(f"Downloading file from {self.url}...")
                 response = await client.get(self.url, timeout=30.0)
                 response.raise_for_status()

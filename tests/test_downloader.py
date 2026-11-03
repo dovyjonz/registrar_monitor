@@ -120,6 +120,7 @@ async def test_configured_ca_bundle_is_passed_to_httpx(
     mock_config, mock_httpx_client, tmp_path
 ):
     ca_bundle = tmp_path / "registrar-ca.pem"
+    ca_bundle.write_text("pem")
     mock_config.return_value["data_source"]["ca_bundle"] = str(ca_bundle)
     mock_httpx_client.get.side_effect = __import__("httpx").ConnectError(
         "certificate verify failed"
@@ -133,17 +134,24 @@ async def test_configured_ca_bundle_is_passed_to_httpx(
 
 
 @pytest.mark.asyncio
-async def test_insecure_tls_requires_explicit_config_and_logs_warning(
-    mock_config, mock_httpx_client, caplog
+async def test_unset_ca_bundle_uses_default_verification(
+    mock_config, mock_httpx_client
 ):
-    mock_config.return_value["data_source"]["allow_insecure_tls"] = True
-    mock_httpx_client.get.side_effect = __import__("httpx").ConnectError(
-        "Connection refused"
-    )
+    mock_httpx_client.get.side_effect = __import__("httpx").ConnectError("down")
     downloader = DataDownloader()
 
     with pytest.raises(FileProcessingError):
         await downloader.download()
 
-    mock_httpx_client.client_class.assert_called_once_with(verify=False)
-    assert "TLS certificate verification is disabled" in caplog.text
+    mock_httpx_client.client_class.assert_called_once_with(verify=True)
+
+
+@pytest.mark.asyncio
+async def test_missing_ca_bundle_fails_closed(mock_config, mock_httpx_client, tmp_path):
+    mock_config.return_value["data_source"]["ca_bundle"] = str(tmp_path / "none.pem")
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError, match="fetch_registrar_ca"):
+        await downloader.download()
+
+    mock_httpx_client.client_class.assert_not_called()
