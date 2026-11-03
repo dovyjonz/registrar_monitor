@@ -1,5 +1,7 @@
 """Tests for typed settings."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -12,7 +14,6 @@ MINIMAL_TOML = """
 text_reports = "reports"
 data_storage = "data"
 raw_downloads = "raw"
-input_files = "in"
 logs = "logs"
 telegram_bot_state = "data/bot.db"
 

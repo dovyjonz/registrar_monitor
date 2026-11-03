@@ -54,7 +54,6 @@ class Directories(_Section):
     text_reports: str
     data_storage: str
     raw_downloads: str
-    input_files: str
     logs: str
     telegram_bot_state: str
     pdf_output: str = "assets/pdf"
