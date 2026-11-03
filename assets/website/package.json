@@ -11,8 +11,6 @@
         "test": "npm run test:unit",
         "test:unit": "node --test test/*.test.mjs",
         "test:e2e": "playwright test",
-        "test:e2e:stability": "playwright test --grep 'chart drag|professor no-history|continuous phased time|pinned readout|touch dragging|pinch zoom'",
-        "test:e2e:webkit": "PLAYWRIGHT_BROWSER=webkit playwright test --grep @webkit",
         "lint": "eslint .",
         "build": "vite build"
     },

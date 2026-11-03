@@ -14,7 +14,7 @@ export default defineConfig({
     outputDir: '../../output/playwright/test-results',
     use: {
         baseURL: 'http://127.0.0.1:4173',
-        browserName: process.env.PLAYWRIGHT_BROWSER || 'chromium',
+        browserName: 'chromium',
         headless: true,
         launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
             ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
