@@ -2,6 +2,9 @@ import { renderCard } from './card';
 import { parsePreviewRoute, validateState } from './model';
 
 const IMMUTABLE = 'public, max-age=31536000, immutable';
+// The ASSETS binding resolves only the path, so build state URLs on a fixed
+// origin instead of the client-controlled request URL.
+const ASSETS_ORIGIN = 'https://assets.invalid';
 const MAX_STATE_BYTES = 512_000;
 
 function failure(status: number, message: string): Response {
@@ -60,7 +63,7 @@ export async function handlePreviewRequest(
       : cached;
   }
 
-  const stateUrl = new URL(`/data/previews/${identity.kind}/${identity.hash}.json`, request.url);
+  const stateUrl = new URL(`/data/previews/${identity.kind}/${identity.hash}.json`, ASSETS_ORIGIN);
   let stateResponse: Response;
   try {
     stateResponse = await env.ASSETS.fetch(new Request(stateUrl));
