@@ -13,7 +13,7 @@ RUNTIME_ENV = PATH="$(PATH)"
 UV = $(RUNTIME_ENV) uv
 NPM = $(RUNTIME_ENV) npm
 
-.PHONY: help bootstrap check-fast check test-browser site-generate worker-check clean
+.PHONY: help bootstrap check-fast check test-browser site-generate worker-check deploy-vm clean
 
 help:
 	@printf '%s\n' \
@@ -24,6 +24,7 @@ help:
 		'  test-browser    Run Chromium smoke tests against generated output' \
 		'  site-generate   Build the dashboard and generate the production site' \
 		'  worker-check    Run preview Worker types, tests, TypeScript, and dry-run' \
+		'  deploy-vm       Deploy REV to the VM and restart UNIT (make deploy-vm REV=main UNIT=<unit>.service)' \
 		'  clean           Remove reproducible website output artifacts'
 
 bootstrap:
@@ -55,6 +56,10 @@ test-browser:
 
 worker-check:
 	$(NPM) --prefix workers/preview-images run check
+
+deploy-vm:
+	@test -n "$(REV)" -a -n "$(UNIT)" || { echo "usage: make deploy-vm REV=<revision> UNIT=<unit>.service"; exit 2; }
+	./scripts/deploy_vm.sh "$(REV)" "$(UNIT)"
 
 clean:
 	rm -f frontend/public/*.html frontend/public/*.json frontend/public/_headers frontend/public/robots.txt frontend/public/.checksums.json
