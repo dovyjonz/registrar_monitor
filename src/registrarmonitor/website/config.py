@@ -8,27 +8,23 @@ from registrarmonitor.registration import get_priority_milestones
 
 
 def _get_base_url() -> str:
-    """Get the base URL for canonical links and sharing.
-
-    Reads from settings.toml [website].base_url. Falls back to
-    https://{pages_project_name}.pages.dev.
-    """
-    cfg = _load_settings()
-    website = cfg.get("website", {})
-    base = website.get("base_url", "").strip().rstrip("/")
-    if base:
-        return base
-    project = website.get("pages_project_name", "registrar-monitor")
-    return f"https://{project}.pages.dev"
-
-
-def _get_preview_base_url() -> str:
-    """Get the separately deployed Worker origin for social preview images."""
-    website = _load_settings().get("website", {})
-    base = website.get("preview_base_url", "").strip().rstrip("/")
+    """Get the public origin of the site Worker (links, Open Graph, previews)."""
+    base = _load_settings().get("website", {}).get("base_url", "").strip().rstrip("/")
     if not base:
-        raise ValueError("website.preview_base_url must be configured")
+        raise ValueError("website.base_url must be configured")
     return base
+
+
+def _get_web_analytics_token() -> str:
+    """Cloudflare Web Analytics site token; empty disables the beacon."""
+    token = str(
+        _load_settings().get("website", {}).get("web_analytics_token", "")
+    ).strip()
+    if token and not re.fullmatch(r"[0-9a-fA-F]{32}", token):
+        raise ValueError(
+            "website.web_analytics_token must be 32 hexadecimal characters"
+        )
+    return token
 
 
 def semester_to_slug(semester: str) -> str:
@@ -150,7 +146,7 @@ def _load_settings() -> dict[str, Any]:
 
 # Settings-dependent constants (must come after _load_settings)
 BASE_URL: str = _get_base_url()
-PREVIEW_BASE_URL: str = _get_preview_base_url()
+WEB_ANALYTICS_TOKEN: str = _get_web_analytics_token()
 
 
 def _assign_deadline_colors(

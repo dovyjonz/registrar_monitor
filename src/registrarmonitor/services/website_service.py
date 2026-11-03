@@ -1,5 +1,6 @@
-"""Service for generating and deploying the website."""
+"""Service for generating the website and deploying it as Worker static assets."""
 
+import hashlib
 import json
 import re
 import shutil
@@ -31,6 +32,7 @@ from ..website.templates import (
 )
 
 DEPLOY_TIMEOUT_SECONDS = 900
+WORKER_CONFIG = Path(__file__).resolve().parents[3] / "workers/site/wrangler.jsonc"
 
 
 class WebsiteService:
@@ -420,8 +422,32 @@ class WebsiteService:
             print(f"Error: {issue}")
         return not issues
 
+    def _frontend_source_hash(self) -> str:
+        """Hash everything the Vite bundle depends on (source, config, lockfile)."""
+        digest = hashlib.sha256()
+        root = self.website_assets_dir
+        sources = [
+            root / "package.json",
+            root / "package-lock.json",
+            root / "vite.config.js",
+            *sorted(path for path in (root / "src").rglob("*") if path.is_file()),
+        ]
+        for path in sources:
+            if path.is_file():
+                digest.update(path.relative_to(root).as_posix().encode())
+                digest.update(path.read_bytes())
+        return digest.hexdigest()
+
+    @property
+    def _build_hash_file(self) -> Path:
+        return self.output_dir / ".frontend-build-hash"
+
     def build_frontend_assets(self) -> bool:
-        """Build the frontend assets using npm/vite.
+        """Build the frontend assets using npm/vite, unless they are current.
+
+        The 1 GB VM rebuilds only when the frontend source, config, or lockfile
+        hash differs from the one recorded by the last successful build; routine
+        publications reuse the existing bundle and only validate its references.
 
         After a successful build, Vite emits new content-hashed filenames.
         Rather than regenerating all HTML pages (which requires DB queries),
@@ -429,6 +455,16 @@ class WebsiteService:
         Checksums are preserved so incremental logic is unaffected.
         """
         import os
+
+        source_hash = self._frontend_source_hash()
+        manifest = self.output_dir / "assets" / ".vite" / "manifest.json"
+        try:
+            recorded = self._build_hash_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            recorded = ""
+        if recorded == source_hash and manifest.is_file():
+            print("Frontend assets are current; skipping build.")
+            return self._validate_asset_references_in_html()
 
         print("Building frontend assets...")
         build_cmd = ["npm", "run", "build"]
@@ -453,7 +489,11 @@ class WebsiteService:
             # Patch asset hashes in all deployed HTML files without regenerating them.
             if not self._patch_asset_hashes_in_html():
                 return False
-            return self._validate_asset_references_in_html()
+            if not self._validate_asset_references_in_html():
+                return False
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            self._build_hash_file.write_text(source_hash + "\n", encoding="utf-8")
+            return True
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error building frontend assets: {e}")
             print(f"Error building frontend assets: {e}")
@@ -496,12 +536,12 @@ class WebsiteService:
                 )
         if len(redirects) > 2_000:
             raise ValueError(
-                f"generated redirect count {len(redirects)} exceeds Pages limit"
+                f"generated redirect count {len(redirects)} exceeds the static redirect limit"
             )
         return "\n".join(redirects) + ("\n" if redirects else "")
 
     def _build_headers_content(self) -> str:
-        """Build Cloudflare Pages headers for generated public output."""
+        """Build Static Assets headers for generated public output."""
         return """/*
   Cache-Control: public, max-age=0, must-revalidate
   X-Content-Type-Options: nosniff
@@ -632,6 +672,8 @@ class WebsiteService:
             "_redirects",
             "robots.txt",
             ".checksums.json",
+            ".assetsignore",
+            ".frontend-build-hash",
         }
         allowed_dirs = {"assets", "courses", "data", "previews", "semesters"}
         private_names = {".DS_Store", ".env"}
@@ -812,6 +854,11 @@ class WebsiteService:
                 headers_path.write_text(self._build_headers_content())
                 print("Generated Cloudflare _headers")
 
+                # Keep local state out of the deployed assets
+                (self.output_dir / ".assetsignore").write_text(
+                    ".assetsignore\n.checksums.json\n.frontend-build-hash\n"
+                )
+
                 # Generate robots.txt
                 robots_path = self.output_dir / "robots.txt"
                 robots_path.write_text(self._build_robots_content())
@@ -844,15 +891,13 @@ class WebsiteService:
             print(f"❌ Website generation failed: {e}")
             return False
 
-    def deploy(
-        self, project_name: str = "registrar-monitor", branch: str | None = None
-    ) -> bool:
+    def deploy(self) -> bool:
         """
-        Deploy the website to Cloudflare Pages.
+        Deploy the generated site and the preview Worker with ``wrangler deploy``.
 
-        Args:
-            project_name: Cloudflare Pages project name
-            branch: Optional branch name for deployment
+        The site is the Worker's Static Assets directory (``frontend/public``).
+        Wrangler hashes every file and uploads only the ones Cloudflare does not
+        already have, so each deploy sends just the changed pages and data.
 
         Returns:
             True if successful
@@ -863,10 +908,7 @@ class WebsiteService:
             print("❌ Deployment is disabled for isolated generation output.")
             return False
 
-        print("\n🚀 Deploying to Cloudflare Pages...", flush=True)
-        print(f"   Project: {project_name}")
-        if branch:
-            print(f"   Branch: {branch}")
+        print("\n🚀 Deploying the site Worker...", flush=True)
 
         issues = self.validate_public_output()
         if issues:
@@ -875,21 +917,16 @@ class WebsiteService:
                 print(f"   - {issue}")
             return False
 
-        # Command: npx wrangler pages deploy public --project-name <name> [--branch <branch>]
+        # wrangler is a frontend devDependency, so the VM needs no Worker dependencies.
         deploy_cmd = [
             "npx",
             "wrangler",
-            "pages",
             "deploy",
-            "public",
-            "--project-name",
-            project_name,
+            "--config",
+            str(WORKER_CONFIG),
+            "--strict",
         ]
 
-        if branch:
-            deploy_cmd.extend(["--branch", branch])
-
-        # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
         env = os.environ.copy()
         settings = get_settings()
         if settings.cloudflare_api_token is None:

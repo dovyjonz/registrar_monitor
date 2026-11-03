@@ -119,6 +119,34 @@ def test_build_frontend_assets_skips_install_when_dependencies_are_current(tmp_p
     assert commands == [["npm", "run", "build"]]
 
 
+def test_build_is_skipped_until_the_frontend_source_changes(tmp_path):
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.ts").write_text("one")
+    (tmp_path / "package.json").write_text("{}")
+    (tmp_path / "package-lock.json").write_text("{}")
+    (tmp_path / "node_modules").mkdir()
+    manifest = tmp_path / "public" / "assets" / ".vite" / "manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+
+    with (
+        patch("subprocess.run") as run,
+        patch.object(service, "_patch_asset_hashes_in_html", return_value=True),
+        patch.object(
+            service, "_frontend_dependencies_need_install", return_value=False
+        ),
+    ):
+        assert service.build_frontend_assets() is True
+        assert run.call_count == 1
+        assert service.build_frontend_assets() is True
+        assert run.call_count == 1  # unchanged source: reused
+        (tmp_path / "src" / "app.ts").write_text("two")
+        assert service.build_frontend_assets() is True
+        assert run.call_count == 2
+
+
 def test_build_frontend_assets_returns_false_when_install_fails(tmp_path):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
@@ -168,7 +196,7 @@ def test_deploy_missing_cloudflare_api_token_skips_wrangler(tmp_path, monkeypatc
         patch.object(service, "validate_public_output", return_value=[]),
         patch("subprocess.run") as run,
     ):
-        assert service.deploy(project_name="registrar-monitor") is False
+        assert service.deploy() is False
 
     run.assert_not_called()
 
@@ -188,7 +216,7 @@ def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, capsys):
         patch("registrarmonitor.services.website_service.OUTPUT_DIR", tmp_path),
         patch("subprocess.run") as run,
     ):
-        assert service.deploy(project_name="registrar-monitor") is False
+        assert service.deploy() is False
 
     run.assert_not_called()
     output = capsys.readouterr().out
@@ -197,7 +225,7 @@ def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, capsys):
     assert "/assets/main-missing.js" in output
 
 
-def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys, monkeypatch):
+def test_wrangler_deploy_prints_failure_output(tmp_path, capsys, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
@@ -208,7 +236,7 @@ def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys, monkeypat
         patch("subprocess.run") as run,
     ):
         run.return_value.returncode = 1
-        assert service.deploy(project_name="registrar-monitor") is False
+        assert service.deploy() is False
 
     output = capsys.readouterr().out
     assert "Deployment failed with exit code: 1" in output
@@ -218,7 +246,7 @@ def test_wrangler_pages_deploy_prints_failure_output(tmp_path, capsys, monkeypat
     assert run.call_args.kwargs["timeout"] == 900
 
 
-def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
+def test_wrangler_deploy_invokes_expected_command(tmp_path, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
@@ -231,20 +259,17 @@ def test_wrangler_pages_deploy_invokes_expected_command(tmp_path, monkeypatch):
         run.return_value.returncode = 0
         run.return_value.stdout = ""
         run.return_value.stderr = ""
-        assert service.deploy(project_name="registrar-monitor") is True
+        assert service.deploy() is True
 
-    assert run.call_args.args[0] == [
-        "npx",
-        "wrangler",
-        "pages",
-        "deploy",
-        "public",
-        "--project-name",
-        "registrar-monitor",
-    ]
+    command = run.call_args.args[0]
+    assert command[:3] == ["npx", "wrangler", "deploy"]
+    assert command[command.index("--config") + 1].endswith(
+        "workers/site/wrangler.jsonc"
+    )
+    assert run.call_args.kwargs["cwd"] == tmp_path
 
 
-def test_wrangler_pages_deploy_rejects_private_output(tmp_path, monkeypatch):
+def test_wrangler_deploy_rejects_private_output(tmp_path, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     public = tmp_path / "public"
@@ -258,7 +283,7 @@ def test_wrangler_pages_deploy_rejects_private_output(tmp_path, monkeypatch):
         patch("registrarmonitor.services.website_service.OUTPUT_DIR", public),
         patch("subprocess.run") as run,
     ):
-        assert service.deploy(project_name="registrar-monitor") is False
+        assert service.deploy() is False
 
     run.assert_not_called()
 

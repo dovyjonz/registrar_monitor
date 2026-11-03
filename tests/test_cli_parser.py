@@ -39,19 +39,6 @@ from registrarmonitor.main import create_parser
             ],
             "db",
         ),
-        (
-            [
-                "db",
-                "rollback-manifest",
-                "--semester",
-                "Summer 2025",
-                "--output-dir",
-                "frontend/public",
-                "--report",
-                "output/rollback.json",
-            ],
-            "db",
-        ),
     ],
 )
 def test_canonical_commands_parse(argv, command):

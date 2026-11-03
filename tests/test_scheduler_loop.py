@@ -41,7 +41,6 @@ class TestTwoPhaseSchedulerLoop:
                 "registrarmonitor.automation.scheduler.get_config",
                 return_value={
                     "website": {
-                        "pages_project_name": "test-project",
                         "generation_timeout_seconds": 7200,
                     },
                     "semesters": {},
@@ -62,7 +61,7 @@ class TestTwoPhaseSchedulerLoop:
         command = run.call_args.args[0]
         assert command[-2:] == ["registrarmonitor.main", "deploy"]
         assert run.call_args.kwargs["timeout"] == 7200
-        mock_service.deploy.assert_called_once_with(project_name="test-project")
+        mock_service.deploy.assert_called_once_with()
 
     def test_run_website_update_generate_failure_skips_deploy(self):
         """A failed isolated generation never publishes stale output."""

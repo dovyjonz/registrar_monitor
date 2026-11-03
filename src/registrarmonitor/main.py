@@ -145,7 +145,7 @@ Telegram Control:
     run_parser.add_argument(
         "--deploy",
         action="store_true",
-        help="Deploy the generated website to Cloudflare Pages",
+        help="Deploy the generated website with `wrangler deploy` (Workers Static Assets)",
     )
 
     # Schedule command
@@ -170,12 +170,12 @@ Telegram Control:
     deploy_parser = subparsers.add_parser(
         "deploy",
         help="Generate and deploy the website",
-        description="Generate the enrollment website and optionally deploy to Cloudflare Pages",
+        description="Generate the enrollment website and optionally deploy it as Worker static assets",
     )
     deploy_parser.add_argument(
         "--deploy",
         action="store_true",
-        help="Deploy to Cloudflare Pages after generation",
+        help="Run `wrangler deploy` after generation",
     )
     deploy_parser.add_argument(
         "--semester",
@@ -191,17 +191,6 @@ Telegram Control:
         "--no-minify",
         action="store_true",
         help="Disable generated asset minification",
-    )
-    deploy_parser.add_argument(
-        "--project",
-        type=str,
-        default="registrar-monitor",
-        help="Cloudflare Pages project name (default: registrar-monitor)",
-    )
-    deploy_parser.add_argument(
-        "--branch",
-        type=str,
-        help="Branch name for deployment",
     )
     deploy_parser.add_argument(
         "--output-dir",
@@ -279,14 +268,6 @@ Telegram Control:
     )
     initialize_parser.add_argument("--semester", required=True)
     initialize_parser.add_argument("--database", type=Path)
-
-    manifest_rollback_parser = db_subparsers.add_parser(
-        "rollback-manifest",
-        help="Restore a semester's previous static manifest pointer",
-    )
-    manifest_rollback_parser.add_argument("--semester", required=True)
-    manifest_rollback_parser.add_argument("--output-dir", type=Path)
-    manifest_rollback_parser.add_argument("--report", type=Path, required=True)
     return parser
 
 
@@ -344,8 +325,6 @@ async def handle_deploy_command(args) -> int:
         semester=getattr(args, "semester", None),
         force=getattr(args, "force", False),
         minify=not getattr(args, "no_minify", False),
-        project_name=getattr(args, "project", "registrar-monitor"),
-        branch=getattr(args, "branch", None),
         output_dir=getattr(args, "output_dir", None),
     )
     return 0 if success else 1
@@ -410,12 +389,6 @@ async def handle_db_command(args) -> int:
         success = await command.initialize_fresh_storage(
             semester=args.semester,
             database=getattr(args, "database", None),
-        )
-    elif args.db_command == "rollback-manifest":
-        success = await command.rollback_manifest(
-            semester=args.semester,
-            report_path=args.report,
-            output_dir=getattr(args, "output_dir", None),
         )
     else:
         print("❌ Invalid database command")

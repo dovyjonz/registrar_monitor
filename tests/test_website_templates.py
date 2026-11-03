@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from registrarmonitor.website.templates import (
     _build_nav_html,
@@ -105,12 +106,12 @@ def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
     assert 'data-initial-course="ANT 140"' in html
     assert 'data-preview-state-url="/data/previews/course/obLD1OX2.json"' in html
     assert (
-        '<link rel="canonical" href="https://registrar-monitor.pages.dev/courses/fall-2026/ant-140/">'
+        '<link rel="canonical" href="https://registrar-monitor.spooktaken.workers.dev/courses/fall-2026/ant-140/">'
         in html
     )
     assert "/courses/fall-2026/ant-140/?v=obLD1OX2" in html
     assert (
-        "https://registrar-monitor-preview-images.spooktaken.workers.dev/"
+        "https://registrar-monitor.spooktaken.workers.dev/"
         "preview/course/fall-2026/ant-140/obLD1OX2.png"
     ) in html
     assert (
@@ -137,7 +138,21 @@ def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
 
     assert 'data-page-archived="true"' in html
     assert (
-        'content="https://registrar-monitor.pages.dev/semesters/spring-2026/"' in html
+        'content="https://registrar-monitor.spooktaken.workers.dev/semesters/spring-2026/"'
+        in html
     )
     assert "/semesters/spring-2026/?v=" not in html
     assert "142 sections were full at the final update" in html
+
+
+def test_web_analytics_beacon_is_present_only_with_a_configured_token(tmp_path):
+    token = "0123456789abcdef0123456789abcdef"
+    args = ({"cr": {}}, [], "Fall 2026")
+
+    with patch("registrarmonitor.website.templates.WEB_ANALYTICS_TOKEN", token):
+        html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert f'data-cf-beacon=\'{{"token": "{token}"}}\'' in html
+    assert "static.cloudflareinsights.com/beacon.min.js" in html
+
+    html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert "beacon.min.js" not in html

@@ -25,12 +25,11 @@ dry_run = false
 update_interval = 30
 # Maximum time allowed for a website generation child process (seconds).
 generation_timeout_seconds = 3600
-# Cloudflare Pages project name
-pages_project_name = "registrar-monitor"
-# Base URL for canonical links and social sharing (default: https://{pages_project_name}.pages.dev)
-base_url = ""
-# Separate Worker origin for state-addressed social preview images.
-preview_base_url = "https://registrar-monitor-preview-images.spooktaken.workers.dev"
+# Public origin of the site Worker (workers/site), used for canonical links, Open
+# Graph tags, and preview image URLs.
+base_url = "https://registrar-monitor.spooktaken.workers.dev"
+# Cloudflare Web Analytics site token (cookieless beacon); leave empty to disable.
+web_analytics_token = ""
 
 # Secrets are never read from this file. TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
 # CLOUDFLARE_API_TOKEN, and CLOUDFLARE_ACCOUNT_ID come from the environment or a

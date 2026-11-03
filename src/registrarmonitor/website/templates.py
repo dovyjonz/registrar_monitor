@@ -10,7 +10,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from .config import (
     BASE_URL,
-    PREVIEW_BASE_URL,
+    WEB_ANALYTICS_TOKEN,
     get_configured_semesters,
     semester_to_slug,
 )
@@ -133,7 +133,7 @@ def build_semester_page(
         ]
         description = ". ".join(description_parts) + "."
         image_url = (
-            f"{PREVIEW_BASE_URL}/preview/course/{sem_slug}/{course_slug}/"
+            f"{BASE_URL}/preview/course/{sem_slug}/{course_slug}/"
             f"{course_state['hash']}.png"
         )
         image_alt = f"{course_state['code']} enrollment preview for {semester}"
@@ -158,7 +158,7 @@ def build_semester_page(
             )
         og_url = canonical_url
         image_url = (
-            f"{PREVIEW_BASE_URL}/preview/semester/{sem_slug}/{state['hash']}.png"
+            f"{BASE_URL}/preview/semester/{sem_slug}/{state['hash']}.png"
             if state.get("hash")
             else f"{BASE_URL}/previews/root.png"
         )
@@ -176,6 +176,7 @@ def build_semester_page(
         js_file=js_file,
         css_file=css_file,
         asset_base_url="/assets/",
+        web_analytics_token=WEB_ANALYTICS_TOKEN,
         canonical_url=canonical_url,
         og_url=og_url,
         image_url=image_url,

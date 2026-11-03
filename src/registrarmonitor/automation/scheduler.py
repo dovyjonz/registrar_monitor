@@ -335,10 +335,9 @@ class TwoPhaseScheduler:
             from ..services.website_service import WebsiteService
 
             website_config = get_config().get("website", {})
-            project_name = website_config.get("pages_project_name", "registrar-monitor")
             generation_timeout_seconds = website_config["generation_timeout_seconds"]
 
-            print(f"\n🌐 Starting Website Update (Project: {project_name})...")
+            print("\n🌐 Starting Website Update...")
             service = WebsiteService()
             if not service.is_any_semester_active():
                 print("💤 Outside active registration windows. Skipping build/deploy.")
@@ -356,7 +355,7 @@ class TwoPhaseScheduler:
                 )
                 return
 
-            service.deploy(project_name=project_name)
+            service.deploy()
 
         except Exception as e:
             print(f"❌ Website update failed: {e}")

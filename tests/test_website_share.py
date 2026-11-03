@@ -12,7 +12,7 @@ def test_published_course_share_url_uses_generated_preview_hash(tmp_path):
     )
 
     assert published_course_share_url("Spring 2024", "CS 101", output_dir=tmp_path) == (
-        "https://registrar-monitor.pages.dev/courses/spring-2024/cs-101/?v=Abcd_123"
+        "https://registrar-monitor.spooktaken.workers.dev/courses/spring-2024/cs-101/?v=Abcd_123"
     )
 
 

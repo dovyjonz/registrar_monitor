@@ -1,6 +1,5 @@
 """Command implementations for the registrarmonitor CLI."""
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,8 +15,6 @@ from ..data.database_manager import DatabaseManager
 from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..utils import get_section_sort_key
-from ..website.config import OUTPUT_DIR, semester_to_slug
-from ..website.static_manifest import rollback_semester_pointer
 from .utils import detect_active_semester
 
 
@@ -530,41 +527,6 @@ class DatabaseCommands:
             self.logger.error(f"Database stats error: {e}")
             return False
 
-    async def rollback_manifest(
-        self,
-        *,
-        semester: str,
-        report_path: Path,
-        output_dir: Path | None = None,
-    ) -> bool:
-        """Restore a semester's prior pointer without deleting artifacts."""
-        try:
-            result = rollback_semester_pointer(
-                output_dir or OUTPUT_DIR,
-                semester_slug=semester_to_slug(semester),
-            )
-            report = {
-                "status": result.status,
-                "semester": semester,
-                "build_id": result.build_id,
-                "pointer": str(result.pointer_path),
-                "manifest": str(result.manifest_path),
-            }
-            report_path.parent.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(
-                json.dumps(report, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            print(
-                f"✅ Static pointer rolled back: {semester}; "
-                f"build={result.build_id}; report={report_path}"
-            )
-            return True
-        except Exception as error:
-            print(f"❌ Static pointer rollback failed: {error}")
-            self.logger.error(f"Static pointer rollback error: {error}")
-            return False
-
 
 class StatusCommand:
     """Command for checking status of specific courses."""
@@ -637,7 +599,7 @@ class StatusCommand:
 
 
 class DeployCommand:
-    """Command for generating and deploying the website."""
+    """Command for generating the website and deploying it as Worker assets."""
 
     def __init__(self, debug: bool = False):
         self.debug = debug
@@ -649,8 +611,6 @@ class DeployCommand:
         semester: str | None = None,
         force: bool = False,
         minify: bool = True,
-        project_name: str = "registrar-monitor",
-        branch: str | None = None,
         output_dir: Path | None = None,
     ) -> bool:
         """Run the deploy command."""
@@ -677,6 +637,6 @@ class DeployCommand:
             if getattr(service, "last_generation_skipped", False):
                 print("❌ Website generation was skipped; refusing stale deploy.")
                 return False
-            return service.deploy(project_name=project_name, branch=branch)
+            return service.deploy()
 
         return True

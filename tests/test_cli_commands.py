@@ -265,9 +265,7 @@ class TestDeployCommand:
             result = cmd.run(deploy=True)
 
         assert result is True
-        ws_cls.return_value.deploy.assert_called_once_with(
-            project_name="registrar-monitor", branch=None
-        )
+        ws_cls.return_value.deploy.assert_called_once_with()
 
     def test_refuses_deploy_when_generation_skipped(self):
         from registrarmonitor.cli.commands import DeployCommand
