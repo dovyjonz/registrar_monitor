@@ -75,7 +75,7 @@ to tell if production is live; deploy only well outside a milestone window.
 
 Load from `.agents/skills/` when relevant:
 - `registrar-monitor-storage`: SQLite, snapshots, Litestream, analysis.
-- `registrar-monitor-telegram`: channel reports, bot, digests, deep links.
+- `registrar-monitor-telegram`: channel reports, bot, digests, deep links, Mini App API.
 - `registrar-monitor-dashboard`: `frontend/`, site publication, the Worker.
 - `registrar-monitor-production`: VM, systemd units, deploys, permissions.
 

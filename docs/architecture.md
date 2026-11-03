@@ -2,14 +2,15 @@
 
 Registrar Monitor downloads registrar spreadsheets, stores enrollment history in
 SQLite, reports changes to Telegram, and publishes a static dashboard as
-Cloudflare Workers Static Assets. Telegram users can also watch courses or sections in a private chat.
+Cloudflare Workers Static Assets. Telegram users can also watch courses or sections
+in a private chat or in the dashboard opened as a Telegram Mini App.
 
 ```text
 registrar XLS → automation/ → data/ (per-semester SQLite)
                                 ├─ services/reporting → reporting/ → Telegram channel
                                 │                     └─ subscriptions/ (bot DB, digests)
                                 └─ services/website → website/ → static site → wrangler deploy
-Telegram → Cloudflare Tunnel → bot webhook (subscriptions/)
+Telegram → Cloudflare Tunnel → bot (subscriptions/): webhook + Mini App API
 workers/site            Worker: Static Assets (the site) + /preview/* images
 frontend/               Vite + Chart.js dashboard source
 ```
@@ -38,6 +39,8 @@ frontend/               Vite + Chart.js dashboard source
   and delivery state. It never copies enrollment state.
 - **Watch deep link**: `t.me/<bot>?start=watch_<semester>_<course>`, placed on each
   course heading in a channel report; the bot confirms before it adds the watch.
+- **Mini App**: the generated dashboard opened inside Telegram; it adds Watch and
+  Unwatch buttons that call the bot's `/miniapp/*` API with signed `initData`.
 - **Generated dashboard**: static HTML and immutable data files in `frontend/public`,
   deployed as the Static Assets of the `workers/site` Worker.
 
@@ -137,7 +140,8 @@ coupled to it:
   sent again; durable progress is favored over exactly-once.
 - The bot receives updates by webhook through a Cloudflare Tunnel and runs as its
   own process, separate from the scheduler, so it can be
-  operated or removed without touching enrollment history.
+  operated or removed without touching enrollment history. The Mini App writes
+  through the same store functions as the chat commands.
 
 ## Runtime configuration
 
@@ -188,6 +192,12 @@ pointer under 10 KB, summary under 100 KB, each department blob under 150 KB.
 - No dynamic web backend for the dashboard; static output served as Worker Static
   Assets is intentional: asset requests are free and never invoke the Worker, so
   traffic cannot exhaust the free plan's daily Worker-invocation cap. Only
-  `/preview/*` (and later `/api/*`) run code.
+  `/preview/*` runs code.
+- The Telegram Mini App API is validated in the bot process, with no Worker in the
+  path. The bot already owns the token (needed to verify `initData`) and the bot
+  store, so a Worker would only proxy to it, cost an invocation per call, and need
+  a second credential path to the store. The bot serves `/miniapp/*` next to its
+  webhook from one small ASGI app (python-telegram-bot's custom-webhook pattern),
+  behind the same Tunnel hostname; the user always comes from verified `initData`.
 - One monolithic semester JSON and one blob per course were rejected in favor of
   department-level blobs.

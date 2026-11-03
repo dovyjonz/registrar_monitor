@@ -15,8 +15,8 @@ Commands: `make help` and `monitor --help`. Times use `Asia/Almaty`. Never print
 | Unit | Purpose |
 |---|---|
 | `registrarmonitor.service` | scheduler, reports, dashboard publication |
-| `registrarmonitor-bot.service` | private subscriptions and digest delivery |
-| `registrarmonitor-tunnel.service` | Cloudflare Tunnel (`cloudflared`) forwarding the Telegram webhook hostname to the bot's loopback listener |
+| `registrarmonitor-bot.service` | private subscriptions, digest delivery, and the Mini App API |
+| `registrarmonitor-tunnel.service` | Cloudflare Tunnel (`cloudflared`) forwarding the bot hostname (Telegram webhook and Mini App API) to the bot's loopback listener |
 | `registrarmonitor-litestream.service` | continuous replication of every SQLite database to R2 |
 | `registrarmonitor-network-watchdog.timer` | restarts `systemd-networkd` when metadata connectivity is lost |
 
@@ -124,8 +124,8 @@ registrar years.
 - `_headers` (security headers and the cache rules above) and `_redirects` are
   generated into `frontend/public` and applied by Static Assets.
 - Static Assets requests are free, unlimited, and never invoke the Worker. Only
-  `/preview/*` and `/api/*` do (`assets.run_worker_first`), which keeps the site far
-  under the free plan's 100,000 daily Worker invocations. Keep the file count under
+  `/preview/*` does (`assets.run_worker_first`), which keeps the site far under the
+  free plan's 100,000 daily Worker invocations. Keep the file count under
   the free plan's 20,000 assets per version (about 1,300 now).
 - Cloudflare Web Analytics: set `website.web_analytics_token` in `settings.toml`
   (a 32-character hex site token); the cookieless beacon is added to generated pages
@@ -171,8 +171,8 @@ a semester identity includes the displayed observation time.
 JSON from its own Static Assets, verifies identity, renders with the Browser binding,
 and caches only successful PNGs. It never reads SQLite or contacts the registrar.
 Invalid state is a non-cacheable 404; read or render failure is a non-cacheable 5xx
-and never blocks publication or substitutes stale content. `/api/*` is reserved for
-Telegram Mini App endpoints.
+and never blocks publication or substitutes stale content. The Telegram Mini App API is
+not on this Worker; the bot serves it (see Telegram).
 
 `monitor deploy --deploy` (and the scheduler) runs `wrangler deploy` for the Worker
 and the site together; it needs `CLOUDFLARE_API_TOKEN` (Workers Scripts edit) and
@@ -214,12 +214,13 @@ the semester databases.
 
 The public menu is `/start` (Add a watch, My watches), `/watch`, `/watches`, `/help`.
 Hidden `/import` accepts starred courses copied from the website. The bot works only
-in private chats.
+in private chats. Browsing, searching, and picking sections happen in the Mini App
+(below); the bot keeps only the exact-code and confirmation flows.
 
-- `/watch CSCI 115` adds a whole-course watch; `/watch CSCI 115 / 1L` adds a section;
-  other input searches by title. Courses with many sections use paged controls and
-  also accept a typed list of section IDs. Review changes shows additions and
-  removals before Save applies the scope atomically; Back and Cancel change nothing.
+- `/watch CSCI 115` adds a whole-course watch; `/watch CSCI 115 / 1L` adds a section.
+  Plain messages and comma- or newline-separated lists of exact codes work the same
+  way. Anything that is not an exact code gets the prompt back; there is no title
+  search or paged catalog in the bot.
 - Stopping a watch, clearing all watches, and deleting bot data require
   confirmation. Data and settings in My watches deletes immediately on confirmation.
 - Deep links `t.me/<bot>?start=<payload>` open the bot at a course. Each course
@@ -236,18 +237,51 @@ in private chats.
   belong to one semester and do not carry forward. Each digest links back to My
   watches.
 
+### Mini App
+
+The dashboard doubles as a Telegram Mini App. Opened from Telegram, the course modal
+shows Watch/Unwatch buttons for the course or the selected section. The bot process
+serves the API itself, so no Worker sits in the path:
+
+- `GET /miniapp/watches`, `POST /miniapp/watches` (body: `semester`, `course`,
+  optional `section`), and `DELETE /miniapp/watches/<id>`, on the same listener and
+  Tunnel hostname as the webhook (for example `https://bot.<domain>/miniapp`).
+- Each request carries `Authorization: tma <initData>`. The bot verifies Telegram's
+  HMAC with the bot token, rejects `auth_date` older than 24 hours, and takes the user
+  from the signed data; it never accepts a client-supplied user id. Adding validates
+  against the latest snapshot and goes through the same store call as `/watch`, so
+  dedupe is identical. Only the active semester can be watched.
+- CORS allows only the `website.base_url` origin; any other `Origin` gets 403.
+- At startup the bot sets the chat menu button to open the dashboard (the active
+  semester page, because the site root's redirect drops Telegram's launch
+  parameters). Restart the bot after a semester rollover to move it. With the Mini
+  App disabled, the menu button is reset to Telegram's default.
+- The dashboard loads `telegram.org/js/telegram-web-app.js` only when the URL carries
+  Telegram's launch parameters, so ordinary visitors load nothing extra. No BotFather
+  step is needed beyond what the bot sets itself; `/setdomain` is for the Login
+  Widget and is not required for Web Apps.
+
+Enable it with `website.miniapp_api_url = "https://bot.<domain>/miniapp"` in
+`settings.toml`, then restart the bot and run `monitor deploy --deploy --force` so
+the generated pages and `_headers` allow Telegram's script, the API origin, and
+framing by Telegram Web. Empty turns everything off. The named Tunnel hostname needs
+the custom domain's zone on Cloudflare, so the webhook and the Mini App go live
+after the domain exists.
+
 ### Runtime
 
-The bot serves Telegram updates over a webhook behind a Cloudflare Tunnel: it listens
-on `telegram_bot.webhook_listen`:`webhook_port` (loopback by default), registers
-`TELEGRAM_WEBHOOK_URL` with Telegram, and rejects any request whose
-`X-Telegram-Bot-Api-Secret-Token` is not `TELEGRAM_WEBHOOK_SECRET`. Startup fails
-without a valid secret and an `https` URL. The VM opens no inbound port. Updates from different
+The bot runs one ASGI server (Starlette under uvicorn) inside its process, behind a
+Cloudflare Tunnel: it listens on `telegram_bot.webhook_listen`:`webhook_port`
+(loopback by default), registers `TELEGRAM_WEBHOOK_URL` with Telegram at startup, and
+rejects any `POST` to the webhook path whose `X-Telegram-Bot-Api-Secret-Token` is not
+`TELEGRAM_WEBHOOK_SECRET` (403). Startup fails without a valid secret and an `https`
+URL. The VM opens no inbound port. Updates from different
 chats run concurrently (limit eight) and stay ordered within one chat. Catalog reads,
 delivery rendering, and bot-state writes run off the event loop; catalogs are reused
 until the latest snapshot ID changes. Each update logs queue wait, handler duration,
 and total latency without identifiers (warning at 3 s or more). Transport failures
-log only safe exception types and use the configured retry backoff.
+log only safe exception types and use the configured retry backoff. Access logs are
+off.
 
 Delivery: flood-control delays are honored, transient failures back off, and a user
 who blocks the bot is deactivated until they message it again.
@@ -296,7 +330,7 @@ Neither command writes to SQLite.
 
 | Service | Free limit | How the design stays within it |
 |---|---|---|
-| Cloudflare Workers | 100k Worker invocations/day | Only `/preview/*` and future `/api/*` invoke the Worker; static asset requests are free and unlimited |
+| Cloudflare Workers | 100k Worker invocations/day | Only `/preview/*` invokes the Worker; static asset requests are free and unlimited. The Mini App API runs on the VM, not the Worker |
 | Workers Static Assets | 20,000 assets per version, 25 MiB per file | About 1,300 files now; keep the count well under the cap |
 | Cache API | Does nothing on `workers.dev` | Works on a custom domain, which matters only for Worker-handled `/preview/*` responses |
 | Cloudflare R2 | 10 GB-month, 1M Class A, 10M Class B per month | Litestream only; a 5-minute sync interval is about 8.6k PUTs/month per active database |

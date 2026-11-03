@@ -16,10 +16,19 @@ section of `docs/operations.md`.
 - `--no-telegram` and debug runs create no personal batch.
 - Use only the latest stored snapshot for search/status. Never poll the registrar
   from the bot.
-- The bot runs in webhook mode behind a Cloudflare Tunnel. Reject any request
+- The bot runs in webhook mode behind a Cloudflare Tunnel, served by its own small
+  ASGI app (Starlette under uvicorn, `runtime.create_web_app`). Reject any request
   without the `TELEGRAM_WEBHOOK_SECRET` header and fail startup without the secret
   and an `https` `TELEGRAM_WEBHOOK_URL`. Never open an inbound VM port or bind the
   listener publicly.
+- The Mini App API (`subscriptions/miniapp.py`, `/miniapp/*`) lives in the bot, never
+  in a Worker. Derive the user only from verified `initData` (HMAC with the bot token,
+  24-hour `auth_date` limit); never accept a client-supplied user id. Writes reuse
+  the store and catalog checks the chat commands use. CORS allows only the
+  `website.base_url` origin. It is off when `website.miniapp_api_url` is empty.
+- Browsing, search, and section picking belong to the Mini App. Keep the bot to exact
+  codes, deep-link confirmation, listing and removing watches, settings, `/import`,
+  and digests; do not rebuild multi-step flows in `interactions.py`.
 - Channel report course headings carry one-tap deep links
   (`/start watch_<semester>_<course>`); keep the payload compact, resolve it
   against the latest snapshot, and keep the confirmation step.
