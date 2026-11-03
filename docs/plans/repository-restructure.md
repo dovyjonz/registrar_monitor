@@ -34,7 +34,7 @@ registrar XLS → automation/ → data/ (per-semester SQLite, v2 finalized)
                                  │                    └─ subscriptions/ (bot DB, digests)
                                  └─ services/website → website/ → static site → Pages
 workers/preview-images  (separate Worker, /preview/*)
-assets/website          (Vite + Chart.js dashboard source)
+frontend/               (Vite + Chart.js dashboard source)
 GCP VM                  (scheduler, bot, health monitor, watchdog)
 ```
 
@@ -46,11 +46,9 @@ that does more than it needs to.
 | Migration machinery outlives the migration | `data/migration.py` (2.7k lines), `migration_rehearsal.py`, CLI `migrate`/`finalize-storage`/`rehearse-migration`, `[storage]` in `settings.toml`, shadow paths in `checkpointed_state.py`; every semester is finalized | 1 |
 | Prototype dashboard is a second UI | `prototype.{js,css}`, `prototype.html.jinja`, `deploy --prototype` | 1 |
 | Local debris, unused scaffolds, dated evidence docs | See Stage 1 | 1 |
-| `main.js` (3.5k lines) is the most-changed file | last three months of history | 3 |
-| Docs are spread over 20+ files | `docs/`, `DATABASE.md`, `CONTEXT.md` | 3 |
 | Agent instructions are scattered and carry Matt Pocock skill wiring | `AGENTS.md`, `docs/agents/`, `opencode.json` | 4 |
 | Registrar TLS verification is disabled | `allow_insecure_tls = true` | 5 |
-| Backups and health checks are manual or self-hosted | `backup-and-recovery.md`, `registrarmonitor-health.service` | 5 |
+| Backups and health checks are manual or self-hosted | `docs/operations.md` backup section, `registrarmonitor-health.service` | 5 |
 | `scheduler.py` (1.5k lines) and ad hoc settings parsing | two TOML libraries in use | 5 |
 | Bot long-polls from the VM | `registrarmonitor-bot.service`, network watchdog | 6 |
 | Every publish regenerates and uploads ~1,200 files | `static_manifest.py`, `website_service.py` (~2k lines), 3,600 s generation limit | 7 |
@@ -76,15 +74,14 @@ that does more than it needs to.
 | Stage | Theme | Size | Depends on |
 |---|---|---|---|
 | 1 | Delete dead files and code | M | — |
-| 3 | Reorganize layout and docs | M–L | 1 |
-| 4 | Consolidate agent instructions | S | 3 |
+| 4 | Consolidate agent instructions | S | 1 |
 | 5 | Harden the VM runtime | M | — |
 | 6 | Telegram webhooks and deep links | M | 5 (Tunnel, heartbeat) |
-| 7 | Publish data through a Worker | L | 3, 5 (Litestream/R2) |
+| 7 | Publish data through a Worker | L | 5 (Litestream/R2) |
 | 8 | DuckDB analysis and open data | S–M | 7 for public export |
 | 9 | Optional: shrink or leave the VM | L | 5, 6, 7 |
 
-Stages 1–4 change no behavior. Each stage is one or a few jj changes, each
+Stages 1 and 4 change no behavior. Each stage is one or a few jj changes, each
 landing with `make check` green.
 
 ---
@@ -98,47 +95,10 @@ What remains needs the VM or a decision:
   (Decision 4). The code now rejects any non-v2 database file it opens.
 - Run the doctor against every live database after deploying.
 - `scripts/manage_database.py` was kept: it is the documented online-backup
-  tool (`DATABASE.md`, `tests/test_database_backup.py`). Fold it into Stage 5
+  tool (`docs/operations.md`, `tests/test_database_backup.py`). Fold it into Stage 5
   backups or keep it.
 - Finalized databases still carry an unused `storage_control` table; drop it
   or leave it.
-
-### Stage 3 — Reorganize layout and docs
-
-```text
-registrar_monitor/
-├── AGENTS.md            single agent entry point (Stage 4)
-├── CLAUDE.md            one line: @AGENTS.md
-├── README.md            setup and commands only
-├── settings.toml
-├── docs/
-│   ├── architecture.md  pipeline, storage (DATABASE.md), glossary (CONTEXT.md),
-│   │                    lasting decisions from both ADRs
-│   ├── operations.md    production, publication, Telegram, backup, tooling
-│   └── plans/repository-restructure.md   until done
-├── frontend/            was assets/website
-├── workers/preview-images/
-├── scripts/             only what Makefile, CI, or VM setup call
-├── src/registrarmonitor/
-└── tests/
-```
-
-- Move `assets/website/` to `frontend/`; update Makefile, CI, Vite,
-  Playwright, `WebsiteService`, and settings paths. Move any remaining runtime
-  inputs from `assets/` to `data/` and delete `assets/`.
-- Merge `DATABASE.md`, `CONTEXT.md`, and `docs/adr/` into
-  `docs/architecture.md`; merge `docs/operations/` into `docs/operations.md`,
-  describing current state only (no per-maintenance narratives).
-- Split `main.js` by concern (`chart`, `modal`, `routing`, `state`,
-  `search`), keeping the existing `.mjs` helpers; add `// @ts-check` with JSDoc
-  types. TypeScript is optional later; no component framework.
-- Replace the `toml` package with stdlib `tomllib`; drop `types-toml` from
-  runtime dependencies.
-- Check whether the PDF report (`fpdf`, `pdf_generator.py`) is still sent
-  anywhere; delete it if not.
-
-**Done when** `make check`, `make worker-check`, and the browser smoke pass,
-and no document or skill names a removed path.
 
 ### Stage 4 — Consolidate agent instructions
 
@@ -196,7 +156,8 @@ Each item stands alone.
 - **Errors and logs.** Sentry (free tier) for Python and Workers; structlog or
   stdlib JSON logging.
 - **Typed settings.** Pydantic Settings loads `settings.toml` and `.env` once,
-  fails fast on invalid config, and holds secrets as `SecretStr`.
+  fails fast on invalid config, and holds secrets as `SecretStr` (also replaces the
+  `toml` package with stdlib `tomllib`).
 - **Simpler scheduler.** Replace custom timing logic in `scheduler.py` with a
   declarative schedule derived from the milestones in `settings.toml`. Keep the
   burst cadence (down to 10 seconds).
