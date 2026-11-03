@@ -5,8 +5,6 @@ This service encapsulates the business logic for generating and sending reports,
 providing a clean interface that reduces coupling in the main module.
 """
 
-import asyncio
-from functools import partial
 from pathlib import Path
 
 from ..core import get_logger
@@ -14,7 +12,6 @@ from ..core.exceptions import NotificationError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
 from ..data.snapshot_comparator import SnapshotComparator
 from ..models import EnrollmentSnapshot
-from ..reporting.pdf_generator import PDFGenerator
 from ..reporting.report_formatter import ReportFormatter
 from ..reporting.telegram_reporter import TelegramReporter
 from ..subscriptions.publication import ReportPublication
@@ -27,8 +24,7 @@ class ReportingService:
     Service for coordinating report generation and delivery workflows.
 
     This service provides high-level operations for generating text reports
-    and sending them via Telegram, with optional PDF generation available
-    as a standalone method.
+    and sending them via Telegram.
     """
 
     def __init__(
@@ -53,19 +49,9 @@ class ReportingService:
         self._telegram_reporter: TelegramReporter | None = None
         self._subscription_store = subscription_store
 
-        # PDF generator is lazy-loaded only when explicitly requested
-        self._pdf_generator: PDFGenerator | None = None
-
         self.logger.info(
             f"Reporting service initialized for semester: {semester or 'default'}"
         )
-
-    @property
-    def pdf_generator(self) -> PDFGenerator:
-        """Lazy-load the PDF generator only when needed."""
-        if self._pdf_generator is None:
-            self._pdf_generator = PDFGenerator()
-        return self._pdf_generator
 
     @property
     def telegram_reporter(self) -> TelegramReporter:
@@ -129,34 +115,6 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"Failed to generate/send reports: {e}")
             raise ReportGenerationError(f"Report generation failed: {e}") from e
-
-    async def generate_pdf_report_only(
-        self,
-        current_snapshot: EnrollmentSnapshot,
-        previous_snapshot: EnrollmentSnapshot | None = None,
-        custom_filename: str | None = None,
-    ) -> str | None:
-        """
-        Generate only a PDF report without sending it.
-
-        This is the opt-in entrypoint for PDF generation; it is not called
-        by the automated reporting pipeline.
-
-        Args:
-            current_snapshot: Current enrollment snapshot
-            previous_snapshot: Previous snapshot for comparison
-            custom_filename: Custom filename for the PDF
-
-        Returns:
-            Path to generated PDF file or None if failed
-        """
-        try:
-            return await self._generate_pdf_report(
-                current_snapshot, previous_snapshot, custom_filename
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to generate PDF report: {e}")
-            return None
 
     async def generate_comparison_report(
         self,
@@ -382,68 +340,6 @@ class ReportingService:
         except Exception as e:
             self.logger.error(f"Failed to get available reports: {e}")
             return []
-
-    async def _generate_pdf_report(
-        self,
-        current_snapshot: EnrollmentSnapshot,
-        previous_snapshot: EnrollmentSnapshot | None = None,
-        custom_filename: str | None = None,
-    ) -> str | None:
-        """
-        Generate a PDF report (internal helper for opt-in PDF generation).
-
-        Args:
-            current_snapshot: Current enrollment snapshot
-            previous_snapshot: Previous snapshot for comparison
-            custom_filename: Custom filename for the PDF
-
-        Returns:
-            Path to generated PDF file
-        """
-        try:
-            from ..config import get_config
-
-            config = get_config()
-
-            if custom_filename:
-                pdf_path = custom_filename
-            else:
-                pdf_path = construct_output_path(
-                    config["directories"].get("pdf_output", "assets/pdf"),
-                    current_snapshot.semester,
-                    current_snapshot.timestamp,
-                    ".pdf",
-                )
-
-            self.logger.info(f"Generating PDF report: {pdf_path}")
-
-            # Ensure directory exists
-            Path(pdf_path).parent.mkdir(parents=True, exist_ok=True)
-
-            # Generate the PDF in a thread pool to avoid blocking the event loop
-            loop = asyncio.get_running_loop()
-            result_path = await loop.run_in_executor(
-                None,
-                partial(
-                    self.pdf_generator.generate_enrollment_report,
-                    current_snapshot,
-                    pdf_path,
-                    previous_snapshot,
-                ),
-            )
-
-            if result_path and Path(result_path).exists():
-                file_size = Path(result_path).stat().st_size
-                self.logger.info(
-                    f"Successfully generated PDF report: {result_path} ({file_size} bytes)"
-                )
-                return result_path
-            else:
-                raise ReportGenerationError("PDF generation returned no file")
-
-        except Exception as e:
-            self.logger.error(f"Failed to generate PDF report: {e}")
-            raise ReportGenerationError(f"PDF generation failed: {e}") from e
 
     async def _generate_text_report(
         self,

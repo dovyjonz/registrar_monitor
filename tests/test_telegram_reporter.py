@@ -20,7 +20,6 @@ def mock_config():
             "chat_id": "123456789",
         },
         "directories": {
-            "pdf_output": "/tmp/pdf",
             "text_reports": "/tmp/txt",
         },
         "notifications": {

@@ -89,7 +89,7 @@ def construct_output_path(
         output_dir: Directory where the file will be saved
         semester: Semester name
         timestamp: Timestamp string
-        extension: File extension (e.g., ".pdf", ".txt")
+        extension: File extension (e.g., ".txt")
 
     Returns:
         Full path to the output file

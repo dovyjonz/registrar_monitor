@@ -9,7 +9,6 @@ dependencies = [
     "toml",
     "xlrd",
     "python-telegram-bot",
-    "fpdf",
     "httpx",
     "types-toml>=0.10.8.20260518",
     "python-dotenv>=1.2.4",
@@ -68,7 +67,6 @@ markers = [
 dev = [
     "ruff==0.17.3",
     "ty==0.0.96",
-    "types-fpdf2==2.8.4.20260724",
     "pytest==9.2.0",
     "pytest-asyncio==1.4.1.post1",
     "pytest-cov==7.1.0",
