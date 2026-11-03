@@ -1,0 +1,29 @@
+# Litestream replication of every SQLite database to Cloudflare R2.
+# Credentials and bucket come from the environment (see .env.example); this
+# file contains no secrets. Litestream expands ${VAR} references itself.
+# Paths are relative to the service WorkingDirectory (the project root).
+access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+
+dbs:
+  # One replica per semester database (data/enrollment_<semester>.db).
+  - dir: data
+    pattern: "enrollment_*.db"
+    replica:
+      type: s3
+      bucket: ${R2_BUCKET}
+      path: enrollment
+      endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+      region: auto
+      retention: 720h
+      snapshot-interval: 24h
+  # Bot state stays a separate database and a separate replica path.
+  - path: data/telegram_bot.db
+    replica:
+      type: s3
+      bucket: ${R2_BUCKET}
+      path: telegram_bot
+      endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+      region: auto
+      retention: 720h
+      snapshot-interval: 24h

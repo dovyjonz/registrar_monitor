@@ -72,9 +72,9 @@ SyslogIdentifier=registrarmonitor-bot
 WantedBy=multi-user.target
 EOF
 
-cat > scripts/registrarmonitor-health.service <<EOF
+cat > scripts/registrarmonitor-litestream.service <<EOF
 [Unit]
-Description=Registrar Monitor Service Health Monitor
+Description=Registrar Monitor Litestream Replication to R2
 Wants=network-online.target
 After=network-online.target
 
@@ -83,13 +83,12 @@ Type=simple
 User=$USER
 WorkingDirectory=$PROJECT_ROOT
 EnvironmentFile=-$PROJECT_ROOT/.env
-Environment="PATH=$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/usr/bin/env uv run monitor health-monitor
+ExecStart=/usr/bin/litestream replicate -config $PROJECT_ROOT/scripts/litestream.yml
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=registrarmonitor-health
+SyslogIdentifier=registrarmonitor-litestream
 
 [Install]
 WantedBy=multi-user.target
@@ -125,13 +124,13 @@ echo ""
 echo "Setup complete."
 echo "A systemd service file has been generated at scripts/registrarmonitor.service"
 echo "The subscription bot unit is at scripts/registrarmonitor-bot.service"
-echo "The service health unit is at scripts/registrarmonitor-health.service"
+echo "The Litestream replication unit is at scripts/registrarmonitor-litestream.service (needs the litestream binary and R2 variables in .env)"
 echo "The network watchdog units are at scripts/registrarmonitor-network-watchdog.service and scripts/registrarmonitor-network-watchdog.timer"
 echo ""
 echo "To install the generated units without activating them, run:"
 echo "  sudo cp scripts/registrarmonitor.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-bot.service /etc/systemd/system/"
-echo "  sudo cp scripts/registrarmonitor-health.service /etc/systemd/system/"
+echo "  sudo cp scripts/registrarmonitor-litestream.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-network-watchdog.service /etc/systemd/system/"
 echo "  sudo cp scripts/registrarmonitor-network-watchdog.timer /etc/systemd/system/"
 echo "  sudo systemctl daemon-reload"
