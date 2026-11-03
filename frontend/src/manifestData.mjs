@@ -520,6 +520,10 @@ async function loadManifestVersion(reference, pointerUrl, options) {
     return { manifest, manifestUrl, payload };
 }
 
+/**
+ * @param {string} pointerUrl
+ * @param {{ fetchImpl?: typeof fetch, signal?: AbortSignal, cryptoImpl?: Crypto }} [options]
+ */
 export async function loadSemesterManifest(
     pointerUrl,
     { fetchImpl = fetch, signal, cryptoImpl = globalThis.crypto } = {},
@@ -546,6 +550,13 @@ export async function loadSemesterManifest(
     }
 }
 
+/**
+ * @param {string} department
+ * @param {any} manifest
+ * @param {string} manifestUrl
+ * @param {Map<string, any>} cache
+ * @param {{ fetchImpl?: typeof fetch, signal?: AbortSignal, cryptoImpl?: Crypto }} [options]
+ */
 export function loadDepartmentPayload(
     department,
     manifest,

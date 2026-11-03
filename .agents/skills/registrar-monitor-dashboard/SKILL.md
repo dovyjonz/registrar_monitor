@@ -9,6 +9,10 @@ Read the website publication and tooling sections of `docs/operations.md`.
 
 ## Rules
 
+- Source is TypeScript modules in `frontend/src/` (`state`, `chart`, `modal`, `routing`,
+  `search`, ...) behind the `src/main.js` Vite entry; shared mutable state lives in
+  `appState`. `npm --prefix frontend run typecheck` must pass.
+
 - Generate and test `frontend/public`, not Vite's source shell.
 - Publish static v3 data through no-cache pointers and immutable content-addressed
   assets.

@@ -20,7 +20,7 @@ help:
 		'Available targets:' \
 		'  bootstrap       Install the pinned Python and Node dependencies' \
 		'  check-fast      Run Ruff format check, Ruff lint, ty, and pytest' \
-		'  check           Run check-fast plus frontend lint, unit tests, and build' \
+		'  check           Run check-fast plus frontend lint, typecheck, unit tests, and build' \
 		'  test-browser    Run Chromium smoke tests against generated output' \
 		'  site-generate   Build the dashboard and generate the production site' \
 		'  worker-check    Run preview Worker types, tests, TypeScript, and dry-run' \
@@ -39,6 +39,7 @@ check-fast:
 
 check: check-fast
 	$(NPM) --prefix frontend run lint
+	$(NPM) --prefix frontend run typecheck
 	$(NPM) --prefix frontend run test:unit
 	$(NPM) --prefix frontend run build
 
