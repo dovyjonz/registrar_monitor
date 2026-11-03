@@ -12,11 +12,10 @@ import sys
 import tempfile
 import tomllib
 from contextlib import closing
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .data.database_manager import SUPPORTED_SCHEMA_VERSIONS
+from .data.checkpointed_state import CHECKPOINTED_SCHEMA_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -80,8 +79,8 @@ def _configuration_checks(root: Path) -> tuple[list[dict[str, Any]], dict[str, A
         root / "settings.toml",
         root / "pyproject.toml",
         root / "uv.lock",
-        root / "assets/website/package.json",
-        root / "assets/website/package-lock.json",
+        root / "frontend/package.json",
+        root / "frontend/package-lock.json",
     ]
     checks = [
         _check(
@@ -159,7 +158,7 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
                 "fail"
                 if integrity != "ok" or foreign_key_issues
                 else "pass"
-                if schema_version in SUPPORTED_SCHEMA_VERSIONS
+                if schema_version == CHECKPOINTED_SCHEMA_VERSION
                 else "warn"
             )
             checks.append(
@@ -171,7 +170,7 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
                     path=display_path,
                     integrity=integrity,
                     schema_version=schema_version,
-                    supported_schema_versions=sorted(SUPPORTED_SCHEMA_VERSIONS),
+                    expected_schema_version=CHECKPOINTED_SCHEMA_VERSION,
                     foreign_key_issues=foreign_key_issues,
                 )
             )
@@ -191,11 +190,9 @@ def build_doctor_report(root: Path = ROOT) -> dict[str, Any]:
         configured = directories.get(key)
         if configured:
             checks.append(_writable_check(f"path:{key}", root / configured))
-    checks.append(
-        _writable_check("path:generated-site", root / "assets/website/public")
-    )
+    checks.append(_writable_check("path:generated-site", root / "frontend/public"))
 
-    frontend_bin = root / "assets/website/node_modules/.bin"
+    frontend_bin = root / "frontend/node_modules/.bin"
     for tool in ("vite", "playwright"):
         executable = frontend_bin / tool
         checks.append(
@@ -221,28 +218,6 @@ def build_doctor_report(root: Path = ROOT) -> dict[str, Any]:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def build_baseline(root: Path = ROOT) -> dict[str, Any]:
-    """Build a machine-readable snapshot of reproducibility and health inputs."""
-    report = build_doctor_report(root)
-    return {
-        "format": 1,
-        "generated_at": datetime.now(UTC).isoformat(),
-        "platform": {
-            "python": platform.python_version(),
-            "system": platform.system(),
-            "machine": platform.machine(),
-        },
-        "inputs": {
-            ".node-version": (root / ".node-version").read_text().strip(),
-            ".python-version": (root / ".python-version").read_text().strip(),
-            "package-lock.json": _sha256(root / "assets/website/package-lock.json"),
-            "pyproject.toml": _sha256(root / "pyproject.toml"),
-            "uv.lock": _sha256(root / "uv.lock"),
-        },
-        "doctor": report,
-    }
 
 
 def write_json(payload: dict[str, Any], output: Path) -> None:

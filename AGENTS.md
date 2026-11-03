@@ -1,75 +1,57 @@
 # Agent guide
 
-Registrar Monitor is a Python 3.13 application with a Vite dashboard. It stores
-enrollment history in SQLite, reports changes to Telegram, and uploads a static
-site to Cloudflare Pages.
+Python 3.13 app with a Vite dashboard: stores enrollment history in SQLite, reports
+changes to Telegram, deploys a static site to Cloudflare as Workers Static Assets.
+```text
+registrar XLS -> automation/ -> data/ (per-semester SQLite)
+                                 |- services/reporting -> reporting/ -> Telegram channel
+                                 |                     `- subscriptions/ (bot DB, digests)
+                                 `- services/website -> website/ -> static site -> site Worker
+frontend/ (Vite + Chart.js)   workers/site/ (Worker: static assets + /preview/*)
+```
 
-## Start here
+## Sources of truth
 
-- `CONTEXT.md` defines domain terms.
-- `settings.toml`, `Makefile`, and `monitor --help` are executable sources of truth.
-- `README.md`, `DATABASE.md`, and `docs/adr/` explain the current system.
-- Use the focused repo skill under `.agents/skills/` for storage, Telegram,
-  dashboard, or production work.
-
-## Agent skills
-
-Use `/ask-matt` as a routing reference when the appropriate engineering workflow
-is unclear. For a well-scoped authorized request, use the relevant focused skill
-and carry out the work. Enter an interview or planning-only flow when the user
-requests it or material unresolved product decisions require it.
-
-### Issue tracker
-
-Issues and specs live in GitHub Issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Matt's five canonical triage roles use their default label names. See
-`docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This is a single-context repository with `CONTEXT.md` and root `docs/adr/`. See
-`docs/agents/domain.md`.
+`settings.toml`, `Makefile`, `monitor --help`, `docs/architecture.md` (glossary,
+lasting decisions), `docs/operations.md` (production), `README.md` (setup).
 
 ## Invariants
 
-- SQLite is the enrollment source of truth. Do not restore JSON snapshot paths.
+- SQLite is the enrollment source of truth, v2 schema only. Do not restore JSON
+  snapshot paths.
 - Keep bot state separate from enrollment databases.
 - Derive semester, scheduler, notification, and website behavior from
   `settings.toml`.
-- Keep secrets in `.env`. Never print tokens, Telegram IDs, environment dumps, or
-  unrestricted journals.
+- Keep secrets in `.env`; never print tokens, Telegram IDs, env dumps, or journals.
 - Keep runtime/generated output untracked: `data/`, logs, downloads, reports,
-  generated website output, `output/`, coverage, and caches.
+  generated site, `output/`, coverage, caches.
 - Remove obsolete paths instead of adding compatibility layers.
-- Treat code sharing, VM synchronization, Pages upload, database changes, and
-  service state as separate actions. Production mutation requires explicit
-  authorization.
+- Code sharing, VM sync, Worker deploys (site), database changes, and service
+  state are separate actions; each production mutation needs explicit authorization.
 
 ## Boundaries
 
-- `automation/`: downloads and scheduling
-- `data/`: parsing, SQLite, migrations, and comparisons
-- `reporting/`: channel text, Telegram, and PDF output
-- `services/`: workflow orchestration
-- `subscriptions/`: private bot interactions and delivery state
-- `website/`: static read models and page generation
-- `models.py`: enrollment domain models
+`automation/` downloads and scheduling; `data/` parsing, SQLite, comparisons;
+`reporting/` channel text and Telegram; `services/` workflow orchestration;
+`subscriptions/` private bot and delivery state; `website/` static read models and
+pages; `models.py` enrollment domain models.
+Reusable pytest fixtures go in `tests/conftest.py`. Prefer existing libraries.
 
-Put reusable pytest fixtures in `tests/conftest.py`. Prefer the existing libraries
-and the simplest complete design.
+## Commands
+
+- Setup: `make bootstrap` (uv and npm installs).
+- One test: `uv run pytest tests/test_x.py -k name`;
+  `node --test frontend/test/x.test.mjs`; `npm --prefix workers/site test`.
+- `make check-fast`: Ruff, ty, pytest. `make check`: that plus frontend lint,
+  typecheck, unit tests, build. Both run offline.
+- Network or browsers: `make test-browser` (Chromium), `make worker-check`
+  (wrangler dry-run), `make site-generate`; `make deploy-vm` is production-only.
+- Without a default uv cache, set `UV_CACHE_DIR=/private/tmp/uv-cache`.
 
 ## Verification
 
-Run the closest focused test while iterating. Use `make check-fast` for Python
-changes and `make check` for cross-cutting or frontend changes. Browser, generated
-site, Worker, security, benchmark, and release gates are opt-in and documented in
-`docs/operations/tooling.md`.
-
-If the default uv cache is unavailable, use
-`UV_CACHE_DIR=/private/tmp/uv-cache`.
+Run the closest focused test, then `make check-fast` (`make check` for cross-cutting
+or frontend changes). Browser tests only when UI behavior changed. No evidence docs.
 
 ## Version control
 
@@ -82,3 +64,27 @@ Cloud sessions have no `jj`; use plain `git` on a feature branch there.
 `scripts/cloud_setup.sh` runs from `.claude/settings.json` at session start and
 installs Python and npm dependencies. Cloud sessions have no `.env`, no
 production access, and no `data/` databases; tests use temporary fixtures.
+
+## Registrar calendar
+
+Milestones, deadlines, and semesters live in `settings.toml`; the scheduler polls
+fastest around them and is stopped between periods. Read the next milestone there
+to tell if production is live; deploy only well outside a milestone window.
+
+## Skills
+
+Load from `.agents/skills/` when relevant:
+- `registrar-monitor-storage`: SQLite, snapshots, Litestream, analysis.
+- `registrar-monitor-telegram`: channel reports, bot, digests, deep links, Mini App API.
+- `registrar-monitor-dashboard`: `frontend/`, site publication, the Worker.
+- `registrar-monitor-production`: VM, systemd units, deploys, permissions.
+
+## Issues and docs
+
+Issues live in GitHub Issues (`gh` from this checkout): `gh issue create --title
+"..." --body "..."`, `gh issue view <n> --comments`,
+`gh issue list --state open --json number,title,labels`,
+`gh issue comment <n> --body "..."`, `gh issue edit <n> --add-label "..."`,
+`gh issue close <n> --comment "..."`.
+
+No ADRs or separate specs; lasting decisions go in `docs/architecture.md`.

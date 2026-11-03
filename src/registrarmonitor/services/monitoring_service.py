@@ -13,6 +13,7 @@ from ..core.exceptions import FileProcessingError
 from ..data.database_manager import DatabaseManager
 from ..data.excel_reader import ExcelReader
 from ..data.snapshot_processor import SnapshotProcessor
+from ..heartbeat import send_heartbeat
 from ..models import EnrollmentSnapshot
 
 
@@ -72,6 +73,7 @@ class MonitoringService:
             self.logger.info(
                 f"Successfully processed data into snapshot with {len(snapshot.courses)} courses"
             )
+            await send_heartbeat()
             return True, snapshot, downloaded_file
 
         except Exception as e:
@@ -167,29 +169,6 @@ class MonitoringService:
         except Exception as e:
             self.logger.error(f"Failed to get snapshots for comparison: {e}")
             return None, None
-
-    def cleanup_old_data(self, keep_count: int = 50) -> int:
-        """
-        Clean up old snapshots from the database.
-
-        Args:
-            keep_count: Number of recent snapshots to keep
-
-        Returns:
-            Number of snapshots deleted
-        """
-        try:
-            deleted_count = self.db_manager.cleanup_old_snapshots(keep_count)
-            if deleted_count > 0:
-                self.logger.info(f"Cleaned up {deleted_count} old snapshots")
-            else:
-                self.logger.info("No old snapshots to clean up")
-
-            return deleted_count
-
-        except Exception as e:
-            self.logger.error(f"Failed to cleanup old data: {e}")
-            return 0
 
     def get_database_stats(self) -> dict:
         """

@@ -981,34 +981,3 @@ def publish_semester(
         build_id=build_id,
         blobs_written=blobs_written,
     )
-
-
-def rollback_semester_pointer(
-    output_root: Path,
-    *,
-    semester_slug: str,
-) -> PublicationResult:
-    """Atomically swap the stable pointer to its declared previous manifest."""
-    pointer_path = output_root.resolve() / "data" / semester_slug / "manifest.json"
-    pointer = _read_json(pointer_path)
-    previous = pointer.get("previous")
-    current = pointer.get("current")
-    if not isinstance(previous, str) or not previous:
-        raise ValueError("semester pointer has no previous manifest")
-    manifest_path = pointer_path.parent / previous
-    manifest = _read_json(manifest_path)
-    _replace_json(
-        pointer_path,
-        {
-            "manifestVersion": MANIFEST_VERSION,
-            "current": previous,
-            "previous": current,
-        },
-    )
-    return PublicationResult(
-        status="rolled_back",
-        pointer_path=pointer_path,
-        manifest_path=manifest_path,
-        build_id=str(manifest["buildId"]),
-        blobs_written=0,
-    )

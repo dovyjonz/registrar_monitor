@@ -5,6 +5,7 @@ This module provides consistent logging setup across all components with
 configurable levels, formatters, and handlers.
 """
 
+import json
 import logging
 import logging.handlers
 import sys
@@ -13,7 +14,7 @@ from collections.abc import Callable
 from copy import copy
 from pathlib import Path
 
-from ..config import get_config
+from ..config import get_settings
 
 # Global flag to prevent multiple logging setups
 _logging_setup_done = False
@@ -42,6 +43,21 @@ class ColoredFormatter(logging.Formatter):
         return super().format(colored_record)
 
 
+class JsonFormatter(logging.Formatter):
+    """One JSON object per line, suitable for journald and log shippers."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
 def setup_logging(
     level: str = "INFO",
     log_dir: str | None = None,
@@ -50,6 +66,7 @@ def setup_logging(
     max_file_size: int = 10_000_000,  # 10MB
     backup_count: int = 5,
     force_setup: bool = False,
+    json_logs: bool = False,
 ) -> None:
     """
     Set up centralized logging configuration.
@@ -62,6 +79,7 @@ def setup_logging(
         max_file_size: Maximum size for log files before rotation
         backup_count: Number of backup log files to keep
         force_setup: Force setup even if already done (useful for tests)
+        json_logs: Emit JSON lines on the console (for services under systemd)
     """
     global _logging_setup_done
 
@@ -74,8 +92,7 @@ def setup_logging(
     # Get log directory from config or use default
     if log_dir is None:
         try:
-            config = get_config()
-            log_dir = config.get("directories", {}).get("logs", "./logs")
+            log_dir = get_settings().directories.logs
         except Exception:
             log_dir = "./logs"
 
@@ -94,9 +111,13 @@ def setup_logging(
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     # Create formatters
-    console_formatter = ColoredFormatter(
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    console_formatter: logging.Formatter = (
+        JsonFormatter()
+        if json_logs
+        else ColoredFormatter(
+            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     )
 
     file_formatter = logging.Formatter(

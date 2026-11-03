@@ -1,0 +1,22 @@
+{
+  "name": "registrar-monitor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "mkdir -p ../../frontend/public && npm run types && npm test && npx tsc --noEmit && npx wrangler deploy --dry-run",
+    "test": "vitest run",
+    "types": "wrangler types"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.30.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.23.0",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12",
+    "wrangler": "4.156.2"
+  }
+}

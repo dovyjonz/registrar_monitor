@@ -12,7 +12,6 @@ Usage:
     monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
     monitor [--debug] bot
-    monitor [--debug] health-monitor
     monitor [--debug] deploy [--deploy]
     monitor [--debug] doctor [--json]
     monitor [--debug] db <command>
@@ -21,6 +20,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -34,6 +34,7 @@ from .cli import (
     StatusCommand,
 )
 from .core import get_logger, setup_logging
+from .observability import init_sentry
 from .operational import build_doctor_report, write_json
 
 
@@ -53,7 +54,6 @@ Examples:
   monitor run                           # Complete workflow (poll + report + website)
   monitor schedule                      # Run the scheduler
   monitor bot                           # Run the subscription bot
-  monitor health-monitor                # Alert the test operator about service outages
   monitor db stats                      # Show database statistics
 
 Debug Mode:
@@ -145,7 +145,7 @@ Telegram Control:
     run_parser.add_argument(
         "--deploy",
         action="store_true",
-        help="Deploy the generated website to Cloudflare Pages",
+        help="Deploy the generated website with `wrangler deploy` (Workers Static Assets)",
     )
 
     # Schedule command
@@ -166,25 +166,16 @@ Telegram Control:
         description="Start private-chat subscription commands and digest delivery",
     )
 
-    subparsers.add_parser(
-        "health-monitor",
-        help="Monitor the scheduler and subscription bot services",
-        description=(
-            "Monitor the two production systemd services and alert the configured "
-            "Telegram test operator when either service is unavailable"
-        ),
-    )
-
     # Deploy command
     deploy_parser = subparsers.add_parser(
         "deploy",
         help="Generate and deploy the website",
-        description="Generate the enrollment website and optionally deploy to Cloudflare Pages",
+        description="Generate the enrollment website and optionally deploy it as Worker static assets",
     )
     deploy_parser.add_argument(
         "--deploy",
         action="store_true",
-        help="Deploy to Cloudflare Pages after generation",
+        help="Run `wrangler deploy` after generation",
     )
     deploy_parser.add_argument(
         "--semester",
@@ -197,25 +188,9 @@ Telegram Control:
         help="Force regeneration of all pages",
     )
     deploy_parser.add_argument(
-        "--prototype",
-        action="store_true",
-        help="Generate the local-only dashboard redesign prototype",
-    )
-    deploy_parser.add_argument(
         "--no-minify",
         action="store_true",
         help="Disable generated asset minification",
-    )
-    deploy_parser.add_argument(
-        "--project",
-        type=str,
-        default="registrar-monitor",
-        help="Cloudflare Pages project name (default: registrar-monitor)",
-    )
-    deploy_parser.add_argument(
-        "--branch",
-        type=str,
-        help="Branch name for deployment",
     )
     deploy_parser.add_argument(
         "--output-dir",
@@ -240,6 +215,31 @@ Telegram Control:
         help="Also write the JSON report to this path",
     )
 
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Run a saved cross-semester DuckDB query",
+        description="Run analysis/<name>.sql read-only against every semester database",
+    )
+    analyze_parser.add_argument(
+        "name", nargs="?", help="Query name (omit to list the saved queries)"
+    )
+    analyze_parser.add_argument(
+        "--csv", type=Path, metavar="PATH", help="Write CSV instead of a table"
+    )
+
+    export_parser = subparsers.add_parser(
+        "export-parquet",
+        help="Export one semester's per-snapshot enrollment as Parquet",
+        description="Write <semester>.parquet, one row per section per snapshot",
+    )
+    export_parser.add_argument("semester", help='Semester name, e.g. "Fall 2026"')
+    export_parser.add_argument(
+        "--out",
+        type=Path,
+        metavar="DIR",
+        help="Output directory (default: data/open-data)",
+    )
+
     # Database commands
     db_parser = subparsers.add_parser(
         "db",
@@ -259,162 +259,15 @@ Telegram Control:
         description="Display statistics about stored enrollment data",
     )
 
-    # Database cleanup
-    cleanup_parser = db_subparsers.add_parser(
-        "cleanup",
-        help="Clean up old snapshots",
-        description="Remove old snapshots from the database, keeping only the most recent ones",
-    )
-    cleanup_parser.add_argument(
-        "--keep",
-        type=int,
-        default=50,
-        metavar="COUNT",
-        help="Number of snapshots to keep (default: 50)",
-    )
-
-    dedupe_parser = db_subparsers.add_parser(
-        "dedupe-instructor-changes",
-        help="Remove repeated instructor change artifacts",
-        description="Delete consecutive duplicate instructor_changes rows while preserving real toggles",
-    )
-    dedupe_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Report duplicate count without deleting rows",
-    )
-
     initialize_parser = db_subparsers.add_parser(
         "initialize",
-        help="Create an empty semester database on the v2-only schema",
+        help="Create an empty semester database",
         description=(
             "Initialize a fresh semester directly with checkpointed v2 tables."
         ),
     )
     initialize_parser.add_argument("--semester", required=True)
     initialize_parser.add_argument("--database", type=Path)
-    initialize_parser.add_argument("--report", type=Path, required=True)
-
-    migrate_parser = db_subparsers.add_parser(
-        "migrate",
-        help="Build or apply the checkpointed-state schema for one semester",
-        description=(
-            "Run an explicit, resumable migration for exactly one semester. "
-            "Dry runs use a separate candidate database."
-        ),
-    )
-    migrate_parser.add_argument("--semester", required=True)
-    migrate_parser.add_argument(
-        "--target-version",
-        type=int,
-        choices=[2],
-        required=True,
-    )
-    migrate_parser.add_argument(
-        "--metadata-mode",
-        choices=["raw-enriched", "legacy-preserving"],
-        required=True,
-    )
-    migrate_parser.add_argument("--raw-dir", type=Path)
-    migrate_parser.add_argument(
-        "--completed-predecessor-dir",
-        type=Path,
-        help="Dry-run-only directory containing verified predecessor candidates",
-    )
-    migrate_parser.add_argument("--database", type=Path)
-    migrate_parser.add_argument("--candidate", type=Path)
-    migrate_parser.add_argument("--backup-dir", type=Path)
-    migrate_parser.add_argument("--report", type=Path, required=True)
-    migrate_parser.add_argument(
-        "--authorize",
-        action="store_true",
-        help="Confirm explicit operator authorization for an apply",
-    )
-    execution_mode = migrate_parser.add_mutually_exclusive_group(required=True)
-    execution_mode.add_argument("--dry-run", action="store_true")
-    execution_mode.add_argument("--apply", action="store_true")
-
-    rehearse_parser = db_subparsers.add_parser(
-        "rehearse",
-        help="Exercise every migration restart boundary on disposable copies",
-        description=(
-            "Run the production migration runner to every before/after commit "
-            "boundary, resume it, and persist an evidence ledger."
-        ),
-    )
-    rehearse_parser.add_argument("--semester", required=True)
-    rehearse_parser.add_argument(
-        "--target-version", type=int, choices=[2], required=True
-    )
-    rehearse_parser.add_argument(
-        "--metadata-mode",
-        choices=["raw-enriched", "legacy-preserving"],
-        required=True,
-    )
-    rehearse_parser.add_argument("--raw-dir", type=Path)
-    rehearse_parser.add_argument("--database", type=Path)
-    rehearse_parser.add_argument("--report", type=Path, required=True)
-    rehearse_parser.add_argument("--evidence-dir", type=Path, required=True)
-    rehearse_parser.add_argument(
-        "--completed-predecessor-dir",
-        type=Path,
-        help="Directory containing verified predecessor candidates",
-    )
-    rehearse_parser.add_argument(
-        "--workers",
-        type=int,
-        default=1,
-        help="Bounded concurrent recovery scenarios within this semester",
-    )
-    rehearse_parser.add_argument(
-        "--snapshot-stride",
-        type=int,
-        default=1,
-        help="Test every Nth snapshot plus the first and final snapshot",
-    )
-
-    mode_parser = db_subparsers.add_parser(
-        "mode",
-        help="Audit and change one semester's storage compatibility mode",
-        description=(
-            "Transition a completed v2 database through legacy, shadow, and v2 "
-            "modes after validating its migration gates."
-        ),
-    )
-    mode_parser.add_argument("--semester", required=True)
-    mode_parser.add_argument(
-        "--target-mode",
-        choices=["legacy", "shadow", "v2"],
-        required=True,
-    )
-    mode_parser.add_argument("--database", type=Path)
-    mode_parser.add_argument("--report", type=Path, required=True)
-
-    finalize_parser = db_subparsers.add_parser(
-        "finalize",
-        help="Compact a v2 database and retire legacy compatibility tables",
-        description=(
-            "Finalize one semester after burn-in. This is a separate, "
-            "authorization-gated operation and retains a rollback archive."
-        ),
-    )
-    finalize_parser.add_argument("--semester", required=True)
-    finalize_parser.add_argument("--database", type=Path)
-    finalize_parser.add_argument("--rollback-dir", type=Path)
-    finalize_parser.add_argument("--report", type=Path, required=True)
-    finalize_parser.add_argument(
-        "--authorize",
-        action="store_true",
-        help="Confirm explicit operator authorization for finalization",
-    )
-
-    manifest_rollback_parser = db_subparsers.add_parser(
-        "rollback-manifest",
-        help="Restore a semester's previous static manifest pointer",
-    )
-    manifest_rollback_parser.add_argument("--semester", required=True)
-    manifest_rollback_parser.add_argument("--output-dir", type=Path)
-    manifest_rollback_parser.add_argument("--report", type=Path, required=True)
     return parser
 
 
@@ -457,18 +310,10 @@ async def handle_schedule_command(args) -> int:
 
 
 async def handle_bot_command(_args) -> int:
-    """Run the long-polling Telegram subscription service."""
+    """Run the webhook Telegram subscription service."""
     from .subscriptions.runtime import SubscriptionBotRuntime
 
     await SubscriptionBotRuntime().run()
-    return 0
-
-
-async def handle_health_monitor_command(_args) -> int:
-    """Run the independent systemd health monitor."""
-    from .services.health_monitor import run_health_monitor
-
-    await run_health_monitor()
     return 0
 
 
@@ -480,9 +325,6 @@ async def handle_deploy_command(args) -> int:
         semester=getattr(args, "semester", None),
         force=getattr(args, "force", False),
         minify=not getattr(args, "no_minify", False),
-        project_name=getattr(args, "project", "registrar-monitor"),
-        branch=getattr(args, "branch", None),
-        prototype=getattr(args, "prototype", False),
         output_dir=getattr(args, "output_dir", None),
     )
     return 0 if success else 1
@@ -498,72 +340,55 @@ async def handle_status_command(args) -> int:
     return 0 if success else 1
 
 
+async def handle_analyze_command(args) -> int:
+    """Run a saved DuckDB analysis query."""
+    from . import analysis
+
+    if not args.name:
+        print("\n".join(analysis.available_queries()))
+        return 0
+    try:
+        connection = analysis.open_analysis(analysis.configured_databases())
+        try:
+            columns, rows = analysis.run_query(connection, args.name)
+        finally:
+            connection.close()
+    except analysis.AnalysisError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    if args.csv:
+        analysis.write_csv(args.csv, columns, rows)
+        print(f"Wrote {len(rows)} rows to {args.csv}")
+    else:
+        print(analysis.format_table(columns, rows))
+    return 0
+
+
+async def handle_export_parquet_command(args) -> int:
+    """Export one semester as Parquet."""
+    from . import analysis
+
+    try:
+        target = analysis.export_parquet(
+            args.semester, args.out or analysis.DEFAULT_EXPORT_DIR
+        )
+    except analysis.AnalysisError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    print(f"Wrote {target}")
+    return 0
+
+
 async def handle_db_command(args) -> int:
     """Handle database commands."""
     command = DatabaseCommands(debug=args.debug)
 
     if args.db_command == "stats":
         success = await command.stats()
-    elif args.db_command == "cleanup":
-        keep_count = getattr(args, "keep", 50)
-        success = await command.cleanup(keep_count=keep_count)
-    elif args.db_command == "dedupe-instructor-changes":
-        success = await command.dedupe_instructor_changes(
-            dry_run=getattr(args, "dry_run", False)
-        )
     elif args.db_command == "initialize":
         success = await command.initialize_fresh_storage(
             semester=args.semester,
-            report_path=args.report,
             database=getattr(args, "database", None),
-        )
-    elif args.db_command == "migrate":
-        success = await command.migrate(
-            semester=args.semester,
-            target_version=args.target_version,
-            metadata_mode=args.metadata_mode,
-            report_path=args.report,
-            dry_run=args.dry_run,
-            authorized=getattr(args, "authorize", False),
-            database=getattr(args, "database", None),
-            candidate=getattr(args, "candidate", None),
-            backup_dir=getattr(args, "backup_dir", None),
-            raw_dir=getattr(args, "raw_dir", None),
-            completed_predecessor_dir=getattr(args, "completed_predecessor_dir", None),
-        )
-    elif args.db_command == "rehearse":
-        success = await command.rehearse_migration(
-            semester=args.semester,
-            target_version=args.target_version,
-            metadata_mode=args.metadata_mode,
-            report_path=args.report,
-            evidence_dir=args.evidence_dir,
-            database=getattr(args, "database", None),
-            raw_dir=getattr(args, "raw_dir", None),
-            completed_predecessor_dir=getattr(args, "completed_predecessor_dir", None),
-            workers=getattr(args, "workers", 1),
-            snapshot_stride=getattr(args, "snapshot_stride", 1),
-        )
-    elif args.db_command == "mode":
-        success = await command.transition_mode(
-            semester=args.semester,
-            target_mode=args.target_mode,
-            report_path=args.report,
-            database=getattr(args, "database", None),
-        )
-    elif args.db_command == "finalize":
-        success = await command.finalize_storage(
-            semester=args.semester,
-            report_path=args.report,
-            authorized=getattr(args, "authorize", False),
-            database=getattr(args, "database", None),
-            rollback_dir=getattr(args, "rollback_dir", None),
-        )
-    elif args.db_command == "rollback-manifest":
-        success = await command.rollback_manifest(
-            semester=args.semester,
-            report_path=args.report,
-            output_dir=getattr(args, "output_dir", None),
         )
     else:
         print("❌ Invalid database command")
@@ -599,11 +424,19 @@ async def async_main() -> int:
     # Keep structured doctor output free of log lines and side effects.
     log_level = "DEBUG" if args.debug else args.log_level
     is_doctor = args.command == "doctor"
+    # Long-running services log JSON lines for journald; the interactive CLI
+    # keeps colored human-readable output.
+    is_service = args.command in ("schedule", "bot") or (
+        os.environ.get("LOG_FORMAT", "").lower() == "json"
+    )
     setup_logging(
         level=log_level,
         enable_console=not is_doctor,
         enable_file=not is_doctor,
+        json_logs=is_service,
     )
+    if not is_doctor:
+        init_sentry()
 
     logger = get_logger(__name__)
     logger.info("Starting Registrar Monitor CLI with command: %s", args.command)
@@ -625,12 +458,14 @@ async def async_main() -> int:
             return await handle_schedule_command(args)
         elif args.command == "bot":
             return await handle_bot_command(args)
-        elif args.command == "health-monitor":
-            return await handle_health_monitor_command(args)
         elif args.command == "deploy":
             return await handle_deploy_command(args)
         elif args.command == "doctor":
             return await handle_doctor_command(args)
+        elif args.command == "analyze":
+            return await handle_analyze_command(args)
+        elif args.command == "export-parquet":
+            return await handle_export_parquet_command(args)
         elif args.command == "db":
             return await handle_db_command(args)
         else:

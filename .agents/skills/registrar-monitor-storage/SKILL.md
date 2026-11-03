@@ -1,11 +1,11 @@
 ---
 name: registrar-monitor-storage
-description: Work on Registrar Monitor SQLite enrollment storage, snapshots, reporting logs, schema modes, migrations, reconstruction, retention, or database documentation.
+description: Work on Registrar Monitor SQLite enrollment storage, snapshots, reporting logs, the v2 schema, reconstruction, retention, or database documentation.
 ---
 
 # Registrar Monitor storage
 
-Read `DATABASE.md`, `CONTEXT.md`, and the relevant ADR before editing.
+Read `docs/architecture.md` before editing.
 
 ## Rules
 
@@ -14,8 +14,14 @@ Read `DATABASE.md`, `CONTEXT.md`, and the relevant ADR before editing.
 - Bot users and delivery state belong only in `data/telegram_bot.db`.
 - Use foreign keys and short transactions. Never hold a transaction across
   network or filesystem work.
-- Do not add legacy compatibility, JSON snapshots, or silent schema upgrades.
-- Migration and finalization are explicit commands and separate from runtime work.
+- Litestream continuously replicates every enrollment database and
+  `telegram_bot.db` to R2 and replaces manual backups. Restore with
+  `scripts/restore_litestream.sh` into a new file; never overwrite a live database.
+- Cross-semester analysis (`monitor analyze`, `monitor export-parquet`) reads the
+  databases read-only through DuckDB; never write to SQLite from it.
+- v2 is the only schema; schema changes are forward-only migrations in code. Do not
+  add compatibility layers, JSON snapshots, or silent schema upgrades.
+- New semesters are created only by `monitor db initialize`, never implicitly at runtime.
 
 ## Verification
 

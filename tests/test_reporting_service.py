@@ -46,7 +46,9 @@ async def test_send_reports_initializes_telegram_reporter_when_needed(tmp_path):
         await service._send_reports_via_telegram(str(report_path))
 
     telegram_cls.assert_called_once_with()
-    fake_reporter.send_text_report.assert_awaited_once_with(str(report_path))
+    fake_reporter.send_text_report.assert_awaited_once_with(
+        str(report_path), snapshot=None
+    )
 
 
 @pytest.mark.asyncio

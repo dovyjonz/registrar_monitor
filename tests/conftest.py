@@ -7,7 +7,6 @@ This module provides reusable test fixtures including:
 - Mock configuration
 """
 
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -15,7 +14,6 @@ import pytest
 
 from registrarmonitor.models import (
     Course,
-    EnrollmentComparison,
     EnrollmentSnapshot,
     Section,
 )
@@ -23,18 +21,6 @@ from registrarmonitor.models import (
 # =============================================================================
 # Model Factory Fixtures
 # =============================================================================
-
-
-@pytest.fixture
-def sample_section() -> Section:
-    """Create a sample section with typical values."""
-    return Section(
-        section_id="10L",
-        section_type="L",
-        enrollment=25,
-        capacity=30,
-        fill=0.83,
-    )
 
 
 @pytest.fixture
@@ -186,20 +172,6 @@ def current_snapshot() -> EnrollmentSnapshot:
 # =============================================================================
 
 
-@pytest.fixture
-def temp_db_path(tmp_path: Path) -> str:
-    """Create a temporary database path."""
-    return str(tmp_path / "test_enrollment.db")
-
-
-@pytest.fixture
-def temp_data_dir(tmp_path: Path) -> Path:
-    """Create a temporary data directory."""
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    return data_dir
-
-
 # =============================================================================
 # Configuration Fixtures
 # =============================================================================
@@ -224,65 +196,9 @@ def mock_config() -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-def patched_config(mock_config: dict[str, Any]):
-    """Patch the get_config function to return mock config."""
-    with patch("registrarmonitor.config.get_config", return_value=mock_config):
-        yield mock_config
-
-
 # =============================================================================
 # Data Fixtures
 # =============================================================================
-
-
-@pytest.fixture
-def sample_enrollment_data() -> list[dict[str, Any]]:
-    """Create a sample enrollment data list."""
-    return [
-        {
-            "Subject": "CS",
-            "Cat#": "101",
-            "S/T": "10L",
-            "Enr": 25,
-            "Cap": 30,
-            "Fill": 0.83,
-            "Instructor": "Smith",
-        },
-        {
-            "Subject": "CS",
-            "Cat#": "101",
-            "S/T": "1R",
-            "Enr": 20,
-            "Cap": 25,
-            "Fill": 0.80,
-            "Instructor": "Jones",
-        },
-        {
-            "Subject": "MATH",
-            "Cat#": "201",
-            "S/T": "20L",
-            "Enr": 30,
-            "Cap": 30,
-            "Fill": 1.00,
-            "Instructor": "Brown",
-        },
-        {
-            "Subject": "MATH",
-            "Cat#": "201",
-            "S/T": "21L",
-            "Enr": 28,
-            "Cap": 30,
-            "Fill": 0.93,
-            "Instructor": "Brown",
-        },
-    ]
-
-
-@pytest.fixture
-def empty_data() -> list[dict[str, Any]]:
-    """Create an empty data list."""
-    return []
 
 
 # =============================================================================
@@ -291,32 +207,48 @@ def empty_data() -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def sample_comparison(
-    current_snapshot: EnrollmentSnapshot, previous_snapshot: EnrollmentSnapshot
-) -> EnrollmentComparison:
-    """Create a sample comparison between two snapshots."""
-    from registrarmonitor.data.snapshot_comparator import SnapshotComparator
-
-    comparator = SnapshotComparator()
-    return comparator.compare_snapshots(current_snapshot, previous_snapshot)
-
-
-@pytest.fixture
-def empty_comparison() -> EnrollmentComparison:
-    """Create an empty comparison (no changes)."""
-    return EnrollmentComparison(
-        previous_snapshot_timestamp="2024-01-15 09:00:00",
-        current_snapshot_timestamp="2024-01-15 10:30:00",
-    )
-
-
-@pytest.fixture
 def mock_decision_logger():
-    """Prevent DecisionLogger from writing to log files during tests."""
-    with (
-        patch("registrarmonitor.automation.scheduler.DecisionLogger.log_decision"),
-        patch(
-            "registrarmonitor.automation.scheduler.DecisionLogger.ensure_log_file_exists"
-        ),
-    ):
+    """Prevent the scheduler from writing decision logs during tests."""
+    with patch("registrarmonitor.automation.scheduler.TwoPhaseScheduler._log_decision"):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _fresh_settings(tmp_path, monkeypatch):
+    """Isolate tests from a developer's .env and from cached settings."""
+    import registrarmonitor.config as config_mod
+
+    monkeypatch.setattr(config_mod, "ENV_PATH", tmp_path / "missing.env")
+    config_mod.get_settings.cache_clear()
+    yield
+    config_mod.get_settings.cache_clear()
+
+
+@pytest.fixture
+def make_settings():
+    """Build ``Settings`` from the repository settings with targeted overrides.
+
+    Dict overrides for section fields (``website={"base_url": ...}``) update that
+    section; ``semesters`` takes ``Semester`` models or dicts of their fields.
+    """
+    from pydantic import BaseModel
+
+    from registrarmonitor.config import Semester, get_settings
+
+    def build(**overrides):
+        base = get_settings()
+        updates = {}
+        for name, value in overrides.items():
+            if name == "semesters":
+                value = {
+                    key: Semester(**item) if isinstance(item, dict) else item
+                    for key, item in value.items()
+                }
+            elif isinstance(value, dict):
+                current = getattr(base, name)
+                if isinstance(current, BaseModel):
+                    value = current.model_copy(update=value)
+            updates[name] = value
+        return base.model_copy(update=updates)
+
+    return build

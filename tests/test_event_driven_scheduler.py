@@ -12,7 +12,7 @@ def _use_mock_decision_logger(mock_decision_logger):
     """Pull in mock_decision_logger from conftest for this module."""
 
 
-from registrarmonitor.automation.scheduler import SchedulingLevel, TwoPhaseScheduler
+from registrarmonitor.automation.scheduler import TwoPhaseScheduler
 
 
 def _make_snapshot(courses=None):
@@ -35,12 +35,7 @@ def _make_comparison(new=(), removed=(), changed=()):
 @pytest.fixture
 def scheduler():
     """Create a TwoPhaseScheduler with mocked low zone (no telegram)."""
-    with patch(
-        "registrarmonitor.automation.scheduler.get_current_zone_type",
-        return_value=SchedulingLevel.SLEEP,
-    ):
-        sched = TwoPhaseScheduler(no_telegram=True)
-    return sched
+    return TwoPhaseScheduler(no_telegram=True)
 
 
 class TestCheckAndTriggerUpdates:
@@ -49,29 +44,6 @@ class TestCheckAndTriggerUpdates:
     @pytest.mark.asyncio
     async def test_no_snapshots_does_nothing(self, scheduler):
         """When there is no latest snapshot, _check_and_trigger_updates returns silently."""
-        mock_db = MagicMock()
-        mock_db.get_latest_snapshot_id.return_value = None
-
-        with (
-            patch(
-                "registrarmonitor.automation.scheduler.DatabaseManager",
-                return_value=mock_db,
-            ),
-            patch(
-                "registrarmonitor.automation.scheduler.asyncio.to_thread"
-            ) as mock_to_thread,
-            patch.object(
-                TwoPhaseScheduler, "_run_report_cycle", new_callable=AsyncMock
-            ) as mock_run_report_cycle,
-        ):
-            await scheduler._check_and_trigger_updates()
-
-        mock_to_thread.assert_not_called()
-        mock_run_report_cycle.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_no_latest_snapshot_returns_silently(self, scheduler):
-        """With no latest snapshot, method returns without triggering updates."""
         mock_db = MagicMock()
         mock_db.get_latest_snapshot_id.return_value = None
 
@@ -204,26 +176,10 @@ class TestCheckAndTriggerUpdates:
 
             await inner()
 
-    def test_cooldown_state_initialised(self, scheduler):
-        """Scheduler should initialise cooldown state correctly."""
-        assert scheduler.report_cooldown_seconds == 300.0
-        assert scheduler.website_cooldown_seconds == 300.0
-        assert scheduler.last_report_sent_time is None
-        assert scheduler.last_website_updated_time is None
-
-    def test_last_change_score_initialised(self, scheduler):
-        """Scheduler should initialise _last_change_score to 0."""
-        assert scheduler._last_change_score == 0.0
-        assert scheduler._last_poll_time is None
-
     @pytest.mark.asyncio
     async def test_report_cycle_force_poll_false_uses_cached_score(self):
         """_run_report_cycle with force_poll=False should not poll for a fresh score."""
-        with patch(
-            "registrarmonitor.automation.scheduler.get_current_zone_type",
-            return_value=SchedulingLevel.SLEEP,
-        ):
-            sched = TwoPhaseScheduler(no_telegram=True)
+        sched = TwoPhaseScheduler(no_telegram=True)
 
         sched._last_change_score = 42.0
 
@@ -231,9 +187,10 @@ class TestCheckAndTriggerUpdates:
             patch.object(
                 sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)
             ) as mock_poll,
-            patch(
-                "registrarmonitor.services.reporting_service.ReportingService.run_stateful_report_cycle",
-                new=AsyncMock(),
+            patch.object(
+                sched,
+                "reporting_service",
+                new=MagicMock(run_stateful_report_cycle=AsyncMock(return_value=False)),
             ),
         ):
             await sched._run_report_cycle(force_poll=False)
@@ -243,19 +200,16 @@ class TestCheckAndTriggerUpdates:
     @pytest.mark.asyncio
     async def test_report_cycle_force_poll_true_polls_for_fresh_score(self):
         """_run_report_cycle with force_poll=True should poll for a fresh score."""
-        with patch(
-            "registrarmonitor.automation.scheduler.get_current_zone_type",
-            return_value=SchedulingLevel.SLEEP,
-        ):
-            sched = TwoPhaseScheduler(no_telegram=True)
+        sched = TwoPhaseScheduler(no_telegram=True)
 
         with (
             patch.object(
                 sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)
             ) as mock_poll,
-            patch(
-                "registrarmonitor.services.reporting_service.ReportingService.run_stateful_report_cycle",
-                new=AsyncMock(),
+            patch.object(
+                sched,
+                "reporting_service",
+                new=MagicMock(run_stateful_report_cycle=AsyncMock(return_value=False)),
             ),
         ):
             await sched._run_report_cycle(force_poll=True)

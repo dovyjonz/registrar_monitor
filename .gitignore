@@ -21,7 +21,9 @@ venv/
 .mypy_cache/
 .pytest_cache/
 .playwright-cli/
+.playwright-mcp/
 .ruff_cache/
+.uv-cache/
 .uv_cache/
 
 # Test coverage
@@ -31,41 +33,41 @@ htmlcov/
 # Logs
 /logs/
 *.log
+scheduler_decisions*.log
 
 # Data files (runtime data, not source code)
 /data/
 *.db
 
-# Generated assets
-assets/downloads/
-assets/changes/
-assets/pdf/
-assets/index.html
-assets/website/public/
+# Generated site
+frontend/public/
 
 # Cloudflare Wrangler cache
 .wrangler/
-assets/website/.wrangler/
+frontend/.wrangler/
 
 # Node modules
 node_modules/
-assets/website/node_modules/
+frontend/node_modules/
 
 # macOS
 .DS_Store
 
+# Local Claude settings
+.claude/settings.local.json
+
 # Generated schedule file
 schedule.txt
-
-# Generated wiki metadata
-meta/
 
 # Generated deployment files
 scripts/registrarmonitor.service
 scripts/registrarmonitor-bot.service
+scripts/registrarmonitor-tunnel.service
+scripts/cloudflared-config.yml
 
 # Reproducible local tooling artifacts
 /output/
 
 # Local jj metadata
 .jj/
+.claude/worktrees/

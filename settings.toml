@@ -2,17 +2,17 @@
 timezone = "Asia/Almaty"
 
 [directories]
-text_reports = "assets/changes"
+text_reports = "data/changes"
 data_storage = "data"
-raw_downloads = "assets/downloads"
-input_files = "assets/input"
+raw_downloads = "data/downloads"
 logs = "logs"
 telegram_bot_state = "data/telegram_bot.db"
 
 [data_source]
-# Compatibility exception for the registrar's currently unverifiable TLS chain.
-# Remove this after configuring and proving a working ca_bundle path.
-allow_insecure_tls = true
+# PEM file with the registrar's intermediate and root certificates, written by
+# scripts/fetch_registrar_ca.sh. If unset, default system verification is used.
+# TLS verification is never disabled.
+ca_bundle = "data/registrar-chain.pem"
 
 [notifications]
 # File write delay before sending notifications (seconds)
@@ -25,60 +25,27 @@ dry_run = false
 update_interval = 30
 # Maximum time allowed for a website generation child process (seconds).
 generation_timeout_seconds = 3600
-# Cloudflare Pages project name
-pages_project_name = "registrar-monitor"
-# Base URL for canonical links and social sharing (default: https://{pages_project_name}.pages.dev)
-base_url = ""
-# Separate Worker origin for state-addressed social preview images.
-preview_base_url = "https://registrar-monitor-preview-images.spooktaken.workers.dev"
+# Public origin of the site Worker (workers/site), used for canonical links, Open
+# Graph tags, and preview image URLs.
+# Switches to the custom domain once it is bought and routed (see docs/operations.md).
+base_url = "https://registrar-monitor.spooktaken.workers.dev"
+# Cloudflare Web Analytics site token (cookieless beacon); leave empty to disable.
+web_analytics_token = ""
+# Telegram Mini App API served by the bot behind the Cloudflare Tunnel, for example
+# "https://bot.<domain>/miniapp". Leave empty to disable the Mini App.
+miniapp_api_url = ""
 
-# Production checkpointed-state rollout control. Change one semester only
-# after its migration/shadow gate is approved; DatabaseManager rejects a
-# configured database whose persisted mode disagrees with this table.
-[storage]
-migration_order = [
-    "Summer 2025",
-    "Spring 2025",
-    "Fall 2025",
-    "Spring 2026",
-    "Summer 2026",
-]
-
-[storage.semesters."Summer 2025"]
-metadata_mode = "raw-enriched"
-mode = "finalized"
-
-[storage.semesters."Spring 2025"]
-metadata_mode = "legacy-preserving"
-mode = "finalized"
-
-[storage.semesters."Fall 2025"]
-metadata_mode = "legacy-preserving"
-mode = "finalized"
-
-[storage.semesters."Spring 2026"]
-metadata_mode = "legacy-preserving"
-mode = "finalized"
-
-[storage.semesters."Summer 2026"]
-metadata_mode = "raw-enriched"
-mode = "finalized"
-
-[storage.semesters."Fall 2026"]
-# Registration is closed and the archive-backed production finalization is
-# approved. The active database is v2-only with compatibility tables retired.
-metadata_mode = "legacy-preserving"
-mode = "finalized"
-
-[telegram]
-# Bot token and chat ID are loaded from TELEGRAM_BOT_TOKEN and
-# TELEGRAM_CHAT_ID in the environment or a local .env file.
-bot_token = ""
-chat_id = ""
+# Secrets are never read from this file. TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+# CLOUDFLARE_API_TOKEN, and CLOUDFLARE_ACCOUNT_ID come from the environment or a
+# local .env file. TELEGRAM_BOT_TEST_USER_ID is also environment-only and shows
+# /test diagnostics to one operator; it does not restrict ordinary interactions
+# or delivery.
 
 [telegram_bot]
-# TELEGRAM_BOT_TEST_USER_ID is environment-only and shows /test diagnostics to
-# one operator. It does not restrict ordinary interactions or delivery.
+# Local webhook listener; cloudflared forwards the public hostname here. The
+# public URL and secret come from TELEGRAM_WEBHOOK_URL / TELEGRAM_WEBHOOK_SECRET.
+webhook_listen = "127.0.0.1"
+webhook_port = 8443
 retry_base_seconds = 5
 retry_max_seconds = 900
 per_chat_interval_seconds = 1
@@ -86,12 +53,6 @@ global_rate_per_second = 25
 cleanup_interval_seconds = 3600
 completed_batch_days = 90
 inactive_user_days = 180
-
-[health_monitor]
-# Independent systemd health checks for the scheduler and private bot services.
-interval_seconds = 30
-# Require consecutive unhealthy observations before sending an outage alert.
-unhealthy_checks_before_alert = 2
 
 # ==============================================================================
 # Registration schedule — single source of truth

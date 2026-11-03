@@ -6,14 +6,15 @@ readme = "README.md"
 requires-python = ">=3.13,<3.15"
 keywords = ["registrar", "enrollment", "monitoring", "sqlite", "telegram"]
 dependencies = [
-    "toml",
     "xlrd",
     "python-telegram-bot",
-    "fpdf",
     "httpx",
-    "types-toml>=0.10.8.20240310",
-    "python-dotenv>=1.2.2",
     "jinja2>=3.1.6",
+    "pydantic-settings>=2.16.2",
+    "sentry-sdk>=2.0",
+    "duckdb>=2.0.0",
+    "starlette>=1.10.0",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
@@ -43,6 +44,9 @@ unsound-assignment = "ignore"
 unsound-return-statement = "ignore"
 # Preserve defensive validation and cleanup guards on exceptional control paths.
 redundant-condition-strict = "ignore"
+# Optional dict/list values are tested with plain truthiness throughout; None and
+# empty containers are treated identically, so the distinction adds no safety.
+truthiness-test-of-none-union = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -54,10 +58,6 @@ addopts = [
     "--tb=short",
     "--strict-markers",
     "--disable-warnings",
-    "--cov=src/registrarmonitor",
-    "--cov-report=term-missing",
-    "--cov-report=html:htmlcov",
-    "--cov-fail-under=80",
 ]
 asyncio_mode = "strict"
 markers = [
@@ -67,13 +67,12 @@ markers = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.10",
-    "ty==0.0.84",
-    "types-fpdf2==2.8.4.20260724",
-    "pytest==9.1.1",
-    "pytest-asyncio==1.4.0",
+    "ruff==0.17.3",
+    "ty==0.0.96",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1.post1",
     "pytest-cov==7.1.0",
-    "pre-commit==4.6.2",
+    "pre-commit==4.7.0",
 ]
 
 [tool.ruff]

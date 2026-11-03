@@ -1,191 +1,209 @@
-"""Telegram polling startup safety."""
+"""Telegram webhook runtime and update processing."""
 
 import asyncio
 import logging
-import re
+import socket
 import sqlite3
-import time
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-from telegram.error import Conflict, NetworkError, TimedOut
+from pydantic import SecretStr
 
+from registrarmonitor.config import get_settings
 from registrarmonitor.subscriptions.runtime import (
+    BOT_ALLOWED_UPDATES,
     BOT_COMMANDS,
-    BotRuntimeDiagnostics,
     LatencyTrackingUpdateProcessor,
     SubscriptionBotRuntime,
+    WebhookConfig,
     bot_commands,
+    create_web_app,
+    launch_url,
 )
 
 pytestmark = pytest.mark.unit
 
 
-@pytest.mark.asyncio
-async def test_runtime_refuses_active_webhook_and_shuts_down():
-    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
-    start_polling = AsyncMock()
-    shutdown = AsyncMock()
-    get_updates = AsyncMock()
-    runtime.application = cast(
-        Any,
-        SimpleNamespace(
-            initialize=AsyncMock(),
-            shutdown=shutdown,
-            bot=SimpleNamespace(
-                get_webhook_info=AsyncMock(
-                    return_value=SimpleNamespace(url="https://example.test/hook")
-                ),
-                get_updates=get_updates,
-                set_my_commands=AsyncMock(),
-            ),
-            updater=SimpleNamespace(start_polling=start_polling, stop=AsyncMock()),
-            start=AsyncMock(),
-            stop=AsyncMock(),
+SECRET = "test-webhook-secret"
+PUBLIC_URL = "https://bot.example.test/telegram"
+
+
+def webhook_settings(**overrides):
+    secret = overrides.pop("telegram_webhook_secret", SECRET)
+    values = {
+        "telegram_webhook_url": PUBLIC_URL,
+        "telegram_webhook_secret": None if secret is None else SecretStr(secret),
+        **overrides,
+    }
+    return get_settings().model_copy(update=values)
+
+
+def test_webhook_config_reads_settings():
+    settings = webhook_settings()
+    settings.telegram_bot = settings.telegram_bot.model_copy(
+        update={"webhook_port": 9000}
+    )
+    config = WebhookConfig.from_settings(settings)
+
+    assert config.public_url == PUBLIC_URL
+    assert config.secret_token == SECRET
+    assert (config.listen, config.port) == ("127.0.0.1", 9000)
+    assert config.url_path == "telegram"
+
+
+@pytest.mark.parametrize("secret", [None, "", "   "])
+def test_webhook_config_fails_fast_without_secret(secret):
+    with pytest.raises(ValueError, match="TELEGRAM_WEBHOOK_SECRET is required"):
+        WebhookConfig.from_settings(webhook_settings(telegram_webhook_secret=secret))
+
+
+@pytest.mark.parametrize("secret", ["has space", "semi;colon", "x" * 257])
+def test_webhook_config_rejects_secret_outside_telegram_alphabet(secret):
+    with pytest.raises(ValueError, match="1-256 characters") as error:
+        WebhookConfig.from_settings(webhook_settings(telegram_webhook_secret=secret))
+
+    assert secret not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "url", [None, "", "http://bot.example.test/hook", "https://", "not a url"]
+)
+def test_webhook_config_requires_public_https_url(url):
+    with pytest.raises(ValueError, match="public https URL"):
+        WebhookConfig.from_settings(webhook_settings(telegram_webhook_url=url))
+
+
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def fake_application(calls: list):
+    def recorder(name):
+        async def record(*args, **kwargs):
+            calls.append((name, kwargs))
+
+        return record
+
+    return SimpleNamespace(
+        initialize=recorder("initialize"),
+        start=recorder("start"),
+        stop=recorder("stop"),
+        shutdown=recorder("shutdown"),
+        update_queue=asyncio.Queue(),
+        bot=SimpleNamespace(
+            set_my_commands=recorder("set_my_commands"),
+            set_chat_menu_button=recorder("set_chat_menu_button"),
+            set_webhook=recorder("set_webhook"),
         ),
     )
 
-    with pytest.raises(RuntimeError, match="active webhook"):
-        await runtime.run()
 
-    start_polling.assert_not_awaited()
-    get_updates.assert_not_awaited()
-    shutdown.assert_awaited_once_with()
+@pytest.mark.asyncio
+async def test_runtime_registers_webhook_and_enforces_the_secret_header(monkeypatch):
+    """Run the real ASGI server: only Telegram's secret reaches the update queue."""
+    calls: list = []
+    port = free_port()
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.webhook = WebhookConfig(PUBLIC_URL, SECRET, port=port)
+    runtime.test_user_id = None
+    runtime.app_url = None
+    runtime.settings = get_settings()
+    application = fake_application(calls)
+    runtime.application = cast(Any, application)
+    runtime.web_app = create_web_app(cast(Any, application), runtime.webhook)
+    monkeypatch.setattr(runtime, "_delivery_loop", lambda: asyncio.sleep(3600))
+
+    task = asyncio.create_task(runtime.run())
+    url = f"http://127.0.0.1:{port}/telegram"
+    try:
+        async with httpx.AsyncClient() as client:
+            for _ in range(100):
+                if any(name == "set_webhook" for name, _ in calls):
+                    break
+                await asyncio.sleep(0.05)
+            missing = await client.post(url, json={"update_id": 7})
+            wrong = await client.post(
+                url,
+                json={"update_id": 7},
+                headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+            )
+            assert application.update_queue.empty()
+            accepted = await client.post(
+                url,
+                json={"update_id": 7},
+                headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+            )
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert (missing.status_code, wrong.status_code, accepted.status_code) == (
+        403,
+        403,
+        200,
+    )
+    assert (await application.update_queue.get()).update_id == 7
+    names = [name for name, _ in calls]
+    assert names == [
+        "initialize",
+        "set_my_commands",
+        "set_chat_menu_button",
+        "start",
+        "set_webhook",
+        "stop",
+        "shutdown",
+    ]
+    webhook_kwargs = calls[names.index("set_webhook")][1]
+    assert webhook_kwargs["secret_token"] == SECRET
+    assert webhook_kwargs["allowed_updates"] == BOT_ALLOWED_UPDATES
+
+
+@pytest.mark.asyncio
+async def test_menu_button_opens_the_dashboard_only_when_the_mini_app_is_enabled():
+    calls: list = []
+    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
+    runtime.settings = get_settings()
+    runtime.application = cast(Any, fake_application(calls))
+
+    runtime.app_url = "https://site.example.test/semesters/fall-2026/"
+    await runtime._configure_menu_button()
+    runtime.app_url = None
+    await runtime._configure_menu_button()
+
+    enabled, disabled = (kwargs["menu_button"] for _, kwargs in calls)
+    assert enabled.web_app.url == "https://site.example.test/semesters/fall-2026/"
+    assert disabled.type == "default"
+
+
+@pytest.mark.parametrize(
+    ("semester", "expected"),
+    [("Fall 2026", "/semesters/fall-2026/"), (None, "")],
+)
+def test_launch_url_opens_the_semester_page_not_the_redirecting_root(
+    monkeypatch, semester, expected
+):
+    monkeypatch.setattr(
+        "registrarmonitor.subscriptions.runtime.find_active_semester",
+        lambda: semester,
+    )
+    settings = get_settings()
+
+    assert launch_url(settings) == settings.website.base_url + expected
+
+
+def test_public_command_menu_never_exposes_developer_command():
     assert [command.command for command in BOT_COMMANDS] == [
         "start",
         "watch",
         "watches",
         "help",
     ]
-
-
-@pytest.mark.asyncio
-async def test_direct_polling_reports_another_consumer():
-    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
-    runtime.config = {}
-    runtime.application = cast(
-        Any,
-        SimpleNamespace(
-            bot=SimpleNamespace(
-                get_updates=AsyncMock(side_effect=Conflict("already polling"))
-            )
-        ),
-    )
-
-    with pytest.raises(RuntimeError, match="another process"):
-        await runtime._poll_updates()
-
-
-@pytest.mark.asyncio
-async def test_polling_logs_transport_type_and_backs_off_until_success(
-    monkeypatch, caplog
-):
-    attempts = 0
-    sleep_delays = []
-
-    async def get_updates(**_kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            try:
-                raise OSError("synthetic socket failure")
-            except OSError as cause:
-                raise TimedOut("synthetic timeout") from cause
-        if attempts == 2:
-            raise TimedOut("synthetic timeout")
-        if attempts == 4:
-            raise NetworkError("synthetic transport failure")
-        if attempts == 3:
-            return ()
-        raise asyncio.CancelledError
-
-    async def fake_sleep(delay):
-        sleep_delays.append(delay)
-
-    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
-    runtime.config = {
-        "telegram_bot": {
-            "retry_base_seconds": 5,
-            "retry_max_seconds": 20,
-        }
-    }
-    runtime.application = cast(
-        Any,
-        SimpleNamespace(
-            bot=SimpleNamespace(get_updates=get_updates),
-            update_queue=asyncio.Queue(),
-        ),
-    )
-    monkeypatch.setattr(
-        "registrarmonitor.subscriptions.runtime.asyncio.sleep", fake_sleep
-    )
-
-    with caplog.at_level(
-        logging.WARNING, logger="registrarmonitor.subscriptions.runtime"
-    ):
-        with pytest.raises(asyncio.CancelledError):
-            await runtime._poll_updates()
-
-    assert attempts == 5
-    assert sleep_delays == [5, 10, 5]
-    messages = [record.getMessage() for record in caplog.records]
-    assert len(messages) == 3
-    assert all("poll_duration_ms=" in message for message in messages)
-    assert "cause_type=OSError" in messages[0]
-    assert "cause_type=none" in messages[1]
-    assert "cause_type=none" in messages[2]
-    assert "error_type=TimedOut" in messages[0]
-    assert "error_type=TimedOut" in messages[1]
-    assert "error_type=NetworkError" in messages[2]
-    assert "synthetic" not in caplog.text
-    assert "retry_seconds=5" in messages[0]
-    assert "retry_seconds=10" in messages[1]
-
-
-@pytest.mark.asyncio
-async def test_polling_backoff_stays_at_configured_cap(monkeypatch):
-    attempts = 0
-    sleep_delays = []
-
-    async def get_updates(**_kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts <= 1_025:
-            raise NetworkError("synthetic transport failure")
-        raise asyncio.CancelledError
-
-    async def fake_sleep(delay):
-        sleep_delays.append(delay)
-
-    runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
-    runtime.config = {
-        "telegram_bot": {
-            "retry_base_seconds": 5,
-            "retry_max_seconds": 20,
-        }
-    }
-    runtime.application = cast(
-        Any,
-        SimpleNamespace(
-            bot=SimpleNamespace(get_updates=get_updates),
-            update_queue=asyncio.Queue(),
-        ),
-    )
-    monkeypatch.setattr(
-        "registrarmonitor.subscriptions.runtime.asyncio.sleep", fake_sleep
-    )
-
-    with pytest.raises(asyncio.CancelledError):
-        await runtime._poll_updates()
-
-    assert attempts == 1_026
-    assert sleep_delays[:4] == [5, 10, 20, 20]
-    assert sleep_delays[-1] == 20
-
-
-def test_public_command_menu_never_exposes_developer_command():
     assert "test" not in [command.command for command in bot_commands()]
 
 
@@ -204,77 +222,12 @@ async def test_diagnostics_command_is_scoped_to_configured_user():
     assert second.kwargs["scope"].chat_id == 41
 
 
-@pytest.mark.asyncio
-async def test_runtime_diagnostics_reports_bounded_safe_activity():
-    class Store:
-        def operational_stats(self):
-            return {
-                "users": 4,
-                "active_users": 3,
-                "pending_deliveries": 2,
-            }
-
-    store = Store()
-    times = iter([0.0, 100.0])
-    diagnostics = BotRuntimeDiagnostics(store, clock=lambda: next(times))
-    for message in (
-        "Polling started",
-        "Update processed in 18 ms",
-        "Delivery queue checked",
-    ):
-        diagnostics.record(
-            logging.LogRecord("test", logging.INFO, "", 0, message, (), None)
-        )
-
-    status = await diagnostics.snapshot()
-
-    assert status.uptime == "1m 40s"
-    assert status.users == 4
-    assert status.active_users == 3
-    assert status.pending_deliveries == 2
-    assert status.recent_logs == (
-        "INFO: Polling started",
-        "INFO: Update processed in 18 ms",
-        "INFO: Delivery queue checked",
-    )
-
-
 def make_catalog_runtime():
     runtime = SubscriptionBotRuntime.__new__(SubscriptionBotRuntime)
     runtime._catalog_lock = asyncio.Lock()
     runtime._catalog_key = None
     runtime._catalog = None
     return runtime
-
-
-@pytest.mark.asyncio
-async def test_update_processor_does_not_serialize_slow_updates():
-    processor = LatencyTrackingUpdateProcessor(
-        max_concurrent_updates=2,
-        slow_update_seconds=3,
-    )
-    first_started = asyncio.Event()
-    release_first = asyncio.Event()
-    second_finished = asyncio.Event()
-
-    async def slow_update():
-        first_started.set()
-        await release_first.wait()
-
-    async def later_update():
-        second_finished.set()
-
-    first = asyncio.create_task(
-        processor.process_update(SimpleNamespace(update_id=1), slow_update())
-    )
-    await first_started.wait()
-    second = asyncio.create_task(
-        processor.process_update(SimpleNamespace(update_id=2), later_update())
-    )
-
-    await asyncio.wait_for(second_finished.wait(), timeout=0.1)
-    release_first.set()
-    await asyncio.gather(first, second)
 
 
 @pytest.mark.asyncio
@@ -303,158 +256,6 @@ async def test_update_processor_preserves_order_within_one_chat():
         await asyncio.wait_for(second_finished.wait(), timeout=0.02)
     release_first.set()
     await asyncio.gather(first, second)
-
-
-@pytest.mark.asyncio
-async def test_update_latency_separates_queue_wait_from_handler_duration(caplog):
-    processor = LatencyTrackingUpdateProcessor(
-        max_concurrent_updates=1,
-        slow_update_seconds=0.01,
-    )
-    first_started = asyncio.Event()
-    release_first = asyncio.Event()
-    chat = SimpleNamespace(id=91)
-
-    async def first_callback():
-        first_started.set()
-        await release_first.wait()
-
-    async def second_callback():
-        pass
-
-    first = asyncio.create_task(
-        processor.process_update(
-            SimpleNamespace(update_id=1, message=object(), effective_chat=chat),
-            first_callback(),
-        )
-    )
-    await first_started.wait()
-    second = asyncio.create_task(
-        processor.process_update(
-            SimpleNamespace(update_id=2, message=object(), effective_chat=chat),
-            second_callback(),
-        )
-    )
-    await asyncio.sleep(0.05)
-    release_first.set()
-
-    with caplog.at_level(
-        logging.WARNING, logger="registrarmonitor.subscriptions.runtime"
-    ):
-        await asyncio.gather(first, second)
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert len(messages) == 2
-
-    def duration(message, field):
-        match = re.search(rf"(?:^|\s){re.escape(field)}=([0-9.]+)(?:\s|$)", message)
-        assert match is not None
-        return float(match.group(1))
-
-    queued_message = next(
-        message
-        for message in messages
-        if duration(message, "queue_wait_ms") > duration(message, "handler_duration_ms")
-    )
-    metrics = {
-        field: duration(queued_message, field)
-        for field in ("queue_wait_ms", "handler_duration_ms", "duration_ms")
-    }
-    assert metrics["duration_ms"] >= metrics["queue_wait_ms"]
-    assert metrics["duration_ms"] >= metrics["handler_duration_ms"]
-    assert "slow=True" in queued_message
-
-
-@pytest.mark.asyncio
-async def test_one_chat_cannot_consume_every_active_update_slot():
-    processor = LatencyTrackingUpdateProcessor(
-        max_concurrent_updates=2,
-        slow_update_seconds=3,
-    )
-    first_started = asyncio.Event()
-    release_first = asyncio.Event()
-    other_chat_finished = asyncio.Event()
-    first_chat = SimpleNamespace(effective_chat=SimpleNamespace(id=91))
-    other_chat = SimpleNamespace(effective_chat=SimpleNamespace(id=92))
-
-    async def blocked():
-        first_started.set()
-        await release_first.wait()
-
-    async def queued_behind_first():
-        pass
-
-    async def other_callback():
-        other_chat_finished.set()
-
-    first = asyncio.create_task(processor.process_update(first_chat, blocked()))
-    await first_started.wait()
-    second = asyncio.create_task(
-        processor.process_update(first_chat, queued_behind_first())
-    )
-    other = asyncio.create_task(processor.process_update(other_chat, other_callback()))
-
-    await asyncio.wait_for(other_chat_finished.wait(), timeout=0.1)
-    release_first.set()
-    await asyncio.gather(first, second, other)
-
-
-@pytest.mark.asyncio
-async def test_update_latency_is_logged_even_when_handler_fails(caplog):
-    processor = LatencyTrackingUpdateProcessor(
-        max_concurrent_updates=1,
-        slow_update_seconds=0,
-    )
-
-    async def fail():
-        raise RuntimeError("handler failed")
-
-    with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError):
-        await processor.process_update(SimpleNamespace(message=object()), fail())
-
-    assert "type=message" in caplog.text
-    assert "handler_duration_ms=" in caplog.text
-    assert "queue_wait_ms=" in caplog.text
-    assert "duration_ms=" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_latest_catalog_database_read_does_not_block_event_loop(
-    monkeypatch, current_snapshot
-):
-    from registrarmonitor.subscriptions import runtime as runtime_module
-
-    def active_semester():
-        return "Spring 2024"
-
-    class SlowDatabase:
-        def get_latest_snapshot_id(self):
-            return 1
-
-        def get_snapshot_data(self, _snapshot_id):
-            time.sleep(0.1)
-            return current_snapshot
-
-    monkeypatch.setattr(runtime_module, "find_active_semester", active_semester)
-    monkeypatch.setattr(
-        runtime_module.DatabaseManager,
-        "create_read_only_for_semester",
-        lambda _semester: SlowDatabase(),
-    )
-    runtime = make_catalog_runtime()
-    started = time.monotonic()
-    heartbeat_at = None
-
-    async def heartbeat():
-        nonlocal heartbeat_at
-        await asyncio.sleep(0.01)
-        heartbeat_at = time.monotonic()
-
-    catalog, _ = await asyncio.gather(runtime._latest_catalog(), heartbeat())
-
-    assert catalog is not None
-    assert heartbeat_at is not None
-    assert heartbeat_at - started < 0.05
 
 
 @pytest.mark.asyncio

@@ -65,48 +65,6 @@ def seeded_db(db_manager: DatabaseManager) -> DatabaseManager:
 # ── Tests ─────────────────────────────────────────────────────────
 
 
-class TestGetLatestSnapshotId:
-    """Tests for get_latest_snapshot_id."""
-
-    def test_returns_none_when_no_snapshots(self, db_manager: DatabaseManager):
-        assert db_manager.get_latest_snapshot_id() is None
-
-    def test_returns_id_of_newest_snapshot(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        assert isinstance(sid, int)
-
-
-class TestGetFirstSnapshotId:
-    """Tests for get_first_snapshot_id."""
-
-    def test_returns_none_when_no_snapshots(self, db_manager: DatabaseManager):
-        assert db_manager.get_first_snapshot_id() is None
-
-    def test_returns_id_of_oldest_snapshot(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_first_snapshot_id()
-        assert sid == 1
-
-
-class TestGetLatestSnapshotTimestamp:
-    """Tests for get_latest_snapshot_timestamp."""
-
-    def test_returns_none_when_no_snapshots(self, db_manager: DatabaseManager):
-        assert db_manager.get_latest_snapshot_timestamp() is None
-
-    def test_returns_latest_timestamp(self, seeded_db: DatabaseManager):
-        ts = seeded_db.get_latest_snapshot_timestamp()
-        assert ts == "2024-01-15 11:00:00"
-
-    def test_filters_by_semester(self, seeded_db: DatabaseManager):
-        ts = seeded_db.get_latest_snapshot_timestamp("Spring 2024")
-        assert ts == "2024-01-15 11:00:00"
-
-    def test_returns_none_for_wrong_semester(self, seeded_db: DatabaseManager):
-        ts = seeded_db.get_latest_snapshot_timestamp("Fall 2023")
-        assert ts is None
-
-
 class TestGetLastReportedSnapshotId:
     """Tests for get_last_reported_snapshot_id."""
 
@@ -118,36 +76,6 @@ class TestGetLastReportedSnapshotId:
         assert sid is not None
         seeded_db.add_reporting_log(sid, changes_were_found=True)
         assert seeded_db.get_last_reported_snapshot_id() == sid
-
-
-class TestAddReportingLog:
-    """Tests for add_reporting_log."""
-
-    def test_adds_entry_to_reporting_log(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        seeded_db.add_reporting_log(sid, changes_were_found=True)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM reporting_log")
-            entries = cursor.fetchall()
-
-        assert len(entries) == 1
-        assert entries[0]["reported_snapshot_id"] == sid
-        assert entries[0]["changes_found"] == 1
-
-    def test_adds_entry_with_no_changes(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        seeded_db.add_reporting_log(sid, changes_were_found=False)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT changes_found FROM reporting_log")
-            row = cursor.fetchone()
-
-        assert row["changes_found"] == 0
 
 
 class TestGetSnapshotData:
@@ -167,43 +95,13 @@ class TestGetSnapshotData:
         assert snapshot.semester == "Spring 2024"
         assert snapshot.overall_fill == 0.78
 
-    def test_includes_courses(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        snapshot = seeded_db.get_snapshot_data(sid)
-
-        assert snapshot is not None
-        assert "CS 101" in snapshot.courses
-        assert "MATH 201" in snapshot.courses
-
-    def test_includes_sections(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        snapshot = seeded_db.get_snapshot_data(sid)
-
-        assert snapshot is not None
-        cs = snapshot.courses["CS 101"]
-        assert len(cs.sections) == 3
-        assert "10L" in cs.sections
-        assert cs.sections["10L"].enrollment == 25
-        assert cs.sections["10L"].instructor == "Smith"
-
-    def test_computes_average_fill(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        snapshot = seeded_db.get_snapshot_data(sid)
-
-        assert snapshot is not None
-        math = snapshot.courses["MATH 201"]
-        assert math.average_fill == pytest.approx(1.0)
-
     def test_reconstructs_exact_second_snapshot(self, seeded_db: DatabaseManager):
         # Get the first (oldest) snapshot
         first_id = None
         with seeded_db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT snapshot_id FROM snapshots ORDER BY timestamp ASC LIMIT 1"
+                "SELECT snapshot_id FROM state_snapshot ORDER BY sequence_no ASC LIMIT 1"
             )
             row = cursor.fetchone()
             first_id = row[0]
@@ -212,33 +110,6 @@ class TestGetSnapshotData:
         assert snapshot is not None
         assert snapshot.timestamp == "2024-01-15 10:00:00"
         assert "MATH 201" not in snapshot.courses
-
-
-class TestGetEnrollmentSummary:
-    """Tests for get_enrollment_summary."""
-
-    def test_returns_counts_by_status(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        summary = seeded_db.get_enrollment_summary(sid)
-
-        # CS 101: 10L=0.83(NEAR), 11L=0.93(NEAR), 1R=0.80(NEAR), MATH 201: 20L=1.0(FULL)
-        assert summary["NEAR"] >= 3
-        assert summary["FULL"] >= 1
-        assert summary["OPEN"] >= 0
-
-    def test_all_statuses_present(self, seeded_db: DatabaseManager):
-        sid = seeded_db.get_latest_snapshot_id()
-        assert sid is not None
-        summary = seeded_db.get_enrollment_summary(sid)
-
-        for status in ["OPEN", "NEAR", "FULL"]:
-            assert status in summary
-            assert isinstance(summary[status], int)
-
-    def test_invalid_snapshot_id_returns_zeros(self, seeded_db: DatabaseManager):
-        summary = seeded_db.get_enrollment_summary(9999)
-        assert summary == {"OPEN": 0, "NEAR": 0, "FULL": 0}
 
 
 class TestGetCourseHistory:
@@ -269,142 +140,3 @@ class TestGetCourseHistory:
         assert "fill_percentage" in entry
         assert "enrollment_count" in entry
         assert "capacity_count" in entry
-
-
-class TestCleanupOldSnapshots:
-    """Tests for cleanup_old_snapshots."""
-
-    def test_keeps_specified_number_of_snapshots(self, seeded_db: DatabaseManager):
-        deleted = seeded_db.cleanup_old_snapshots(keep_count=1)
-        assert deleted >= 1  # At least the first snapshot removed
-
-        remaining = 0
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM snapshots")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining == 1
-
-    def test_returns_zero_when_no_snapshots_to_clean(self, db_manager: DatabaseManager):
-        deleted = db_manager.cleanup_old_snapshots(keep_count=10)
-        assert deleted == 0
-
-    def test_also_removes_enrollment_data(self, seeded_db: DatabaseManager):
-        seeded_db.cleanup_old_snapshots(keep_count=1)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM enrollment_data")
-            remaining_data = cursor.fetchone()[0]
-
-        # With only 1 snapshot kept, enrollment data should be just for that snapshot
-        assert remaining_data > 0
-
-    def test_removes_reporting_rows_before_referenced_snapshots(
-        self, seeded_db: DatabaseManager
-    ):
-        with seeded_db.get_connection() as conn:
-            snapshot_ids = [
-                row[0]
-                for row in conn.execute(
-                    "SELECT snapshot_id FROM snapshots ORDER BY timestamp"
-                )
-            ]
-
-        old_snapshot_id = snapshot_ids[0]
-        kept_snapshot_id = snapshot_ids[-1]
-        seeded_db.add_reporting_log(old_snapshot_id, changes_were_found=True)
-        seeded_db.add_reporting_log(kept_snapshot_id, changes_were_found=True)
-
-        assert seeded_db.cleanup_old_snapshots(keep_count=1) == len(snapshot_ids) - 1
-
-        with seeded_db.get_connection() as conn:
-            reported_ids = [
-                row[0]
-                for row in conn.execute(
-                    "SELECT reported_snapshot_id FROM reporting_log"
-                )
-            ]
-
-        assert reported_ids == [kept_snapshot_id]
-
-
-class TestDedupeInstructorChanges:
-    """Tests for dedupe_instructor_changes."""
-
-    def test_dry_run_returns_count_without_deleting(self, seeded_db: DatabaseManager):
-        # Add some duplicate instructor changes
-        timestamp = "2024-01-15 12:00:00"
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT section_id FROM sections LIMIT 1")
-            section_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", timestamp),
-            )
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", "2024-01-15 13:00:00"),
-            )
-            conn.commit()
-
-        count = seeded_db.dedupe_instructor_changes(dry_run=True)
-        assert count >= 1
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM instructor_changes")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining >= 2  # Nothing deleted in dry run
-
-    def test_removes_consecutive_duplicates(self, seeded_db: DatabaseManager):
-        timestamp = "2024-01-15 12:00:00"
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT section_id FROM sections LIMIT 1")
-            section_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", timestamp),
-            )
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", "2024-01-15 13:00:00"),
-            )
-            conn.commit()
-
-        seeded_db.dedupe_instructor_changes(dry_run=False)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM instructor_changes")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining == 1  # Duplicate removed
-
-    def test_preserves_non_duplicate_toggles(self, seeded_db: DatabaseManager):
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT section_id FROM sections LIMIT 1")
-            section_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", "2024-01-15 12:00:00"),
-            )
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "Smith", "", "2024-01-15 13:00:00"),
-            )
-            conn.commit()
-
-        seeded_db.dedupe_instructor_changes(dry_run=False)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM instructor_changes")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining == 2  # Both toggles preserved

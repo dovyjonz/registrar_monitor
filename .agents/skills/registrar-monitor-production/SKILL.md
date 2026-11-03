@@ -5,7 +5,7 @@ description: Safely inspect or operate the Registrar Monitor Google Cloud VM, sh
 
 # Registrar Monitor production
 
-Read `docs/operations/production-topology.md` completely before acting.
+Read the Production section of `docs/operations.md` completely before acting.
 
 ## Guardrails
 
@@ -15,9 +15,16 @@ Read `docs/operations/production-topology.md` completely before acting.
 - Preview every SSH command with `gcloud compute ssh --dry-run`.
 - Keep output bounded and secret-free. Never inspect `.env`, process environments,
   Telegram IDs, or unrestricted journals.
-- Default to read-only checks. Production sync, database mutation, Pages upload,
+- Default to read-only checks. Production sync, database mutation, Worker deployment,
   unit installation, and service-state changes each need explicit authorization.
 - Never revive `registrar-monitor.service`.
+- Units: scheduler, bot, `registrarmonitor-tunnel` (Cloudflare Tunnel for the
+  webhook), `registrarmonitor-litestream` (R2 replication), and the network
+  watchdog timer. Liveness is an external heartbeat (`HEARTBEAT_URL`), not a unit.
+- Before deploying TLS-related changes, run `scripts/fetch_registrar_ca.sh` on the
+  VM to write the registrar CA bundle; downloads never skip verification.
+- Deploy code with `make deploy-vm REV=<revision> UNIT=<unit>.service` only when
+  authorized; it restarts just the named unit.
 
 ## Verification
 

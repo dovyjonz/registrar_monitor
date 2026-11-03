@@ -2,33 +2,10 @@
 
 import re
 from pathlib import Path
-from typing import Any
+from urllib.parse import urlsplit
 
+from registrarmonitor.config import get_settings, get_timezone
 from registrarmonitor.registration import get_priority_milestones
-
-
-def _get_base_url() -> str:
-    """Get the base URL for canonical links and sharing.
-
-    Reads from settings.toml [website].base_url. Falls back to
-    https://{pages_project_name}.pages.dev.
-    """
-    cfg = _load_settings()
-    website = cfg.get("website", {})
-    base = website.get("base_url", "").strip().rstrip("/")
-    if base:
-        return base
-    project = website.get("pages_project_name", "registrar-monitor")
-    return f"https://{project}.pages.dev"
-
-
-def _get_preview_base_url() -> str:
-    """Get the separately deployed Worker origin for social preview images."""
-    website = _load_settings().get("website", {})
-    base = website.get("preview_base_url", "").strip().rstrip("/")
-    if not base:
-        raise ValueError("website.preview_base_url must be configured")
-    return base
 
 
 def semester_to_slug(semester: str) -> str:
@@ -80,13 +57,11 @@ def semester_sort_key(semester: str) -> tuple[int, int]:
 
 def get_configured_semesters(*, newest_first: bool = True) -> list[str]:
     """Return canonical semesters with registrar sources from settings."""
-    semesters = _load_settings().get("semesters", {})
     configured = [
         label
-        for label, value in semesters.items()
-        if isinstance(value, dict)
-        and isinstance(value.get("registrar_url"), str)
-        and value["registrar_url"].strip()
+        for label, value in get_settings().semesters.items()
+        if value.registrar_url
+        and value.registrar_url.strip()
         and _SEMESTER_PATTERN.fullmatch(label)
     ]
     return sorted(configured, key=semester_sort_key, reverse=newest_first)
@@ -102,9 +77,9 @@ def semester_key_map() -> dict[str, str]:
 
 def get_registrar_url(semester: str) -> str:
     """Return the configured registrar source for one canonical semester."""
-    value = _load_settings().get("semesters", {}).get(semester, {})
-    url = value.get("registrar_url") if isinstance(value, dict) else None
-    if not isinstance(url, str) or not url.strip():
+    value = get_settings().semesters.get(semester)
+    url = value.registrar_url if value else None
+    if not url or not url.strip():
         raise ValueError(f"no registrar source configured for {semester!r}")
     return url.strip()
 
@@ -118,9 +93,7 @@ def latest_configured_semester() -> str:
 
 
 # Default output directory
-OUTPUT_DIR = (
-    Path(__file__).parent.parent.parent.parent / "assets" / "website" / "public"
-)
+OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / "frontend" / "public"
 
 
 # ---------------------------------------------------------------------------
@@ -143,24 +116,43 @@ _PRIORITY_PALETTES: list[list[str]] = [
 _DEADLINE_COLORS = ["#78909C", "#546E7A", "#E040FB"]
 
 
-def _load_settings() -> dict[str, Any]:
-    """Load and return the parsed settings.toml via the Config singleton."""
-    try:
-        from registrarmonitor.config import get_config
-
-        return get_config()
-    except Exception:
-        # Fallback: read directly with tomllib (stdlib Python 3.11+)
-        import tomllib
-
-        settings_path = Path(__file__).parent.parent.parent.parent / "settings.toml"
-        with open(settings_path, "rb") as f:
-            return tomllib.load(f)
+# Settings-dependent constants
+BASE_URL: str = get_settings().website.base_url
+WEB_ANALYTICS_TOKEN: str = get_settings().website.web_analytics_token
 
 
-# Settings-dependent constants (must come after _load_settings)
-BASE_URL: str = _get_base_url()
-PREVIEW_BASE_URL: str = _get_preview_base_url()
+def content_security_policy(*, header: bool) -> str:
+    """Return the page CSP; ``header=True`` adds the directives a meta tag ignores.
+
+    The Telegram Mini App needs Telegram's script, the bot's API origin, and, for
+    Telegram Web, permission to be framed by it.
+    """
+    miniapp = get_settings().website.miniapp_api_url
+    scripts = ["'self'", "https://static.cloudflareinsights.com"]
+    connect = ["'self'", "https://cloudflareinsights.com"]
+    if miniapp:
+        parts = urlsplit(miniapp)
+        scripts.append("https://telegram.org")
+        connect.append(f"{parts.scheme}://{parts.netloc}")
+    directives = [
+        "default-src 'self'",
+        f"script-src {' '.join(scripts)}",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        f"connect-src {' '.join(connect)}",
+        "object-src 'none'",
+        "base-uri 'self'",
+    ]
+    if header:
+        directives.append(
+            "frame-ancestors https://web.telegram.org"
+            if miniapp
+            else "frame-ancestors 'none'"
+        )
+    directives.append("form-action 'self'")
+    if header:
+        directives.append("upgrade-insecure-requests")
+    return "; ".join(directives)
 
 
 def _assign_deadline_colors(
@@ -180,11 +172,9 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
     Returns a list of dicts with keys: time, label, color, and optional priority.
     Colors are auto-assigned based on explicit priority groups in TOML.
     """
-    cfg = _load_settings()
-    from registrarmonitor.config import get_timezone
-
-    registrar_timezone = get_timezone(cfg)
-    sem_data = cfg.get("semesters", {}).get(semester, {})
+    settings = get_settings()
+    registrar_timezone = get_timezone(settings)
+    sem_data = settings.semesters.get(semester)
 
     colored_milestones = []
 
@@ -212,7 +202,7 @@ def get_milestones(semester: str) -> list[dict[str, str]]:
             "time": _serialize_registrar_time(d[0], registrar_timezone),
             "label": d[1],
         }
-        for d in sem_data.get("deadlines", [])
+        for d in (sem_data.deadlines if sem_data else [])
     ]
     colored_deadlines = _assign_deadline_colors(raw_deadlines)
 

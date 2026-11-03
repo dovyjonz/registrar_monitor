@@ -1,8 +1,9 @@
 import json
+from unittest.mock import patch
 
+from registrarmonitor.config import get_settings
 from registrarmonitor.website.templates import (
     _build_nav_html,
-    build_redirect_index,
     build_semester_page,
 )
 
@@ -106,36 +107,18 @@ def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
     assert 'data-initial-course="ANT 140"' in html
     assert 'data-preview-state-url="/data/previews/course/obLD1OX2.json"' in html
     assert (
-        '<link rel="canonical" href="https://registrar-monitor.pages.dev/courses/fall-2026/ant-140/">'
+        '<link rel="canonical" href="https://registrar-monitor.spooktaken.workers.dev/courses/fall-2026/ant-140/">'
         in html
     )
     assert "/courses/fall-2026/ant-140/?v=obLD1OX2" in html
     assert (
-        "https://registrar-monitor-preview-images.spooktaken.workers.dev/"
+        "https://registrar-monitor.spooktaken.workers.dev/"
         "preview/course/fall-2026/ant-140/obLD1OX2.png"
     ) in html
     assert (
         'content="Introduction to Anthropology. 1 registration place available. '
         'Limited by labs."' in html
     )
-
-
-def test_archived_course_uses_unversioned_og_url(tmp_path):
-    html = build_semester_page(
-        {"cr": {}, "lrt": None},
-        [],
-        "Fall 2026",
-        manifest_path=manifest(tmp_path),
-        semesters=["Fall 2026"],
-        course_state=course_state(archived=True),
-    )
-
-    assert 'data-page-archived="true"' in html
-    assert (
-        'content="https://registrar-monitor.pages.dev/courses/fall-2026/ant-140/"'
-        in html
-    )
-    assert "/courses/fall-2026/ant-140/?v=" not in html
 
 
 def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
@@ -156,18 +139,42 @@ def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
 
     assert 'data-page-archived="true"' in html
     assert (
-        'content="https://registrar-monitor.pages.dev/semesters/spring-2026/"' in html
+        'content="https://registrar-monitor.spooktaken.workers.dev/semesters/spring-2026/"'
+        in html
     )
     assert "/semesters/spring-2026/?v=" not in html
     assert "142 sections were full at the final update" in html
 
 
-def test_root_has_evergreen_metadata_and_visible_fallback():
-    html = build_redirect_index("Fall 2026")
+def test_web_analytics_beacon_is_present_only_with_a_configured_token(tmp_path):
+    token = "0123456789abcdef0123456789abcdef"
+    args = ({"cr": {}}, [], "Fall 2026")
 
-    assert "<title>Enrollment Monitor</title>" in html
-    assert "See historical and frequently updated undergraduate course data" in html
-    assert "Nazarbayev" not in html
-    assert 'content="noindex, nofollow"' in html
-    assert 'href="/semesters/fall-2026/"' in html
-    assert "/previews/root.png" in html
+    with patch("registrarmonitor.website.templates.WEB_ANALYTICS_TOKEN", token):
+        html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert f'data-cf-beacon=\'{{"token": "{token}"}}\'' in html
+    assert "static.cloudflareinsights.com/beacon.min.js" in html
+
+    html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert "beacon.min.js" not in html
+
+
+def test_mini_app_wiring_is_present_only_with_a_configured_api(tmp_path):
+    args = ({"cr": {}}, [], "Fall 2026")
+
+    html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert 'name="miniapp-api"' not in html
+    assert "telegram.org" not in html
+
+    api = "https://bot.example.test/miniapp"
+    with patch.object(get_settings().website, "miniapp_api_url", api):
+        html = build_semester_page(*args, manifest_path=manifest(tmp_path))
+    assert f'<meta name="miniapp-api" content="{api}">' in html
+    assert (
+        "script-src &#39;self&#39; https://static.cloudflareinsights.com https://telegram.org"
+        in html
+    )
+    assert (
+        "connect-src &#39;self&#39; https://cloudflareinsights.com https://bot.example.test;"
+        in html
+    )

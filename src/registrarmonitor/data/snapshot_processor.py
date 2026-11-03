@@ -2,7 +2,7 @@ import itertools
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 
-from ..config import get_config
+from ..config import get_settings
 from ..models import (
     Course,
     EnrollmentSnapshot,
@@ -19,8 +19,7 @@ class SnapshotProcessor:
 
     def __init__(self, data_dir: str | None = None):
         if data_dir is None:
-            config = get_config()
-            data_dir = config["directories"]["data_storage"]
+            data_dir = get_settings().directories.data_storage
         self.data_dir = data_dir
         validate_directory_exists(data_dir, create_if_missing=True)
 

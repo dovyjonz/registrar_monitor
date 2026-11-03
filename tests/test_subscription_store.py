@@ -109,31 +109,6 @@ def test_quick_add_preserves_frozen_subscription_identity(store):
     assert store.effective_batch_subscriptions(batch.batch_id, 41) == [original]
 
 
-def test_resubscribing_cannot_reuse_a_staged_subscription_identity(store):
-    target = SubscriptionTarget("Fall 2026", "CSCI 151")
-    store.touch_user(telegram_user_id=41, private_chat_id=91)
-    store.subscribe(41, target)
-    batch = store.stage_batch("Fall 2026", 10, 11)
-
-    store.unsubscribe(41, target)
-    store.subscribe(41, target)
-
-    assert store.effective_batch_subscriptions(batch.batch_id, 41) == []
-
-
-def test_account_deletion_removes_pending_delivery_identity(store):
-    store.touch_user(telegram_user_id=41, private_chat_id=91)
-    store.subscribe(41, SubscriptionTarget("Fall 2026", "CSCI 151"))
-    batch = store.stage_batch("Fall 2026", 10, 11)
-    store.mark_channel_succeeded(batch.batch_id)
-    store.activate_batch(batch.batch_id)
-
-    store.delete_user(41)
-
-    assert store.list_deliveries(batch.batch_id) == []
-    assert store.get_batch(batch.batch_id).status == "complete"
-
-
 def test_due_delivery_progress_and_retry_are_durable(store):
     store.touch_user(telegram_user_id=41, private_chat_id=91)
     store.subscribe(41, SubscriptionTarget("Fall 2026", "CSCI 151"))

@@ -8,18 +8,20 @@ from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader
 
+from ..config import get_settings
 from .config import (
     BASE_URL,
-    PREVIEW_BASE_URL,
+    WEB_ANALYTICS_TOKEN,
+    content_security_policy,
     get_configured_semesters,
     semester_to_slug,
 )
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
-# Output is assets/website/public. Assets are in assets/website/public/assets.
+# Output is frontend/public. Assets are in frontend/public/assets.
 # We need to find manifest relative to this file.
 REPO_ROOT = Path(__file__).parent.parent.parent.parent
-ASSETS_DIR = REPO_ROOT / "assets" / "website" / "public" / "assets"
+ASSETS_DIR = REPO_ROOT / "frontend" / "public" / "assets"
 MANIFEST_PATH = ASSETS_DIR / ".vite" / "manifest.json"
 ASTANA_TIMEZONE = ZoneInfo("Asia/Almaty")
 
@@ -133,7 +135,7 @@ def build_semester_page(
         ]
         description = ". ".join(description_parts) + "."
         image_url = (
-            f"{PREVIEW_BASE_URL}/preview/course/{sem_slug}/{course_slug}/"
+            f"{BASE_URL}/preview/course/{sem_slug}/{course_slug}/"
             f"{course_state['hash']}.png"
         )
         image_alt = f"{course_state['code']} enrollment preview for {semester}"
@@ -158,7 +160,7 @@ def build_semester_page(
             )
         og_url = canonical_url
         image_url = (
-            f"{PREVIEW_BASE_URL}/preview/semester/{sem_slug}/{state['hash']}.png"
+            f"{BASE_URL}/preview/semester/{sem_slug}/{state['hash']}.png"
             if state.get("hash")
             else f"{BASE_URL}/previews/root.png"
         )
@@ -176,6 +178,9 @@ def build_semester_page(
         js_file=js_file,
         css_file=css_file,
         asset_base_url="/assets/",
+        web_analytics_token=WEB_ANALYTICS_TOKEN,
+        csp=content_security_policy(header=False),
+        miniapp_api_url=get_settings().website.miniapp_api_url,
         canonical_url=canonical_url,
         og_url=og_url,
         image_url=image_url,
@@ -190,26 +195,6 @@ def build_semester_page(
         archived=bool(
             course_state.get("archived") if course_state else state.get("archived")
         ),
-    )
-
-
-def build_prototype_page(
-    *,
-    semester: str,
-    index_json: str = "prototype-data/index.json",
-) -> str:
-    """Build the local-only dashboard prototype shell."""
-    js_file, css_file = _get_asset_info("src/prototype.js")
-    template = env.get_template("prototype.html.jinja")
-    return template.render(
-        title=f"Enrollment Monitor Prototype - {semester}",
-        semester=semester,
-        index_json=index_json,
-        js_file=js_file,
-        css_file=css_file,
-        asset_base_url="assets/",
-        canonical_url=None,
-        indexing="noindex",
     )
 
 

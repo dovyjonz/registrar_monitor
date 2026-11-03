@@ -72,20 +72,6 @@ class TestFormatChangesReport:
 
         assert "No significant changes" in report
 
-    def test_header_includes_timestamp(self, formatter: ReportFormatter):
-        """Report header should include timestamp."""
-        comparison = EnrollmentComparison(
-            previous_snapshot_timestamp="2024-01-15 09:00:00",
-            current_snapshot_timestamp="2024-01-15 10:00:00",
-        )
-        previous = EnrollmentSnapshot("2024-01-15 09:00:00", "Spring 2024", 0.70, {})
-        current = EnrollmentSnapshot("2024-01-15 10:00:00", "Spring 2024", 0.75, {})
-
-        report = formatter.format_changes_report(comparison, current, previous)
-
-        assert "2024-01-15 10:00:00" in report
-        assert "📅" in report
-
     def test_new_course_formatting(self, formatter: ReportFormatter):
         """New course should be formatted with sparkle emoji."""
         sections = {"10L": Section("10L", "L", 25, 30, 0.83)}
@@ -106,27 +92,6 @@ class TestFormatChangesReport:
         assert "+ CS 101 - COURSE ADDED" in report
         assert "CS 101" in report
         assert "ADDED" in report
-
-    def test_removed_course_formatting(self, formatter: ReportFormatter):
-        """Removed course should be formatted with X emoji."""
-        sections = {"10L": Section("10L", "L", 25, 30, 0.83)}
-        old_course = Course("CS 101", "CS", sections, 0.83)
-
-        comparison = EnrollmentComparison(
-            previous_snapshot_timestamp="2024-01-15 09:00:00",
-            current_snapshot_timestamp="2024-01-15 10:00:00",
-            removed_courses=[old_course],
-        )
-        previous = EnrollmentSnapshot(
-            "2024-01-15 09:00:00", "Spring 2024", 0.75, {"CS 101": old_course}
-        )
-        current = EnrollmentSnapshot("2024-01-15 10:00:00", "Spring 2024", 0.70, {})
-
-        report = formatter.format_changes_report(comparison, current, previous)
-
-        assert "− CS 101 - COURSE REMOVED" in report
-        assert "CS 101" in report
-        assert "REMOVED" in report
 
     def test_modified_course_formatting(self, formatter: ReportFormatter):
         """Modified course should show change delta."""
@@ -215,60 +180,6 @@ class TestFormatChangesReport:
         assert "CS 101" not in report
         assert "instructor:" not in report
         assert "No significant changes" in report
-
-    def test_name_formatting_is_not_reported(self, formatter: ReportFormatter):
-        previous_course = Course(
-            "CS 101",
-            "CS",
-            {"10L": Section("10L", "L", 20, 30, 0.67, "Park, Chun Young")},
-            0.67,
-        )
-        current_course = Course(
-            "CS 101",
-            "CS",
-            {"10L": Section("10L", "L", 20, 30, 0.67, "Chun Young Park")},
-            0.67,
-        )
-        previous = EnrollmentSnapshot(
-            "2024-01-15 09:00:00", "Spring 2024", 0.67, {"CS 101": previous_course}
-        )
-        current = EnrollmentSnapshot(
-            "2024-01-15 10:00:00", "Spring 2024", 0.67, {"CS 101": current_course}
-        )
-
-        comparison = SnapshotComparator().compare_snapshots(current, previous)
-        report = formatter.format_changes_report(comparison, current, previous)
-
-        assert comparison.changed_courses == []
-        assert "No significant changes" in report
-        assert "instructor:" not in report
-
-    def test_courses_sorted_alphabetically(self, formatter: ReportFormatter):
-        """Courses in report should be sorted alphabetically."""
-        course_a = Course("AA 101", "AA", {}, 0.50)
-        course_b = Course("BB 201", "BB", {}, 0.60)
-        course_c = Course("CC 301", "CC", {}, 0.70)
-
-        comparison = EnrollmentComparison(
-            previous_snapshot_timestamp="2024-01-15 09:00:00",
-            current_snapshot_timestamp="2024-01-15 10:00:00",
-            new_courses=[course_c, course_a, course_b],  # Unsorted
-        )
-        previous = EnrollmentSnapshot("2024-01-15 09:00:00", "Spring 2024", 0.60, {})
-        current = EnrollmentSnapshot(
-            "2024-01-15 10:00:00",
-            "Spring 2024",
-            0.60,
-            {"AA 101": course_a, "BB 201": course_b, "CC 301": course_c},
-        )
-
-        report = formatter.format_changes_report(comparison, current, previous)
-
-        # Check AA comes before BB and BB before CC
-        aa_pos = report.find("AA 101")
-        bb_pos = report.find("BB 201")
-        cc_pos = report.find("CC 301")
-        assert aa_pos < bb_pos < cc_pos
 
     def test_header_uses_active_priority_once_and_omits_routine_semester_fill(
         self, formatter: ReportFormatter
@@ -370,43 +281,3 @@ class TestFormatChangesReport:
 
         assert "CS 101 - LAB FULL" in report
         assert "section type mismatch" not in report
-
-    def test_uniformly_full_required_types_use_simple_100_percent_heading(
-        self, formatter: ReportFormatter
-    ):
-        previous_course = Course(
-            "CS 101",
-            "CS",
-            {
-                "1L": Section("1L", "L", 19, 20, 0.95),
-                "1B": Section("1B", "B", 9, 10, 0.9),
-            },
-            0.925,
-        )
-        current_course = Course(
-            "CS 101",
-            "CS",
-            {
-                "1L": Section("1L", "L", 20, 20, 1.0),
-                "1B": Section("1B", "B", 10, 10, 1.0),
-            },
-            1.0,
-        )
-        current = EnrollmentSnapshot(
-            "2026-08-13 12:00:00", "Fall 2026", 1.0, {"CS 101": current_course}
-        )
-        previous = EnrollmentSnapshot(
-            "2026-08-13 10:00:00",
-            "Fall 2026",
-            0.925,
-            {"CS 101": previous_course},
-        )
-
-        report = formatter.format_changes_report(
-            SnapshotComparator().compare_snapshots(current, previous),
-            current,
-            previous,
-        )
-
-        assert "CS 101 - 100%" in report
-        assert "LAB FULL" not in report

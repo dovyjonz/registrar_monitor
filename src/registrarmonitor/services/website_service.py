@@ -1,23 +1,26 @@
-"""Service for generating and deploying the website."""
+"""Service for generating the website and deploying it as Worker static assets."""
 
+import hashlib
 import json
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
+from ..config import get_settings
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..website.catalog import build_publication_catalog
 from ..website.checksums import get_semesters_needing_update, update_checksum
 from ..website.config import (
     OUTPUT_DIR,
+    content_security_policy,
     get_configured_semesters,
     get_milestones,
     semester_key_map,
     semester_to_slug,
 )
-from ..website.data import get_prototype_payloads, get_semester_data
+from ..website.data import get_semester_data
 from ..website.preview import (
     build_course_preview_state,
     build_semester_preview_state,
@@ -25,12 +28,12 @@ from ..website.preview import (
 )
 from ..website.static_manifest import build_frontend_payloads_v3, publish_semester
 from ..website.templates import (
-    build_prototype_page,
     build_redirect_index,
     build_semester_page,
 )
 
 DEPLOY_TIMEOUT_SECONDS = 900
+WORKER_CONFIG = Path(__file__).resolve().parents[3] / "workers/site/wrangler.jsonc"
 
 
 class WebsiteService:
@@ -43,10 +46,9 @@ class WebsiteService:
         self.logger = get_logger(__name__)
         self.last_generation_skipped = False
         self._output_dir = output_dir.resolve() if output_dir is not None else None
-        # Correct path to assets/website
-        # src/registrarmonitor/services/website_service.py -> .../repo/assets/website
+        # src/registrarmonitor/services/website_service.py -> .../repo/frontend
         self._default_website_assets_dir = (
-            Path(__file__).parent.parent.parent.parent / "assets" / "website"
+            Path(__file__).parent.parent.parent.parent / "frontend"
         )
         self.website_assets_dir = self._default_website_assets_dir
         self._semester_data_cache: dict[tuple[str, bool], dict] = {}
@@ -286,143 +288,6 @@ class WebsiteService:
         print(f"  Published {len(states)} clean course routes", flush=True)
         return len(states)
 
-    def generate_prototype(self, semester_key: str | None = None) -> bool:
-        """Generate the local-only dashboard redesign prototype."""
-        if self._output_dir is not None:
-            print(
-                "❌ Prototype generation does not support an isolated output directory."
-            )
-            return False
-        try:
-            key_map = semester_key_map()
-            target_semester = (
-                key_map[semester_key] if semester_key else key_map["summer2026"]
-            )
-        except KeyError:
-            print(f"Error: Unknown semester key '{semester_key}'")
-            return False
-
-        try:
-            OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
-
-            if not self.build_frontend_assets():
-                print("❌ Frontend build failed. Aborting prototype generation.")
-                return False
-
-            import json
-
-            prototype_data_dir = OUTPUT_DIR / "prototype-data"
-            if prototype_data_dir.exists():
-                shutil.rmtree(prototype_data_dir)
-            prototype_data_dir.mkdir(parents=True, exist_ok=True)
-
-            candidate_semesters = (
-                [target_semester]
-                if semester_key
-                else [
-                    target_semester,
-                    *[
-                        semester
-                        for semester in get_configured_semesters()
-                        if semester != target_semester
-                    ],
-                ]
-            )
-            generated_payloads: list[
-                tuple[str, str, dict[str, object], dict[str, dict[str, object]]]
-            ] = []
-
-            print(f"Generating local dashboard prototype for {target_semester}...")
-            for semester in candidate_semesters:
-                sem_slug = semester_to_slug(semester)
-                detail_base_url = f"prototype-data/{sem_slug}"
-                index_payload, detail_payloads = get_prototype_payloads(
-                    semester,
-                    detail_base_url=detail_base_url,
-                )
-                if not index_payload.get("courseRows"):
-                    print(f"  Skipping {semester}: no courses found")
-                    continue
-                generated_payloads.append(
-                    (semester, sem_slug, index_payload, detail_payloads)
-                )
-
-            if not generated_payloads:
-                print(f"Warning: No courses found for {target_semester}")
-                return False
-
-            semester_options = [
-                {
-                    "semester": semester,
-                    "indexUrl": f"prototype-data/{sem_slug}/index.json",
-                }
-                for semester, sem_slug, _, _ in generated_payloads
-            ]
-
-            active_index_payload: dict[str, object] | None = None
-            total_detail_files = 0
-            for (
-                semester,
-                sem_slug,
-                index_payload,
-                detail_payloads,
-            ) in generated_payloads:
-                index_payload["semesters"] = semester_options
-                semester_dir = prototype_data_dir / sem_slug
-                semester_dir.mkdir(parents=True, exist_ok=True)
-
-                index_path = semester_dir / "index.json"
-                index_path.write_text(
-                    json.dumps(index_payload, separators=(",", ":")),
-                    encoding="utf-8",
-                )
-
-                for slug, payload in detail_payloads.items():
-                    detail_path = semester_dir / f"{slug}.json"
-                    detail_path.write_text(
-                        json.dumps(payload, separators=(",", ":")),
-                        encoding="utf-8",
-                    )
-                    total_detail_files += 1
-
-                if semester == target_semester:
-                    active_index_payload = index_payload
-
-            if active_index_payload is None:
-                active_index_payload = generated_payloads[0][2]
-
-            root_index_path = prototype_data_dir / "index.json"
-            root_index_path.write_text(
-                json.dumps(active_index_payload, separators=(",", ":")),
-                encoding="utf-8",
-            )
-
-            html = build_prototype_page(
-                semester=target_semester,
-                index_json="prototype-data/index.json",
-            )
-            output_path = OUTPUT_DIR / "prototype.html"
-            output_path.write_text(html, encoding="utf-8")
-
-            active_course_rows = active_index_payload.get("courseRows", [])
-            active_course_count = (
-                len(active_course_rows) if isinstance(active_course_rows, list) else 0
-            )
-            print(
-                f"Prototype written to {output_path} "
-                f"({active_course_count} active courses, "
-                f"{total_detail_files} detail files)"
-            )
-            print(
-                "Serve assets/website/public locally and open "
-                "http://127.0.0.1:8000/prototype.html"
-            )
-            return True
-        except Exception as e:
-            self.logger.error(f"Prototype generation failed: {e}")
-            print(f"❌ Prototype generation failed: {e}")
-            return False
-
     def _patch_asset_hashes_in_html(self) -> bool:
         """Update JS/CSS asset references in all deployed HTML files after a Vite build.
 
@@ -558,8 +423,32 @@ class WebsiteService:
             print(f"Error: {issue}")
         return not issues
 
+    def _frontend_source_hash(self) -> str:
+        """Hash everything the Vite bundle depends on (source, config, lockfile)."""
+        digest = hashlib.sha256()
+        root = self.website_assets_dir
+        sources = [
+            root / "package.json",
+            root / "package-lock.json",
+            root / "vite.config.js",
+            *sorted(path for path in (root / "src").rglob("*") if path.is_file()),
+        ]
+        for path in sources:
+            if path.is_file():
+                digest.update(path.relative_to(root).as_posix().encode())
+                digest.update(path.read_bytes())
+        return digest.hexdigest()
+
+    @property
+    def _build_hash_file(self) -> Path:
+        return self.output_dir / ".frontend-build-hash"
+
     def build_frontend_assets(self) -> bool:
-        """Build the frontend assets using npm/vite.
+        """Build the frontend assets using npm/vite, unless they are current.
+
+        The 1 GB VM rebuilds only when the frontend source, config, or lockfile
+        hash differs from the one recorded by the last successful build; routine
+        publications reuse the existing bundle and only validate its references.
 
         After a successful build, Vite emits new content-hashed filenames.
         Rather than regenerating all HTML pages (which requires DB queries),
@@ -567,6 +456,16 @@ class WebsiteService:
         Checksums are preserved so incremental logic is unaffected.
         """
         import os
+
+        source_hash = self._frontend_source_hash()
+        manifest = self.output_dir / "assets" / ".vite" / "manifest.json"
+        try:
+            recorded = self._build_hash_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            recorded = ""
+        if recorded == source_hash and manifest.is_file():
+            print("Frontend assets are current; skipping build.")
+            return self._validate_asset_references_in_html()
 
         print("Building frontend assets...")
         build_cmd = ["npm", "run", "build"]
@@ -577,8 +476,6 @@ class WebsiteService:
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"
         env["REGISTRAR_VITE_OUTPUT_DIR"] = str(self.output_dir / "assets")
-        if self._output_dir is not None:
-            env["REGISTRAR_MAIN_ONLY"] = "1"
 
         try:
             if self._frontend_dependencies_need_install():
@@ -593,7 +490,11 @@ class WebsiteService:
             # Patch asset hashes in all deployed HTML files without regenerating them.
             if not self._patch_asset_hashes_in_html():
                 return False
-            return self._validate_asset_references_in_html()
+            if not self._validate_asset_references_in_html():
+                return False
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            self._build_hash_file.write_text(source_hash + "\n", encoding="utf-8")
+            return True
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error building frontend assets: {e}")
             print(f"Error building frontend assets: {e}")
@@ -607,24 +508,24 @@ class WebsiteService:
             return False
 
     def _remove_obsolete_html(self) -> None:
-        """Remove generated legacy files now represented by exact redirects."""
+        """Remove generated .html files now represented by exact redirects."""
         for semester in get_configured_semesters():
-            legacy = self.output_dir / f"{semester.replace(' ', '').lower()}.html"
-            legacy.unlink(missing_ok=True)
+            old_page = self.output_dir / f"{semester.replace(' ', '').lower()}.html"
+            old_page.unlink(missing_ok=True)
         courses = self.output_dir / "courses"
         if courses.exists():
-            for legacy in courses.glob("*/*.html"):
-                legacy.unlink()
+            for old_page in courses.glob("*/*.html"):
+                old_page.unlink()
 
     def _build_redirects(self) -> str:
-        """Build exact legacy redirects only for clean targets that exist."""
+        """Build exact .html redirects only for clean targets that exist."""
         redirects: list[str] = []
         for semester in get_configured_semesters():
             sem_slug = semester_to_slug(semester)
             target = self.output_dir / "semesters" / sem_slug / "index.html"
             if target.is_file():
-                legacy = f"/{semester.replace(' ', '').lower()}.html"
-                redirects.append(f"{legacy} /semesters/{sem_slug}/ 301")
+                old_path = f"/{semester.replace(' ', '').lower()}.html"
+                redirects.append(f"{old_path} /semesters/{sem_slug}/ 301")
         courses = self.output_dir / "courses"
         if courses.exists():
             for target in sorted(courses.glob("*/*/index.html")):
@@ -636,19 +537,24 @@ class WebsiteService:
                 )
         if len(redirects) > 2_000:
             raise ValueError(
-                f"generated redirect count {len(redirects)} exceeds Pages limit"
+                f"generated redirect count {len(redirects)} exceeds the static redirect limit"
             )
         return "\n".join(redirects) + ("\n" if redirects else "")
 
     def _build_headers_content(self) -> str:
-        """Build Cloudflare Pages headers for generated public output."""
-        return """/*
+        """Build Static Assets headers for generated public output."""
+        # Telegram Web frames the Mini App, which X-Frame-Options cannot allow.
+        frame_options = (
+            ""
+            if get_settings().website.miniapp_api_url
+            else "  X-Frame-Options: DENY\n"
+        )
+        return f"""/*
   Cache-Control: public, max-age=0, must-revalidate
   X-Content-Type-Options: nosniff
-  X-Frame-Options: DENY
-  Referrer-Policy: strict-origin-when-cross-origin
+{frame_options}  Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: {content_security_policy(header=True)}
   X-Robots-Tag: noindex, nofollow
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
@@ -772,6 +678,8 @@ class WebsiteService:
             "_redirects",
             "robots.txt",
             ".checksums.json",
+            ".assetsignore",
+            ".frontend-build-hash",
         }
         allowed_dirs = {"assets", "courses", "data", "previews", "semesters"}
         private_names = {".DS_Store", ".env"}
@@ -820,13 +728,13 @@ class WebsiteService:
 
     def is_any_semester_active(self, buffer_days: int = 7) -> bool:
         """Check if we are currently within an active registration window."""
-        import datetime
+        import datetime as dt
 
         from ..config import get_timezone
         from ..website.config import get_configured_semesters, get_milestones
 
         registrar_timezone = get_timezone()
-        now = datetime.datetime.now(registrar_timezone)
+        now = dt.datetime.now(registrar_timezone)
 
         for semester in get_configured_semesters():
             try:
@@ -836,14 +744,14 @@ class WebsiteService:
 
                 times = []
                 for milestone in milestones:
-                    value = datetime.datetime.fromisoformat(milestone["time"])
+                    value = dt.datetime.fromisoformat(milestone["time"])
                     if value.tzinfo is None:
                         value = value.replace(tzinfo=registrar_timezone)
                     else:
                         value = value.astimezone(registrar_timezone)
                     times.append(value)
-                earliest = min(times) - datetime.timedelta(days=buffer_days)
-                latest = max(times) + datetime.timedelta(days=buffer_days)
+                earliest = min(times) - dt.timedelta(days=buffer_days)
+                latest = max(times) + dt.timedelta(days=buffer_days)
 
                 if earliest <= now <= latest:
                     return True
@@ -952,6 +860,11 @@ class WebsiteService:
                 headers_path.write_text(self._build_headers_content())
                 print("Generated Cloudflare _headers")
 
+                # Keep local state out of the deployed assets
+                (self.output_dir / ".assetsignore").write_text(
+                    ".assetsignore\n.checksums.json\n.frontend-build-hash\n"
+                )
+
                 # Generate robots.txt
                 robots_path = self.output_dir / "robots.txt"
                 robots_path.write_text(self._build_robots_content())
@@ -960,7 +873,7 @@ class WebsiteService:
                 self._remove_obsolete_html()
                 redirects_path = self.output_dir / "_redirects"
                 redirects_path.write_text(self._build_redirects(), encoding="utf-8")
-                print("Generated narrow legacy redirects")
+                print("Generated narrow .html redirects")
 
             removed = self._prune_unreferenced_publication_files()
             print(
@@ -984,15 +897,13 @@ class WebsiteService:
             print(f"❌ Website generation failed: {e}")
             return False
 
-    def deploy(
-        self, project_name: str = "registrar-monitor", branch: str | None = None
-    ) -> bool:
+    def deploy(self) -> bool:
         """
-        Deploy the website to Cloudflare Pages.
+        Deploy the generated site and the preview Worker with ``wrangler deploy``.
 
-        Args:
-            project_name: Cloudflare Pages project name
-            branch: Optional branch name for deployment
+        The site is the Worker's Static Assets directory (``frontend/public``).
+        Wrangler hashes every file and uploads only the ones Cloudflare does not
+        already have, so each deploy sends just the changed pages and data.
 
         Returns:
             True if successful
@@ -1003,10 +914,7 @@ class WebsiteService:
             print("❌ Deployment is disabled for isolated generation output.")
             return False
 
-        print("\n🚀 Deploying to Cloudflare Pages...", flush=True)
-        print(f"   Project: {project_name}")
-        if branch:
-            print(f"   Branch: {branch}")
+        print("\n🚀 Deploying the site Worker...", flush=True)
 
         issues = self.validate_public_output()
         if issues:
@@ -1015,30 +923,26 @@ class WebsiteService:
                 print(f"   - {issue}")
             return False
 
-        # Command: npx wrangler pages deploy public --project-name <name> [--branch <branch>]
+        # wrangler is a frontend devDependency, so the VM needs no Worker dependencies.
         deploy_cmd = [
             "npx",
             "wrangler",
-            "pages",
             "deploy",
-            "public",
-            "--project-name",
-            project_name,
+            "--config",
+            str(WORKER_CONFIG),
+            "--strict",
         ]
 
-        if branch:
-            deploy_cmd.extend(["--branch", branch])
-
-        # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
         env = os.environ.copy()
-        if not env.get("CLOUDFLARE_API_TOKEN", "").strip():
+        settings = get_settings()
+        if settings.cloudflare_api_token is None:
             print("❌ Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN is not set.")
             print(
                 "   Add CLOUDFLARE_API_TOKEN=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
             )
             print("   Then restart the systemd service so EnvironmentFile is reloaded.")
             return False
-        if not env.get("CLOUDFLARE_ACCOUNT_ID", "").strip():
+        if settings.cloudflare_account_id is None:
             print("❌ Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set.")
             print(
                 "   Add CLOUDFLARE_ACCOUNT_ID=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
@@ -1049,6 +953,8 @@ class WebsiteService:
             print("   Then restart the systemd service so EnvironmentFile is reloaded.")
             return False
 
+        env["CLOUDFLARE_API_TOKEN"] = settings.cloudflare_api_token.get_secret_value()
+        env["CLOUDFLARE_ACCOUNT_ID"] = settings.cloudflare_account_id.get_secret_value()
         env["NODE_OPTIONS"] = "--max_old_space_size=512"
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"

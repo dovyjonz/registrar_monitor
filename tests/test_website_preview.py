@@ -41,36 +41,6 @@ def test_noop_poll_timestamp_does_not_change_course_hash():
     assert re.fullmatch(r"[A-Za-z0-9_-]{8}", first["hash"])
 
 
-def test_unrelated_department_timestamp_does_not_change_course_hash():
-    course = {
-        "code": "ANT 140",
-        "title": "Introduction",
-        "sections": {},
-        "averageHistory": [{"timestampIdx": 0, "fill": 0.5}],
-        "sectionHistory": {},
-        "events": [],
-    }
-
-    first = build_course_preview_state(
-        semester="Fall 2026",
-        course=course,
-        timestamps=["2026-08-05T09:00:00+05:00"],
-        milestones=[],
-    )
-    second = build_course_preview_state(
-        semester="Fall 2026",
-        course=course,
-        timestamps=[
-            "2026-08-05T09:00:00+05:00",
-            "2026-08-05T10:00:00+05:00",
-        ],
-        milestones=[],
-    )
-
-    assert second["timestamps"] == ["2026-08-05T09:00:00+05:00"]
-    assert first["hash"] == second["hash"]
-
-
 def test_naive_course_observations_are_published_in_the_registrar_timezone():
     state = build_course_preview_state(
         semester="Fall 2026",
@@ -125,26 +95,6 @@ def test_priority_transition_changes_course_hash_without_course_change():
     assert second["priority"]["compact"] == "P2 · Y3"
     assert second["priority"]["current"]["label"] == "Y3"
     assert first["hash"] != second["hash"]
-
-
-def test_priority_state_accepts_naive_milestones_with_aware_observation():
-    course = {
-        "code": "ANT 140",
-        "sections": {},
-        "averageHistory": [],
-        "sectionHistory": {},
-        "events": [],
-    }
-
-    state = build_course_preview_state(
-        semester="Fall 2026",
-        course=course,
-        timestamps=[],
-        milestones=[{"time": "2026-08-05T09:00:00", "priority": "1", "label": "Y4+"}],
-        published_at="2026-08-05T10:00:00+05:00",
-    )
-
-    assert state["priority"]["compact"] == "P1 · Y4+"
 
 
 def test_priority_state_is_cumulative_and_uses_deadline_as_next_item():

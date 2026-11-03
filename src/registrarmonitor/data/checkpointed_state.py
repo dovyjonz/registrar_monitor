@@ -5,17 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager, nullcontext
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from time import perf_counter_ns
 from typing import Any
 
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 
 from .instructor_normalization import clean_instructor_text, instructor_identity
 
+CHECKPOINTED_SCHEMA_VERSION = 2
 STATE_THRESHOLD = 96
 EVENT_THRESHOLD = 2_048
 
@@ -69,14 +69,13 @@ def canonical_state_hash(snapshot: EnrollmentSnapshot) -> bytes:
 
 
 class CheckpointedStateStore:
-    """Small public surface around the ADR-0001 production data model."""
+    """Small public surface around the ADR-0001 checkpointed data model."""
 
     def __init__(
         self,
         path: Path | str,
         *,
         initialize: bool = True,
-        set_user_version: bool = True,
         read_only: bool = False,
     ):
         self.path = Path(path)
@@ -95,10 +94,10 @@ class CheckpointedStateStore:
             | None
         ) = None
         if initialize:
-            self._initialize(set_user_version=set_user_version)
+            self._initialize()
 
     @contextmanager
-    def connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self) -> Generator[sqlite3.Connection]:
         connection = sqlite3.connect(
             f"file:{self.path}?mode=ro" if self.read_only else self.path,
             uri=self.read_only,
@@ -113,7 +112,7 @@ class CheckpointedStateStore:
         finally:
             connection.close()
 
-    def _initialize(self, *, set_user_version: bool = True) -> None:
+    def _initialize(self) -> None:
         with self.connection() as connection:
             connection.executescript(
                 """
@@ -220,8 +219,7 @@ class CheckpointedStateStore:
                     ON reporting_log_v2(reported_snapshot_id);
                 """
             )
-            if set_user_version:
-                connection.execute("PRAGMA user_version = 2")
+            connection.execute(f"PRAGMA user_version = {CHECKPOINTED_SCHEMA_VERSION}")
             connection.commit()
 
     @staticmethod
@@ -317,11 +315,8 @@ class CheckpointedStateStore:
         self,
         connection: sqlite3.Connection,
         course_code: str,
-        *,
-        identity: int | None = None,
-        identity_cache: dict[str, int] | None = None,
     ) -> int:
-        cache = self._course_ids if identity_cache is None else identity_cache
+        cache = self._course_ids
         cached = cache.get(course_code)
         if cached is not None:
             return cached
@@ -333,16 +328,10 @@ class CheckpointedStateStore:
             course_id = int(row[0])
             cache[course_code] = course_id
             return course_id
-        if identity is None:
-            cursor = connection.execute(
-                "INSERT INTO course_catalog(course_code) VALUES (?)",
-                (course_code,),
-            )
-        else:
-            cursor = connection.execute(
-                "INSERT INTO course_catalog(course_id, course_code) VALUES (?, ?)",
-                (identity, course_code),
-            )
+        cursor = connection.execute(
+            "INSERT INTO course_catalog(course_code) VALUES (?)",
+            (course_code,),
+        )
         if cursor.lastrowid is None:
             raise sqlite3.Error("course identity insert returned no ID")
         course_id = int(cursor.lastrowid)
@@ -356,28 +345,14 @@ class CheckpointedStateStore:
         section_code: str,
         *,
         course_id: int | None = None,
-        identity: int | None = None,
-        course_identity_cache: dict[str, int] | None = None,
-        section_identity_cache: dict[tuple[str, str], int] | None = None,
     ) -> int:
-        course_cache = (
-            self._course_ids if course_identity_cache is None else course_identity_cache
-        )
-        section_cache = (
-            self._section_ids
-            if section_identity_cache is None
-            else section_identity_cache
-        )
+        section_cache = self._section_ids
         cache_key = (course_code, section_code)
         cached = section_cache.get(cache_key)
         if cached is not None:
             return cached
         if course_id is None:
-            course_id = self._ensure_course(
-                connection,
-                course_code,
-                identity_cache=course_cache,
-            )
+            course_id = self._ensure_course(connection, course_code)
         row = connection.execute(
             """
             SELECT section_id FROM section_catalog
@@ -389,98 +364,18 @@ class CheckpointedStateStore:
             section_id = int(row[0])
             section_cache[cache_key] = section_id
             return section_id
-        if identity is None:
-            cursor = connection.execute(
-                """
-                INSERT INTO section_catalog(course_id, section_code)
-                VALUES (?, ?)
-                """,
-                (course_id, section_code),
-            )
-        else:
-            cursor = connection.execute(
-                """
-                INSERT INTO section_catalog(section_id, course_id, section_code)
-                VALUES (?, ?, ?)
-                """,
-                (identity, course_id, section_code),
-            )
+        cursor = connection.execute(
+            """
+            INSERT INTO section_catalog(course_id, section_code)
+            VALUES (?, ?)
+            """,
+            (course_id, section_code),
+        )
         if cursor.lastrowid is None:
             raise sqlite3.Error("section identity insert returned no ID")
         section_id = int(cursor.lastrowid)
         section_cache[cache_key] = section_id
         return section_id
-
-    def resolve_course_id(
-        self, connection: sqlite3.Connection, course_code: str
-    ) -> int:
-        """Resolve one catalog identity without scanning the full catalog."""
-        return self._ensure_course(connection, course_code)
-
-    def resolve_section_id(
-        self,
-        connection: sqlite3.Connection,
-        course_code: str,
-        section_code: str,
-    ) -> int:
-        """Resolve one section identity, creating only a missing catalog row."""
-        course_id = self._ensure_course(connection, course_code)
-        return self._ensure_section(
-            connection,
-            course_code,
-            section_code,
-            course_id=course_id,
-        )
-
-    def invalidate_runtime_caches(self) -> None:
-        """Forget transaction-local identity and latest-state observations."""
-        self._course_ids.clear()
-        self._section_ids.clear()
-        self._latest_state_cache = None
-
-    def accept_committed_snapshot(
-        self, snapshot: EnrollmentSnapshot, result: WriteResult
-    ) -> None:
-        """Publish a successful external transaction to the warm write cache."""
-        if not result.created:
-            return
-        self._latest_state_cache = (
-            result.snapshot_id,
-            canonical_state_hash(snapshot),
-            self._course_state(snapshot),
-            self._section_state(snapshot),
-        )
-
-    def latest_states_in_transaction(
-        self, connection: sqlite3.Connection
-    ) -> tuple[
-        dict[str, tuple[str, str]],
-        dict[tuple[str, str], tuple[str, int, int, str]],
-    ]:
-        """Return the cached latest state, loading it once when necessary."""
-        latest = connection.execute(
-            """
-            SELECT snapshot_id, state_hash
-            FROM state_snapshot
-            ORDER BY sequence_no DESC LIMIT 1
-            """
-        ).fetchone()
-        courses, sections = self._cached_latest_states(connection, latest)
-        return dict(courses), dict(sections)
-
-    @staticmethod
-    def latest_snapshot_id_in_transaction(
-        connection: sqlite3.Connection,
-    ) -> int | None:
-        """Return the authoritative predecessor ID without reconstructing it."""
-        row = connection.execute(
-            """
-            SELECT snapshot_id
-            FROM state_snapshot
-            ORDER BY sequence_no DESC LIMIT 1
-            """
-        ).fetchone()
-        return int(row[0]) if row else None
 
     def _cached_latest_states(
         self,
@@ -504,142 +399,14 @@ class CheckpointedStateStore:
         self._latest_state_cache = (snapshot_id, state_hash, courses, sections)
         return courses, sections
 
-    def seed_identity(
-        self,
-        *,
-        course_id: int,
-        course_code: str,
-        sections: list[tuple[int, str]],
-    ) -> None:
-        """Pre-seed legacy identities before chronological import."""
-        with self.connection() as connection:
-            with connection:
-                actual_course_id = self._ensure_course(
-                    connection, course_code, identity=course_id
-                )
-                if actual_course_id != course_id:
-                    raise ValueError(f"course identity mismatch for {course_code}")
-                for section_id, section_code in sections:
-                    actual_section_id = self._ensure_section(
-                        connection,
-                        course_code,
-                        section_code,
-                        course_id=course_id,
-                        identity=section_id,
-                    )
-                    if actual_section_id != section_id:
-                        raise ValueError(
-                            f"section identity mismatch for {course_code}/{section_code}"
-                        )
-
-    def write_snapshot(
-        self,
-        snapshot: EnrollmentSnapshot,
-        *,
-        snapshot_id: int | None = None,
-        last_seen_at: str | None = None,
-        force_checkpoint: bool = False,
-        preserve_duplicate_import: bool = False,
-        before_commit: Callable[[sqlite3.Connection, int], None] | None = None,
-    ) -> WriteResult:
-        return self._write_snapshot(
-            snapshot,
-            snapshot_id=snapshot_id,
-            last_seen_at=last_seen_at,
-            force_checkpoint=force_checkpoint,
-            preserve_duplicate_import=preserve_duplicate_import,
-            before_commit=before_commit,
-        )
-
-    def write_snapshot_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        snapshot: EnrollmentSnapshot,
-        *,
-        snapshot_id: int | None = None,
-        last_seen_at: str | None = None,
-        force_checkpoint: bool = False,
-        preserve_duplicate_import: bool = False,
-        before_commit: Callable[[sqlite3.Connection, int], None] | None = None,
-    ) -> WriteResult:
-        """Write v2 state using the caller's active SQLite transaction."""
-        return self._write_snapshot(
-            snapshot,
-            snapshot_id=snapshot_id,
-            last_seen_at=last_seen_at,
-            force_checkpoint=force_checkpoint,
-            preserve_duplicate_import=preserve_duplicate_import,
-            before_commit=before_commit,
-            connection=connection,
-        )
-
-    def profile_write_snapshot(
-        self,
-        snapshot: EnrollmentSnapshot,
-        *,
-        snapshot_id: int | None = None,
-        last_seen_at: str | None = None,
-        force_checkpoint: bool = False,
-        preserve_duplicate_import: bool = False,
-    ) -> tuple[WriteResult, dict[str, Any]]:
-        """Write one state and expose coarse transaction phase timings."""
-        profile: dict[str, Any] = {
-            "phases_ns": {
-                phase: 0
-                for phase in (
-                    "canonicalize",
-                    "load_current",
-                    "append_events",
-                    "replace_latest",
-                    "checkpoint",
-                    "commit",
-                )
-            },
-            "latest_projection_mutations": {"courses": 0, "sections": 0},
-        }
-        started = perf_counter_ns()
-        result = self._write_snapshot(
-            snapshot,
-            snapshot_id=snapshot_id,
-            last_seen_at=last_seen_at,
-            force_checkpoint=force_checkpoint,
-            preserve_duplicate_import=preserve_duplicate_import,
-            profile=profile,
-        )
-        profile["total_ns"] = perf_counter_ns() - started
-        return result, profile
-
-    def _write_snapshot(
-        self,
-        snapshot: EnrollmentSnapshot,
-        *,
-        snapshot_id: int | None = None,
-        last_seen_at: str | None = None,
-        force_checkpoint: bool = False,
-        preserve_duplicate_import: bool = False,
-        profile: dict[str, Any] | None = None,
-        before_commit: Callable[[sqlite3.Connection, int], None] | None = None,
-        connection: sqlite3.Connection | None = None,
-    ) -> WriteResult:
-        phase_started = perf_counter_ns()
+    def write_snapshot(self, snapshot: EnrollmentSnapshot) -> WriteResult:
+        """Append one observation, or only advance last-seen when unchanged."""
         state_hash = canonical_state_hash(snapshot)
         current_courses = self._course_state(snapshot)
         current_sections = self._section_state(snapshot)
-        if profile is not None:
-            profile["phases_ns"]["canonicalize"] = perf_counter_ns() - phase_started
-        owns_connection = connection is None
-        course_identity_cache = self._course_ids if owns_connection else {}
-        section_identity_cache = self._section_ids if owns_connection else {}
-        connection_context = (
-            self.connection() if owns_connection else nullcontext(connection)
-        )
-        with connection_context as connection:
-            if connection is None:
-                raise sqlite3.Error("checkpointed-state connection is unavailable")
+        with self.connection() as connection:
             try:
-                if owns_connection:
-                    connection.execute("BEGIN IMMEDIATE")
-                phase_started = perf_counter_ns()
+                connection.execute("BEGIN IMMEDIATE")
                 latest = connection.execute(
                     """
                     SELECT snapshot_id, state_hash, semester, overall_fill
@@ -661,23 +428,17 @@ class CheckpointedStateStore:
                     and old_courses == current_courses
                     and old_section_identities == current_section_identities
                 )
-                if (
-                    latest is not None
-                    and (
-                        bytes(latest["state_hash"]) == state_hash
-                        or semantically_identical
-                    )
-                    and not preserve_duplicate_import
+                if latest is not None and (
+                    bytes(latest["state_hash"]) == state_hash or semantically_identical
                 ):
                     connection.execute(
                         """
                         UPDATE state_snapshot SET last_seen_at = ?
                         WHERE snapshot_id = ?
                         """,
-                        (last_seen_at or snapshot.timestamp, latest["snapshot_id"]),
+                        (snapshot.timestamp, latest["snapshot_id"]),
                     )
-                    if owns_connection:
-                        connection.commit()
+                    connection.commit()
                     return WriteResult(
                         snapshot_id=int(latest["snapshot_id"]),
                         created=False,
@@ -691,50 +452,25 @@ class CheckpointedStateStore:
                         "SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM state_snapshot"
                     ).fetchone()[0]
                 )
-                if profile is not None:
-                    profile["phases_ns"]["load_current"] = (
-                        perf_counter_ns() - phase_started
-                    )
-                phase_started = perf_counter_ns()
-                if snapshot_id is None:
-                    cursor = connection.execute(
-                        """
-                        INSERT INTO state_snapshot(
-                            sequence_no, observed_at, last_seen_at, semester,
-                            overall_fill, state_hash
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            sequence_no,
-                            snapshot.timestamp,
-                            last_seen_at or snapshot.timestamp,
-                            snapshot.semester,
-                            snapshot.overall_fill,
-                            state_hash,
-                        ),
-                    )
-                    if cursor.lastrowid is None:
-                        raise sqlite3.Error("snapshot insert returned no ID")
-                    new_snapshot_id = int(cursor.lastrowid)
-                else:
-                    connection.execute(
-                        """
-                        INSERT INTO state_snapshot(
-                            snapshot_id, sequence_no, observed_at, last_seen_at,
-                            semester, overall_fill, state_hash
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            snapshot_id,
-                            sequence_no,
-                            snapshot.timestamp,
-                            last_seen_at or snapshot.timestamp,
-                            snapshot.semester,
-                            snapshot.overall_fill,
-                            state_hash,
-                        ),
-                    )
-                    new_snapshot_id = snapshot_id
+                cursor = connection.execute(
+                    """
+                    INSERT INTO state_snapshot(
+                        sequence_no, observed_at, last_seen_at, semester,
+                        overall_fill, state_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sequence_no,
+                        snapshot.timestamp,
+                        snapshot.timestamp,
+                        snapshot.semester,
+                        snapshot.overall_fill,
+                        state_hash,
+                    ),
+                )
+                if cursor.lastrowid is None:
+                    raise sqlite3.Error("snapshot insert returned no ID")
+                new_snapshot_id = int(cursor.lastrowid)
 
                 course_changes = [
                     (code, old_courses.get(code), current_courses.get(code))
@@ -752,7 +488,6 @@ class CheckpointedStateStore:
                     course_ids[code] = self._ensure_course(
                         connection,
                         code,
-                        identity_cache=course_identity_cache,
                     )
                 section_ids: dict[tuple[str, str], int] = {}
                 for (code, section_code), _, _ in section_changes:
@@ -761,7 +496,6 @@ class CheckpointedStateStore:
                         self._ensure_course(
                             connection,
                             code,
-                            identity_cache=course_identity_cache,
                         ),
                     )
                     section_ids[(code, section_code)] = self._ensure_section(
@@ -769,8 +503,6 @@ class CheckpointedStateStore:
                         code,
                         section_code,
                         course_id=course_id,
-                        course_identity_cache=course_identity_cache,
-                        section_identity_cache=section_identity_cache,
                     )
 
                 course_event_count = 0
@@ -827,12 +559,6 @@ class CheckpointedStateStore:
                         ),
                     )
                     section_event_count += 1
-
-                if profile is not None:
-                    profile["phases_ns"]["append_events"] = (
-                        perf_counter_ns() - phase_started
-                    )
-                phase_started = perf_counter_ns()
                 course_latest_mutations = 0
                 for code, old, new in course_changes:
                     course_id = course_ids[code]
@@ -881,36 +607,15 @@ class CheckpointedStateStore:
                             (section_id, new_snapshot_id, *new),
                         )
                     section_latest_mutations += 1
-
-                if profile is not None:
-                    profile["phases_ns"]["replace_latest"] = (
-                        perf_counter_ns() - phase_started
-                    )
-                    profile["latest_projection_mutations"] = {
-                        "courses": course_latest_mutations,
-                        "sections": section_latest_mutations,
-                    }
-                phase_started = perf_counter_ns()
-                should_checkpoint = force_checkpoint or self._checkpoint_due(
-                    connection, new_snapshot_id
-                )
+                should_checkpoint = self._checkpoint_due(connection, new_snapshot_id)
                 if should_checkpoint:
                     self._create_checkpoint(connection, new_snapshot_id)
-                if before_commit is not None:
-                    before_commit(connection, new_snapshot_id)
-                if profile is not None:
-                    profile["phases_ns"]["checkpoint"] = (
-                        perf_counter_ns() - phase_started
-                    )
-                phase_started = perf_counter_ns()
-                if owns_connection:
-                    connection.commit()
-                if profile is not None:
-                    profile["phases_ns"]["commit"] = perf_counter_ns() - phase_started
+                connection.commit()
             except Exception:
-                if owns_connection:
-                    connection.rollback()
-                self.invalidate_runtime_caches()
+                connection.rollback()
+                self._course_ids.clear()
+                self._section_ids.clear()
+                self._latest_state_cache = None
                 raise
 
         result = WriteResult(
@@ -920,8 +625,12 @@ class CheckpointedStateStore:
             section_events=section_event_count,
             checkpoint_created=should_checkpoint,
         )
-        if owns_connection:
-            self.accept_committed_snapshot(snapshot, result)
+        self._latest_state_cache = (
+            new_snapshot_id,
+            state_hash,
+            current_courses,
+            current_sections,
+        )
         return result
 
     @staticmethod
@@ -1007,18 +716,6 @@ class CheckpointedStateStore:
             (checkpoint_id,),
         )
 
-    def force_checkpoint(self, snapshot_id: int) -> None:
-        with self.connection() as connection:
-            with connection:
-                latest = self.get_latest_snapshot_id(connection=connection)
-                if latest != snapshot_id:
-                    snapshot = self.reconstruct_snapshot(snapshot_id)
-                    raise ValueError(
-                        "forced prototype checkpoints are only supported for "
-                        f"latest state; latest={latest}, requested={snapshot.timestamp}"
-                    )
-                self._create_checkpoint(connection, snapshot_id)
-
     def get_latest_snapshot_id(
         self, *, connection: sqlite3.Connection | None = None
     ) -> int | None:
@@ -1092,33 +789,8 @@ class CheckpointedStateStore:
     def reconstruct_snapshot(self, snapshot_id: int) -> EnrollmentSnapshot:
         return self._reconstruct_snapshot(snapshot_id)
 
-    def profile_reconstruct_snapshot(
-        self, snapshot_id: int
-    ) -> tuple[EnrollmentSnapshot, dict[str, Any]]:
-        """Reconstruct one state with phase timings and SQLite query plans."""
-        profile: dict[str, Any] = {
-            "phases_ns": {
-                phase: 0
-                for phase in (
-                    "metadata",
-                    "checkpoint",
-                    "course_events",
-                    "section_events",
-                    "build_snapshot",
-                )
-            },
-            "query_plans": self.reconstruction_query_plans(snapshot_id),
-        }
-        started = perf_counter_ns()
-        snapshot = self._reconstruct_snapshot(snapshot_id, profile=profile)
-        profile["total_ns"] = perf_counter_ns() - started
-        return snapshot, profile
-
-    def _reconstruct_snapshot(
-        self, snapshot_id: int, *, profile: dict[str, Any] | None = None
-    ) -> EnrollmentSnapshot:
+    def _reconstruct_snapshot(self, snapshot_id: int) -> EnrollmentSnapshot:
         with self.connection() as connection:
-            phase_started = perf_counter_ns()
             metadata = connection.execute(
                 """
                 SELECT sequence_no, observed_at, semester, overall_fill
@@ -1128,16 +800,10 @@ class CheckpointedStateStore:
             ).fetchone()
             if metadata is None:
                 raise KeyError(snapshot_id)
-            if profile is not None:
-                profile["phases_ns"]["metadata"] = perf_counter_ns() - phase_started
-            phase_started = perf_counter_ns()
             checkpoint_sequence_no, courses, sections = self._checkpoint_state(
                 connection, snapshot_id
             )
             target_sequence_no = int(metadata["sequence_no"])
-            if profile is not None:
-                profile["phases_ns"]["checkpoint"] = perf_counter_ns() - phase_started
-            phase_started = perf_counter_ns()
             for row in connection.execute(
                 """
                 SELECT e.event_kind, c.course_code, e.new_title, e.new_department
@@ -1157,11 +823,6 @@ class CheckpointedStateStore:
                         row["new_title"] or "",
                         row["new_department"],
                     )
-            if profile is not None:
-                profile["phases_ns"]["course_events"] = (
-                    perf_counter_ns() - phase_started
-                )
-            phase_started = perf_counter_ns()
             for row in connection.execute(
                 """
                 SELECT e.event_kind, c.course_code, s.section_code,
@@ -1186,115 +847,8 @@ class CheckpointedStateStore:
                         row["new_capacity_count"],
                         row["new_instructor"],
                     )
-
-            if profile is not None:
-                profile["phases_ns"]["section_events"] = (
-                    perf_counter_ns() - phase_started
-                )
-
-        phase_started = perf_counter_ns()
         snapshot = self._build_snapshot(metadata, courses, sections)
-        if profile is not None:
-            profile["phases_ns"]["build_snapshot"] = perf_counter_ns() - phase_started
         return snapshot
-
-    def reconstruction_query_plans(self, snapshot_id: int) -> dict[str, list[str]]:
-        """Return the planner details for every point-reconstruction query."""
-        queries: dict[str, tuple[str, tuple[Any, ...]]] = {
-            "metadata": (
-                """
-                SELECT observed_at, semester, overall_fill
-                FROM state_snapshot WHERE snapshot_id = ?
-                """,
-                (snapshot_id,),
-            ),
-            "checkpoint": (
-                """
-                SELECT c.checkpoint_id, c.snapshot_id
-                FROM state_checkpoint c
-                JOIN state_snapshot s ON s.snapshot_id = c.snapshot_id
-                WHERE s.sequence_no <= (
-                    SELECT sequence_no FROM state_snapshot WHERE snapshot_id = ?
-                )
-                ORDER BY s.sequence_no DESC LIMIT 1
-                """,
-                (snapshot_id,),
-            ),
-            "course_events": (
-                """
-                SELECT e.event_kind, c.course_code, e.new_title, e.new_department
-                FROM course_change_event e
-                JOIN state_snapshot ss ON ss.snapshot_id = e.snapshot_id
-                JOIN course_catalog c ON c.course_id = e.course_id
-                WHERE ss.sequence_no > ? AND ss.sequence_no <= (
-                    SELECT sequence_no FROM state_snapshot WHERE snapshot_id = ?
-                )
-                ORDER BY ss.sequence_no, e.event_id
-                """,
-                (0, snapshot_id),
-            ),
-            "section_events": (
-                """
-                SELECT e.event_kind, c.course_code, s.section_code,
-                       e.new_section_type, e.new_enrollment_count,
-                       e.new_capacity_count, e.new_instructor
-                FROM section_change_event e
-                JOIN state_snapshot ss ON ss.snapshot_id = e.snapshot_id
-                JOIN section_catalog s ON s.section_id = e.section_id
-                JOIN course_catalog c ON c.course_id = s.course_id
-                WHERE ss.sequence_no > ? AND ss.sequence_no <= (
-                    SELECT sequence_no FROM state_snapshot WHERE snapshot_id = ?
-                )
-                ORDER BY ss.sequence_no, e.event_id
-                """,
-                (0, snapshot_id),
-            ),
-        }
-        with self.connection() as connection:
-            checkpoint = connection.execute(
-                """
-                SELECT c.checkpoint_id
-                FROM state_checkpoint c
-                JOIN state_snapshot s ON s.snapshot_id = c.snapshot_id
-                WHERE s.sequence_no <= (
-                    SELECT sequence_no FROM state_snapshot WHERE snapshot_id = ?
-                )
-                ORDER BY s.sequence_no DESC LIMIT 1
-                """,
-                (snapshot_id,),
-            ).fetchone()
-            if checkpoint is None:
-                raise ValueError(f"no checkpoint precedes snapshot {snapshot_id}")
-            checkpoint_id = int(checkpoint[0])
-            queries["course_checkpoint"] = (
-                """
-                SELECT c.course_code, s.title, s.department
-                FROM course_checkpoint_state s
-                JOIN course_catalog c ON c.course_id = s.course_id
-                WHERE s.checkpoint_id = ?
-                """,
-                (checkpoint_id,),
-            )
-            queries["section_checkpoint"] = (
-                """
-                SELECT c.course_code, sc.section_code, s.section_type,
-                       s.enrollment_count, s.capacity_count, s.instructor
-                FROM section_checkpoint_state s
-                JOIN section_catalog sc ON sc.section_id = s.section_id
-                JOIN course_catalog c ON c.course_id = sc.course_id
-                WHERE s.checkpoint_id = ?
-                """,
-                (checkpoint_id,),
-            )
-            return {
-                label: [
-                    str(row["detail"])
-                    for row in connection.execute(
-                        f"EXPLAIN QUERY PLAN {query}", parameters
-                    )
-                ]
-                for label, (query, parameters) in queries.items()
-            }
 
     def get_snapshot_data(self, snapshot_id: int) -> EnrollmentSnapshot | None:
         """Compatibility adapter for current reporting/database callers."""
@@ -1449,25 +1003,6 @@ class CheckpointedStateStore:
                     )
             yield snapshot_id, self._build_snapshot(metadata, courses, sections)
 
-    def max_replay_distance(self) -> int:
-        with self.connection() as connection:
-            row = connection.execute(
-                """
-                SELECT max(
-                    (SELECT count(*) FROM state_snapshot s2
-                     WHERE s2.sequence_no > (
-                         SELECT max(cs.sequence_no)
-                         FROM state_checkpoint c
-                         JOIN state_snapshot cs ON cs.snapshot_id = c.snapshot_id
-                         WHERE cs.sequence_no <= s.sequence_no
-                     )
-                     AND s2.sequence_no <= s.sequence_no)
-                )
-                FROM state_snapshot s
-                """
-            ).fetchone()
-            return int(row[0] or 0)
-
     def get_course_history(
         self, course_code: str, semester: str | None = None
     ) -> list[dict[str, Any]]:
@@ -1538,19 +1073,6 @@ class CheckpointedStateStore:
                 )
         return history
 
-    def copy_reporting_log(self, rows: list[tuple[int, int, str, int, str]]) -> None:
-        with self.connection() as connection:
-            with connection:
-                connection.executemany(
-                    """
-                    INSERT INTO reporting_log_v2(
-                        report_id, reported_snapshot_id, report_timestamp,
-                        changes_found, created_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    rows,
-                )
-
     def get_last_reported_snapshot_id(self) -> int | None:
         with self.connection() as connection:
             row = connection.execute(
@@ -1594,15 +1116,4 @@ class CheckpointedStateStore:
                     connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
                 )
                 for label, table in tables.items()
-            }
-
-    def integrity(self) -> dict[str, Any]:
-        with self.connection() as connection:
-            return {
-                "integrity_check": connection.execute(
-                    "PRAGMA integrity_check"
-                ).fetchone()[0],
-                "foreign_key_violations": len(
-                    connection.execute("PRAGMA foreign_key_check").fetchall()
-                ),
             }

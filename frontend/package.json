@@ -1,0 +1,36 @@
+{
+    "name": "registrar-monitor-website",
+    "private": true,
+    "description": "Dashboard source for Registrar Monitor (deployed as Worker static assets)",
+    "engines": {
+        "node": ">=24.18.0 <25",
+        "npm": ">=11 <12"
+    },
+    "scripts": {
+        "dev": "vite",
+        "test": "npm run test:unit",
+        "test:unit": "node --test test/*.test.mjs",
+        "test:e2e": "playwright test",
+        "lint": "eslint .",
+        "typecheck": "tsc --noEmit",
+        "build": "vite build"
+    },
+    "dependencies": {
+        "chart.js": "^4.6.1",
+        "chartjs-plugin-annotation": "^3.0.1",
+        "chartjs-plugin-zoom": "^2.2.0"
+    },
+    "overrides": {
+        "sharp": "0.35.5",
+        "minimatch": "11.0.4"
+    },
+    "devDependencies": {
+        "@eslint/js": "10.0.1",
+        "@playwright/test": "1.64.1",
+        "eslint": "10.14.0",
+        "globals": "17.14.0",
+        "typescript": "5.9.3",
+        "vite": "8.3.5",
+        "wrangler": "4.156.2"
+    }
+}

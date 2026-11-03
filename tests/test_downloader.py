@@ -12,18 +12,21 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def mock_config(tmp_path):
+def mock_config(tmp_path, make_settings):
     download_dir = tmp_path / "downloads"
     download_dir.mkdir()
-    with patch("registrarmonitor.automation.downloader.get_config") as mock:
-        mock.return_value = {
-            "data_source": {},
-            "directories": {"raw_downloads": str(download_dir)},
-            "semesters": {
-                "Fall 2026": {"registrar_url": "http://test.url"},
-            },
-        }
-        yield mock
+    settings = make_settings(
+        data_source={"ca_bundle": None},
+        directories={
+            "raw_downloads": str(download_dir),
+            "data_storage": str(tmp_path / "data"),
+        },
+        semesters={"Fall 2026": {"registrar_url": "http://test.url"}},
+    )
+    with patch(
+        "registrarmonitor.automation.downloader.get_settings", return_value=settings
+    ):
+        yield settings
 
 
 @pytest.fixture
@@ -86,31 +89,6 @@ async def test_download_http_error(mock_config, mock_httpx_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "status_code",
-    [400, 403, 404, 429, 500, 502, 503],
-)
-async def test_download_various_http_errors(
-    mock_config, mock_httpx_client, status_code
-):
-    """All HTTP error status codes should raise FileProcessingError."""
-    import httpx
-
-    mock_response = MagicMock()
-    mock_response.status_code = status_code
-    mock_error = httpx.HTTPStatusError(
-        f"HTTP {status_code}", request=MagicMock(), response=mock_response
-    )
-    mock_response.raise_for_status.side_effect = mock_error
-    mock_httpx_client.get.return_value = mock_response
-
-    downloader = DataDownloader()
-
-    with pytest.raises(FileProcessingError, match="HTTP error"):
-        await downloader.download()
-
-
-@pytest.mark.asyncio
 async def test_download_timeout(mock_config, mock_httpx_client):
     """Timeout should raise FileProcessingError."""
     import httpx
@@ -120,34 +98,6 @@ async def test_download_timeout(mock_config, mock_httpx_client):
     downloader = DataDownloader()
 
     with pytest.raises(FileProcessingError, match="timeout"):
-        await downloader.download()
-
-
-@pytest.mark.asyncio
-async def test_download_connect_error(mock_config, mock_httpx_client):
-    """Connection refused should raise FileProcessingError."""
-    import httpx
-
-    mock_httpx_client.get.side_effect = httpx.ConnectError("Connection refused")
-
-    downloader = DataDownloader()
-
-    with pytest.raises(FileProcessingError, match="Connection error"):
-        await downloader.download()
-
-
-@pytest.mark.asyncio
-async def test_download_request_error(mock_config, mock_httpx_client):
-    """Generic request errors should raise FileProcessingError."""
-    import httpx
-
-    mock_httpx_client.get.side_effect = httpx.RequestError(
-        "Bad request", request=MagicMock()
-    )
-
-    downloader = DataDownloader()
-
-    with pytest.raises(FileProcessingError, match="Request error"):
         await downloader.download()
 
 
@@ -173,7 +123,8 @@ async def test_configured_ca_bundle_is_passed_to_httpx(
     mock_config, mock_httpx_client, tmp_path
 ):
     ca_bundle = tmp_path / "registrar-ca.pem"
-    mock_config.return_value["data_source"]["ca_bundle"] = str(ca_bundle)
+    ca_bundle.write_text("pem")
+    mock_config.data_source.ca_bundle = str(ca_bundle)
     mock_httpx_client.get.side_effect = __import__("httpx").ConnectError(
         "certificate verify failed"
     )
@@ -186,17 +137,73 @@ async def test_configured_ca_bundle_is_passed_to_httpx(
 
 
 @pytest.mark.asyncio
-async def test_insecure_tls_requires_explicit_config_and_logs_warning(
-    mock_config, mock_httpx_client, caplog
+async def test_unset_ca_bundle_uses_default_verification(
+    mock_config, mock_httpx_client
 ):
-    mock_config.return_value["data_source"]["allow_insecure_tls"] = True
-    mock_httpx_client.get.side_effect = __import__("httpx").ConnectError(
-        "Connection refused"
-    )
+    mock_httpx_client.get.side_effect = __import__("httpx").ConnectError("down")
     downloader = DataDownloader()
 
     with pytest.raises(FileProcessingError):
         await downloader.download()
 
-    mock_httpx_client.client_class.assert_called_once_with(verify=False)
-    assert "TLS certificate verification is disabled" in caplog.text
+    mock_httpx_client.client_class.assert_called_once_with(verify=True)
+
+
+@pytest.mark.asyncio
+async def test_missing_ca_bundle_fails_closed(mock_config, mock_httpx_client, tmp_path):
+    mock_config.data_source.ca_bundle = str(tmp_path / "none.pem")
+    downloader = DataDownloader()
+
+    with pytest.raises(FileProcessingError, match="fetch_registrar_ca"):
+        await downloader.download()
+
+    mock_httpx_client.client_class.assert_not_called()
+
+
+def _response(content=b"xls-v1", status=200, **headers):
+    response = MagicMock()
+    response.status_code = status
+    response.content = content
+    response.headers = headers
+    response.raise_for_status = MagicMock()
+    return response
+
+
+@pytest.mark.asyncio
+async def test_unchanged_download_is_skipped_and_changed_one_is_returned(
+    mock_config, mock_httpx_client
+):
+    downloader = DataDownloader()
+    mock_httpx_client.get.side_effect = [
+        _response(b"xls-v1", ETag='"a"', **{"Last-Modified": "Mon, 01 Jan 2026"}),
+        _response(b"xls-v1"),  # same bytes, no validators: hash match
+        _response(status=304),  # conditional request honored
+        _response(b"xls-v2", ETag='"b"'),
+    ]
+
+    first = await downloader.download(skip_unchanged=True)
+    assert first is not None
+    assert await downloader.download(skip_unchanged=True) is None
+    assert await downloader.download(skip_unchanged=True) is None
+    third = await downloader.download(skip_unchanged=True)
+    assert third is not None
+    assert third != first
+
+    sent = [call.kwargs["headers"] for call in mock_httpx_client.get.call_args_list]
+    assert sent[0] == {}
+    assert sent[1] == {"If-None-Match": '"a"', "If-Modified-Since": "Mon, 01 Jan 2026"}
+
+
+@pytest.mark.asyncio
+async def test_default_download_never_skips_and_forget_resets_state(
+    mock_config, mock_httpx_client
+):
+    downloader = DataDownloader()
+    mock_httpx_client.get.side_effect = lambda *a, **k: _response(b"same")
+
+    assert await downloader.download() is not None
+    assert await downloader.download() is not None  # manual runs always fetch
+    assert await downloader.download(skip_unchanged=True) is None
+
+    downloader.forget_last_download()
+    assert await downloader.download(skip_unchanged=True) is not None

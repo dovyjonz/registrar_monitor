@@ -1,4 +1,4 @@
-import datetime
+import datetime as dt
 import os
 import re
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -24,7 +24,7 @@ class ExcelReader:
         parsed = False
         try:
             # Try to parse with specific format first
-            datetime_obj = datetime.datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
+            datetime_obj = dt.datetime.strptime(timestamp, "%m/%d/%Y %I:%M:%S %p")
             ieee_timestamp = datetime_obj.strftime("%Y-%m-%d %H:%M:%S")
             parsed = True
         except ValueError:
@@ -39,7 +39,7 @@ class ExcelReader:
                 "%m/%d/%Y %H:%M",
             ]:
                 try:
-                    datetime_obj = datetime.datetime.strptime(timestamp, fmt)
+                    datetime_obj = dt.datetime.strptime(timestamp, fmt)
                     ieee_timestamp = datetime_obj.strftime("%Y-%m-%d %H:%M:%S")
                     parsed = True
                     break
@@ -149,8 +149,8 @@ class ExcelReader:
         """
         try:
             mtime = os.path.getmtime(file_path)
-            dt_object = datetime.datetime.fromtimestamp(mtime)
+            dt_object = dt.datetime.fromtimestamp(mtime)
             return dt_object.strftime("%Y-%m-%d %H:%M:%S")
         except FileNotFoundError:
             # Fallback to current time if file not found, though unlikely
-            return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
