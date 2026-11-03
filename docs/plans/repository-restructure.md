@@ -117,12 +117,16 @@ more than the preview route.
 worker-check`; `monitor deploy --deploy --force` (first deploy creates the
 `registrar-monitor` Worker); verify the live shell, a course page, and a
 `/preview/*` image. Existing Telegram posts and shared links point at the old public
-site, `https://registrar-monitor.pages.dev`. Keep `website.base_url` at
-`https://registrar-monitor.spooktaken.workers.dev`, and keep the Pages project as a
+site, `https://registrar-monitor.pages.dev`. Keep the Pages project as a
 redirect-only deployment instead of deleting it: a directory containing just
 `_redirects` with `/* https://registrar-monitor.spooktaken.workers.dev/:splat 301`,
 deployed once with `npx wrangler pages deploy <dir> --project-name registrar-monitor`.
-Alternatively, set a custom domain and update `base_url`.
+`website.base_url` stays at the `workers.dev` URL until the custom domain exists.
+Custom domain (planned): buy it in Cloudflare Registrar; add
+`"routes": [{ "pattern": "<domain>", "custom_domain": true }]` to
+`workers/site/wrangler.jsonc`; set `website.base_url = "https://<domain>"`; deploy;
+then redeploy the Pages redirect with `/* https://<domain>/:splat 301`. Do not add
+the routes entry before the domain exists.
 
 **Invariant:** VM SQLite stays the source of truth; the deployed site is a
 rebuildable copy. The Worker is a runtime dependency of the dashboard.

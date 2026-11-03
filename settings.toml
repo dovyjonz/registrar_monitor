@@ -27,6 +27,7 @@ update_interval = 30
 generation_timeout_seconds = 3600
 # Public origin of the site Worker (workers/site), used for canonical links, Open
 # Graph tags, and preview image URLs.
+# Switches to the custom domain once it is bought and routed (see docs/operations.md).
 base_url = "https://registrar-monitor.spooktaken.workers.dev"
 # Cloudflare Web Analytics site token (cookieless beacon); leave empty to disable.
 web_analytics_token = ""

@@ -194,6 +194,15 @@ URL from a live course page; a 200 course page or preview JSON does not exercise
 Worker. Re-send the course URL afterwards so Telegram refetches the image. Roll back
 with `wrangler rollback`.
 
+Old links point at `https://registrar-monitor.pages.dev`. Keep that Pages project as a
+redirect-only deployment (a directory with just `_redirects` containing
+`/* https://registrar-monitor.spooktaken.workers.dev/:splat 301`, deployed once with
+`npx wrangler pages deploy <dir> --project-name registrar-monitor`) rather than
+deleting it. Custom domain: buy it in Cloudflare Registrar, add
+`"routes": [{ "pattern": "<domain>", "custom_domain": true }]` to
+`workers/site/wrangler.jsonc`, set `website.base_url = "https://<domain>"`, deploy,
+and point the Pages redirect at `https://<domain>/:splat`.
+
 ## Telegram
 
 The channel report and the subscription bot share `TELEGRAM_BOT_TOKEN`; the bot never
