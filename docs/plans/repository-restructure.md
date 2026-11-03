@@ -91,45 +91,19 @@ landing with `make check` green.
 
 ---
 
-### Stage 1 — Delete dead files and code
+### Stage 1 — Delete dead files and code (code landed; production steps remain)
 
-**Untracked local debris** (confirm `.gitignore` covers each kind):
-root `monitor.log`, `scheduler_decisions*.log`; `htmlcov/`, `.coverage`,
-`.pytest_cache/`, `.ruff_cache/`; `.uv-cache/`, `.uv_cache/`;
-`.playwright-cli/`, `.playwright-mcp/`, `.wrangler/`; all `.DS_Store`;
-`output/`; `.claude/settings.local.json` (stale allow-list for an old path).
+Code, docs, scripts, migration machinery, and the prototype dashboard are gone.
+What remains needs the VM or a decision:
 
-**Tracked files:**
-
-| Path | Reason |
-|---|---|
-| `raw/`, `wiki/`, `.wiki/`, `opencode.json` | Unused LLM-wiki scaffold and default editor config |
-| `scripts/checkpointed_state_prototype.py`, `scripts/evaluate_checkpointed_state.py`, `prototype-checkpointed-state*` Make targets | Evaluation finished |
-| `scripts/{reorder_snapshots,populate_instructors,manage_database,benchmark_downloader,build_registrar_archive}.py` | Unreferenced one-off repairs |
-| `docs/operations/checkpointed-state-*.md`, `docs/agents/stabilization-release-verification-2026-08-20.md`, `docs/operations/registrar-xls-db-catalog-2026-07-29.md` | Completed rollout evidence and dated inventory |
-| `docs/plans/publication-catalog-and-course-previews.md`, `docs/plans/simplified-telegram-watch-experience.md` | Implemented or superseded; fold any still-true contract into the docs from Stage 3 |
-| Unconfigured databases | Decision 1 |
-
-**Migration-era code:**
-
-1. Remove `data/migration.py`, `data/migration_rehearsal.py`, and CLI commands
-   `migrate`, `finalize-storage`, `rehearse-migration`.
-2. Remove `[storage]` from `settings.toml` and mode validation from
-   `DatabaseManager`; new semesters still initialize v2 directly.
-3. Strip shadow, dual-write, and legacy comparison paths from
-   `checkpointed_state.py` and `database_manager.py`.
-4. Update `runtime_doctor.sh` expectations.
-
-**Prototype dashboard:** delete `assets/website/src/prototype.{js,css}`,
-`templates/prototype.html.jinja`, `WebsiteService.generate_prototype`, the
-`deploy --prototype` flag, and the Vite `prototype` entry.
-
-Delete the tests of everything removed here.
-
-**Done when** `git status --ignored` shows only `.venv`, `node_modules`,
-`data/`, `logs/`, and `.env`; no source file mentions `legacy`, `shadow`,
-`dual_write`, `metadata_mode`, or `prototype`; the doctor passes against all
-live databases; `make check` passes.
+- Archive and delete the unconfigured databases (Decision 1) and `output/`
+  (Decision 4). The code now rejects any non-v2 database file it opens.
+- Run the doctor against every live database after deploying.
+- `scripts/manage_database.py` was kept: it is the documented online-backup
+  tool (`DATABASE.md`, `tests/test_database_backup.py`). Fold it into Stage 5
+  backups or keep it.
+- Finalized databases still carry an unused `storage_control` table; drop it
+  or leave it.
 
 ### Stage 2 — Cut testing, CI, and process
 

@@ -231,9 +231,10 @@ class TestCheckAndTriggerUpdates:
             patch.object(
                 sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)
             ) as mock_poll,
-            patch(
-                "registrarmonitor.services.reporting_service.ReportingService.run_stateful_report_cycle",
-                new=AsyncMock(),
+            patch.object(
+                sched,
+                "reporting_service",
+                new=MagicMock(run_stateful_report_cycle=AsyncMock(return_value=False)),
             ),
         ):
             await sched._run_report_cycle(force_poll=False)
@@ -253,9 +254,10 @@ class TestCheckAndTriggerUpdates:
             patch.object(
                 sched, "_single_poll_and_process", new=AsyncMock(return_value=99.0)
             ) as mock_poll,
-            patch(
-                "registrarmonitor.services.reporting_service.ReportingService.run_stateful_report_cycle",
-                new=AsyncMock(),
+            patch.object(
+                sched,
+                "reporting_service",
+                new=MagicMock(run_stateful_report_cycle=AsyncMock(return_value=False)),
             ),
         ):
             await sched._run_report_cycle(force_poll=True)
