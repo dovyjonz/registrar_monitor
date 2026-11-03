@@ -234,7 +234,7 @@ formatter without writing state. Unset it and restart to remove the command.
 
 Litestream replicates every `data/enrollment_*.db` and `data/telegram_bot.db` to a
 private R2 bucket (`scripts/litestream.yml`; bucket, account, and keys come from
-`.env`, see `.env.example`) with 30-day retention and daily snapshots, which gives
+`.env`, see `.env.example`) with 30-day retention, daily snapshots, and a 5-minute sync interval, which gives
 point-in-time restore. Backups contain private bot state and never enter Git, CI
 artifacts, or public output. Alert on a stale replica from R2 or Litestream logs.
 

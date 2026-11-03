@@ -16,6 +16,10 @@ dbs:
       endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
       region: auto
       retention: 720h
+      # Ship WAL changes at most every 5 minutes: bounds R2 Class A writes to
+      # ~8.6k/month per database (free tier: 1M) and coalesces repeated page
+      # writes to keep VM egress inside the GCP free tier (1 GB/month).
+      sync-interval: 5m
       snapshot-interval: 24h
   # Bot state stays a separate database and a separate replica path.
   - path: data/telegram_bot.db
@@ -26,4 +30,8 @@ dbs:
       endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
       region: auto
       retention: 720h
+      # Ship WAL changes at most every 5 minutes: bounds R2 Class A writes to
+      # ~8.6k/month per database (free tier: 1M) and coalesces repeated page
+      # writes to keep VM egress inside the GCP free tier (1 GB/month).
+      sync-interval: 5m
       snapshot-interval: 24h
