@@ -13,12 +13,11 @@ def main() -> None:
     fixture_root = Path("output/generated-site-smoke").resolve()
     rmtree(fixture_root, ignore_errors=True)
     data_dir = fixture_root / "data"
-    report_dir = fixture_root / "reports"
     data_dir.mkdir(parents=True)
 
     config = get_config()
     config["directories"]["data_storage"] = str(data_dir)
-    seed_smoke_data(data_dir=data_dir, report_dir=report_dir)
+    seed_smoke_data(data_dir=data_dir)
 
     if not WebsiteService().generate(force=True):
         raise SystemExit("Failed to generate deterministic browser-test site")

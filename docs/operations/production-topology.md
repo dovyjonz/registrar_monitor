@@ -45,11 +45,8 @@ Playwright `1.63.0`, Vite `8.3.2`, ESLint `10.12.0`, and Wrangler `4.147.0`.
 | `registrarmonitor-network-watchdog.timer` | installed, enabled, active/waiting | checks metadata connectivity each minute and restarts `systemd-networkd` when connectivity is lost |
 | `registrar-monitor.service` | retired and absent | never revive |
 
-On 2026-08-30 the VM was synchronized to commit `dd4f0e76`, Fall 2026 was
-finalized with a verified rollback archive, and the current dashboard was
-uploaded to Cloudflare Pages. All six configured databases are v2-only in
-`finalized` mode with no legacy compatibility tables. Future semesters initialize
-directly in this mode without shadow or dual-write paths.
+All six configured semester databases use the v2 checkpointed schema, and future
+semesters initialize directly on it with `monitor db initialize`.
 
 Fall polling remains disabled after registration closed. The scheduler and its
 health monitor are loaded, disabled, and inactive. The private bot is

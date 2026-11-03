@@ -1,6 +1,6 @@
 ---
 name: registrar-monitor-storage
-description: Work on Registrar Monitor SQLite enrollment storage, snapshots, reporting logs, schema modes, migrations, reconstruction, retention, or database documentation.
+description: Work on Registrar Monitor SQLite enrollment storage, snapshots, reporting logs, the v2 schema, reconstruction, retention, or database documentation.
 ---
 
 # Registrar Monitor storage
@@ -14,8 +14,8 @@ Read `DATABASE.md`, `CONTEXT.md`, and the relevant ADR before editing.
 - Bot users and delivery state belong only in `data/telegram_bot.db`.
 - Use foreign keys and short transactions. Never hold a transaction across
   network or filesystem work.
-- Do not add legacy compatibility, JSON snapshots, or silent schema upgrades.
-- Migration and finalization are explicit commands and separate from runtime work.
+- Do not add compatibility layers, JSON snapshots, or silent schema upgrades.
+- New semesters are created only by `monitor db initialize`, never implicitly at runtime.
 
 ## Verification
 

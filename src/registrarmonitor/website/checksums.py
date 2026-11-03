@@ -21,16 +21,9 @@ def compute_semester_hash(
     This is fast and avoids loading all enrollment data.
     """
     db = database or DatabaseManager(semester=semester)
-    if db.storage_mode in {"v2", "finalized"}:
-        table = "state_snapshot"
-        timestamp_column = "observed_at"
-    else:
-        table = "snapshots"
-        timestamp_column = "timestamp"
-
     with db.get_connection() as conn:
         row = conn.execute(
-            f"SELECT count(*), max({timestamp_column}) FROM {table}"
+            "SELECT count(*), max(observed_at) FROM state_snapshot"
         ).fetchone()
         snapshot_count = row[0] if row else 0
         last_timestamp = row[1] if row else "none"

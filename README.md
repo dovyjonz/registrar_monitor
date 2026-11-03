@@ -28,7 +28,7 @@ bot; `TELEGRAM_CHAT_ID` is used only for the channel. Keep secrets out of
 `settings.toml`.
 
 Use `settings.toml` for semesters, registrar URLs, milestones, timezone, paths,
-notification limits, storage modes, and website settings.
+notification limits, and website settings.
 
 ## Commands
 
@@ -79,7 +79,7 @@ registrar XLS → parse → per-semester SQLite → compare snapshots
 src/registrarmonitor/
 ├── automation/       downloads and scheduling
 ├── cli/              command implementations
-├── data/             SQLite, migrations, parsing, and comparisons
+├── data/             SQLite, parsing, and comparisons
 ├── reporting/        text, Telegram channel, and PDF output
 ├── services/         workflow orchestration
 ├── subscriptions/    private Telegram bot and delivery state

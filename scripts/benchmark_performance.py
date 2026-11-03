@@ -26,7 +26,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from registrarmonitor.data.database_manager import DatabaseManager
-from registrarmonitor.models import EnrollmentSnapshot
+from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.services.website_service import WebsiteService
 from registrarmonitor.website.checksums import compute_semester_hash, load_checksums
 from registrarmonitor.website.config import semester_to_slug
@@ -160,27 +160,24 @@ def _benchmark_table_map(connection: sqlite3.Connection) -> dict[str, str]:
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         )
     }
-    if "state_snapshot" in tables:
-        required = {"course_catalog", "section_catalog", "section_change_event"}
-        missing = required - tables
-        if missing:
-            raise ValueError(
-                "checkpointed benchmark database is missing tables: "
-                + ", ".join(sorted(missing))
-            )
-        return {
-            "snapshots": "state_snapshot",
-            "courses": "course_catalog",
-            "sections": "section_catalog",
-            "enrollment_data": "section_change_event",
-        }
-    required = {"snapshots", "courses", "sections", "enrollment_data"}
+    required = {
+        "state_snapshot",
+        "course_catalog",
+        "section_catalog",
+        "section_change_event",
+    }
     missing = required - tables
     if missing:
         raise ValueError(
-            "benchmark database is missing tables: " + ", ".join(sorted(missing))
+            "checkpointed benchmark database is missing tables: "
+            + ", ".join(sorted(missing))
         )
-    return {table: table for table in sorted(required)}
+    return {
+        "snapshots": "state_snapshot",
+        "courses": "course_catalog",
+        "sections": "section_catalog",
+        "enrollment_data": "section_change_event",
+    }
 
 
 def database_metadata(path: Path) -> dict[str, Any]:
@@ -248,87 +245,50 @@ def create_synthetic_database(
         raise ValueError(
             "synthetic dimensions must be positive and sections >= courses"
         )
-    DatabaseManager(db_path=str(path), semester=semester)
+    manager = DatabaseManager(db_path=str(path), semester=semester)
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+    for snapshot_index in range(snapshots):
+        timestamp = (base + timedelta(minutes=5 * snapshot_index)).isoformat()
+        courses_by_code: dict[str, Course] = {}
+        for index in range(courses):
+            code = f"PERF {index + 100:03d}"
+            courses_by_code[code] = Course(
+                course_code=code,
+                department="PERF",
+                course_title=f"Synthetic course {index + 1}",
+            )
+        for section_index in range(sections):
+            course = courses_by_code[f"PERF {section_index % courses + 100:03d}"]
+            section_code = f"{section_index // courses + 1:03d}"
+            capacity = 20 + (section_index + seed) % 31
+            enrollment = min(
+                capacity,
+                (snapshot_index + section_index * 3 + seed) % (capacity + 1),
+            )
+            course.sections[section_code] = Section(
+                section_id=section_code,
+                section_type="Lecture" if section_index % 3 else "Lab",
+                enrollment=enrollment,
+                capacity=capacity,
+                fill=enrollment / capacity,
+                instructor=f"Synthetic Instructor {section_index % 17 + 1}",
+            )
+        for course in courses_by_code.values():
+            course.average_fill = sum(
+                section.fill for section in course.sections.values()
+            ) / len(course.sections)
+        manager.store_enrollment_snapshot(
+            EnrollmentSnapshot(
+                timestamp=timestamp,
+                semester=semester,
+                overall_fill=0.35 + ((snapshot_index + seed) % 60) / 100,
+                courses=courses_by_code,
+            )
+        )
     with _database_connection(path) as connection:
-        course_rows = [
-            (f"PERF {index + 100:03d}", f"Synthetic course {index + 1}", "PERF")
-            for index in range(courses)
-        ]
-        connection.executemany(
-            "INSERT INTO courses (course_code, course_title, department) VALUES (?, ?, ?)",
-            course_rows,
+        connection.execute(
+            "UPDATE state_snapshot SET created_at = ?", ("2026-07-29 00:00:00",)
         )
-        course_ids = [
-            row[0] for row in connection.execute("SELECT course_id FROM courses")
-        ]
-        section_rows = []
-        for index in range(sections):
-            course_id = course_ids[index % courses]
-            section_rows.append(
-                (
-                    course_id,
-                    f"{index // courses + 1:03d}",
-                    "Lecture" if index % 3 else "Lab",
-                    f"Synthetic Instructor {index % 17 + 1}",
-                )
-            )
-        connection.executemany(
-            "INSERT INTO sections "
-            "(course_id, section_code, section_type, instructor) VALUES (?, ?, ?, ?)",
-            section_rows,
-        )
-        section_ids = [
-            row[0] for row in connection.execute("SELECT section_id FROM sections")
-        ]
-        base = datetime(2026, 4, 1, tzinfo=UTC)
-        for snapshot_index in range(snapshots):
-            timestamp = (base + timedelta(minutes=5 * snapshot_index)).isoformat()
-            overall = 0.35 + ((snapshot_index + seed) % 60) / 100
-            cursor = connection.execute(
-                "INSERT INTO snapshots "
-                "(timestamp, last_seen_at, semester, overall_fill) VALUES (?, ?, ?, ?)",
-                (timestamp, timestamp, semester, overall),
-            )
-            if cursor.lastrowid is None:
-                raise sqlite3.Error("synthetic snapshot insert returned no row ID")
-            snapshot_id = cursor.lastrowid
-            rows = []
-            for section_index, section_id in enumerate(section_ids):
-                capacity = 20 + (section_index + seed) % 31
-                enrollment = min(
-                    capacity,
-                    (snapshot_index + section_index * 3 + seed) % (capacity + 1),
-                )
-                fill = enrollment / capacity
-                status = "FULL" if fill >= 1 else "NEAR" if fill >= 0.75 else "OPEN"
-                rows.append(
-                    (
-                        snapshot_id,
-                        section_id,
-                        status,
-                        enrollment,
-                        capacity,
-                        fill,
-                    )
-                )
-            connection.executemany(
-                "INSERT INTO enrollment_data "
-                "(snapshot_id, section_id, status, enrollment_count, "
-                "capacity_count, fill_percentage) VALUES (?, ?, ?, ?, ?, ?)",
-                rows,
-            )
-        connection.commit()
-        fixed_time = "2026-07-29 00:00:00"
-        for table in ("courses", "sections"):
-            connection.execute(
-                f"UPDATE {table} SET created_at = ?, updated_at = ?",
-                (fixed_time, fixed_time),
-            )
-        for table in ("snapshots", "enrollment_data"):
-            connection.execute(
-                f"UPDATE {table} SET created_at = ?",
-                (fixed_time,),
-            )
         connection.commit()
 
 

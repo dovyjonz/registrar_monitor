@@ -383,46 +383,6 @@ class TestDatabaseCommands:
 
         assert result is False
 
-    @pytest.mark.asyncio
-    async def test_cleanup_success(self):
-        from registrarmonitor.cli.commands import DatabaseCommands
-
-        with (
-            patch(
-                "registrarmonitor.cli.commands.detect_active_semester",
-                new_callable=AsyncMock,
-                return_value="Spring 2024",
-            ),
-            patch("registrarmonitor.cli.commands.MonitoringService") as ms_cls,
-        ):
-            ms_cls.return_value.cleanup_old_data.return_value = 5
-            cmd = DatabaseCommands()
-            result = await cmd.cleanup(keep_count=20)
-
-        assert result is True
-        ms_cls.return_value.cleanup_old_data.assert_called_once_with(20)
-
-    @pytest.mark.asyncio
-    async def test_dedupe_dry_run(self):
-        from registrarmonitor.cli.commands import DatabaseCommands
-
-        with (
-            patch(
-                "registrarmonitor.cli.commands.detect_active_semester",
-                new_callable=AsyncMock,
-                return_value="Spring 2024",
-            ),
-            patch("registrarmonitor.cli.commands.DatabaseManager") as db_cls,
-        ):
-            db_cls.return_value.dedupe_instructor_changes.return_value = 3
-            cmd = DatabaseCommands()
-            result = await cmd.dedupe_instructor_changes(dry_run=True)
-
-        assert result is True
-        db_cls.return_value.dedupe_instructor_changes.assert_called_once_with(
-            dry_run=True
-        )
-
 
 # ── StatusCommand tests ───────────────────────────────────────────
 

@@ -224,28 +224,6 @@ class TestHandleDbCommand:
         assert code == 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_success(self):
-        with patch("registrarmonitor.main.DatabaseCommands") as mock_cls:
-            mock_cls.return_value.cleanup = AsyncMock(return_value=True)
-            args = make_args("db", db_command="cleanup", keep=50)
-            code = await handle_db_command(args)
-
-        assert code == 0
-
-    @pytest.mark.asyncio
-    async def test_dedupe_success(self):
-        with patch("registrarmonitor.main.DatabaseCommands") as mock_cls:
-            mock_cls.return_value.dedupe_instructor_changes = AsyncMock(
-                return_value=True
-            )
-            args = make_args(
-                "db", db_command="dedupe-instructor-changes", dry_run=False
-            )
-            code = await handle_db_command(args)
-
-        assert code == 0
-
-    @pytest.mark.asyncio
     async def test_invalid_db_command_returns_one(self):
         args = make_args("db", db_command="invalid")
         code = await handle_db_command(args)

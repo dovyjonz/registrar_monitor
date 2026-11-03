@@ -17,7 +17,7 @@ years: Fall `YYYY`, Spring `YYYY`, then Summer `YYYY`.
 - Versioned manifests, blobs, preview JSON, preview images, and hashed assets are
   immutable and use long-lived caching.
 
-Only generated legacy `.html` routes receive exact redirects. Removed courses keep
+Only generated `.html` routes receive exact redirects. Removed courses keep
 their last clean route and modal state. Archived semester/course URLs, semester
 URLs, and canonical URLs remain clean. Live course browser/share/Open Graph URLs
 carry the current preview-state token as `?v=<token>`; closing a course restores the

@@ -2,8 +2,8 @@
 
 Status: proposed 2026-10-06. These targets were selected for the maintenance
 proposal; no production backup schedule or storage destination has been activated.
-Historical migration backups and verified rollback archives remain separate
-evidence and must not be deleted by routine retention.
+Verified rollback archives from past maintenance remain separate evidence and must
+not be deleted by routine retention.
 
 ## Proposed targets
 
@@ -31,7 +31,7 @@ documented in [DATABASE.md](../../DATABASE.md).
 Record completion time, source identity, destination identity, file size, SHA-256,
 and validation results without logging credentials or database contents. Upload
 only validated files. Delete expired routine backups only after a new backup has
-been verified off-host; retain migration rollback archives independently.
+been verified off-host; retain rollback archives independently.
 
 Alert the operator when the last successful backup is older than 24 hours or a
 validation/upload fails. Alert transport and its recipient require approval.

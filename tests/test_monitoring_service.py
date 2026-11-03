@@ -216,27 +216,6 @@ class TestGetSnapshotComparison:
         assert previous is None
 
 
-class TestCleanupOldData:
-    def test_delegates_to_db_manager(self, mock_deps):
-        mock_deps["db_manager"].cleanup_old_snapshots.return_value = 5
-
-        service = MonitoringService()
-        result = service.cleanup_old_data(keep_count=20)
-
-        assert result == 5
-        mock_deps["db_manager"].cleanup_old_snapshots.assert_called_once_with(20)
-
-    def test_returns_zero_on_exception(self, mock_deps):
-        mock_deps["db_manager"].cleanup_old_snapshots.side_effect = Exception(
-            "DB error"
-        )
-
-        service = MonitoringService()
-        result = service.cleanup_old_data()
-
-        assert result == 0
-
-
 class TestGetDatabaseStats:
     def test_returns_stats_dict(self, mock_deps):
         mock_deps["db_manager"].get_database_stats.return_value = {

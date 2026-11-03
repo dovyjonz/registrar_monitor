@@ -156,9 +156,6 @@ class EnrollmentPDF(FPDF):
         self.font_size_footer = pdf_settings.get("font_size_footer", 8)
         self.font_size_pattern = 2  # Small font for section patterns
 
-        # Department rows calculation method
-        self.use_legacy_dept_rows = pdf_settings.get("use_legacy_dept_rows", False)
-
         # Add JetBrains Mono font
         self.add_font(self.font_name, "", self.font_path, uni=True)
         self.add_page()
@@ -340,13 +337,9 @@ class PDFGenerator:
         usable_height = PAGE_HEIGHT - 2 * MARGIN - FOOTER_HEIGHT
         rows_per_column = int(usable_height / ROW_HEIGHT)
 
-        # Check if we should use legacy department rows calculation
-        pdf_settings = self.config.get("pdf_settings", {})
-        use_legacy_dept_rows = pdf_settings.get("use_legacy_dept_rows", False)
-
         # Distribute courses across columns
         columns_data, _ = self._distribute_courses_to_columns(
-            dept_groups, rows_per_column, use_legacy_dept_rows
+            dept_groups, rows_per_column
         )
 
         # Create the PDF layout
@@ -381,7 +374,6 @@ class PDFGenerator:
         self,
         dept_groups: list[list[Course]],
         rows_per_column: int,
-        use_legacy_dept_rows: bool = False,
     ) -> tuple[list[list[Course]], set[str]]:
         """Distribute course data across columns for display."""
         columns_data = []
@@ -390,15 +382,10 @@ class PDFGenerator:
         split_depts: set[str] = set()
 
         for dept_group in dept_groups:
-            if use_legacy_dept_rows:
-                # Legacy method: simple count + spacing
-                dept_rows = len(dept_group) + 0.5
-            else:
-                # New method: sophisticated calculation
-                # Create dummy items (course_code, None) to match calculate_effective_rows expected input
-                # which expects a list of tuples where first element has course code
-                dummy_items = [(c.course_code, None) for c in dept_group]
-                dept_rows = _calculate_effective_rows(dummy_items)
+            # Dummy items (course_code, None) match the tuple shape that
+            # _calculate_effective_rows expects.
+            dummy_items = [(c.course_code, None) for c in dept_group]
+            dept_rows = _calculate_effective_rows(dummy_items)
 
             remaining_space = rows_per_column - current_row_count
 

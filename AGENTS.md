@@ -51,7 +51,7 @@ This is a single-context repository with `CONTEXT.md` and root `docs/adr/`. See
 ## Boundaries
 
 - `automation/`: downloads and scheduling
-- `data/`: parsing, SQLite, migrations, and comparisons
+- `data/`: parsing, SQLite, and comparisons
 - `reporting/`: channel text, Telegram, and PDF output
 - `services/`: workflow orchestration
 - `subscriptions/`: private bot interactions and delivery state

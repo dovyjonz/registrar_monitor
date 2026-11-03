@@ -6,11 +6,11 @@ pytestmark = pytest.mark.unit
 
 
 from typing import Any, cast
-from unittest.mock import patch
 
+from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.website.data import (
     _add_course_average_history,
-    _build_course_events,
     _compact_average_history,
     _compact_histories_for_website,
     _compact_section_history,
@@ -18,7 +18,6 @@ from registrarmonitor.website.data import (
     _history_indices_for_website,
     _history_indices_in_milestone_window,
     _minify_keys,
-    build_prototype_payloads,
     get_semester_data,
 )
 
@@ -283,245 +282,34 @@ class TestCompactHistoriesForWebsite:
 
 
 class TestGetSemesterData:
-    def test_no_snapshots_returns_minimal_data(self):
-        with patch("registrarmonitor.website.data.DatabaseManager") as mock_db_cls:
-            mock_db = mock_db_cls.return_value
-            mock_conn = mock_db.get_connection.return_value.__enter__.return_value
-            mock_conn.execute.return_value.fetchall.return_value = []
+    def test_empty_database_returns_minimal_data(self, tmp_path):
+        db = DatabaseManager(db_path=str(tmp_path / "empty.db"), semester="Spring 2024")
 
-            result = get_semester_data("Spring 2024", minify=False)
+        result = get_semester_data("Spring 2024", minify=False, database=db)
 
         assert result["semester"] == "Spring 2024"
         assert result["snapshots"] == []
         assert result["courses"] == {}
 
-    def test_minify_produces_short_keys(self):
-        with patch("registrarmonitor.website.data.DatabaseManager") as mock_db_cls:
-            mock_db = mock_db_cls.return_value
-            mock_conn = mock_db.get_connection.return_value.__enter__.return_value
-            mock_conn.execute.return_value.fetchall.return_value = []
-
-            result = get_semester_data("Spring 2024", minify=True)
-
-        # Minified keys should not contain full words
-        keys = list(result.keys())
-        assert all(len(k) <= 2 for k in keys) or any(
-            k not in ("semester", "snapshots", "courses") for k in keys
+    def test_stored_snapshot_is_exposed_with_full_and_minified_keys(self, tmp_path):
+        db = DatabaseManager(db_path=str(tmp_path / "data.db"), semester="Spring 2024")
+        section = Section("10L", "L", 25, 30, 25 / 30, "Dr. Smith")
+        db.store_enrollment_snapshot(
+            EnrollmentSnapshot(
+                timestamp="2024-01-15 10:00:00",
+                semester="Spring 2024",
+                overall_fill=25 / 30,
+                courses={
+                    "CS 101": Course("CS 101", "CS", {"10L": section}, 25 / 30, "Intro")
+                },
+            )
         )
 
+        full = get_semester_data("Spring 2024", minify=False, database=db)
+        minified = get_semester_data("Spring 2024", minify=True, database=db)
 
-class TestBuildCourseEvents:
-    def test_returns_empty_with_single_snapshot(self):
-        with patch("registrarmonitor.website.data.DatabaseManager") as mock_db_cls:
-            mock_db = mock_db_cls.return_value
-            mock_conn = mock_db.get_connection.return_value.__enter__.return_value
-            mock_conn.execute.return_value.fetchall.return_value = [
-                (1, "2024-01-15 10:00:00")
-            ]
-
-            events = _build_course_events("Spring 2024", mock_db)
-
-        assert events == {}
-
-    def test_detects_course_added(self):
-        with patch("registrarmonitor.website.data.DatabaseManager"):
-            from unittest.mock import MagicMock as MM
-
-            db = MM(spec=["get_connection"])
-            conn = MM()
-            db.get_connection.return_value.__enter__.return_value = conn
-
-            # Use sequential returns via cursor attribute
-            cursor = MM()
-            conn.cursor.return_value = cursor
-            cursor.fetchall.side_effect = [
-                [(1, "2024-01-15 10:00:00"), (2, "2024-01-15 11:00:00")],  # snapshots
-                [
-                    (1, "CS 101", "10L", 25, 30),
-                    (2, "CS 101", "10L", 30, 30),
-                    (2, "MATH 201", "20L", 20, 20),
-                ],  # all snapshot state
-                [],  # instructor_changes
-            ]
-
-            events = _build_course_events("Spring 2024", db)
-
-            assert "MATH 201" in events
-            assert any(e["eventType"] == "course_added" for e in events["MATH 201"])
-
-    def test_detects_course_removed(self):
-        with patch("registrarmonitor.website.data.DatabaseManager"):
-            from unittest.mock import MagicMock as MM
-
-            db = MM(spec=["get_connection"])
-            conn = MM()
-            db.get_connection.return_value.__enter__.return_value = conn
-            cursor = MM()
-            conn.cursor.return_value = cursor
-            cursor.fetchall.side_effect = [
-                [(1, "2024-01-15 10:00:00"), (2, "2024-01-15 11:00:00")],  # snapshots
-                [
-                    (1, "CS 101", "10L", 25, 30),
-                    (1, "MATH 201", "20L", 20, 20),
-                    (2, "CS 101", "10L", 30, 30),
-                ],  # all snapshot state
-                [],  # instructor_changes
-            ]
-
-            events = _build_course_events("Spring 2024", db)
-
-            assert "MATH 201" in events
-            assert any(e["eventType"] == "course_removed" for e in events["MATH 201"])
-
-    def test_handles_instructor_changes_table_missing(self):
-        with patch("registrarmonitor.website.data.DatabaseManager"):
-            from sqlite3 import OperationalError
-            from unittest.mock import MagicMock as MM
-
-            db = MM(spec=["get_connection"])
-            conn = MM()
-            db.get_connection.return_value.__enter__.return_value = conn
-            cursor = MM()
-            conn.cursor.return_value = cursor
-
-            # First call returns snapshots; second call (instructor_changes) raises
-            cursor.fetchall.side_effect = [
-                [(1, "2024-01-15 10:00:00")],  # snapshots
-            ]
-
-            def execute_side_effect(sql, *args):
-                if "instructor_changes" in sql:
-                    raise OperationalError("no such table")
-                return cursor
-
-            cursor.execute.side_effect = execute_side_effect
-
-            events = _build_course_events("Spring 2024", db)
-            assert events == {}
-
-
-class TestBuildPrototypePayloads:
-    def test_builds_lightweight_index_and_lazy_detail_payloads(self):
-        data = {
-            "semester": "Summer 2026",
-            "lastReportTime": "2026-06-05T17:25:00",
-            "snapshots": [
-                {"id": 1, "timestamp": "2026-06-01T10:00:00", "overallFill": 0.2},
-                {"id": 2, "timestamp": "2026-06-02T10:00:00", "overallFill": 0.4},
-                {"id": 3, "timestamp": "2026-06-03T10:00:00", "overallFill": 0.6},
-            ],
-            "courses": {
-                "CSCI 210": {
-                    "department": "CSCI",
-                    "title": "Data Structures",
-                    "averageFill": 0.94,
-                    "isFilled": False,
-                    "averageHistory": [
-                        {"snapshotIdx": 0, "fill": 0.4},
-                        {"snapshotIdx": 2, "fill": 0.94},
-                    ],
-                    "sections": {
-                        "001": {
-                            "type": "L",
-                            "instructor": "Ada Lovelace",
-                            "currentEnrollment": 94,
-                            "currentCapacity": 100,
-                            "currentFill": 0.94,
-                            "sectionId": 10,
-                            "history": [
-                                {
-                                    "snapshotIdx": 0,
-                                    "fill": 0.4,
-                                    "enrollment": 40,
-                                    "capacity": 100,
-                                },
-                                {
-                                    "snapshotIdx": 2,
-                                    "fill": 0.94,
-                                    "enrollment": 94,
-                                    "capacity": 100,
-                                },
-                            ],
-                        }
-                    },
-                    "events": [
-                        {
-                            "eventType": "capacity_changed",
-                            "sectionCode": "001",
-                            "oldValue": "90",
-                            "newValue": "100",
-                            "snapshotTimestamp": "2026-06-03T10:00:00",
-                        }
-                    ],
-                }
-            },
-        }
-
-        index_payload, detail_payloads = build_prototype_payloads(data)
-
-        assert index_payload["summary"]["courses"] == 1
-        assert index_payload["summary"]["sections"] == 1
-        assert index_payload["summary"]["nearFullSections"] == 1
-        assert index_payload["summary"]["enrollmentTotal"] == 94
-        assert index_payload["summary"]["capacityTotal"] == 100
-
-        row = index_payload["courseRows"][0]
-        assert row["code"] == "CSCI 210"
-        assert row["status"] == "near"
-        assert row["detailUrl"] == "prototype-data/csci-210.json"
-        assert "averageHistory" not in row
-        assert "sections" not in row
-
-        detail = detail_payloads["csci-210"]
-        assert detail["course"]["sections"][0]["instructor"] == "Ada Lovelace"
-        assert detail["course"]["events"][0]["label"] == "Capacity Change"
-        assert len(detail["snapshots"]) == 2
-        assert detail["course"]["averageHistory"] == [
-            {"snapshotIdx": 0, "fill": 0.4},
-            {"snapshotIdx": 1, "fill": 0.94},
-        ]
-
-    def test_uses_minimum_section_type_totals_for_multi_component_courses(self):
-        data = {
-            "semester": "Summer 2026",
-            "lastReportTime": "2026-06-05T17:25:00",
-            "snapshots": [],
-            "courses": {
-                "BIO 101": {
-                    "department": "BIO",
-                    "title": "Biology",
-                    "averageFill": 0.5,
-                    "isFilled": False,
-                    "averageHistory": [],
-                    "sections": {
-                        "001L": {
-                            "type": "L",
-                            "currentEnrollment": 80,
-                            "currentCapacity": 100,
-                            "currentFill": 0.8,
-                            "history": [],
-                        },
-                        "001B": {
-                            "type": "B",
-                            "currentEnrollment": 20,
-                            "currentCapacity": 40,
-                            "currentFill": 0.5,
-                            "history": [],
-                        },
-                        "002B": {
-                            "type": "B",
-                            "currentEnrollment": 30,
-                            "currentCapacity": 40,
-                            "currentFill": 0.75,
-                            "history": [],
-                        },
-                    },
-                }
-            },
-        }
-
-        index_payload, _ = build_prototype_payloads(data)
-
-        row = index_payload["courseRows"][0]
-        assert row["enrollmentTotal"] == 50
-        assert row["capacityTotal"] == 80
+        assert list(full["courses"]) == ["CS 101"]
+        assert len(full["snapshots"]) == 1
+        assert full["semester"] == "Spring 2024"
+        assert list(minified["cr"]) == ["CS 101"]
+        assert minified["sem"] == "Spring 2024"

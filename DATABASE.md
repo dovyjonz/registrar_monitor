@@ -15,10 +15,9 @@ schema stores:
 - bounded full checkpoints for reconstruction;
 - the stateful reporting log.
 
-`settings.toml` records each semester's storage mode. All semesters are
-`finalized` on the v2-only schema. New semesters are initialized directly in
-this mode without legacy tables, shadow mode, or dual writes. SQLite remains
-authoritative for presence, enrollment, capacity, and overall fill. Raw
+Every semester database uses this schema (`PRAGMA user_version = 2`), and new
+semesters are initialized with `monitor db initialize --semester "<name>"`.
+SQLite is authoritative for presence, enrollment, capacity, and overall fill. Raw
 spreadsheets are input evidence, not the runtime read path.
 
 The key v2 tables are:
@@ -34,7 +33,7 @@ The key v2 tables are:
 
 See
 [`docs/adr/0001-checkpointed-enrollment-state.md`](docs/adr/0001-checkpointed-enrollment-state.md)
-for the data model and migration evidence.
+for the data model.
 
 ## Subscription database
 
@@ -70,20 +69,11 @@ monitor doctor --json
 ```
 
 The doctor runs `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, and schema
-version checks without printing secrets. Existing enrollment databases are
-inspected on open and are never silently upgraded or downgraded.
+version checks without printing secrets. Enrollment databases are never silently
+upgraded or downgraded, and a database whose schema version is not 2 is rejected
+on open.
 
 ## Maintenance
-
-```bash
-monitor db cleanup --keep 50
-```
-
-Historical migration, rehearsal, and finalization commands remain available
-under `monitor db --help` for offline recovery work. Fresh semesters use
-`monitor db initialize` and start v2-only. Migration and finalization require
-explicit semester, database, and report paths; mutating steps also require their
-authorization flag. Use disposable copies for rehearsals and benchmarks.
 
 Back up enrollment databases and `.env` separately. Stop the relevant writer or
 use SQLite's backup mechanism before copying a live database. Bot state can be

@@ -130,7 +130,7 @@ class TestAddReportingLog:
 
         with seeded_db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM reporting_log")
+            cursor.execute("SELECT * FROM reporting_log_v2")
             entries = cursor.fetchall()
 
         assert len(entries) == 1
@@ -144,7 +144,7 @@ class TestAddReportingLog:
 
         with seeded_db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT changes_found FROM reporting_log")
+            cursor.execute("SELECT changes_found FROM reporting_log_v2")
             row = cursor.fetchone()
 
         assert row["changes_found"] == 0
@@ -203,7 +203,7 @@ class TestGetSnapshotData:
         with seeded_db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT snapshot_id FROM snapshots ORDER BY timestamp ASC LIMIT 1"
+                "SELECT snapshot_id FROM state_snapshot ORDER BY sequence_no ASC LIMIT 1"
             )
             row = cursor.fetchone()
             first_id = row[0]
@@ -269,142 +269,3 @@ class TestGetCourseHistory:
         assert "fill_percentage" in entry
         assert "enrollment_count" in entry
         assert "capacity_count" in entry
-
-
-class TestCleanupOldSnapshots:
-    """Tests for cleanup_old_snapshots."""
-
-    def test_keeps_specified_number_of_snapshots(self, seeded_db: DatabaseManager):
-        deleted = seeded_db.cleanup_old_snapshots(keep_count=1)
-        assert deleted >= 1  # At least the first snapshot removed
-
-        remaining = 0
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM snapshots")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining == 1
-
-    def test_returns_zero_when_no_snapshots_to_clean(self, db_manager: DatabaseManager):
-        deleted = db_manager.cleanup_old_snapshots(keep_count=10)
-        assert deleted == 0
-
-    def test_also_removes_enrollment_data(self, seeded_db: DatabaseManager):
-        seeded_db.cleanup_old_snapshots(keep_count=1)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM enrollment_data")
-            remaining_data = cursor.fetchone()[0]
-
-        # With only 1 snapshot kept, enrollment data should be just for that snapshot
-        assert remaining_data > 0
-
-    def test_removes_reporting_rows_before_referenced_snapshots(
-        self, seeded_db: DatabaseManager
-    ):
-        with seeded_db.get_connection() as conn:
-            snapshot_ids = [
-                row[0]
-                for row in conn.execute(
-                    "SELECT snapshot_id FROM snapshots ORDER BY timestamp"
-                )
-            ]
-
-        old_snapshot_id = snapshot_ids[0]
-        kept_snapshot_id = snapshot_ids[-1]
-        seeded_db.add_reporting_log(old_snapshot_id, changes_were_found=True)
-        seeded_db.add_reporting_log(kept_snapshot_id, changes_were_found=True)
-
-        assert seeded_db.cleanup_old_snapshots(keep_count=1) == len(snapshot_ids) - 1
-
-        with seeded_db.get_connection() as conn:
-            reported_ids = [
-                row[0]
-                for row in conn.execute(
-                    "SELECT reported_snapshot_id FROM reporting_log"
-                )
-            ]
-
-        assert reported_ids == [kept_snapshot_id]
-
-
-class TestDedupeInstructorChanges:
-    """Tests for dedupe_instructor_changes."""
-
-    def test_dry_run_returns_count_without_deleting(self, seeded_db: DatabaseManager):
-        # Add some duplicate instructor changes
-        timestamp = "2024-01-15 12:00:00"
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT section_id FROM sections LIMIT 1")
-            section_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", timestamp),
-            )
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", "2024-01-15 13:00:00"),
-            )
-            conn.commit()
-
-        count = seeded_db.dedupe_instructor_changes(dry_run=True)
-        assert count >= 1
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM instructor_changes")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining >= 2  # Nothing deleted in dry run
-
-    def test_removes_consecutive_duplicates(self, seeded_db: DatabaseManager):
-        timestamp = "2024-01-15 12:00:00"
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT section_id FROM sections LIMIT 1")
-            section_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", timestamp),
-            )
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", "2024-01-15 13:00:00"),
-            )
-            conn.commit()
-
-        seeded_db.dedupe_instructor_changes(dry_run=False)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM instructor_changes")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining == 1  # Duplicate removed
-
-    def test_preserves_non_duplicate_toggles(self, seeded_db: DatabaseManager):
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT section_id FROM sections LIMIT 1")
-            section_id = cursor.fetchone()[0]
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "", "Smith", "2024-01-15 12:00:00"),
-            )
-            cursor.execute(
-                "INSERT INTO instructor_changes (section_id, old_instructor, new_instructor, timestamp) VALUES (?, ?, ?, ?)",
-                (section_id, "Smith", "", "2024-01-15 13:00:00"),
-            )
-            conn.commit()
-
-        seeded_db.dedupe_instructor_changes(dry_run=False)
-
-        with seeded_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM instructor_changes")
-            remaining = cursor.fetchone()[0]
-
-        assert remaining == 2  # Both toggles preserved

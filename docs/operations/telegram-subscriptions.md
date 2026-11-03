@@ -45,7 +45,9 @@ the watch or course interaction. Text and buttons share the same resolved URL.
 Website bookmark import is deliberately independent of any bot username. Each
 visitor's bookmarks remain in that browser. The dashboard copies a portable
 multi-line `/import` command containing the current semester and starred course
-codes; the visitor pastes it into the bot they use. The bot validates every
+codes; the visitor pastes it into the bot they use. The action appears outside the
+filter group, only when the semester has starred courses, labeled `Copy for bot` or
+`Copy N for bot`. The bot validates every
 course against its latest snapshot and presents a whole-course-watch receipt
 before applying it. This paste flow is not constrained by Telegram's 64-character
 deep-link payload limit. Watches belong to one semester and do not carry forward

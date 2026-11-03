@@ -9,10 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from registrarmonitor.data.database_manager import (
-    EXPECTED_SCHEMA_VERSION,
-    DatabaseManager,
-)
+from registrarmonitor.data.checkpointed_state import CHECKPOINTED_SCHEMA_VERSION
+from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.operational import (
     _database_checks,
     _writable_check,
@@ -56,7 +54,7 @@ def test_database_diagnostics_report_integrity_and_schema(tmp_path: Path):
     assert database.db_path.exists()
     assert checks[0]["status"] == "pass"
     assert checks[0]["integrity"] == "ok"
-    assert checks[0]["schema_version"] == EXPECTED_SCHEMA_VERSION
+    assert checks[0]["schema_version"] == CHECKPOINTED_SCHEMA_VERSION
 
 
 def test_database_diagnostics_fail_for_corrupt_database(tmp_path: Path):
@@ -70,9 +68,9 @@ def test_database_diagnostics_fail_for_corrupt_database(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    ("schema_version", "status"), [(2, "pass"), (0, "warn"), (99, "warn")]
+    ("schema_version", "status"), [(2, "pass"), (1, "warn"), (99, "warn")]
 )
-def test_database_diagnostics_recognize_supported_schemas(
+def test_database_diagnostics_recognize_expected_schema(
     tmp_path: Path, schema_version: int, status: str
 ):
     data_dir = tmp_path / "data"
@@ -84,7 +82,7 @@ def test_database_diagnostics_recognize_supported_schemas(
     check = _database_checks(tmp_path, {})[0]
 
     assert check["status"] == status
-    assert check["supported_schema_versions"] == [1, 2]
+    assert check["expected_schema_version"] == 2
 
 
 def test_database_diagnostics_support_absolute_directory_outside_root(
@@ -147,4 +145,4 @@ def test_schema_version_is_stored_in_new_databases(tmp_path: Path):
     with sqlite3.connect(database.db_path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
 
-    assert version == EXPECTED_SCHEMA_VERSION
+    assert version == CHECKPOINTED_SCHEMA_VERSION

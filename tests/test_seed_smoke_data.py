@@ -3,7 +3,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from registrarmonitor.data.database_manager import DatabaseManager
-from registrarmonitor.data.migration import MetadataMode
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.website.config import get_configured_semesters
 
@@ -23,7 +22,7 @@ def test_main_seeds_every_configured_semester():
         seeded_snapshots.append(kwargs["snapshot"])
 
     with patch.object(seed_smoke_data, "_seed_semester", fake_seed_semester):
-        seed_smoke_data.main(data_dir=Path("data"), report_dir=Path("output"))
+        seed_smoke_data.main(data_dir=Path("data"))
 
     assert {snapshot.semester for snapshot in seeded_snapshots} == set(
         get_configured_semesters()
@@ -69,17 +68,15 @@ def test_main_seeds_every_configured_semester():
     assert all("ANT 233" not in codes for codes in historical_codes.values())
 
 
-def test_main_builds_fixture_for_configured_storage_modes(tmp_path: Path):
+def test_main_builds_a_fixture_for_every_configured_semester(tmp_path: Path):
     data_dir = tmp_path / "data"
-    seed_smoke_data.main(data_dir=data_dir, report_dir=tmp_path / "reports")
+    seed_smoke_data.main(data_dir=data_dir)
 
     for semester in get_configured_semesters():
         database = data_dir / (
             f"enrollment_{DatabaseManager._sanitize_semester_name_static(semester)}.db"
         )
         manager = DatabaseManager(db_path=str(database), semester=semester)
-        configured_mode, _ = seed_smoke_data._configured_storage(semester)
-        assert manager.storage_mode == configured_mode
         latest_snapshot_id = manager.get_latest_snapshot_id()
         assert latest_snapshot_id is not None
         assert latest_snapshot_id >= 4
@@ -88,7 +85,7 @@ def test_main_builds_fixture_for_configured_storage_modes(tmp_path: Path):
         assert {"MATH 161", "KAZ 368"} <= set(snapshot.courses)
 
 
-def test_seed_semester_initializes_v2_only_mode(tmp_path: Path):
+def test_seed_semester_initializes_v2_database(tmp_path: Path):
     snapshot = EnrollmentSnapshot(
         timestamp="2026-07-29 00:00:00",
         semester="Fall 2026",
@@ -107,10 +104,6 @@ def test_seed_semester_initializes_v2_only_mode(tmp_path: Path):
         semester="Fall 2026",
         snapshot=snapshot,
         data_dir=tmp_path / "data",
-        report_dir=tmp_path / "reports",
-        configured_mode="finalized",
-        metadata_mode=MetadataMode.LEGACY_PRESERVING,
     )
 
-    assert manager.storage_mode == "finalized"
     assert manager.get_latest_snapshot_id() == 1

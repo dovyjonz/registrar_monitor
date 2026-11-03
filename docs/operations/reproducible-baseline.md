@@ -19,7 +19,7 @@ Production state is maintained separately in
 | Setup and checks | `Makefile` and `scripts/runtime_doctor.sh` |
 | Non-secret runtime configuration | `settings.toml` |
 | Secret names and examples | `.env.example` |
-| Database schema and migrations | application source and `DATABASE.md` |
+| Database schema | application source and `DATABASE.md` |
 | Production topology | `docs/operations/production-topology.md` |
 
 `make bootstrap` installs lockfile-pinned Python and website dependencies.

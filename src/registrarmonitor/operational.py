@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .data.database_manager import SUPPORTED_SCHEMA_VERSIONS
+from .data.checkpointed_state import CHECKPOINTED_SCHEMA_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -159,7 +159,7 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
                 "fail"
                 if integrity != "ok" or foreign_key_issues
                 else "pass"
-                if schema_version in SUPPORTED_SCHEMA_VERSIONS
+                if schema_version == CHECKPOINTED_SCHEMA_VERSION
                 else "warn"
             )
             checks.append(
@@ -171,7 +171,7 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
                     path=display_path,
                     integrity=integrity,
                     schema_version=schema_version,
-                    supported_schema_versions=sorted(SUPPORTED_SCHEMA_VERSIONS),
+                    expected_schema_version=CHECKPOINTED_SCHEMA_VERSION,
                     foreign_key_issues=foreign_key_issues,
                 )
             )

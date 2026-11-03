@@ -42,7 +42,7 @@ def _registrar_now(cfg: dict | None = None) -> dt.datetime:
 
 
 def _registrar_wall_time(value: dt.datetime, cfg: dict | None = None) -> dt.datetime:
-    """Convert aware values while preserving legacy naive scheduler inputs."""
+    """Convert aware values while preserving naive scheduler inputs."""
     if value.tzinfo is None:
         return value
     config = cfg if cfg is not None else get_config()
