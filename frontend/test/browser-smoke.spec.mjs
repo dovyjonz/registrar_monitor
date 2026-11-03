@@ -623,7 +623,10 @@ test('Telegram launch shows Watch controls that call the bot API', async ({ page
 test('ordinary visitors never load Telegram or see Watch controls', async ({ page }) => {
     const telegramRequests = [];
     page.on('request', request => {
-        if (request.url().includes('telegram.org')) telegramRequests.push(request.url());
+        const { hostname } = new URL(request.url());
+        if (hostname === 'telegram.org' || hostname.endsWith('.telegram.org')) {
+            telegramRequests.push(request.url());
+        }
     });
     await page.goto('/semesters/fall-2026/');
     await page.locator('.course-cell').first().click();
