@@ -940,7 +940,9 @@ class WebsiteService:
             print(
                 "   Add CLOUDFLARE_API_TOKEN=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
             )
-            print("   Then restart the systemd service so EnvironmentFile is reloaded.")
+            print(
+                "   Settings read .env once at process start, so restart the service afterwards."
+            )
             return False
         if settings.cloudflare_account_id is None:
             print("❌ Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set.")
@@ -950,7 +952,9 @@ class WebsiteService:
             print(
                 "   Wrangler custom API tokens can fail account discovery without it."
             )
-            print("   Then restart the systemd service so EnvironmentFile is reloaded.")
+            print(
+                "   Settings read .env once at process start, so restart the service afterwards."
+            )
             return False
 
         env["CLOUDFLARE_API_TOKEN"] = settings.cloudflare_api_token.get_secret_value()

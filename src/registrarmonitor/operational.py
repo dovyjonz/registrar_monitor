@@ -199,7 +199,7 @@ def build_doctor_report(root: Path = ROOT) -> dict[str, Any]:
             _check(
                 f"frontend:{tool}",
                 "pass" if executable.is_file() else "fail",
-                "installed" if executable.is_file() else "run make website-install",
+                "installed" if executable.is_file() else "run npm ci --prefix frontend",
             )
         )
 

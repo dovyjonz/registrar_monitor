@@ -14,6 +14,15 @@ fi
 cd "$(dirname "$0")/.."
 PROJECT_ROOT=$(pwd)
 
+# Account the services run as. Defaults to the invoking user; set RUNTIME_USER
+# when an operator runs this script for a different runtime account.
+RUNTIME_USER="${RUNTIME_USER:-$USER}"
+RUNTIME_HOME=$(getent passwd "$RUNTIME_USER" | cut -d: -f6)
+if [ -z "$RUNTIME_HOME" ]; then
+    echo "Error: could not find a home directory for RUNTIME_USER=$RUNTIME_USER" >&2
+    exit 1
+fi
+
 if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo "Warning: .env was not found at $PROJECT_ROOT/.env"
     echo "Create it from .env.example and set TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_URL, and TELEGRAM_WEBHOOK_SECRET before enabling Telegram sends."
@@ -34,11 +43,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=$USER
+User=$RUNTIME_USER
 WorkingDirectory=$PROJECT_ROOT
 EnvironmentFile=-$PROJECT_ROOT/.env
-Environment="PATH=$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/usr/bin/env uv run monitor schedule
+Environment="PATH=$RUNTIME_HOME/.local/bin:$RUNTIME_HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/usr/bin/env uv run --locked --no-sync monitor schedule
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -52,16 +61,16 @@ EOF
 cat > scripts/registrarmonitor-bot.service <<EOF
 [Unit]
 Description=Registrar Monitor Telegram Subscription Bot
-Wants=network-online.target
+Wants=network-online.target registrarmonitor-tunnel.service
 After=network-online.target registrarmonitor.service registrarmonitor-tunnel.service
 
 [Service]
 Type=simple
-User=$USER
+User=$RUNTIME_USER
 WorkingDirectory=$PROJECT_ROOT
 EnvironmentFile=-$PROJECT_ROOT/.env
-Environment="PATH=$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/usr/bin/env uv run monitor bot
+Environment="PATH=$RUNTIME_HOME/.local/bin:$RUNTIME_HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/usr/bin/env uv run --locked --no-sync monitor bot
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -81,8 +90,9 @@ Before=registrarmonitor-bot.service
 
 [Service]
 Type=simple
-User=$USER
+User=$RUNTIME_USER
 WorkingDirectory=$PROJECT_ROOT
+Environment="PATH=$RUNTIME_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=/usr/bin/env cloudflared tunnel --no-autoupdate --config $PROJECT_ROOT/scripts/cloudflared-config.yml run
 Restart=always
 RestartSec=5
@@ -102,7 +112,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=$USER
+User=$RUNTIME_USER
 WorkingDirectory=$PROJECT_ROOT
 EnvironmentFile=-$PROJECT_ROOT/.env
 ExecStart=/usr/bin/litestream replicate -config $PROJECT_ROOT/scripts/litestream.yml

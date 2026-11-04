@@ -39,10 +39,11 @@ Worker deploy, database change, service state) needs explicit authorization.
 
 **Site Worker (Stage 7)**
 
-- Set `CLOUDFLARE_API_TOKEN` (Workers Scripts edit) and `CLOUDFLARE_ACCOUNT_ID` in the
-  VM `.env`; sync the code and run `npm ci --prefix frontend` on the VM; `make
-  worker-check`; `monitor deploy --deploy --force` (first deploy creates the
-  `registrar-monitor` Worker); verify the live shell, a course page, and a
+- Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the VM `.env`. The token
+  needs Account > Workers Scripts > Edit, Zone > Workers Routes > Edit on
+  `seatwatch.fyi`, and Zone > Zone > Read. Run `make worker-check` on a workstation or in CI; sync the code and
+  run `npm ci --prefix frontend` on the VM; `monitor deploy --deploy --force` (the
+  `registrar-monitor` Worker already exists and this updates it); verify the live shell, a course page, and a
   `/preview/*` image.
 - Existing Telegram posts and shared links point at the old public site,
   `https://registrar-monitor.pages.dev`. Keep the Pages project as a redirect-only
@@ -55,14 +56,16 @@ Worker deploy, database change, service state) needs explicit authorization.
 - Create the `cloudflared` tunnel and config for `bot.seatwatch.fyi`, install the
   tunnel unit, and set `TELEGRAM_WEBHOOK_URL=https://bot.seatwatch.fyi/telegram` and
   `TELEGRAM_WEBHOOK_SECRET`; deploy the bot unit after it.
-- Then `monitor deploy --deploy --force` so the pages and headers allow Telegram's
-  script and the API. Open the bot's menu button to check the Mini App.
+- Run `monitor deploy --deploy --force` so the pages and headers allow Telegram's
+  script and the API, then (re)start the bot, which points its menu button at the
+  published site at startup. Open the bot's menu button to check the Mini App.
 - Optional: queued delivery (a Cloudflare Queue consumer honoring `RetryAfter`) only
   if digests grow.
 
 **Analysis (Stage 8)**
 
-- Upload the Parquet exports to R2 next to the dashboard.
+- Upload the Parquet exports to R2 next to the dashboard. Not implemented:
+  `monitor export-parquet` only writes local files and nothing uploads them.
 - Optional: an "Explore data" page using DuckDB-WASM over the exports.
 - Optional: move website read-model builders to DuckDB only where clearly simpler or
   faster.
