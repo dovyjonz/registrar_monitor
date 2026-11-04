@@ -1,13 +1,13 @@
 ---
 status: proposed
-updated: 2026-11-03
+updated: 2026-11-04
 scope: production rollout, optional VM shrink
 ---
 
 # Registrar Monitor restructure
 
-Stages 1 through 8 are in the code, including the Telegram Mini App. What is left is
-production rollout (below) and the optional Stage 9. This is the only plan: no ADRs
+Stages 1 through 8 are in the code and running in production at `seatwatch.fyi`. What
+is left is below, plus the optional Stage 9. This is the only plan: no ADRs
 or separate specs. Delete steps as they are done, and the file when all are. It is a
 personal project: fewer files, no evidence docs, tests only for behavior users
 notice, docs describe the current system, and every production mutation (VM sync,
@@ -15,57 +15,24 @@ Worker deploy, database change, service state) needs explicit authorization.
 
 ## Remaining production steps
 
-**Cleanup (Stage 1)**
-
-- Archive and delete the unconfigured databases (Decision 1) and `output/`
-  (Decision 4). The code rejects any non-v2 database file it opens.
-- Run the doctor against every live database after deploying.
+- Delete the archived databases and old `output/` from
+  `~/backups/archived-20261104` on the VM (Decisions 1 and 4), after copying them off
+  if they are worth keeping. Also delete the pre-rollout copies in
+  `~/backups/pre-seatwatch-20261104`.
 - Finalized databases still carry an unused `storage_control` table; drop it or leave
   it.
-
-**VM runtime (Stage 5)**
-
-- Run `scripts/fetch_registrar_ca.sh` on the VM before deploying, so the `ca_bundle`
-  exists.
-- Create the R2 bucket and Litestream keys, install `litestream` and its unit, and
-  test a restore.
-- Create a Healthchecks.io check with its Telegram integration and set
-  `HEARTBEAT_URL`.
-- Set `SENTRY_DSN`.
-- Remove the old `registrarmonitor-health.service` unit.
-- Free-tier checks (see "Free tiers" in `docs/operations.md`): verify the VM machine
-  type is e2-micro and the boot disk is standard PD, not balanced; review the billing
-  report for egress and IP SKUs after the first registration period.
-
-**Site Worker (Stage 7)**
-
-- Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the VM `.env`. The token
-  needs Account > Workers Scripts > Edit, Zone > Workers Routes > Edit on
-  `seatwatch.fyi`, and Zone > Zone > Read. Run `make worker-check` on a workstation or in CI; sync the code and
-  run `npm ci --prefix frontend` on the VM; `monitor deploy --deploy --force` (the
-  `registrar-monitor` Worker already exists and this updates it); verify the live shell, a course page, and a
-  `/preview/*` image.
-- Existing Telegram posts and shared links point at the old public site,
-  `https://registrar-monitor.pages.dev`. Keep the Pages project as a redirect-only
-  deployment instead of deleting it: a directory containing just `_redirects` with
-  `/* https://seatwatch.fyi/:splat 301`, deployed once with
-  `npx wrangler pages deploy <dir> --project-name registrar-monitor`.
-
-**Telegram (Stage 6 and the Mini App)**
-
-- Create the `cloudflared` tunnel and config for `bot.seatwatch.fyi`, install the
-  tunnel unit, and set `TELEGRAM_WEBHOOK_URL=https://bot.seatwatch.fyi/telegram` and
-  `TELEGRAM_WEBHOOK_SECRET`; deploy the bot unit after it.
-- Run `monitor deploy --deploy --force` so the pages and headers allow Telegram's
-  script and the API, then (re)start the bot, which points its menu button at the
-  published site at startup. Open the bot's menu button to check the Mini App.
-- Optional: queued delivery (a Cloudflare Queue consumer honoring `RetryAfter`) only
-  if digests grow.
-
-**Analysis (Stage 8)**
-
+- Review the billing report for egress and IP SKUs after the next registration period.
+- Install the new scheduler unit, then start the scheduler for the next registration
+  period, and confirm the first Healthchecks.io ping and a first download through the
+  `ca_bundle`.
+- Keep the old `https://registrar-monitor.pages.dev` as a redirect-only deployment: a
+  directory containing just `_redirects` with `/* https://seatwatch.fyi/:splat 301`,
+  deployed once with `npx wrangler pages deploy <dir> --project-name registrar-monitor`.
+- Open the bot's menu button in Telegram to check the Mini App.
 - Upload the Parquet exports to R2 next to the dashboard. Not implemented:
   `monitor export-parquet` only writes local files and nothing uploads them.
+- Optional: queued delivery (a Cloudflare Queue consumer honoring `RetryAfter`) only
+  if digests grow.
 - Optional: an "Explore data" page using DuckDB-WASM over the exports.
 - Optional: move website read-model builders to DuckDB only where clearly simpler or
   faster.
