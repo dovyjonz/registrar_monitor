@@ -63,6 +63,9 @@ schedule.txt
 scripts/registrarmonitor.service
 scripts/registrarmonitor-bot.service
 scripts/registrarmonitor-tunnel.service
+scripts/registrarmonitor-litestream.service
+scripts/registrarmonitor-network-watchdog.service
+scripts/registrarmonitor-network-watchdog.timer
 scripts/cloudflared-config.yml
 
 # Reproducible local tooling artifacts

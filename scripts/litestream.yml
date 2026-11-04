@@ -5,22 +5,28 @@
 access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
 secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
 
+# Litestream 0.5 configures snapshot interval and retention in this root block.
+snapshot:
+  interval: 24h
+  retention: 720h
+
 dbs:
   # One replica per semester database (data/enrollment_<semester>.db).
   - dir: data
     pattern: "enrollment_*.db"
+    # Pick up new semester databases without restarting the service.
+    watch: true
     replica:
       type: s3
       bucket: ${R2_BUCKET}
       path: enrollment
       endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
       region: auto
-      retention: 720h
-      # Ship WAL changes at most every 5 minutes: bounds R2 Class A writes to
-      # ~8.6k/month per database (free tier: 1M) and coalesces repeated page
-      # writes to keep VM egress inside the GCP free tier (1 GB/month).
+      # Ship WAL changes at most every 5 minutes: bounds WAL uploads (R2 Class A
+      # writes) to ~8.6k/month per database, plus a few compaction and snapshot
+      # uploads (free tier: 1M), and coalesces repeated page writes to keep VM
+      # egress inside the GCP free tier (1 GB/month).
       sync-interval: 5m
-      snapshot-interval: 24h
   # Bot state stays a separate database and a separate replica path.
   - path: data/telegram_bot.db
     replica:
@@ -29,9 +35,8 @@ dbs:
       path: telegram_bot
       endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
       region: auto
-      retention: 720h
-      # Ship WAL changes at most every 5 minutes: bounds R2 Class A writes to
-      # ~8.6k/month per database (free tier: 1M) and coalesces repeated page
-      # writes to keep VM egress inside the GCP free tier (1 GB/month).
+      # Ship WAL changes at most every 5 minutes: bounds WAL uploads (R2 Class A
+      # writes) to ~8.6k/month per database, plus a few compaction and snapshot
+      # uploads (free tier: 1M), and coalesces repeated page writes to keep VM
+      # egress inside the GCP free tier (1 GB/month).
       sync-interval: 5m
-      snapshot-interval: 24h

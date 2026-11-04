@@ -25,9 +25,23 @@ awk -v dir="$tmp" '
     /-----END CERTIFICATE-----/ { file = "" }
 ' "$tmp/session.txt"
 
+# Some servers send only the leaf. Follow its issuer link, and because that link
+# is plain HTTP, accept the result only if it chains to a trusted root.
 if [ ! -f "$tmp/cert2.pem" ]; then
-    echo "error: $host did not send an intermediate certificate" >&2
-    exit 1
+    issuer_url="$(openssl x509 -in "$tmp/cert1.pem" -noout -ext authorityInfoAccess |
+        sed -n 's/.*CA Issuers - URI://p' | head -n 1)"
+    if [ -z "$issuer_url" ]; then
+        echo "error: $host sent no intermediate and its leaf names no issuer URL" >&2
+        exit 1
+    fi
+    curl -fsS -m 30 -o "$tmp/issuer.crt" "$issuer_url"
+    openssl x509 -inform DER -in "$tmp/issuer.crt" -out "$tmp/cert2.pem" 2>/dev/null ||
+        openssl x509 -in "$tmp/issuer.crt" -out "$tmp/cert2.pem"
+    if ! openssl verify -CAfile "$(.venv/bin/python -m certifi)" \
+        -untrusted "$tmp/cert2.pem" "$tmp/cert1.pem" >/dev/null; then
+        echo "error: certificate from $issuer_url does not chain to a trusted root" >&2
+        exit 1
+    fi
 fi
 
 mkdir -p "$(dirname "$output")"
@@ -37,5 +51,5 @@ chmod 644 "$output"
 
 echo "Wrote $(grep -c 'BEGIN CERTIFICATE' "$output") certificate(s) to $output"
 echo "Verifying the chain against the bundle..."
-openssl s_client -CAfile "$output" -servername "$host" -connect "$host:443" \
+openssl s_client -partial_chain -CAfile "$output" -servername "$host" -connect "$host:443" \
     </dev/null 2>&1 | grep -E "Verify return code" || true

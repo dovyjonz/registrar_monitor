@@ -30,6 +30,17 @@ must stay separate. The tunnel needs `scripts/cloudflared-config.yml` (untracked
 from `scripts/cloudflared-config.yml.template`) and the Litestream unit needs the
 `litestream` binary plus the R2 variables in `.env`.
 
+Run it as the SSH operator, naming the runtime account, so the units run as that
+user and not as the operator:
+
+```bash
+RUNTIME_USER=dmitry_s_ivanenko scripts/setup_vps.sh
+```
+
+The units use `uv run --locked --no-sync`: the operator owns `.venv` and syncs it,
+and the runtime user cannot write to it, so a plain `uv run` would fail trying to
+sync. This matches `scripts/runtime_doctor.sh`.
+
 ### Deploy
 
 `make deploy-vm REV=<revision> UNIT=<unit>.service` runs `scripts/deploy_vm.sh`: it
@@ -140,7 +151,8 @@ Every page is `noindex, nofollow`; `robots.txt` lets crawlers read that directiv
 
 The frontend bundle is rebuilt only when `frontend/src`, `package.json`,
 `package-lock.json`, or `vite.config.js` change (hash in `.frontend-build-hash`), so
-routine publications do not run Node builds on the 1 GB VM. Wrangler uploads only
+routine publications do not run Node builds on the 1 GB VM. Frontend builds rely
+on the VM's 2 GB of swap. Wrangler uploads only
 assets Cloudflare does not already have, so each deploy sends just the changed pages
 and data.
 
@@ -175,13 +187,17 @@ and never blocks publication or substitutes stale content. The Telegram Mini App
 not on this Worker; the bot serves it (see Telegram).
 
 `monitor deploy --deploy` (and the scheduler) runs `wrangler deploy` for the Worker
-and the site together; it needs `CLOUDFLARE_API_TOKEN` (Workers Scripts edit) and
-`CLOUDFLARE_ACCOUNT_ID` in `.env`. Deploy by hand, with authorization, whenever the
+and the site together; it needs `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` in `.env`. The token needs Account > Workers Scripts > Edit,
+Zone > Workers Routes > Edit on `seatwatch.fyi`, and Zone > Zone > Read. The
+`registrar-monitor` Worker already exists. On the VM only the frontend dependencies
+are installed (`npm ci --prefix frontend`). Deploy by hand, with authorization, whenever the
 Worker source or configuration changes or the preview token format, preview schema,
 or card model changes; otherwise Telegram shows only title and description.
 
+Run `make worker-check` on a workstation or in CI, not on the VM. Then:
+
 ```bash
-make worker-check
 npm --prefix frontend exec wrangler -- deploy \
   --config workers/site/wrangler.jsonc --strict --message "<what changed>"
 npm --prefix frontend exec wrangler -- deployments list --name registrar-monitor --json
@@ -254,7 +270,8 @@ serves the API itself, so no Worker sits in the path:
 - CORS allows only the `website.base_url` origin; any other `Origin` gets 403.
 - At startup the bot sets the chat menu button to open the dashboard (the active
   semester page, because the site root's redirect drops Telegram's launch
-  parameters). Restart the bot after a semester rollover to move it. With the Mini
+  parameters). After a semester rollover, publish the site first, then restart the
+  bot to move it. With the Mini
   App disabled, the menu button is reset to Telegram's default.
 - The dashboard loads `telegram.org/js/telegram-web-app.js` only when the URL carries
   Telegram's launch parameters, so ordinary visitors load nothing extra. No BotFather
@@ -262,9 +279,9 @@ serves the API itself, so no Worker sits in the path:
   Widget and is not required for Web Apps.
 
 Enable it with `website.miniapp_api_url = "https://bot.seatwatch.fyi/miniapp"` in
-`settings.toml`, then restart the bot and run `monitor deploy --deploy --force` so
-the generated pages and `_headers` allow Telegram's script, the API origin, and
-framing by Telegram Web. Empty turns everything off. The named Tunnel hostname needs
+`settings.toml`, run `monitor deploy --deploy --force` so the generated pages and
+`_headers` allow Telegram's script, the API origin, and framing by Telegram Web, and
+only then restart the bot, because it points its menu button at the site at startup. Empty turns everything off. The named Tunnel hostname needs
 the custom domain's zone on Cloudflare, so the webhook and the Mini App go live
 after the domain exists.
 

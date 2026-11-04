@@ -2,7 +2,7 @@
 # Restore a database from its Litestream replica in R2 (read-only against R2).
 #
 # Usage: scripts/restore_litestream.sh <db-path> <output-path> [timestamp]
-#   scripts/restore_litestream.sh data/enrollment_fall2026.db /tmp/restored.db
+#   scripts/restore_litestream.sh data/enrollment_fall_2026.db /tmp/restored.db
 #   scripts/restore_litestream.sh data/telegram_bot.db /tmp/bot.db 2026-11-01T12:00:00Z
 #
 # Restores to <output-path> (never over the live database); stop the writer and
