@@ -107,13 +107,12 @@ def test_course_shell_opens_existing_modal_and_uses_clean_canonical(tmp_path):
     assert 'data-initial-course="ANT 140"' in html
     assert 'data-preview-state-url="/data/previews/course/obLD1OX2.json"' in html
     assert (
-        '<link rel="canonical" href="https://registrar-monitor.spooktaken.workers.dev/courses/fall-2026/ant-140/">'
+        '<link rel="canonical" href="https://seatwatch.fyi/courses/fall-2026/ant-140/">'
         in html
     )
     assert "/courses/fall-2026/ant-140/?v=obLD1OX2" in html
     assert (
-        "https://registrar-monitor.spooktaken.workers.dev/"
-        "preview/course/fall-2026/ant-140/obLD1OX2.png"
+        "https://seatwatch.fyi/preview/course/fall-2026/ant-140/obLD1OX2.png"
     ) in html
     assert (
         'content="Introduction to Anthropology. 1 registration place available. '
@@ -138,10 +137,7 @@ def test_archived_semester_uses_unversioned_og_url_and_page_state(tmp_path):
     )
 
     assert 'data-page-archived="true"' in html
-    assert (
-        'content="https://registrar-monitor.spooktaken.workers.dev/semesters/spring-2026/"'
-        in html
-    )
+    assert 'content="https://seatwatch.fyi/semesters/spring-2026/"' in html
     assert "/semesters/spring-2026/?v=" not in html
     assert "142 sections were full at the final update" in html
 
@@ -159,7 +155,8 @@ def test_web_analytics_beacon_is_present_only_with_a_configured_token(tmp_path):
     assert "beacon.min.js" not in html
 
 
-def test_mini_app_wiring_is_present_only_with_a_configured_api(tmp_path):
+def test_mini_app_wiring_is_present_only_with_a_configured_api(tmp_path, monkeypatch):
+    monkeypatch.setattr(get_settings().website, "miniapp_api_url", "")
     args = ({"cr": {}}, [], "Fall 2026")
 
     html = build_semester_page(*args, manifest_path=manifest(tmp_path))

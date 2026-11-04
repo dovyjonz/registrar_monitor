@@ -27,13 +27,12 @@ update_interval = 30
 generation_timeout_seconds = 3600
 # Public origin of the site Worker (workers/site), used for canonical links, Open
 # Graph tags, and preview image URLs.
-# Switches to the custom domain once it is bought and routed (see docs/operations.md).
-base_url = "https://registrar-monitor.spooktaken.workers.dev"
+base_url = "https://seatwatch.fyi"
 # Cloudflare Web Analytics site token (cookieless beacon); leave empty to disable.
 web_analytics_token = ""
-# Telegram Mini App API served by the bot behind the Cloudflare Tunnel, for example
-# "https://bot.<domain>/miniapp". Leave empty to disable the Mini App.
-miniapp_api_url = ""
+# Telegram Mini App API served by the bot behind the Cloudflare Tunnel. Leave empty
+# to disable the Mini App.
+miniapp_api_url = "https://bot.seatwatch.fyi/miniapp"
 
 # Secrets are never read from this file. TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
 # CLOUDFLARE_API_TOKEN, and CLOUDFLARE_ACCOUNT_ID come from the environment or a
