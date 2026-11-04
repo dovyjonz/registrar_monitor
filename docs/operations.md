@@ -186,7 +186,7 @@ npm --prefix frontend exec wrangler -- deploy \
   --config workers/site/wrangler.jsonc --strict --message "<what changed>"
 npm --prefix frontend exec wrangler -- deployments list --name registrar-monitor --json
 curl --fail -sSL -o /dev/null -w 'status=%{http_code} type=%{content_type} size=%{size_download}\n' \
-  'https://registrar-monitor.spooktaken.workers.dev/preview/course/<semester>/<course>/<hash>.png'
+  'https://seatwatch.fyi/preview/course/<semester>/<course>/<hash>.png'
 ```
 
 The probe must return 200, `image/png`, and a nonzero size using an exact `og:image`
@@ -194,14 +194,14 @@ URL from a live course page; a 200 course page or preview JSON does not exercise
 Worker. Re-send the course URL afterwards so Telegram refetches the image. Roll back
 with `wrangler rollback`.
 
-Old links point at `https://registrar-monitor.pages.dev`. Keep that Pages project as a
-redirect-only deployment (a directory with just `_redirects` containing
-`/* https://registrar-monitor.spooktaken.workers.dev/:splat 301`, deployed once with
+The site's public origin is `https://seatwatch.fyi`, a custom-domain route in
+`workers/site/wrangler.jsonc` that must match `website.base_url`. The domain is
+registered and its zone hosted on Cloudflare. Old links point at
+`https://registrar-monitor.pages.dev`. Keep that Pages project as a redirect-only
+deployment (a directory with just `_redirects` containing
+`/* https://seatwatch.fyi/:splat 301`, deployed once with
 `npx wrangler pages deploy <dir> --project-name registrar-monitor`) rather than
-deleting it. Custom domain: buy it in Cloudflare Registrar, add
-`"routes": [{ "pattern": "<domain>", "custom_domain": true }]` to
-`workers/site/wrangler.jsonc`, set `website.base_url = "https://<domain>"`, deploy,
-and point the Pages redirect at `https://<domain>/:splat`.
+deleting it.
 
 ## Telegram
 
@@ -245,7 +245,7 @@ serves the API itself, so no Worker sits in the path:
 
 - `GET /miniapp/watches`, `POST /miniapp/watches` (body: `semester`, `course`,
   optional `section`), and `DELETE /miniapp/watches/<id>`, on the same listener and
-  Tunnel hostname as the webhook (for example `https://bot.<domain>/miniapp`).
+  Tunnel hostname as the webhook (for example `https://bot.seatwatch.fyi/miniapp`).
 - Each request carries `Authorization: tma <initData>`. The bot verifies Telegram's
   HMAC with the bot token, rejects `auth_date` older than 24 hours, and takes the user
   from the signed data; it never accepts a client-supplied user id. Adding validates
@@ -261,7 +261,7 @@ serves the API itself, so no Worker sits in the path:
   step is needed beyond what the bot sets itself; `/setdomain` is for the Login
   Widget and is not required for Web Apps.
 
-Enable it with `website.miniapp_api_url = "https://bot.<domain>/miniapp"` in
+Enable it with `website.miniapp_api_url = "https://bot.seatwatch.fyi/miniapp"` in
 `settings.toml`, then restart the bot and run `monitor deploy --deploy --force` so
 the generated pages and `_headers` allow Telegram's script, the API origin, and
 framing by Telegram Web. Empty turns everything off. The named Tunnel hostname needs

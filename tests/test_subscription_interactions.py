@@ -19,7 +19,7 @@ from registrarmonitor.subscriptions.store import SubscriptionStore
 
 pytestmark = pytest.mark.unit
 
-COURSE_SHARE_URL = "https://registrar-monitor.spooktaken.workers.dev/courses/spring-2024/cs-101/?v=Abcd_123"
+COURSE_SHARE_URL = "https://seatwatch.fyi/courses/spring-2024/cs-101/?v=Abcd_123"
 
 
 @pytest.fixture

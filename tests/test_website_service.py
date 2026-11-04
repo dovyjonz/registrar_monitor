@@ -289,7 +289,10 @@ def test_wrangler_deploy_rejects_private_output(tmp_path, monkeypatch):
     run.assert_not_called()
 
 
-def test_headers_let_telegram_load_and_frame_the_mini_app_only_when_enabled():
+def test_headers_let_telegram_load_and_frame_the_mini_app_only_when_enabled(
+    monkeypatch,
+):
+    monkeypatch.setattr(get_settings().website, "miniapp_api_url", "")
     service = WebsiteService()
     assert "X-Frame-Options: DENY" in service._build_headers_content()
     assert "telegram.org" not in service._build_headers_content()
@@ -305,8 +308,9 @@ def test_headers_let_telegram_load_and_frame_the_mini_app_only_when_enabled():
     assert "https://cloudflareinsights.com https://bot.example.test;" in content
 
 
-def test_generate_headers_contains_security_headers(tmp_path):
+def test_generate_headers_contains_security_headers(tmp_path, monkeypatch):
     """_headers should include X-Frame-Options, X-Content-Type-Options, etc."""
+    monkeypatch.setattr(get_settings().website, "miniapp_api_url", "")
     service = WebsiteService()
     with (
         patch.object(service, "is_any_semester_active", return_value=True),

@@ -20,6 +20,6 @@ does not call the remote renderer. `npm run check` runs types, unit tests, TypeS
 and a `wrangler deploy --dry-run` bundle. A plain `fetch` handler is enough for one
 route family.
 
-The Worker is `registrar-monitor.spooktaken.workers.dev`; `website.base_url` in
+The Worker serves `https://seatwatch.fyi`; `website.base_url` in
 `settings.toml` is that origin. Production deployment is described in
 `docs/operations.md`.

@@ -47,25 +47,16 @@ Worker deploy, database change, service state) needs explicit authorization.
 - Existing Telegram posts and shared links point at the old public site,
   `https://registrar-monitor.pages.dev`. Keep the Pages project as a redirect-only
   deployment instead of deleting it: a directory containing just `_redirects` with
-  `/* https://registrar-monitor.spooktaken.workers.dev/:splat 301`, deployed once with
+  `/* https://seatwatch.fyi/:splat 301`, deployed once with
   `npx wrangler pages deploy <dir> --project-name registrar-monitor`.
-- `website.base_url` stays at the `workers.dev` URL until the custom domain exists.
-  Custom domain (planned): buy it in Cloudflare Registrar; add
-  `"routes": [{ "pattern": "<domain>", "custom_domain": true }]` to
-  `workers/site/wrangler.jsonc`; set `website.base_url = "https://<domain>"`; deploy;
-  then redeploy the Pages redirect with `/* https://<domain>/:splat 301`. Do not add
-  the routes entry before the domain exists.
 
 **Telegram (Stage 6 and the Mini App)**
 
-- Create the `cloudflared` tunnel and config, install the tunnel unit, and set
-  `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET`; deploy the bot unit after it.
-- Mini App, after the custom domain's zone is on Cloudflare (a named Tunnel hostname
-  needs it): create the Tunnel hostname for the bot (`bot.<domain>`), point
-  `TELEGRAM_WEBHOOK_URL` at `https://bot.<domain>/telegram`, set
-  `website.miniapp_api_url = "https://bot.<domain>/miniapp"`, deploy the bot unit,
-  then `monitor deploy --deploy --force` so the pages and headers allow Telegram's
-  script and the API. Open the bot's menu button to check it.
+- Create the `cloudflared` tunnel and config for `bot.seatwatch.fyi`, install the
+  tunnel unit, and set `TELEGRAM_WEBHOOK_URL=https://bot.seatwatch.fyi/telegram` and
+  `TELEGRAM_WEBHOOK_SECRET`; deploy the bot unit after it.
+- Then `monitor deploy --deploy --force` so the pages and headers allow Telegram's
+  script and the API. Open the bot's menu button to check the Mini App.
 - Optional: queued delivery (a Cloudflare Queue consumer honoring `RetryAfter`) only
   if digests grow.
 
