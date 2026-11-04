@@ -32,9 +32,19 @@ if [[ -e "$output" ]]; then
     exit 1
 fi
 
-args=(-config "$project_root/scripts/litestream.yml" -o "$output")
+args=(-o "$output")
 if [[ -n "$timestamp" ]]; then
     args+=(-timestamp "$timestamp")
 fi
 cd "$project_root"
-exec litestream restore "${args[@]}" "$db_path"
+
+# Directory-replicated databases are not found by path in the config, so restore
+# them from their replica URL. Credentials still come from the environment.
+db_name="$(basename -- "$db_path")"
+if [[ "$db_name" == enrollment_*.db ]]; then
+    : "${R2_BUCKET:?R2_BUCKET is required}"
+    : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required}"
+    exec litestream restore "${args[@]}" \
+        "s3://$R2_BUCKET/enrollment/$db_name?endpoint=https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com&region=auto"
+fi
+exec litestream restore -config "$project_root/scripts/litestream.yml" "${args[@]}" "$db_path"
