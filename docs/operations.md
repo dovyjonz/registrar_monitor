@@ -181,7 +181,7 @@ touches `/etc/fstab`, networking, or `google-guest-agent`, and never reads `.env
 
 | Step | Change |
 |---|---|
-| `zram` | installs `zram-tools`, sets zstd at 50% of RAM, priority 100 (disk swap, priority -2, stays as the fallback), enables `zramswap.service`. Skipped when the kernel has no zram. If zram already holds more than 64 MiB, a settings change waits for a reboot. |
+| `zram` | installs `zram-tools`, sets zstd at 50% of RAM, priority 100 (disk swap, priority -2, stays as the fallback), enables `zramswap.service`. Skipped when the kernel has no zram, as on the GCP Debian cloud kernel the VM runs, so disk swap is the only swap there. If zram already holds more than 64 MiB, a settings change waits for a reboot. |
 | `sysctl` | `vm.dirty_background_bytes` 16 MiB, `vm.dirty_bytes` 64 MiB (bound writeback stalls on the slow disk), `vm.vfs_cache_pressure` 50, and, only with zram, `vm.swappiness` 100 and `vm.page-cluster` 0 |
 | `thp` | transparent hugepages to `madvise` (Debian defaults to `always`, which bloats small processes) |
 | `journald` | persistent, compressed, `SystemMaxUse=200M`, 14 days, rate limit 5000 per 30 s; restarts `systemd-journald` |
