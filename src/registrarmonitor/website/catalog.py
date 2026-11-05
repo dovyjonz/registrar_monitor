@@ -12,9 +12,7 @@ from .config import get_configured_semesters, get_registrar_url
 
 
 class CatalogDatabase(Protocol):
-    def get_latest_snapshot_id(self) -> int | None: ...
-
-    def get_snapshot_data(self, snapshot_id: int) -> Any: ...
+    def latest_snapshot_has_courses(self, semester: str) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -47,11 +45,9 @@ def build_publication_catalog(
             continue
         try:
             database = factory(semester)
-            snapshot_id = database.get_latest_snapshot_id()
-            snapshot = database.get_snapshot_data(snapshot_id) if snapshot_id else None
+            if not database.latest_snapshot_has_courses(semester):
+                continue
         except Exception:
-            continue
-        if snapshot is None or snapshot.semester != semester or not snapshot.courses:
             continue
         catalog.append(
             PublishedSemester(
