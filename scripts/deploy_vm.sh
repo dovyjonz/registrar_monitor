@@ -58,6 +58,12 @@ sync)
     revision="$arg"
     [[ "$revision" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "Invalid revision" >&2; exit 2; }
     sha="$(git rev-parse --verify "$revision^{commit}")"
+    # The VM fetches from the remote, so a local-only commit (for example jj's
+    # working-copy commit @) cannot be checked out there.
+    if [[ -z "$(git branch -r --contains "$sha" --list "$remote/*" 2>/dev/null)" ]]; then
+        echo "Revision $sha is not on $remote; push it (or use main@origin's commit) first" >&2
+        exit 2
+    fi
     echo "Sync plan: $revision ($sha) -> $vm_user@$VM_HOST:$VM_PATH"
     echo "  git fetch/checkout; uv sync --locked; npm ci --prefix frontend if package-lock.json changed"
     echo "  no unit is restarted or started"
