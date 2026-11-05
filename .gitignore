@@ -18,13 +18,10 @@ venv/
 !.env.example
 
 # Tool caches
-.mypy_cache/
 .pytest_cache/
 .playwright-cli/
 .playwright-mcp/
 .ruff_cache/
-.uv-cache/
-.uv_cache/
 
 # Test coverage
 .coverage
@@ -33,7 +30,6 @@ htmlcov/
 # Logs
 /logs/
 *.log
-scheduler_decisions*.log
 
 # Data files (runtime data, not source code)
 /data/
@@ -44,20 +40,15 @@ frontend/public/
 
 # Cloudflare Wrangler cache
 .wrangler/
-frontend/.wrangler/
 
 # Node modules
 node_modules/
-frontend/node_modules/
 
 # macOS
 .DS_Store
 
 # Local Claude settings
 .claude/settings.local.json
-
-# Generated schedule file
-schedule.txt
 
 # Generated deployment files
 scripts/registrarmonitor.service

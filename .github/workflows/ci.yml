@@ -24,7 +24,7 @@ jobs:
           enable-cache: true
 
       - name: Install Python
-        run: uv python install 3.13.5
+        run: uv python install
 
       - name: Install dependencies
         run: uv sync --locked --group dev
@@ -52,7 +52,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24.18.0
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
@@ -111,7 +111,7 @@ jobs:
 
       - name: Install Python
         if: steps.changes.outputs.run == 'true'
-        run: uv python install 3.13.5
+        run: uv python install
 
       - name: Install Python dependencies
         if: steps.changes.outputs.run == 'true'
@@ -121,7 +121,7 @@ jobs:
         if: steps.changes.outputs.run == 'true'
         uses: actions/setup-node@v7
         with:
-          node-version: 24.18.0
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
