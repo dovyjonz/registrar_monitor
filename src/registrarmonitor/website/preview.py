@@ -6,7 +6,6 @@ import base64
 import hashlib
 import json
 import os
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -70,11 +69,15 @@ def _course_last_changed(course: dict[str, Any], timestamps: list[str]) -> str |
 def _compact_course_timestamps(
     course: dict[str, Any], timestamps: list[str]
 ) -> tuple[dict[str, Any], list[str]]:
-    """Keep only timestamps referenced by this course and remap their indices."""
-    compact_course = deepcopy(course)
-    collections = [compact_course.get("averageHistory", [])]
-    collections.extend(compact_course.get("sectionHistory", {}).values())
-    collections.append(compact_course.get("events", []))
+    """Keep only timestamps referenced by this course and remap their indices.
+
+    Only the points that carry an index are copied; everything else in the
+    course is shared with the input, which is never mutated.
+    """
+    history = course.get("averageHistory", [])
+    section_history = course.get("sectionHistory", {})
+    events = course.get("events", [])
+    collections = [history, *section_history.values(), events]
     referenced = sorted(
         {
             point["timestampIdx"]
@@ -85,11 +88,24 @@ def _compact_course_timestamps(
         }
     )
     remap = {old: new for new, old in enumerate(referenced)}
-    for points in collections:
-        for point in points:
-            old = point.get("timestampIdx")
-            if old in remap:
-                point["timestampIdx"] = remap[old]
+
+    def remapped(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {**point, "timestampIdx": remap[point["timestampIdx"]]}
+            if point.get("timestampIdx") in remap
+            else dict(point)
+            for point in points
+        ]
+
+    compact_course = dict(course)
+    if "averageHistory" in course:
+        compact_course["averageHistory"] = remapped(history)
+    if "sectionHistory" in course:
+        compact_course["sectionHistory"] = {
+            key: remapped(points) for key, points in section_history.items()
+        }
+    if "events" in course:
+        compact_course["events"] = remapped(events)
     return compact_course, [timestamps[index] for index in referenced]
 
 
