@@ -864,9 +864,7 @@ def build_frontend_payloads_v3(
         "milestones": _normalise_milestones(milestones),
         "courses": {code: summary_courses[code] for code in sorted(summary_courses)},
     }
-    _validate_summary_v3(summary, semester)
-    for department, department_payload in departments.items():
-        _validate_department_v3(department_payload, semester, department)
+    # publish_semester validates both payloads before anything is written.
     return summary, departments
 
 
