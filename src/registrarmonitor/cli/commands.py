@@ -17,10 +17,12 @@ from ..data.checkpointed_state import (
     CheckpointedStateStore,
 )
 from ..data.database_manager import DatabaseManager
+from ..data.excel_reader import ExcelReader
 from ..data.snapshot_comparator import SnapshotComparator
 from ..models import EnrollmentSnapshot
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..utils import get_section_sort_key
+from ..website.config import get_configured_semesters
 from .utils import detect_active_semester
 
 logger = logging.getLogger(__name__)
@@ -59,17 +61,20 @@ class PollCommand:
     def __init__(self, debug: bool = False):
         self.debug = debug
 
-    async def run(self, file_path: str | None = None) -> bool:
+    async def run(
+        self, file_path: str | None = None, semester: str | None = None
+    ) -> bool:
         """
         Run the polling command.
 
         Args:
             file_path: Optional specific file to process
+            semester: Semester to poll; skips file and database detection
 
         Returns:
             bool: True if successful, False otherwise
         """
-        result = await self.run_with_result(file_path=file_path)
+        result = await self.run_with_result(file_path=file_path, semester=semester)
         return result.success
 
     async def run_with_result(
@@ -106,12 +111,29 @@ class PollCommand:
         )
         return result
 
+    async def _resolve_semester(self, file_path: str | None) -> str | None:
+        """The configured semester named by ``file_path``, else the freshest stored."""
+        if file_path:
+            try:
+                label = ExcelReader().read_semester(file_path)
+            except Exception:
+                logger.debug("Could not read a semester from the file", exc_info=True)
+            else:
+                if label in get_configured_semesters():
+                    return label
+        return await detect_active_semester(self.debug)
+
     async def _run(
         self, file_path: str | None, semester: str | None, previous_digest: str | None
     ) -> PollResult:
 
         try:
-            detected_semester = semester or await detect_active_semester(self.debug)
+            detected_semester = semester or await self._resolve_semester(file_path)
+            if not detected_semester:
+                raise FileProcessingError(
+                    "no semester to poll; pass --semester or initialize storage "
+                    'with `monitor db initialize --semester "<semester>"`'
+                )
             monitoring_service = MonitoringService(semester=detected_semester)
             db_manager = monitoring_service.db_manager
             snapshot_id_before = db_manager.get_latest_snapshot_id()

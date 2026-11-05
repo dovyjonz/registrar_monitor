@@ -1,7 +1,6 @@
 """Tests for the snapshot processor module."""
 
 import logging
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,9 +11,9 @@ from registrarmonitor.data.snapshot_processor import SnapshotProcessor
 
 
 @pytest.fixture
-def processor(tmp_path: Path) -> SnapshotProcessor:
-    """Create a SnapshotProcessor with a temporary data directory."""
-    return SnapshotProcessor(data_dir=str(tmp_path))
+def processor() -> SnapshotProcessor:
+    """Create a SnapshotProcessor."""
+    return SnapshotProcessor()
 
 
 class TestProcessData:

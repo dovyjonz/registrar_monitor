@@ -109,7 +109,8 @@ After a long stop, before the first start:
    download and parse worked, the parsed size, whether a snapshot was stored, and the
    catch-up report size. `--keep` leaves the scratch directory for inspection. It
    sends, queues, and deploys nothing.
-2. `monitor poll` stores the current state, then `monitor baseline [--semester S]`
+2. `monitor poll` (storage must already exist via `monitor db initialize --semester S`;
+   polling never creates it) stores the current state, then `monitor baseline [--semester S]`
    records the latest snapshot as reported (it prints the old and new snapshot ids).
    Otherwise the first start would post everything that changed since the last
    report to the channel and queue subscriber digests for it. Baseline sends nothing
@@ -255,7 +256,7 @@ gcloud compute ssh instance-20260501-152532 --project registrarmonitor \
 paths with temporary write probes, frontend executables, the `ca_bundle` expiry, and SQLite integrity,
 foreign keys, and schema version. Missing optional state is a warning; integrity
 failures and missing required tools are errors. On the VM, run
-`scripts/runtime_doctor.sh` as the application user (locked dependencies, no sync).
+`scripts/runtime_doctor.sh` as the application user (it runs the same `.venv/bin/monitor` as the units).
 `monitor db stats` summarizes the databases.
 
 Commands log one plain-text line per event (`time LEVEL logger: message`) to stdout
