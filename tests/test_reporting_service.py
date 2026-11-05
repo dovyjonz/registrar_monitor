@@ -151,3 +151,36 @@ async def test_stateful_first_run_reports_retained_history(
     fake_db.add_reporting_log.assert_called_once_with(
         snapshot_id=2, changes_were_found=True
     )
+
+
+@pytest.mark.asyncio
+async def test_generating_a_report_prunes_old_reports(
+    tmp_path, make_settings, current_snapshot, previous_snapshot
+):
+    import os
+
+    reports = tmp_path / "changes"
+    reports.mkdir()
+    for number in range(5):
+        old = reports / f"old_{number}.txt"
+        old.write_text("old")
+        os.utime(old, (1_000_000 + number, 1_000_000 + number))
+    settings = make_settings(directories={"text_reports": str(reports)})
+
+    with (
+        patch("registrarmonitor.services.reporting_service.DatabaseManager"),
+        patch("registrarmonitor.services.reporting_service.SnapshotComparator"),
+        patch(
+            "registrarmonitor.services.reporting_service.ReportFormatter"
+        ) as formatter_cls,
+        patch("registrarmonitor.services.reporting_service.KEEP_REPORTS", 3),
+        patch("registrarmonitor.config.get_settings", return_value=settings),
+    ):
+        formatter_cls.return_value.format_changes_report.return_value = "report"
+        service = ReportingService(semester="Spring 2024")
+        path = await service._generate_text_report(current_snapshot, previous_snapshot)
+
+    kept = sorted(p.name for p in reports.glob("*.txt"))
+    assert len(kept) == 3
+    assert path is not None
+    assert os.path.basename(path) in kept

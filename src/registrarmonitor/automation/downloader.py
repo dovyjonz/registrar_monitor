@@ -1,6 +1,4 @@
 import asyncio
-import hashlib
-import json
 import os
 import uuid
 from datetime import datetime
@@ -12,6 +10,11 @@ from ..core import get_logger
 from ..core.exceptions import FileProcessingError
 from ..validation import validate_directory_exists
 from ..website.config import semester_sort_key
+
+DOWNLOAD_PREFIX = "school_schedule_by_term_"
+# Newest downloads to keep. More than one so a download still queued for
+# parsing is not pruned by the next burst-rate download.
+KEEP_DOWNLOADS = 5
 
 
 class DataDownloader:
@@ -37,43 +40,32 @@ class DataDownloader:
         self.semester = semester
         self.url = registrar_url.strip()
         self.raw_xls_directory = self.settings.directories.raw_downloads
-        self.state_path = os.path.join(
-            self.settings.directories.data_storage, "download_state.json"
-        )
-
-    def _load_state(self) -> dict:
-        try:
-            with open(self.state_path, encoding="utf-8") as f:
-                state = json.load(f)
-            return state if isinstance(state, dict) else {}
-        except (OSError, ValueError):
-            return {}
-
-    def _save_state(self, entry: dict | None) -> None:
-        """Persist (or with None, forget) this semester's last download."""
-        state = self._load_state()
-        if entry is None:
-            state.pop(self.semester, None)
-        else:
-            state[self.semester] = entry
-        os.makedirs(os.path.dirname(self.state_path), exist_ok=True)
-        tmp_path = f"{self.state_path}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp_path, self.state_path)
-
-    def forget_last_download(self) -> None:
-        """Make the next conditional download fetch and return the file again.
-
-        Call when a downloaded file could not be processed.
-        """
-        self._save_state(None)
 
     @staticmethod
     def _write_file(filename: str, content: bytes) -> None:
-        """Writes content to a file synchronously."""
+        """Write a download, then drop all but the newest few.
+
+        The newest files stay for debugging a bad parse; the rest would fill the
+        disk at the 10-second burst rate (about 280 MB an hour).
+        """
         with open(filename, "wb") as f:
             f.write(content)
+        directory = os.path.dirname(filename)
+        files = sorted(
+            (
+                entry
+                for entry in os.scandir(directory)
+                if entry.name.startswith(DOWNLOAD_PREFIX)
+                and entry.name.endswith(".xls")
+            ),
+            key=lambda entry: entry.stat().st_mtime,
+            reverse=True,
+        )
+        for old in files[KEEP_DOWNLOADS:]:
+            try:
+                os.unlink(old.path)
+            except OSError:
+                pass
 
     def _tls_verification(self) -> bool | str:
         """Return httpx's ``verify=`` value; verification is never disabled."""
@@ -87,17 +79,15 @@ class DataDownloader:
             )
         return ca_bundle
 
-    async def download(self, skip_unchanged: bool = False) -> str | None:
+    async def download(self) -> str:
         """
-        Download the enrollment data file.
+        Download the enrollment data file and return its path.
 
-        With ``skip_unchanged``, send ``If-None-Match`` / ``If-Modified-Since``
-        from the previous download and compare the SHA-256 of the body; return
-        None when the registrar file is unchanged so callers skip parsing,
-        comparison, and publishing. Failures raise ``FileProcessingError``.
-
-        Returns:
-            The path to the downloaded file, or None if it is unchanged.
+        The second row of the sheet is the registrar's generation time
+        (``ExcelReader`` reads it as the snapshot timestamp), so the bytes can
+        differ per response while the data does not. Unchanged data is detected
+        after parsing (see ``MonitoringService``), not here. Failures raise
+        ``FileProcessingError``.
         """
         validate_directory_exists(self.raw_xls_directory, create_if_missing=True)
 
@@ -106,44 +96,18 @@ class DataDownloader:
         unique_id = uuid.uuid4().hex[:8]
         filename = os.path.join(
             self.raw_xls_directory,
-            f"school_schedule_by_term_{timestamp}_{unique_id}.xls",
+            f"{DOWNLOAD_PREFIX}{timestamp}_{unique_id}.xls",
         )
-        previous = self._load_state().get(self.semester, {})
-        headers = {}
-        if skip_unchanged:
-            if previous.get("etag"):
-                headers["If-None-Match"] = previous["etag"]
-            if previous.get("last_modified"):
-                headers["If-Modified-Since"] = previous["last_modified"]
 
         try:
             verify = self._tls_verification()
             async with httpx.AsyncClient(verify=verify) as client:
                 print(f"Downloading file from {self.url}...")
-                response = await client.get(self.url, timeout=30.0, headers=headers)
-                if response.status_code == 304:
-                    self.logger.info("Registrar file not modified (HTTP 304)")
-                    return None
+                response = await client.get(self.url, timeout=30.0)
                 response.raise_for_status()
-
-                digest = hashlib.sha256(response.content).hexdigest()
-                if skip_unchanged and digest == previous.get("sha256"):
-                    self.logger.info("Registrar file unchanged (same SHA-256)")
-                    return None
-                validators = {
-                    key: value
-                    for key, header in (
-                        ("etag", "ETag"),
-                        ("last_modified", "Last-Modified"),
-                    )
-                    if isinstance(value := response.headers.get(header), str)
-                }
 
                 # Offload blocking I/O to a separate thread
                 await asyncio.to_thread(self._write_file, filename, response.content)
-                await asyncio.to_thread(
-                    self._save_state, {"sha256": digest, **validators}
-                )
 
                 print(f"File downloaded successfully as {filename}")
                 self.logger.info(f"Successfully downloaded file: {filename}")

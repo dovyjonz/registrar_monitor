@@ -1,7 +1,7 @@
 """Tests for CLI command implementations."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -36,11 +36,10 @@ def _mock_services():
         return_value="Spring 2024",
     )
     ms_patch = patch("registrarmonitor.cli.commands.MonitoringService")
-    db_patch = patch("registrarmonitor.cli.commands.DatabaseManager")
-    detect_patch.start()
+    detect_mock = detect_patch.start()
     ms_cls = ms_patch.start()
-    db_cls = db_patch.start()
-    return ms_cls, db_cls, [detect_patch, ms_patch, db_patch]
+    detect_patch.new = detect_mock
+    return ms_cls, [detect_patch, ms_patch]
 
 
 # ── PollCommand tests ─────────────────────────────────────────────
@@ -65,30 +64,27 @@ class TestPollCommand:
     async def test_run_with_result_download_success(self, sample_snapshot):
         from registrarmonitor.cli.commands import PollCommand
 
-        ms_cls, db_cls, patches = _mock_services()
+        ms_cls, patches = _mock_services()
 
         monitoring = ms_cls.return_value
         monitoring.download_and_process_latest = AsyncMock(
             return_value=(True, sample_snapshot, "/tmp/downloaded.xls")
         )
-        monitoring.get_snapshot_comparison.return_value = (sample_snapshot, None)
-
-        db_before = MagicMock()
-        db_before.get_latest_snapshot_id.return_value = None
-        db_cls.return_value = db_before
-
-        # Set up create_for_semester to return a mock with get_latest_snapshot_id returning 1
-        db_after = MagicMock()
-        db_after.get_latest_snapshot_id.return_value = 1
-        db_cls.create_for_semester.return_value = db_after
+        monitoring.db_manager.get_latest_snapshot_id.return_value = None
+        monitoring.db_for.return_value.get_latest_snapshot_id.return_value = 1
+        monitoring.db_for.return_value.get_previous_snapshot_id.return_value = None
+        monitoring.db_for.return_value.get_snapshot_data.return_value = sample_snapshot
 
         try:
-            cmd = PollCommand()
-            result = await cmd.run_with_result()
+            result = await PollCommand().run_with_result()
 
             assert result.success is True
             assert result.semester == "Spring 2024"
             assert result.snapshot_id_after == 1
+            # One reconstruction of the stored snapshot is handed on to the caller.
+            assert result.latest_snapshot is sample_snapshot
+            assert result.db_manager is monitoring.db_for.return_value
+            monitoring.db_for.return_value.get_snapshot_data.assert_called_once_with(1)
         finally:
             for p in patches:
                 p.stop()
@@ -97,20 +93,16 @@ class TestPollCommand:
     async def test_run_with_result_download_failure(self):
         from registrarmonitor.cli.commands import PollCommand
 
-        ms_cls, db_cls, patches = _mock_services()
+        ms_cls, patches = _mock_services()
 
         monitoring = ms_cls.return_value
         monitoring.download_and_process_latest = AsyncMock(
             return_value=(False, None, None)
         )
-
-        db_before = MagicMock()
-        db_before.get_latest_snapshot_id.return_value = None
-        db_cls.return_value = db_before
+        monitoring.db_manager.get_latest_snapshot_id.return_value = None
 
         try:
-            cmd = PollCommand()
-            result = await cmd.run_with_result()
+            result = await PollCommand().run_with_result()
 
             assert result.success is False
         finally:
@@ -122,6 +114,7 @@ class TestPollCommand:
         self, sample_course, tmp_path
     ):
         from registrarmonitor.cli.commands import PollCommand
+        from registrarmonitor.services.monitoring_service import ProcessedFile
 
         file_path = str(tmp_path / "fall-data.xls")
         Path(file_path).write_bytes(b"")
@@ -131,24 +124,17 @@ class TestPollCommand:
             overall_fill=0.75,
             courses={"CS 101": sample_course},
         )
-        ms_cls, db_cls, patches = _mock_services()
+        ms_cls, patches = _mock_services()
 
         monitoring = ms_cls.return_value
-        monitoring.process_specific_file.return_value = (
-            True,
-            new_semester_snapshot,
+        monitoring.process_specific_file = AsyncMock(
+            return_value=ProcessedFile(True, new_semester_snapshot, "digest")
         )
-        monitoring.get_snapshot_comparison.return_value = (
-            new_semester_snapshot,
-            None,
-        )
-
-        db_before = MagicMock()
-        db_before.get_latest_snapshot_id.return_value = 1
-        db_cls.return_value = db_before
-        db_after = MagicMock()
-        db_after.get_latest_snapshot_id.return_value = 1
-        db_cls.create_for_semester.return_value = db_after
+        monitoring.db_manager.get_latest_snapshot_id.return_value = 1
+        target = monitoring.db_for.return_value
+        target.get_latest_snapshot_id.return_value = 1
+        target.get_previous_snapshot_id.return_value = None
+        target.get_snapshot_data.return_value = new_semester_snapshot
 
         try:
             result = await PollCommand().run_with_result(file_path=file_path)
@@ -159,6 +145,75 @@ class TestPollCommand:
             assert result.snapshot_id_after == 1
             assert result.changed is True
             assert result.change_score == 1.0
+            assert result.rows_digest == "digest"
+        finally:
+            for patcher in patches:
+                patcher.stop()
+
+    @pytest.mark.asyncio
+    async def test_unchanged_rows_skip_comparison_and_reads(self, tmp_path):
+        from registrarmonitor.cli.commands import PollCommand
+        from registrarmonitor.services.monitoring_service import ProcessedFile
+
+        file_path = str(tmp_path / "data.xls")
+        Path(file_path).write_bytes(b"")
+        ms_cls, patches = _mock_services()
+        monitoring = ms_cls.return_value
+        monitoring.process_specific_file = AsyncMock(
+            return_value=ProcessedFile(True, None, "digest", unchanged=True)
+        )
+        monitoring.db_manager.get_latest_snapshot_id.return_value = 4
+
+        try:
+            result = await PollCommand().run_with_result(
+                file_path=file_path, previous_digest="digest"
+            )
+
+            assert result.success is True
+            assert result.unchanged is True
+            assert result.changed is False
+            assert result.change_score == 0.0
+            monitoring.process_specific_file.assert_awaited_once_with(
+                file_path, "digest"
+            )
+            monitoring.db_for.assert_not_called()
+            monitoring.db_manager.get_snapshot_data.assert_not_called()
+        finally:
+            for patcher in patches:
+                patcher.stop()
+
+    @pytest.mark.asyncio
+    async def test_known_semester_skips_detection_and_poll_logs_resources(
+        self, sample_snapshot, tmp_path, caplog
+    ):
+        import logging
+
+        from registrarmonitor.cli.commands import PollCommand
+        from registrarmonitor.services.monitoring_service import ProcessedFile
+
+        file_path = str(tmp_path / "data.xls")
+        Path(file_path).write_bytes(b"")
+        ms_cls, patches = _mock_services()
+        detect = patches[0].new  # the patched detect_active_semester
+        monitoring = ms_cls.return_value
+        monitoring.process_specific_file = AsyncMock(
+            return_value=ProcessedFile(True, sample_snapshot, "digest")
+        )
+        monitoring.db_manager.get_latest_snapshot_id.return_value = 1
+        monitoring.db_for.return_value.get_latest_snapshot_id.return_value = 1
+
+        try:
+            with caplog.at_level(logging.INFO):
+                await PollCommand().run_with_result(
+                    file_path=file_path, semester="Spring 2024"
+                )
+
+            detect.assert_not_called()
+            ms_cls.assert_called_once_with(semester="Spring 2024")
+            summary = [r.message for r in caplog.records if "Poll " in r.message]
+            assert len(summary) == 1
+            assert "duration=" in summary[0]
+            assert "peak_rss=" in summary[0]
         finally:
             for patcher in patches:
                 patcher.stop()

@@ -17,7 +17,11 @@ from ..config import get_settings
 from ..core import get_logger
 from ..models import EnrollmentSnapshot
 from ..validation import validate_directory_exists
-from .checkpointed_state import CHECKPOINTED_SCHEMA_VERSION, CheckpointedStateStore
+from .checkpointed_state import (
+    CHECKPOINTED_SCHEMA_VERSION,
+    CheckpointedStateStore,
+    WriteResult,
+)
 
 
 class DatabaseManager:
@@ -142,7 +146,7 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
-    def store_enrollment_snapshot(self, snapshot: EnrollmentSnapshot) -> None:
+    def store_enrollment_snapshot(self, snapshot: EnrollmentSnapshot) -> WriteResult:
         """
         Store a complete enrollment snapshot in the database.
 
@@ -160,7 +164,7 @@ class DatabaseManager:
                 f"Snapshot semester '{snapshot.semester}' differs from "
                 f"database semester '{self.semester}'"
             )
-        self._checkpointed_store.write_snapshot(snapshot)
+        return self._checkpointed_store.write_snapshot(snapshot)
 
     def _determine_status(self, fill_percentage: float) -> str:
         """

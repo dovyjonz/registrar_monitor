@@ -1,6 +1,10 @@
 """Command implementations for the registrarmonitor CLI."""
 
+import asyncio
+import resource
 import sqlite3
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,6 +17,7 @@ from ..data.checkpointed_state import (
 )
 from ..data.database_manager import DatabaseManager
 from ..data.snapshot_comparator import SnapshotComparator
+from ..models import EnrollmentSnapshot
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..utils import get_section_sort_key
 from .utils import detect_active_semester
@@ -29,6 +34,20 @@ class PollResult:
     snapshot_id_after: int | None = None
     changed: bool = False
     change_score: float = 0.0
+    # The parsed rows matched ``previous_digest``: nothing was stored or compared.
+    unchanged: bool = False
+    rows_digest: str | None = None
+    # Handed on so the rest of the poll reads the same manager and snapshots.
+    db_manager: DatabaseManager | None = None
+    latest_snapshot: EnrollmentSnapshot | None = None
+    previous_snapshot: EnrollmentSnapshot | None = None
+    previous_snapshot_id: int | None = None
+
+
+def _peak_rss_mb() -> float:
+    """Peak resident set size of this process in MB (kilobytes on Linux)."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / (1024 * 1024 if sys.platform == "darwin" else 1024)
 
 
 class PollCommand:
@@ -51,24 +70,77 @@ class PollCommand:
         result = await self.run_with_result(file_path=file_path)
         return result.success
 
-    async def run_with_result(self, file_path: str | None = None) -> PollResult:
-        """Run polling and return a structured result for workflow callers."""
+    async def run_with_result(
+        self,
+        file_path: str | None = None,
+        *,
+        semester: str | None = None,
+        previous_digest: str | None = None,
+    ) -> PollResult:
+        """Run polling and return a structured result for workflow callers.
+
+        Args:
+            file_path: Optional downloaded file to process instead of downloading
+            semester: The known active semester; skips detection across databases
+            previous_digest: Digest of the last processed rows. With ``file_path``,
+                a file whose parsed rows match it is skipped entirely.
+        """
+        started = time.perf_counter()
+        result = await self._run(file_path, semester, previous_digest)
+        status = (
+            "unchanged"
+            if result.unchanged
+            else "changed"
+            if result.changed
+            else "stored"
+            if result.success
+            else "failed"
+        )
+        self.logger.info(
+            "Poll %s duration=%.2fs peak_rss=%.1fMB",
+            status,
+            time.perf_counter() - started,
+            _peak_rss_mb(),
+        )
+        return result
+
+    async def _run(
+        self, file_path: str | None, semester: str | None, previous_digest: str | None
+    ) -> PollResult:
         if self.debug:
             print("🔍 DEBUG MODE: Polling for enrollment data")
 
         self.logger.info("Starting polling command")
 
         try:
-            # Try to detect active semester first
-            detected_semester = await detect_active_semester(self.debug)
+            detected_semester = semester or await detect_active_semester(self.debug)
             monitoring_service = MonitoringService(semester=detected_semester)
-            db_manager_before = DatabaseManager(semester=detected_semester)
-            snapshot_id_before = db_manager_before.get_latest_snapshot_id()
+            db_manager = monitoring_service.db_manager
+            snapshot_id_before = db_manager.get_latest_snapshot_id()
+            digest = None
 
             if file_path:
                 # Process specific file
                 print(f"📁 Processing specific file: {Path(file_path).name}")
-                success, snapshot = monitoring_service.process_specific_file(file_path)
+                processed = await monitoring_service.process_specific_file(
+                    file_path, previous_digest
+                )
+                success, snapshot, digest = (
+                    processed.success,
+                    processed.snapshot,
+                    processed.digest,
+                )
+                if processed.unchanged:
+                    print("ℹ️  Registrar data unchanged; nothing stored")
+                    return PollResult(
+                        success=True,
+                        semester=detected_semester,
+                        snapshot_id_before=snapshot_id_before,
+                        snapshot_id_after=snapshot_id_before,
+                        unchanged=True,
+                        rows_digest=digest,
+                        db_manager=db_manager,
+                    )
             else:
                 # Download and process latest
                 print("📥 Downloading and processing latest enrollment data...")
@@ -87,9 +159,7 @@ class PollCommand:
                     print(f"   🔍 DEBUG: Timestamp: {snapshot.timestamp}")
                     print(f"   🔍 DEBUG: Semester: {snapshot.semester}")
 
-                target_db_manager = DatabaseManager.create_for_semester(
-                    snapshot.semester
-                )
+                target_db_manager = monitoring_service.db_for(snapshot.semester)
                 snapshot_id_after = target_db_manager.get_latest_snapshot_id()
                 changed = (
                     snapshot.semester != detected_semester
@@ -97,7 +167,12 @@ class PollCommand:
                     or snapshot_id_after is None
                     or snapshot_id_before != snapshot_id_after
                 )
-                change_score = self._calculate_change_score(snapshot.semester, changed)
+                latest, previous, previous_id = (None, None, None)
+                if changed:
+                    latest, previous, previous_id = await asyncio.to_thread(
+                        self._latest_pair, target_db_manager, snapshot_id_after
+                    )
+                change_score = self._calculate_change_score(latest, previous)
 
                 return PollResult(
                     success=True,
@@ -107,6 +182,11 @@ class PollCommand:
                     snapshot_id_after=snapshot_id_after,
                     changed=changed,
                     change_score=change_score,
+                    rows_digest=digest,
+                    db_manager=target_db_manager,
+                    latest_snapshot=latest,
+                    previous_snapshot=previous,
+                    previous_snapshot_id=previous_id,
                 )
             else:
                 print("❌ Failed to download or process data")
@@ -125,15 +205,31 @@ class PollCommand:
             self.logger.error(f"Unexpected error in polling: {e}")
             return PollResult(success=False)
 
-    def _calculate_change_score(self, semester: str, changed: bool) -> float:
-        """Calculate the latest poll's activity score using the stored snapshots."""
-        if not changed:
-            return 0.0
-
-        monitoring_service = MonitoringService(semester=semester)
-        current_snapshot, previous_snapshot = (
-            monitoring_service.get_snapshot_comparison()
+    @staticmethod
+    def _latest_pair(
+        db_manager: DatabaseManager, latest_id: int | None
+    ) -> tuple[EnrollmentSnapshot | None, EnrollmentSnapshot | None, int | None]:
+        """Read the latest stored snapshot and the one before it, once."""
+        if latest_id is None:
+            return None, None, None
+        previous_id = db_manager.get_previous_snapshot_id(latest_id)
+        latest = db_manager.get_snapshot_data(latest_id)
+        previous = (
+            db_manager.get_snapshot_data(previous_id)
+            if previous_id is not None
+            else None
         )
+        return latest, previous, previous_id
+
+    def _calculate_change_score(
+        self,
+        current_snapshot: EnrollmentSnapshot | None,
+        previous_snapshot: EnrollmentSnapshot | None,
+    ) -> float:
+        """Score the latest poll's activity from the stored snapshots.
+
+        Zero when nothing changed (no snapshots were read).
+        """
         if not current_snapshot:
             return 0.0
         if not previous_snapshot:
