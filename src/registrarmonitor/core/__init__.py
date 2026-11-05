@@ -12,11 +12,10 @@ from .exceptions import (
     RegistrarMonitorError,
     ReportGenerationError,
 )
-from .logging_config import get_logger, setup_logging
+from .logging_config import setup_logging
 
 __all__ = [
     "setup_logging",
-    "get_logger",
     "RegistrarMonitorError",
     "ConfigurationError",
     "DataValidationError",

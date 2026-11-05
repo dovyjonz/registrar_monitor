@@ -9,15 +9,14 @@ import json
 import logging
 import logging.handlers
 import sys
-import time
-from collections.abc import Callable
 from copy import copy
 from pathlib import Path
 
 from ..config import get_settings
 
-# Global flag to prevent multiple logging setups
-_logging_setup_done = False
+LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+LOG_FILE_NAME = "registrar_monitor.log"
 
 
 class ColoredFormatter(logging.Formatter):
@@ -65,7 +64,6 @@ def setup_logging(
     enable_file: bool = True,
     max_file_size: int = 10_000_000,  # 10MB
     backup_count: int = 5,
-    force_setup: bool = False,
     json_logs: bool = False,
 ) -> None:
     """
@@ -78,14 +76,9 @@ def setup_logging(
         enable_file: Whether to enable file logging
         max_file_size: Maximum size for log files before rotation
         backup_count: Number of backup log files to keep
-        force_setup: Force setup even if already done (useful for tests)
-        json_logs: Emit JSON lines on the console (for services under systemd)
+        json_logs: Emit JSON lines on the console (for services under systemd).
+            JSON mode logs to the journal only, so no file handler is added.
     """
-    global _logging_setup_done
-
-    # Prevent multiple setups unless forced
-    if _logging_setup_done and not force_setup:
-        return
     # Convert string level to logging constant
     numeric_level = getattr(logging, level.upper(), logging.INFO)
 
@@ -110,138 +103,45 @@ def setup_logging(
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-    # Create formatters
-    console_formatter: logging.Formatter = (
-        JsonFormatter()
-        if json_logs
-        else ColoredFormatter(
-            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
+    # Console and file share one plain-text format; JSON lines for services.
+    console_stream = sys.stdout
+    console_formatter: logging.Formatter
+    if json_logs:
+        console_formatter = JsonFormatter()
+    elif console_stream.isatty():
+        console_formatter = ColoredFormatter(fmt=LOG_FORMAT, datefmt=LOG_DATEFMT)
+    else:
+        console_formatter = logging.Formatter(fmt=LOG_FORMAT, datefmt=LOG_DATEFMT)
 
-    file_formatter = logging.Formatter(
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    # Console handler
     if enable_console:
-        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler = logging.StreamHandler(console_stream)
         console_handler.setLevel(numeric_level)
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
 
-    # File handlers
-    if enable_file:
+    # Services under systemd log to the journal only.
+    write_file = enable_file and not json_logs
+    if write_file:
         log_path.mkdir(parents=True, exist_ok=True)
-        # Main application log (rotating)
-        main_log_file = log_path / "registrar_monitor.log"
         file_handler = logging.handlers.RotatingFileHandler(
-            main_log_file,
+            log_path / LOG_FILE_NAME,
             maxBytes=max_file_size,
             backupCount=backup_count,
             encoding="utf-8",
         )
         file_handler.setLevel(numeric_level)
-        file_handler.setFormatter(file_formatter)
+        file_handler.setFormatter(
+            logging.Formatter(fmt=LOG_FORMAT, datefmt=LOG_DATEFMT)
+        )
         root_logger.addHandler(file_handler)
 
-        # Error log (for ERROR and CRITICAL only)
-        error_log_file = log_path / "errors.log"
-        error_handler = logging.handlers.RotatingFileHandler(
-            error_log_file,
-            maxBytes=max_file_size,
-            backupCount=backup_count,
-            encoding="utf-8",
-        )
-        error_handler.setLevel(logging.ERROR)
-        error_handler.setFormatter(file_formatter)
-        root_logger.addHandler(error_handler)
-
-    # Mark logging as set up
-    _logging_setup_done = True
-
-    # Log the logging setup
     logger = logging.getLogger(__name__)
-    logger.info(
-        "Logging initialized - Level: %s, Console: %s, File: %s",
+    logger.debug(
+        "Logging initialized level=%s console=%s file=%s json=%s",
         level,
         enable_console,
-        enable_file,
+        write_file,
+        json_logs,
     )
-    if enable_file:
-        logger.info("Log files location: %s", log_path)
-
-
-def get_logger(name: str | None = None) -> logging.Logger:
-    """
-    Get a logger instance with consistent configuration.
-
-    Args:
-        name: Logger name (defaults to caller's module name)
-
-    Returns:
-        Configured logger instance
-    """
-    if name is None:
-        # Get the caller's module name
-        import inspect
-
-        frame = inspect.currentframe()
-        if frame and frame.f_back:
-            name = frame.f_back.f_globals.get("__name__", "registrarmonitor")
-
-    return logging.getLogger(name)
-
-
-def log_performance[**P, R](func: Callable[P, R]) -> Callable[P, R]:
-    """
-    Decorator to log function performance metrics.
-
-    Usage:
-        @log_performance
-        def my_function():
-            pass
-    """
-    import functools
-
-    name = getattr(func, "__name__", type(func).__name__)
-
-    @functools.wraps(func)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        logger = get_logger(func.__module__)
-        start_time = time.monotonic()
-
-        try:
-            logger.debug("Starting %s", name)
-            result = func(*args, **kwargs)
-            duration = time.monotonic() - start_time
-            logger.debug("Completed %s in %.3fs", name, duration)
-            return result
-        except Exception:
-            duration = time.monotonic() - start_time
-            logger.exception("Failed %s after %.3fs", name, duration)
-            raise
-
-    return wrapper
-
-
-def log_method_calls(cls):
-    """
-    Class decorator to log all method calls.
-
-    Usage:
-        @log_method_calls
-        class MyClass:
-            pass
-    """
-    logger = get_logger(cls.__module__)
-
-    for attr_name in dir(cls):
-        attr = getattr(cls, attr_name)
-        if callable(attr) and not attr_name.startswith("_"):
-            setattr(cls, attr_name, log_performance(attr))
-
-    logger.debug("Added logging to all methods in %s", cls.__name__)
-    return cls
+    if write_file:
+        logger.debug("Log file: %s", log_path / LOG_FILE_NAME)

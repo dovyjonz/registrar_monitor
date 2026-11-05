@@ -1,11 +1,12 @@
 """Command implementations for the registrarmonitor CLI."""
 
+import datetime as dt
+import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import get_settings
-from ..core import get_logger
 from ..core.exceptions import FileProcessingError, ReportGenerationError
 from ..data.checkpointed_state import (
     CHECKPOINTED_SCHEMA_VERSION,
@@ -16,6 +17,8 @@ from ..data.snapshot_comparator import SnapshotComparator
 from ..services import MonitoringService, ReportingService, WebsiteService
 from ..utils import get_section_sort_key
 from .utils import detect_active_semester
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -36,7 +39,6 @@ class PollCommand:
 
     def __init__(self, debug: bool = False):
         self.debug = debug
-        self.logger = get_logger(__name__)
 
     async def run(self, file_path: str | None = None) -> bool:
         """
@@ -53,10 +55,9 @@ class PollCommand:
 
     async def run_with_result(self, file_path: str | None = None) -> PollResult:
         """Run polling and return a structured result for workflow callers."""
-        if self.debug:
-            print("🔍 DEBUG MODE: Polling for enrollment data")
-
-        self.logger.info("Starting polling command")
+        logger.info(
+            "Poll started source=%s", Path(file_path).name if file_path else "download"
+        )
 
         try:
             # Try to detect active semester first
@@ -67,11 +68,9 @@ class PollCommand:
 
             if file_path:
                 # Process specific file
-                print(f"📁 Processing specific file: {Path(file_path).name}")
                 success, snapshot = monitoring_service.process_specific_file(file_path)
             else:
                 # Download and process latest
-                print("📥 Downloading and processing latest enrollment data...")
                 (
                     success,
                     snapshot,
@@ -79,13 +78,13 @@ class PollCommand:
                 ) = await monitoring_service.download_and_process_latest()
 
             if success and snapshot:
-                print(
-                    f"✅ Successfully processed {len(snapshot.courses)} courses for {snapshot.semester}"
+                logger.info(
+                    "Poll processed semester=%s courses=%d overall_fill=%.1f%% timestamp=%s",
+                    snapshot.semester,
+                    len(snapshot.courses),
+                    snapshot.overall_fill * 100,
+                    snapshot.timestamp,
                 )
-                if self.debug:
-                    print(f"   📈 Overall fill: {snapshot.overall_fill:.1%}")
-                    print(f"   🔍 DEBUG: Timestamp: {snapshot.timestamp}")
-                    print(f"   🔍 DEBUG: Semester: {snapshot.semester}")
 
                 target_db_manager = DatabaseManager.create_for_semester(
                     snapshot.semester
@@ -109,7 +108,7 @@ class PollCommand:
                     change_score=change_score,
                 )
             else:
-                print("❌ Failed to download or process data")
+                logger.error("Poll failed: no data downloaded or processed")
                 return PollResult(
                     success=False,
                     semester=detected_semester,
@@ -117,12 +116,10 @@ class PollCommand:
                 )
 
         except FileProcessingError as e:
-            print(f"❌ File processing error: {e}")
-            self.logger.error(f"File processing error in polling: {e}")
+            logger.error("Poll file processing error: %s", e)
             return PollResult(success=False)
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}")
-            self.logger.error(f"Unexpected error in polling: {e}")
+        except Exception:
+            logger.exception("Poll failed unexpectedly")
             return PollResult(success=False)
 
     def _calculate_change_score(self, semester: str, changed: bool) -> float:
@@ -180,7 +177,6 @@ class ReportCommand:
         self.debug = debug
         self.no_telegram = no_telegram
         self.stateful = stateful
-        self.logger = get_logger(__name__)
 
     async def run(self) -> bool:
         """
@@ -189,15 +185,8 @@ class ReportCommand:
         Returns:
             bool: True if successful, False otherwise
         """
-        if self.debug:
-            mode_str = "stateful" if self.stateful else "standard"
-            telegram_str = "(no Telegram)" if self.no_telegram else "(with Telegram)"
-            print(
-                f"🔍 DEBUG MODE: Generating reports - Mode: {mode_str} {telegram_str}"
-            )
-
-        self.logger.info(
-            f"Starting reporting command (stateful={self.stateful}, no_telegram={self.no_telegram})"
+        logger.info(
+            "Report started stateful=%s no_telegram=%s", self.stateful, self.no_telegram
         )
 
         try:
@@ -210,9 +199,7 @@ class ReportCommand:
 
             # Handle stateful reporting
             if self.stateful:
-                if self.debug:
-                    print("🔄 Running stateful reporting cycle...")
-
+                logger.debug("Running stateful reporting cycle")
                 try:
                     # Run the cycle; exceptions will bubble up on actual failure
                     # Return value (bool) just indicates if reports were sent or not,
@@ -222,10 +209,9 @@ class ReportCommand:
                         debug_mode=self.debug,
                     )
                     return True
-                except Exception as e:
-                    print(f"❌ Stateful reporting failed: {e}")
-                    # Re-raise to let the outer exception handler log it too if needed
-                    raise e
+                except Exception:
+                    logger.exception("Stateful reporting failed")
+                    return False
 
             # Standard Reporting Flow
             # Get latest snapshots
@@ -234,21 +220,15 @@ class ReportCommand:
             )
 
             if not current_snapshot:
-                print("❌ No snapshots found in database")
+                logger.error("Report failed: no snapshots found in database")
                 return False
 
-            if self.debug:
-                print(f"📊 Generating reports for {current_snapshot.semester}")
-                if previous_snapshot:
-                    print("📊 Previous snapshot available for comparison")
-                    print(
-                        f"   🔍 DEBUG: Current snapshot timestamp: {current_snapshot.timestamp}"
-                    )
-                    print(
-                        f"   🔍 DEBUG: Previous snapshot timestamp: {previous_snapshot.timestamp}"
-                    )
-                else:
-                    print("⚠️  No previous snapshot for comparison")
+            logger.debug(
+                "Generating reports semester=%s current=%s previous=%s",
+                current_snapshot.semester,
+                current_snapshot.timestamp,
+                previous_snapshot.timestamp if previous_snapshot else None,
+            )
 
             # Generate reports with appropriate settings
             send_telegram = not self.no_telegram
@@ -263,32 +243,25 @@ class ReportCommand:
             )
 
             if success:
-                print(f"✅ Generated {len(generated_files)} reports:")
-                for file_path in generated_files:
-                    print(f"   📄 {file_path}")
-
+                logger.info(
+                    "Reports generated semester=%s count=%d telegram=%s files=%s",
+                    current_snapshot.semester,
+                    len(generated_files),
+                    send_telegram and bool(generated_files),
+                    [str(f) for f in generated_files],
+                )
                 if not generated_files:
-                    print("ℹ️  No comparison report generated")
-                elif send_telegram:
-                    print("📱 Reports sent to Telegram")
-                else:
-                    print("💾 Reports saved locally (Telegram disabled)")
-
-                if self.debug:
-                    print("🔍 DEBUG: Report generation complete")
-
+                    logger.info("No comparison report generated")
             else:
-                print("❌ Failed to generate reports")
+                logger.error("Report generation failed")
 
             return success
 
         except ReportGenerationError as e:
-            print(f"❌ Reporting error: {e}")
-            self.logger.error(f"Reporting error: {e}")
+            logger.error("Reporting error: %s", e)
             return False
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}")
-            self.logger.error(f"Unexpected error in reporting: {e}")
+        except Exception:
+            logger.exception("Reporting failed unexpectedly")
             return False
 
 
@@ -304,7 +277,6 @@ class RunCommand:
         self.debug = debug
         self.no_telegram = no_telegram
         self.deploy = deploy
-        self.logger = get_logger(__name__)
 
     async def run(self) -> bool:
         """
@@ -313,49 +285,35 @@ class RunCommand:
         Returns:
             bool: True if successful, False otherwise
         """
-        if self.debug:
-            print(
-                f"🔍 DEBUG MODE: Running complete process {'(no Telegram)' if self.no_telegram else '(with Telegram)'}"
-            )
-
-        self.logger.info("Starting complete process workflow")
+        logger.info(
+            "Run started no_telegram=%s deploy=%s", self.no_telegram, self.deploy
+        )
 
         try:
-            if self.debug:
-                print("🚀 Starting complete process: Poll → Report → Website")
-                print("=" * 50)
-
             # Step 1: Poll for data
-            if self.debug:
-                print("📥 Step 1/3: Polling for enrollment data...")
+            logger.debug("Step 1/3: polling")
             poll_command = PollCommand(debug=self.debug)
             poll_result = await poll_command.run_with_result()
 
             if not poll_result.success:
-                print("❌ Polling failed. Aborting complete process.")
+                logger.error("Run aborted: polling failed")
                 return False
 
-            if self.debug:
-                print(
-                    f"✅ Polling completed successfully (activity: {poll_result.change_score:.2f})"
-                )
-                print("-" * 30)
+            logger.debug("Polling completed activity=%.2f", poll_result.change_score)
 
             # Step 2: Generate and send reports
-            if self.debug:
-                print("📊 Step 2/3: Generating reports...")
+            logger.debug("Step 2/3: reporting")
             report_command = ReportCommand(
                 debug=self.debug, no_telegram=self.no_telegram
             )
             report_success = await report_command.run()
 
             if not report_success:
-                print("❌ Reporting failed")
+                logger.error("Run aborted: reporting failed")
                 return False
 
             # Step 3: Generate website, and deploy only when explicitly requested.
-            if self.debug:
-                print("🌐 Step 3/3: Generating website...")
+            logger.debug("Step 3/3: website")
             website_service = WebsiteService()
             website_success = website_service.generate(
                 semester_key=None,
@@ -363,22 +321,23 @@ class RunCommand:
                 minify=True,
             )
             if not website_success:
-                print("❌ Website generation failed")
+                logger.error("Run aborted: website generation failed")
                 return False
             if self.deploy:
                 if getattr(website_service, "last_generation_skipped", False):
-                    print("❌ Website generation was skipped; refusing stale deploy.")
+                    logger.error(
+                        "Website generation was skipped; refusing stale deploy"
+                    )
                     return False
                 if not website_service.deploy():
                     return False
 
-            print("✅ Complete process finished successfully!")
+            logger.info("Run finished successfully")
 
             return True
 
-        except Exception as e:
-            print(f"❌ Unexpected error in complete process: {e}")
-            self.logger.error(f"Unexpected error in complete process: {e}")
+        except Exception:
+            logger.exception("Run failed unexpectedly")
             return False
 
 
@@ -393,31 +352,13 @@ class ScheduleCommand:
     ):
         self.debug = debug
         self.no_telegram = no_telegram
-        self.logger = get_logger(__name__)
 
     async def run(self) -> None:
         """Run the scheduler command."""
-        if self.debug:
-            print("🔍 DEBUG MODE: Starting scheduler")
-
-        self.logger.info("Starting scheduler")
-
         try:
             from ..automation.scheduler import TwoPhaseScheduler
 
-            print("⏰ Starting Two-Phase Scheduler...")
-            print("   📅 Schedule: settings.toml milestones")
-            print("   🔄 Two-phase mode: Quiet/Burst separation (with quiet decay)")
-            if self.no_telegram:
-                print("   📵 Telegram reports: DISABLED")
-            print("   🛑 Press Ctrl+C to stop")
             scheduler = TwoPhaseScheduler(no_telegram=self.no_telegram)
-
-            if self.debug:
-                print("🔍 DEBUG: Scheduler will show detailed logs")
-
-            # Display next sync and report times
-            import datetime as dt
 
             now = dt.datetime.now()
             poll_interval, _ = scheduler.get_next_poll_interval(0, update_state=False)
@@ -427,28 +368,22 @@ class ScheduleCommand:
 
             # Determine which sync comes first
             if pre_report_sync_time > now and pre_report_sync_time < next_sync_time:
-                print(
-                    f"   📥 Pre-report sync at: {pre_report_sync_time.strftime('%H:%M:%S')}",
-                    flush=True,
-                )
+                next_sync = f"{pre_report_sync_time:%H:%M:%S} (pre-report)"
             else:
-                print(
-                    f"   🔄 Next sync at: {next_sync_time.strftime('%H:%M:%S')}",
-                    flush=True,
-                )
-            print(
-                f"   📨 Next report at: {next_report_time.strftime('%H:%M')}",
-                flush=True,
+                next_sync = f"{next_sync_time:%H:%M:%S}"
+            logger.info(
+                "Scheduler starting no_telegram=%s next_sync=%s next_report=%s",
+                self.no_telegram,
+                next_sync,
+                f"{next_report_time:%H:%M}",
             )
 
             await scheduler.start()
 
         except KeyboardInterrupt:
-            print("\n🛑 Scheduler stopped by user")
-            self.logger.info("Scheduler stopped by user")
-        except Exception as e:
-            print(f"❌ Scheduler error: {e}")
-            self.logger.error(f"Scheduler error: {e}")
+            logger.info("Scheduler stopped by user")
+        except Exception:
+            logger.exception("Scheduler failed")
 
 
 class DatabaseCommands:
@@ -456,7 +391,6 @@ class DatabaseCommands:
 
     def __init__(self, debug: bool = False):
         self.debug = debug
-        self.logger = get_logger(__name__)
 
     async def initialize_fresh_storage(
         self,
@@ -485,11 +419,12 @@ class DatabaseCommands:
             else:
                 CheckpointedStateStore(database)
                 status = "initialized"
-            print(f"✅ Fresh storage {status}: {semester}; database={database}")
+            logger.info(
+                "Fresh storage %s semester=%s database=%s", status, semester, database
+            )
             return True
         except Exception as error:
-            print(f"❌ Fresh storage initialization failed: {error}")
-            self.logger.error(f"Fresh storage initialization error: {error}")
+            logger.error("Fresh storage initialization failed: %s", error)
             return False
 
     async def stats(self) -> bool:
@@ -501,7 +436,7 @@ class DatabaseCommands:
             stats = monitoring_service.get_database_stats()
 
             if stats:
-                print("\n📊 Database Statistics:")
+                print("Database Statistics:")
                 print(f"   Snapshots: {stats.get('snapshots', 0)}")
                 print(f"   Courses: {stats.get('courses', 0)}")
                 print(f"   Sections: {stats.get('sections', 0)}")
@@ -509,21 +444,13 @@ class DatabaseCommands:
                     f"   Date range: {stats.get('earliest_snapshot', 'N/A')} to {stats.get('latest_snapshot', 'N/A')}"
                 )
 
-                if self.debug:
-                    print("🔍 DEBUG: Additional database info available")
-                    if detected_semester:
-                        print(
-                            f"🔍 DEBUG: Active semester detected: {detected_semester}"
-                        )
-
                 return True
             else:
-                print("❌ Unable to retrieve database statistics")
+                logger.error("Unable to retrieve database statistics")
                 return False
 
-        except Exception as e:
-            print(f"❌ Error getting database stats: {e}")
-            self.logger.error(f"Database stats error: {e}")
+        except Exception:
+            logger.exception("Database stats failed")
             return False
 
 
@@ -532,7 +459,6 @@ class StatusCommand:
 
     def __init__(self, debug: bool = False):
         self.debug = debug
-        self.logger = get_logger(__name__)
 
     async def run(self, courses: list[str], semester: str | None = None) -> bool:
         """
@@ -542,9 +468,6 @@ class StatusCommand:
             courses: List of course codes to check
             semester: Optional specific semester
         """
-        if self.debug:
-            print(f"🔍 DEBUG MODE: Checking status for {courses}")
-
         try:
             detected_semester = semester or await detect_active_semester(self.debug)
             monitoring_service = MonitoringService(semester=detected_semester)
@@ -552,10 +475,10 @@ class StatusCommand:
             # Get latest snapshot
             snapshot = monitoring_service.get_latest_snapshot()
             if not snapshot:
-                print(f"❌ No data found for semester {detected_semester}")
+                logger.error("No data found semester=%s", detected_semester)
                 return False
 
-            print(f"📊 Course Status for {snapshot.semester}")
+            print(f"Course Status for {snapshot.semester}")
             print(f"   (Data from {snapshot.timestamp})")
             print("-" * 50)
 
@@ -566,18 +489,21 @@ class StatusCommand:
                     found_any = True
                     self._print_course_status(course)
                 else:
-                    print(f"⚠️  Course not found: {course_code}")
+                    logger.warning(
+                        "Course not found course=%s semester=%s",
+                        course_code,
+                        snapshot.semester,
+                    )
 
             return found_any
 
-        except Exception as e:
-            print(f"❌ Error checking status: {e}")
-            self.logger.error(f"Status check error: {e}")
+        except Exception:
+            logger.exception("Status check failed")
             return False
 
     def _print_course_status(self, course) -> None:
         """Print detailed status for a course."""
-        print(f"\n📘 {course.course_code}: {course.course_title or 'No Title'}")
+        print(f"\n{course.course_code}: {course.course_title or 'No Title'}")
         print(
             f"   Total Enrollment: {course.total_enrollment}/{course.total_capacity} ({course.average_fill:.1%})"
         )
@@ -602,7 +528,6 @@ class DeployCommand:
 
     def __init__(self, debug: bool = False):
         self.debug = debug
-        self.logger = get_logger(__name__)
 
     def run(
         self,
@@ -613,11 +538,8 @@ class DeployCommand:
         output_dir: Path | None = None,
     ) -> bool:
         """Run the deploy command."""
-        if self.debug:
-            print("🔍 DEBUG MODE: Website generation/deployment")
-
         if deploy and output_dir is not None:
-            print("❌ Isolated website output is generation-only; refusing deploy.")
+            logger.error("Isolated website output is generation-only; refusing deploy")
             return False
 
         service = (
@@ -634,7 +556,7 @@ class DeployCommand:
         # Step 2: Deploy if requested
         if deploy:
             if getattr(service, "last_generation_skipped", False):
-                print("❌ Website generation was skipped; refusing stale deploy.")
+                logger.error("Website generation was skipped; refusing stale deploy")
                 return False
             return service.deploy()
 

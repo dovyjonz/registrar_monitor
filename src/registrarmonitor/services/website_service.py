@@ -2,13 +2,13 @@
 
 import hashlib
 import json
+import logging
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
 from ..config import get_settings
-from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..website.catalog import build_publication_catalog
 from ..website.checksums import get_semesters_needing_update, update_checksum
@@ -35,6 +35,8 @@ from ..website.templates import (
 DEPLOY_TIMEOUT_SECONDS = 900
 WORKER_CONFIG = Path(__file__).resolve().parents[3] / "workers/site/wrangler.jsonc"
 
+logger = logging.getLogger(__name__)
+
 
 class WebsiteService:
     """Service for handling website generation and deployment."""
@@ -43,7 +45,6 @@ class WebsiteService:
         self,
         output_dir: Path | None = None,
     ):
-        self.logger = get_logger(__name__)
         self.last_generation_skipped = False
         self._output_dir = output_dir.resolve() if output_dir is not None else None
         # src/registrarmonitor/services/website_service.py -> .../repo/frontend
@@ -91,7 +92,7 @@ class WebsiteService:
         Returns:
             Tuple of (output_path, file_size_kb) - output_path may be None if no data
         """
-        print(f"  Generating {semester}...", flush=True)
+        logger.info("Generating page semester=%s", semester)
 
         semesters = publication_semesters or [
             entry.label for entry in build_publication_catalog()
@@ -113,8 +114,8 @@ class WebsiteService:
 
         # Check if we have data
         if not data.get("cr"):
-            print(
-                f"    Warning: No courses found for {semester}; generating empty page"
+            logger.warning(
+                "No courses found semester=%s; generating empty page", semester
             )
 
         # Publish the v3 read model consumed by the generated frontend. The
@@ -175,8 +176,12 @@ class WebsiteService:
 
         file_size_kb = output_path.stat().st_size / 1024
         snapshot_count = len(data.get("sn", []))
-        print(
-            f"    {course_count} courses, {snapshot_count} snapshots ({file_size_kb:.1f} KB)"
+        logger.info(
+            "Generated page semester=%s courses=%d snapshots=%d size_kb=%.1f",
+            semester,
+            course_count,
+            snapshot_count,
+            file_size_kb,
         )
 
         return output_path, file_size_kb
@@ -285,7 +290,7 @@ class WebsiteService:
                 semesters=semesters,
                 minify_assets=minify_assets,
             )
-        print(f"  Published {len(states)} clean course routes", flush=True)
+        logger.info("Published clean course routes count=%d", len(states))
         return len(states)
 
     def _patch_asset_hashes_in_html(self) -> bool:
@@ -307,15 +312,16 @@ class WebsiteService:
 
         manifest_path = self.output_dir / "assets" / ".vite" / "manifest.json"
         if not manifest_path.exists():
-            print(
-                "Warning: manifest.json not found - cannot patch asset hashes in HTML."
+            logger.warning(
+                "manifest.json not found path=%s; cannot patch asset hashes",
+                manifest_path,
             )
             return False
 
         try:
             manifest = json.loads(manifest_path.read_text())
         except Exception as e:
-            print(f"Warning: Failed to read manifest.json: {e}")
+            logger.warning("Failed to read manifest.json path=%s: %s", manifest_path, e)
             return False
 
         entry = manifest.get("src/main.js", {})
@@ -324,7 +330,7 @@ class WebsiteService:
         new_css = css_files[0] if css_files else None  # e.g. "main-CKing-67.css"
 
         if not new_js:
-            print("Warning: No JS entry in manifest - skipping asset hash patch.")
+            logger.warning("No JS entry in manifest; skipping asset hash patch")
             return False
 
         output_dir = self.output_dir
@@ -352,9 +358,7 @@ class WebsiteService:
                 html_file.write_text(text, encoding="utf-8")
                 patched += 1
 
-        print(
-            f"Patched asset hashes in {patched} HTML file(s) - no page regeneration needed."
-        )
+        logger.info("Patched asset hashes html_files=%d", patched)
         return True
 
     def _frontend_dependencies_need_install(self) -> bool:
@@ -419,8 +423,7 @@ class WebsiteService:
         """Return whether generated HTML references existing built assets."""
         issues = self._frontend_asset_reference_issues()
         for issue in issues:
-            self.logger.error(issue)
-            print(f"Error: {issue}")
+            logger.error(issue)
         return not issues
 
     def _frontend_source_hash(self) -> str:
@@ -464,10 +467,10 @@ class WebsiteService:
         except OSError:
             recorded = ""
         if recorded == source_hash and manifest.is_file():
-            print("Frontend assets are current; skipping build.")
+            logger.info("Frontend assets are current; skipping build")
             return self._validate_asset_references_in_html()
 
-        print("Building frontend assets...")
+        logger.info("Building frontend assets")
         build_cmd = ["npm", "run", "build"]
 
         # Constrain Node.js memory and disable telemetry to prevent OOM on 1GB VMs
@@ -479,13 +482,13 @@ class WebsiteService:
 
         try:
             if self._frontend_dependencies_need_install():
-                print("Installing/updating frontend dependencies...")
+                logger.info("Installing frontend dependencies")
                 subprocess.run(
                     ["npm", "install"], cwd=self.website_assets_dir, check=True, env=env
                 )
 
             subprocess.run(build_cmd, cwd=self.website_assets_dir, check=True, env=env)
-            print("Frontend build successful.")
+            logger.info("Frontend build successful")
 
             # Patch asset hashes in all deployed HTML files without regenerating them.
             if not self._patch_asset_hashes_in_html():
@@ -496,15 +499,10 @@ class WebsiteService:
             self._build_hash_file.write_text(source_hash + "\n", encoding="utf-8")
             return True
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Error building frontend assets: {e}")
-            print(f"Error building frontend assets: {e}")
-            print(
-                "Warning: proceeding without fresh build. Manifest might be outdated."
-            )
+            logger.error("Frontend build failed: %s", e)
             return False
         except FileNotFoundError:
-            self.logger.error("npm not found. Is Node.js installed?")
-            print("Error: npm not found. Is Node.js installed?")
+            logger.error("npm not found. Is Node.js installed?")
             return False
 
     def _remove_obsolete_html(self) -> None:
@@ -781,8 +779,9 @@ class WebsiteService:
             self._semester_data_cache.clear()
             # Skip if not active (unless forced)
             if not force and not self.is_any_semester_active():
-                print("💤 Outside active registration windows. Skipping build/deploy.")
-                print("   (Use --force to override)")
+                logger.info(
+                    "Outside active registration windows; skipping build/deploy (use --force to override)"
+                )
                 self.last_generation_skipped = True
                 return True
 
@@ -792,17 +791,17 @@ class WebsiteService:
             catalog = build_publication_catalog()
             publishable_semesters = [entry.label for entry in catalog]
             if not publishable_semesters:
-                print("No configured semesters have a matching stored snapshot.")
+                logger.error("No configured semesters have a matching stored snapshot")
                 return False
 
             # Build frontend assets first
             if not self.build_frontend_assets():
-                print("❌ Frontend build failed. Aborting website generation.")
+                logger.error("Frontend build failed; aborting website generation")
                 return False
 
             root_preview = self.website_assets_dir / "previews" / "root.png"
             if not root_preview.is_file():
-                print(f"Error: Missing evergreen preview image: {root_preview}")
+                logger.error("Missing evergreen preview image path=%s", root_preview)
                 return False
             preview_output = self.output_dir / "previews"
             preview_output.mkdir(parents=True, exist_ok=True)
@@ -812,13 +811,13 @@ class WebsiteService:
                 # Generate only the specified semester
                 key_map = semester_key_map()
                 if semester_key not in key_map:
-                    print(f"Error: Unknown semester key '{semester_key}'")
+                    logger.error("Unknown semester key=%s", semester_key)
                     return False
                 semester = key_map[semester_key]
                 if semester not in publishable_semesters:
-                    print(f"Error: Semester '{semester}' is not publishable")
+                    logger.error("Semester is not publishable semester=%s", semester)
                     return False
-                print(f"Generating website for {semester}...")
+                logger.info("Generating website semester=%s", semester)
                 self.generate_semester_page(
                     semester,
                     minify_assets=minify,
@@ -833,9 +832,9 @@ class WebsiteService:
                 )
 
                 if not semesters_to_update:
-                    print("All pages up to date.")
+                    logger.info("All pages up to date")
                 else:
-                    print(f"Generating {len(semesters_to_update)} page(s)...")
+                    logger.info("Generating pages count=%d", len(semesters_to_update))
                     total_size = 0.0
                     for semester in semesters_to_update:
                         _, size_kb = self.generate_semester_page(
@@ -845,20 +844,22 @@ class WebsiteService:
                         )
                         total_size += size_kb
 
-                    print(
-                        f"\nGenerated {len(semesters_to_update)} pages ({total_size:.1f} KB total)"
+                    logger.info(
+                        "Generated pages count=%d total_kb=%.1f",
+                        len(semesters_to_update),
+                        total_size,
                     )
 
                 # Always regenerate index.html (redirect page)
                 index_html = build_redirect_index(publishable_semesters[0])
                 index_path = self.output_dir / "index.html"
                 index_path.write_text(index_html)
-                print("Updated index.html (redirect)")
+                logger.debug("Updated index.html (redirect)")
 
                 # Generate Cloudflare _headers file with security headers
                 headers_path = self.output_dir / "_headers"
                 headers_path.write_text(self._build_headers_content())
-                print("Generated Cloudflare _headers")
+                logger.debug("Generated Cloudflare _headers")
 
                 # Keep local state out of the deployed assets
                 (self.output_dir / ".assetsignore").write_text(
@@ -868,33 +869,31 @@ class WebsiteService:
                 # Generate robots.txt
                 robots_path = self.output_dir / "robots.txt"
                 robots_path.write_text(self._build_robots_content())
-                print("Generated robots.txt")
+                logger.debug("Generated robots.txt")
 
                 self._remove_obsolete_html()
                 redirects_path = self.output_dir / "_redirects"
                 redirects_path.write_text(self._build_redirects(), encoding="utf-8")
-                print("Generated narrow .html redirects")
+                logger.debug("Generated narrow .html redirects")
 
             removed = self._prune_unreferenced_publication_files()
-            print(
-                "Pruned obsolete immutable files: "
-                + ", ".join(f"{count} {kind}" for kind, count in removed.items())
+            logger.info(
+                "Pruned obsolete immutable files: %s",
+                ", ".join(f"{count} {kind}" for kind, count in removed.items()),
             )
 
             # Validate public output before any deploy can publish private artifacts.
             issues = self.validate_public_output()
             if issues:
-                print("Public output validation errors:")
                 for issue in issues:
-                    print(f"   - {issue}")
+                    logger.error("Public output validation error: %s", issue)
                 return False
 
-            print(f"\nOutput directory: {self.output_dir}")
+            logger.info("Website output ready dir=%s", self.output_dir)
             return True
 
-        except Exception as e:
-            self.logger.error(f"Website generation failed: {e}")
-            print(f"❌ Website generation failed: {e}")
+        except Exception:
+            logger.exception("Website generation failed")
             return False
 
     def deploy(self) -> bool:
@@ -911,16 +910,16 @@ class WebsiteService:
         import os
 
         if self._output_dir is not None:
-            print("❌ Deployment is disabled for isolated generation output.")
+            logger.error("Deployment is disabled for isolated generation output")
             return False
 
-        print("\n🚀 Deploying the site Worker...", flush=True)
+        logger.info("Deploying the site Worker")
 
         issues = self.validate_public_output()
         if issues:
-            print("❌ Cloudflare deploy skipped: public output validation failed.")
+            logger.error("Cloudflare deploy skipped: public output validation failed")
             for issue in issues:
-                print(f"   - {issue}")
+                logger.error("Public output validation error: %s", issue)
             return False
 
         # wrangler is a frontend devDependency, so the VM needs no Worker dependencies.
@@ -936,24 +935,15 @@ class WebsiteService:
         env = os.environ.copy()
         settings = get_settings()
         if settings.cloudflare_api_token is None:
-            print("❌ Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN is not set.")
-            print(
-                "   Add CLOUDFLARE_API_TOKEN=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
-            )
-            print(
-                "   Settings read .env once at process start, so restart the service afterwards."
+            logger.error(
+                "Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN is not set "
+                "(add it to .env and restart the service; settings are read once at start)"
             )
             return False
         if settings.cloudflare_account_id is None:
-            print("❌ Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set.")
-            print(
-                "   Add CLOUDFLARE_ACCOUNT_ID=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
-            )
-            print(
-                "   Wrangler custom API tokens can fail account discovery without it."
-            )
-            print(
-                "   Settings read .env once at process start, so restart the service afterwards."
+            logger.error(
+                "Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set "
+                "(add it to .env and restart the service; settings are read once at start)"
             )
             return False
 
@@ -974,20 +964,19 @@ class WebsiteService:
                 timeout=DEPLOY_TIMEOUT_SECONDS,
             )
             if result.returncode == 0:
-                print("✅ Deployment successful!")
+                logger.info("Deployment successful")
                 return True
             else:
-                print(f"❌ Deployment failed with exit code: {result.returncode}")
+                logger.error("Deployment failed with exit code: %d", result.returncode)
                 return False
         except FileNotFoundError:
-            print("❌ Error: npx/wrangler not found. Is Node.js installed?")
+            logger.error("npx/wrangler not found. Is Node.js installed?")
             return False
         except subprocess.TimeoutExpired:
-            print(
-                f"❌ Deployment timed out after {DEPLOY_TIMEOUT_SECONDS // 60} minutes."
+            logger.error(
+                "Deployment timed out after %d minutes", DEPLOY_TIMEOUT_SECONDS // 60
             )
             return False
-        except Exception as e:
-            self.logger.error(f"Deployment failed: {e}")
-            print(f"❌ Deployment failed: {e}")
+        except Exception:
+            logger.exception("Deployment failed")
             return False

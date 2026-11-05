@@ -5,16 +5,18 @@ This service encapsulates the business logic for monitoring enrollment data,
 providing a clean interface that reduces coupling in the main module.
 """
 
+import logging
 from pathlib import Path
 
 from ..automation.downloader import DataDownloader
-from ..core import get_logger
 from ..core.exceptions import FileProcessingError
 from ..data.database_manager import DatabaseManager
 from ..data.excel_reader import ExcelReader
 from ..data.snapshot_processor import SnapshotProcessor
 from ..heartbeat import send_heartbeat
 from ..models import EnrollmentSnapshot
+
+logger = logging.getLogger(__name__)
 
 
 class MonitoringService:
@@ -33,7 +35,6 @@ class MonitoringService:
             semester: Optional semester identifier for database selection
         """
         self.semester = semester
-        self.logger = get_logger(__name__)
 
         # Initialize components
         self.downloader = DataDownloader(semester=semester)
@@ -41,7 +42,7 @@ class MonitoringService:
         self.snapshot_processor = SnapshotProcessor()
         self.db_manager = DatabaseManager(semester=semester)
 
-        self.logger.info(
+        logger.info(
             f"Monitoring service initialized for semester: {semester or 'default'}"
         )
 
@@ -57,7 +58,7 @@ class MonitoringService:
             - snapshot contains the processed data if successful
             - file_path contains the path to the downloaded file
         """
-        self.logger.info("Starting download and process workflow")
+        logger.info("Starting download and process workflow")
 
         try:
             # Step 1: Download latest data
@@ -70,14 +71,14 @@ class MonitoringService:
             if not snapshot:
                 return False, None, downloaded_file
 
-            self.logger.info(
+            logger.info(
                 f"Successfully processed data into snapshot with {len(snapshot.courses)} courses"
             )
             await send_heartbeat()
             return True, snapshot, downloaded_file
 
         except Exception as e:
-            self.logger.error(f"Failed to download and process data: {e}")
+            logger.error(f"Failed to download and process data: {e}")
             return False, None, None
 
     def process_specific_file(
@@ -92,7 +93,7 @@ class MonitoringService:
         Returns:
             Tuple of (success, snapshot)
         """
-        self.logger.info(f"Processing specific file: {file_path}")
+        logger.info(f"Processing specific file: {file_path}")
 
         try:
             if not Path(file_path).exists():
@@ -100,7 +101,7 @@ class MonitoringService:
 
             snapshot = self._process_file(file_path)
             if snapshot:
-                self.logger.info(
+                logger.info(
                     f"Successfully processed file with {len(snapshot.courses)} courses"
                 )
                 return True, snapshot
@@ -108,7 +109,7 @@ class MonitoringService:
                 return False, None
 
         except Exception as e:
-            self.logger.error(f"Failed to process file {file_path}: {e}")
+            logger.error(f"Failed to process file {file_path}: {e}")
             return False, None
 
     def get_latest_snapshot(self) -> EnrollmentSnapshot | None:
@@ -121,19 +122,19 @@ class MonitoringService:
         try:
             snapshot_id = self.db_manager.get_latest_snapshot_id()
             if not snapshot_id:
-                self.logger.info("No snapshots found in database")
+                logger.info("No snapshots found in database")
                 return None
 
             snapshot = self.db_manager.get_snapshot_data(snapshot_id)
             if snapshot:
-                self.logger.info(
+                logger.info(
                     f"Retrieved latest snapshot with {len(snapshot.courses)} courses"
                 )
 
             return snapshot
 
         except Exception as e:
-            self.logger.error(f"Failed to get latest snapshot: {e}")
+            logger.error(f"Failed to get latest snapshot: {e}")
             return None
 
     def get_snapshot_comparison(
@@ -149,7 +150,7 @@ class MonitoringService:
             # Get latest snapshot
             latest_id = self.db_manager.get_latest_snapshot_id()
             if not latest_id:
-                self.logger.info("No snapshots available for comparison")
+                logger.info("No snapshots available for comparison")
                 return None, None
 
             current_snapshot = self.db_manager.get_snapshot_data(latest_id)
@@ -161,13 +162,13 @@ class MonitoringService:
                 else None
             )
 
-            self.logger.info(
+            logger.info(
                 f"Retrieved comparison snapshots - Current: {bool(current_snapshot)}, Previous: {bool(previous_snapshot)}"
             )
             return current_snapshot, previous_snapshot
 
         except Exception as e:
-            self.logger.error(f"Failed to get snapshots for comparison: {e}")
+            logger.error(f"Failed to get snapshots for comparison: {e}")
             return None, None
 
     def get_database_stats(self) -> dict:
@@ -179,11 +180,11 @@ class MonitoringService:
         """
         try:
             stats = self.db_manager.get_database_stats()
-            self.logger.debug(f"Database stats: {stats}")
+            logger.debug(f"Database stats: {stats}")
             return stats
 
         except Exception as e:
-            self.logger.error(f"Failed to get database stats: {e}")
+            logger.error(f"Failed to get database stats: {e}")
             return {}
 
     def get_course_history(self, course_code: str) -> list[dict]:
@@ -199,7 +200,7 @@ class MonitoringService:
         try:
             return self.db_manager.get_course_history(course_code, self.semester)
         except Exception as e:
-            self.logger.error(f"Failed to get course history for {course_code}: {e}")
+            logger.error(f"Failed to get course history for {course_code}: {e}")
             return []
 
     async def _download_data(self) -> str | None:
@@ -210,17 +211,17 @@ class MonitoringService:
             Path to downloaded file or None if failed
         """
         try:
-            self.logger.info("Downloading latest enrollment data")
+            logger.info("Downloading latest enrollment data")
             downloaded_file = await self.downloader.download()
 
             if downloaded_file:
-                self.logger.info(f"Successfully downloaded: {downloaded_file}")
+                logger.info(f"Successfully downloaded: {downloaded_file}")
                 return downloaded_file
             else:
                 raise FileProcessingError("Download failed - no file returned")
 
         except Exception as e:
-            self.logger.error(f"Download failed: {e}")
+            logger.error(f"Download failed: {e}")
             raise FileProcessingError(f"Download failed: {e}") from e
 
     def _process_file(self, file_path: str) -> EnrollmentSnapshot | None:
@@ -234,7 +235,7 @@ class MonitoringService:
             Processed enrollment snapshot or None if failed
         """
         try:
-            self.logger.info(f"Processing file: {file_path}")
+            logger.info(f"Processing file: {file_path}")
 
             # Read Excel file
             semester, timestamp, data = self.excel_reader.read_excel_data(file_path)
@@ -251,10 +252,10 @@ class MonitoringService:
 
             # Save snapshot to database
             self.snapshot_processor.save_snapshot(snapshot)
-            self.logger.info("Saved snapshot to database")
+            logger.info("Saved snapshot to database")
 
             return snapshot
 
         except Exception as e:
-            self.logger.error(f"Failed to process file {file_path}: {e}")
+            logger.error(f"Failed to process file {file_path}: {e}")
             raise FileProcessingError(f"Failed to process file: {e}") from e

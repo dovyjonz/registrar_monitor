@@ -1,5 +1,6 @@
 """Tests for the snapshot processor module."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -197,7 +198,7 @@ class TestSaveSnapshot:
     def test_message_reflects_whether_row_was_stored(
         self,
         processor: SnapshotProcessor,
-        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
         stored: bool,
         message: str,
     ):
@@ -206,5 +207,8 @@ class TestSaveSnapshot:
         snapshot = MagicMock()
         processor._current_semester = snapshot.semester
 
-        assert processor.save_snapshot(snapshot) is stored
-        assert message in capsys.readouterr().out
+        with caplog.at_level(
+            logging.INFO, logger="registrarmonitor.data.snapshot_processor"
+        ):
+            assert processor.save_snapshot(snapshot) is stored
+        assert message in caplog.text

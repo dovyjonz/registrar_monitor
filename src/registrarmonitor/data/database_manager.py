@@ -6,6 +6,7 @@ Enrollment history lives in the checkpointed v2 schema owned by
 exposes the read and write operations the rest of the application needs.
 """
 
+import logging
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -14,10 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from ..config import get_settings
-from ..core import get_logger
 from ..models import EnrollmentSnapshot
 from ..validation import validate_directory_exists
 from .checkpointed_state import CHECKPOINTED_SCHEMA_VERSION, CheckpointedStateStore
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -62,7 +64,6 @@ class DatabaseManager:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Set up logging
-        self.logger = get_logger(__name__)
 
         self._checkpointed_store = self._open_store()
 
@@ -125,12 +126,12 @@ class DatabaseManager:
             conn.row_factory = sqlite3.Row  # Enable column access by name
             yield conn
         except sqlite3.Error as e:
-            self.logger.error(f"Database error: {e}")
+            logger.error(f"Database error: {e}")
             if conn:
                 conn.rollback()
             raise
         except Exception as e:
-            self.logger.error(f"Unexpected error in database connection: {e}")
+            logger.error(f"Unexpected error in database connection: {e}")
             if conn:
                 conn.rollback()
             raise
@@ -155,7 +156,7 @@ class DatabaseManager:
             sqlite3.Error: If database operation fails
         """
         if self.semester and snapshot.semester != self.semester:
-            self.logger.warning(
+            logger.warning(
                 f"Snapshot semester '{snapshot.semester}' differs from "
                 f"database semester '{self.semester}'"
             )
@@ -256,7 +257,7 @@ class DatabaseManager:
                 ).fetchone()
                 return int(row[0]) if row else None
         except sqlite3.Error as e:
-            self.logger.error(f"Database error getting latest snapshot ID: {e}")
+            logger.error(f"Database error getting latest snapshot ID: {e}")
             raise
 
     def get_first_snapshot_id(self) -> int | None:
@@ -271,7 +272,7 @@ class DatabaseManager:
                 ).fetchone()
                 return int(row[0]) if row else None
         except sqlite3.Error as e:
-            self.logger.error(f"Database error getting first snapshot ID: {e}")
+            logger.error(f"Database error getting first snapshot ID: {e}")
             raise
 
     def get_previous_snapshot_id(self, snapshot_id: int) -> int | None:
@@ -290,7 +291,7 @@ class DatabaseManager:
                 ).fetchone()
                 return int(row[0]) if row else None
         except sqlite3.Error as e:
-            self.logger.error(f"Database error getting previous snapshot ID: {e}")
+            logger.error(f"Database error getting previous snapshot ID: {e}")
             raise
 
     def get_latest_snapshot_last_seen_at(self) -> str | None:
@@ -303,7 +304,7 @@ class DatabaseManager:
                 ).fetchone()
                 return str(row[0]) if row else None
         except sqlite3.Error as e:
-            self.logger.error(f"Database error getting latest freshness time: {e}")
+            logger.error(f"Database error getting latest freshness time: {e}")
             raise
 
     def get_database_stats(self) -> dict[str, Any]:
@@ -330,7 +331,7 @@ class DatabaseManager:
                 "latest_snapshot": date_range[1],
             }
         except sqlite3.Error as e:
-            self.logger.error(f"Database error getting database statistics: {e}")
+            logger.error(f"Database error getting database statistics: {e}")
             raise
 
     def get_last_reported_snapshot_id(self) -> int | None:
@@ -343,7 +344,7 @@ class DatabaseManager:
                 ).fetchone()
                 return result[0] if result else None
         except sqlite3.Error as e:
-            self.logger.error(f"Database error getting last reported snapshot ID: {e}")
+            logger.error(f"Database error getting last reported snapshot ID: {e}")
             raise
 
     def was_snapshot_reported(
@@ -362,7 +363,7 @@ class DatabaseManager:
                 ).fetchone()
                 return row is not None
         except sqlite3.Error as error:
-            self.logger.error(
+            logger.error(
                 "Database error checking reporting log for snapshot %s: %s",
                 snapshot_id,
                 error,
@@ -382,11 +383,9 @@ class DatabaseManager:
                     (snapshot_id, datetime.now().isoformat(), int(changes_were_found)),
                 )
                 conn.commit()
-                self.logger.info(
-                    f"Added reporting log entry for snapshot {snapshot_id}"
-                )
+                logger.info(f"Added reporting log entry for snapshot {snapshot_id}")
         except sqlite3.Error as e:
-            self.logger.error(f"Database error adding reporting log: {e}")
+            logger.error(f"Database error adding reporting log: {e}")
             raise
 
     def get_snapshot_data(self, snapshot_id: int) -> EnrollmentSnapshot | None:
@@ -394,7 +393,7 @@ class DatabaseManager:
         try:
             return self._checkpointed_store.get_snapshot_data(snapshot_id)
         except sqlite3.Error as e:
-            self.logger.error(
+            logger.error(
                 f"Database error getting snapshot data for ID {snapshot_id}: {e}"
             )
             raise
@@ -415,5 +414,5 @@ class DatabaseManager:
         try:
             return self._checkpointed_store.get_course_history(course_code, semester)
         except sqlite3.Error as e:
-            self.logger.error(f"Database error getting course history: {e}")
+            logger.error(f"Database error getting course history: {e}")
             raise

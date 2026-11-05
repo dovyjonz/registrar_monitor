@@ -5,9 +5,9 @@ This service encapsulates the business logic for generating and sending reports,
 providing a clean interface that reduces coupling in the main module.
 """
 
+import logging
 from pathlib import Path
 
-from ..core import get_logger
 from ..core.exceptions import NotificationError, ReportGenerationError
 from ..data.database_manager import DatabaseManager
 from ..data.snapshot_comparator import SnapshotComparator
@@ -17,6 +17,8 @@ from ..reporting.telegram_reporter import TelegramReporter
 from ..subscriptions.publication import ReportPublication
 from ..subscriptions.store import SubscriptionStore
 from ..utils import construct_output_path
+
+logger = logging.getLogger(__name__)
 
 
 class ReportingService:
@@ -40,7 +42,6 @@ class ReportingService:
             semester: Optional semester identifier for database selection
         """
         self.semester = semester
-        self.logger = get_logger(__name__)
 
         # Initialize components
         self.db_manager = DatabaseManager(semester=semester)
@@ -49,7 +50,7 @@ class ReportingService:
         self._telegram_reporter: TelegramReporter | None = None
         self._subscription_store = subscription_store
 
-        self.logger.info(
+        logger.info(
             f"Reporting service initialized for semester: {semester or 'default'}"
         )
 
@@ -89,7 +90,7 @@ class ReportingService:
         Returns:
             Tuple of (success, list of generated file paths)
         """
-        self.logger.info(
+        logger.info(
             f"Starting report generation - Telegram: {send_telegram}, Debug: {debug_mode}"
         )
 
@@ -111,11 +112,11 @@ class ReportingService:
                     txt_path, snapshot=current_snapshot
                 )
 
-            self.logger.info(f"Successfully generated {len(generated_files)} reports")
+            logger.info(f"Successfully generated {len(generated_files)} reports")
             return True, generated_files
 
         except Exception as e:
-            self.logger.error(f"Failed to generate/send reports: {e}")
+            logger.error(f"Failed to generate/send reports: {e}")
             raise ReportGenerationError(f"Report generation failed: {e}") from e
 
     async def generate_comparison_report(
@@ -135,7 +136,7 @@ class ReportingService:
         Returns:
             Tuple of (success, text_report_path)
         """
-        self.logger.info("Generating comparison report")
+        logger.info("Generating comparison report")
 
         try:
             txt_path = await self._generate_text_report(
@@ -150,7 +151,7 @@ class ReportingService:
             return True, txt_path
 
         except Exception as e:
-            self.logger.error(f"Failed to generate comparison report: {e}")
+            logger.error(f"Failed to generate comparison report: {e}")
             return False, None
 
     async def run_stateful_report_cycle(
@@ -168,7 +169,7 @@ class ReportingService:
         Returns:
             bool: True if reports were generated and sent (or would be sent), False otherwise.
         """
-        self.logger.info("Starting stateful reporter cycle")
+        logger.info("Starting stateful reporter cycle")
 
         # Get the comparison points
         latest_snapshot_id = self.db_manager.get_latest_snapshot_id()
@@ -176,7 +177,7 @@ class ReportingService:
 
         # Exit if no snapshots exist in the database at all
         if not latest_snapshot_id:
-            self.logger.info("No snapshots in the database. Nothing to do.")
+            logger.info("No snapshots in the database. Nothing to do.")
             return False
 
         # Handle the first-run scenario. A single retained snapshot is only a
@@ -185,17 +186,17 @@ class ReportingService:
         if not last_reported_id:
             first_snapshot_id = self.db_manager.get_first_snapshot_id()
             if first_snapshot_id is None or first_snapshot_id == latest_snapshot_id:
-                self.logger.info(
+                logger.info(
                     "First run detected with one snapshot. Logging it as the baseline."
                 )
                 self.db_manager.add_reporting_log(
                     snapshot_id=latest_snapshot_id, changes_were_found=False
                 )
-                self.logger.info(
+                logger.info(
                     "Baseline set. Next run will compare against this snapshot."
                 )
                 return False
-            self.logger.info(
+            logger.info(
                 "First run detected with retained history. Comparing the latest "
                 f"snapshot ({latest_snapshot_id}) against the first snapshot "
                 f"({first_snapshot_id})."
@@ -204,12 +205,12 @@ class ReportingService:
 
         # Decide if a report is needed
         if latest_snapshot_id == last_reported_id:
-            self.logger.info(
+            logger.info(
                 f"Latest snapshot ({latest_snapshot_id}) has already been reported. No new data."
             )
             return False
 
-        self.logger.info(
+        logger.info(
             f"Comparing latest snapshot ({latest_snapshot_id}) against last reported ({last_reported_id})"
         )
 
@@ -218,7 +219,7 @@ class ReportingService:
         previous_snapshot = self.db_manager.get_snapshot_data(last_reported_id)
 
         if not current_snapshot or not previous_snapshot:
-            self.logger.error("Failed to fetch snapshot data for comparison")
+            logger.error("Failed to fetch snapshot data for comparison")
             return False
 
         # Compare snapshots
@@ -231,7 +232,7 @@ class ReportingService:
         changes_found = self.report_formatter.has_reportable_changes(comparison)
 
         if changes_found:
-            self.logger.info("Changes found! Generating and sending reports...")
+            logger.info("Changes found! Generating and sending reports...")
 
             if send_telegram and not debug_mode:
 
@@ -263,12 +264,12 @@ class ReportingService:
                 )
 
             if success:
-                self.logger.info("Reports processed successfully")
+                logger.info("Reports processed successfully")
             else:
-                self.logger.error("Failed to generate or send reports")
+                logger.error("Failed to generate or send reports")
                 return False
         else:
-            self.logger.info("No significant changes found between snapshots")
+            logger.info("No significant changes found between snapshots")
 
         # Log that this snapshot has now been reported
         # We log it even if no changes were found, so we don't check it again
@@ -277,13 +278,11 @@ class ReportingService:
             self.db_manager.add_reporting_log(
                 snapshot_id=latest_snapshot_id, changes_were_found=changes_found
             )
-            self.logger.info(
+            logger.info(
                 f"Successfully logged snapshot {latest_snapshot_id} as reported"
             )
         elif debug_mode:
-            self.logger.info(
-                f"DEBUG: Would log snapshot {latest_snapshot_id} as reported"
-            )
+            logger.info(f"DEBUG: Would log snapshot {latest_snapshot_id} as reported")
 
         return changes_found
 
@@ -313,7 +312,7 @@ class ReportingService:
             )
 
             if not self.report_formatter.has_reportable_changes(comparison):
-                self.logger.info(
+                logger.info(
                     "Skipping text report because there are no reportable "
                     "enrollment or capacity changes"
                 )
@@ -332,7 +331,7 @@ class ReportingService:
                 ".txt",
             )
 
-            self.logger.info(f"Generating text report: {txt_path}")
+            logger.info(f"Generating text report: {txt_path}")
 
             # Ensure directory exists
             Path(txt_path).parent.mkdir(parents=True, exist_ok=True)
@@ -342,13 +341,13 @@ class ReportingService:
                 f.write(text_report)
 
             file_size = Path(txt_path).stat().st_size
-            self.logger.info(
+            logger.info(
                 f"Successfully generated text report: {txt_path} ({file_size} bytes)"
             )
             return txt_path
 
         except Exception as e:
-            self.logger.error(f"Failed to generate text report: {e}")
+            logger.error(f"Failed to generate text report: {e}")
             raise ReportGenerationError(f"Text report generation failed: {e}") from e
 
     async def _send_reports_via_telegram(
@@ -362,18 +361,18 @@ class ReportingService:
             snapshot: Reported snapshot, used to link courses to one-tap watches
         """
         try:
-            self.logger.info("Sending reports via Telegram")
+            logger.info("Sending reports via Telegram")
 
             if txt_path and Path(txt_path).exists():
                 await self.telegram_reporter.send_text_report(
                     txt_path, snapshot=snapshot
                 )
-                self.logger.info("Text report sent successfully")
+                logger.info("Text report sent successfully")
             else:
-                self.logger.warning("No reports to send via Telegram")
+                logger.warning("No reports to send via Telegram")
 
         except Exception as e:
-            self.logger.error(f"Failed to send reports via Telegram: {e}")
+            logger.error(f"Failed to send reports via Telegram: {e}")
             raise NotificationError(f"Telegram sending failed: {e}") from e
 
     def cleanup_old_reports(self, keep_count: int = 20) -> int:
@@ -404,10 +403,10 @@ class ReportingService:
                     txt_deleted += 1
 
             if txt_deleted:
-                self.logger.info(f"Cleaned up {txt_deleted} text files")
+                logger.info(f"Cleaned up {txt_deleted} text files")
 
             return txt_deleted
 
         except Exception as e:
-            self.logger.error(f"Failed to cleanup old reports: {e}")
+            logger.error(f"Failed to cleanup old reports: {e}")
             return 0

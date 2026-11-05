@@ -202,7 +202,7 @@ def test_deploy_missing_cloudflare_api_token_skips_wrangler(tmp_path, monkeypatc
     run.assert_not_called()
 
 
-def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, capsys):
+def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, caplog):
     service = WebsiteService()
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
@@ -220,13 +220,13 @@ def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, capsys):
         assert service.deploy() is False
 
     run.assert_not_called()
-    output = capsys.readouterr().out
+    output = caplog.text
     assert "Missing frontend asset referenced by" in output
     assert "/assets/main-missing.css" in output
     assert "/assets/main-missing.js" in output
 
 
-def test_wrangler_deploy_prints_failure_output(tmp_path, capsys, monkeypatch):
+def test_wrangler_deploy_logs_failure(tmp_path, caplog, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
@@ -239,7 +239,7 @@ def test_wrangler_deploy_prints_failure_output(tmp_path, capsys, monkeypatch):
         run.return_value.returncode = 1
         assert service.deploy() is False
 
-    output = capsys.readouterr().out
+    output = caplog.text
     assert "Deployment failed with exit code: 1" in output
     assert "capture_output" not in run.call_args.kwargs
     assert "stdout" not in run.call_args.kwargs
@@ -520,7 +520,7 @@ class TestValidateAssetReferences:
         with patch.object(service, "website_assets_dir", tmp_path):
             assert service._validate_asset_references_in_html() is True
 
-    def test_stale_reference_reports_page_and_url(self, tmp_path, capsys):
+    def test_stale_reference_reports_page_and_url(self, tmp_path, caplog):
         public = tmp_path / "public"
         public.mkdir(parents=True)
         (public / "fall2026.html").write_text(
@@ -531,7 +531,7 @@ class TestValidateAssetReferences:
         with patch.object(service, "website_assets_dir", tmp_path):
             assert service._validate_asset_references_in_html() is False
 
-        output = capsys.readouterr().out
+        output = caplog.text
         assert "fall2026.html" in output
         assert "assets/main-stale.js" in output
 

@@ -1,4 +1,5 @@
 import itertools
+import logging
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 
@@ -12,6 +13,8 @@ from ..utils import get_section_type
 from ..validation import validate_directory_exists
 from .database_manager import DatabaseManager
 from .instructor_normalization import aggregate_instructors_by_section
+
+logger = logging.getLogger(__name__)
 
 
 class SnapshotProcessor:
@@ -144,9 +147,8 @@ class SnapshotProcessor:
             self._current_semester = snapshot.semester
 
         stored = self.db_manager.store_enrollment_snapshot(snapshot)
-        print(
-            "✅ Stored snapshot in database"
-            if stored
-            else "ℹ️  Snapshot unchanged; not stored"
-        )
+        if stored:
+            logger.info("Stored snapshot semester=%s", snapshot.semester)
+        else:
+            logger.info("Snapshot unchanged; not stored semester=%s", snapshot.semester)
         return stored
