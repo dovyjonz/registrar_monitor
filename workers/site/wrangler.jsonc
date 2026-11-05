@@ -4,7 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-12",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": true,
+  "workers_dev": false,
+  "preview_urls": false,
   "routes": [{ "pattern": "seatwatch.fyi", "custom_domain": true }],
   // The generated dashboard (frontend/public): HTML routes, /data JSON, hashed assets.
   // Static Assets requests are free and unlimited and do not invoke the Worker;
