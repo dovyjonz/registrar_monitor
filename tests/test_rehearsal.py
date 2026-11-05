@@ -1,5 +1,6 @@
 """Tests for the scratch-copy rehearsal command (downloader replaced)."""
 
+import logging
 import os
 import sqlite3
 from pathlib import Path
@@ -132,9 +133,10 @@ async def test_rehearsal_reports_a_failed_download(live, capsys):
 
 
 @pytest.mark.asyncio
-async def test_unknown_semester_is_rejected(live, capsys):
+async def test_unknown_semester_is_rejected(live, caplog):
+    caplog.set_level(logging.INFO)
     assert await RehearseCommand().run(semester="Spring 2027") is False
-    assert "no database" in capsys.readouterr().out
+    assert "no database" in caplog.text
 
 
 def test_scratch_settings_restores_environment(tmp_path, monkeypatch):

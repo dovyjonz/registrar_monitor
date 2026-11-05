@@ -4,8 +4,19 @@ repos:
     hooks:
       - id: detect-private-key
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+  # Ruff runs from the uv-locked dev dependency so its version matches uv.lock.
+  - repo: local
     hooks:
       - id: ruff-format
-      - id: ruff
+        name: ruff format
+        entry: uv run --locked ruff format
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: true
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --locked ruff check
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: true

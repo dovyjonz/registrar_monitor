@@ -1,6 +1,7 @@
 """Template loading and HTML assembly for website generation."""
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ from .config import (
     get_configured_semesters,
     semester_to_slug,
 )
+
+logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 # Output is frontend/public. Assets are in frontend/public/assets.
@@ -55,7 +58,7 @@ def _get_asset_info(
     """
     manifest_path = manifest_path or MANIFEST_PATH
     if not manifest_path.exists():
-        print(f"Warning: Manifest not found at {manifest_path}")
+        logger.warning("Vite manifest not found path=%s", manifest_path)
         return None, None
 
     try:
@@ -69,8 +72,8 @@ def _get_asset_info(
         css_file = css_files[0] if css_files else None
 
         return js_file, css_file
-    except Exception as e:
-        print(f"Error reading manifest: {e}")
+    except Exception:
+        logger.exception("Error reading Vite manifest path=%s", manifest_path)
         return None, None
 
 

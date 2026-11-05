@@ -1,6 +1,8 @@
 """Tests for the snapshot processor module."""
 
+import logging
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -186,22 +188,37 @@ class TestProcessData:
         assert snapshot.courses["BUS 101"].sections["10L"].instructor == ""
 
 
-@pytest.mark.parametrize(
-    ("created", "expected"),
-    [(True, "Stored snapshot"), (False, "Snapshot unchanged")],
-)
-def test_save_snapshot_reports_whether_anything_was_stored(
-    tmp_path, capsys, created, expected
-):
-    from unittest.mock import MagicMock
+class TestSaveSnapshot:
+    """Tests for save_snapshot output."""
 
-    from registrarmonitor.models import EnrollmentSnapshot
+    @pytest.mark.parametrize(
+        ("stored", "message"),
+        [(True, "Stored snapshot"), (False, "not stored")],
+    )
+    def test_message_reflects_whether_row_was_stored(
+        self,
+        processor: SnapshotProcessor,
+        caplog: pytest.LogCaptureFixture,
+        stored: bool,
+        message: str,
+    ):
+        processor.db_manager = MagicMock()
+        result = processor.db_manager.store_enrollment_snapshot.return_value
+        result.created = stored
+        snapshot = MagicMock()
+        processor._current_semester = snapshot.semester
 
-    db = MagicMock()
-    db.store_enrollment_snapshot.return_value.created = created
-    snapshot = EnrollmentSnapshot(timestamp="t", semester="Fall 2026", overall_fill=0)
+        with caplog.at_level(
+            logging.INFO, logger="registrarmonitor.data.snapshot_processor"
+        ):
+            assert processor.save_snapshot(snapshot) is result
+        assert message in caplog.text
 
-    result = SnapshotProcessor(data_dir=str(tmp_path)).save_snapshot(snapshot, db)
+    def test_uses_the_callers_database_manager(self, processor: SnapshotProcessor):
+        db = MagicMock()
+        snapshot = MagicMock()
 
-    assert result is db.store_enrollment_snapshot.return_value
-    assert expected in capsys.readouterr().out
+        result = processor.save_snapshot(snapshot, db)
+
+        db.store_enrollment_snapshot.assert_called_once_with(snapshot)
+        assert result is db.store_enrollment_snapshot.return_value

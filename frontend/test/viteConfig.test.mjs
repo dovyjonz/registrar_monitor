@@ -16,7 +16,7 @@ test('package scripts cannot bypass the validated Worker deploy path', async () 
 });
 
 test('standalone builds preserve bundles referenced by generated HTML', async () => {
-    const configSource = await readFile(new URL('../vite.config.js', import.meta.url), 'utf8');
+    const configSource = await readFile(new URL('../vite.config.mjs', import.meta.url), 'utf8');
     assert.match(configSource, /emptyOutDir:\s*false/);
 
     const root = await mkdtemp(join(tmpdir(), 'registrar-monitor-vite-'));

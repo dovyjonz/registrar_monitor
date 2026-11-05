@@ -1,4 +1,8 @@
+import logging
+
 from ..data.database_manager import DatabaseManager
+
+logger = logging.getLogger(__name__)
 
 
 async def detect_active_semester(debug: bool = False) -> str | None:
@@ -28,11 +32,10 @@ def find_active_semester(debug: bool = False) -> str | None:
             except Exception:
                 continue
 
-        if latest_semester and debug:
-            print(f"🔍 DEBUG: Detected active semester: {latest_semester}")
+        if latest_semester:
+            logger.debug("Detected active semester=%s", latest_semester)
 
         return latest_semester
     except Exception as e:
-        if debug:
-            print(f"🔍 DEBUG: Semester detection failed: {e}")
+        logger.debug("Semester detection failed: %s", e)
         return None

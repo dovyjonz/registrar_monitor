@@ -258,9 +258,13 @@ failures and missing required tools are errors. On the VM, run
 `scripts/runtime_doctor.sh` as the application user (locked dependencies, no sync).
 `monitor db stats` summarizes the databases.
 
-Commands write human-readable stdout and rotating logs in the configured logs
-directory; the `schedule` and `bot` services (or `LOG_FORMAT=json`) log JSON lines
-to the journal. The scheduler also writes one JSON object per decision to
+Commands log one plain-text line per event (`time LEVEL logger: message`) to stdout
+and to a single rotating `registrar_monitor.log` in the configured logs directory;
+the level is colored only on a TTY, and `print` is kept for command results such as
+tables and JSON. `doctor` emits no log lines. The `schedule` and `bot` services (or
+`LOG_FORMAT=json`) log JSON lines to the journal only, with no log file; filter them
+with `journalctl -u registrarmonitor.service -o cat | jq -R 'fromjson? | select(.level != "INFO")'`.
+The scheduler also writes one JSON object per decision to
 `scheduler_decisions.jsonl`. Expected no-ops are `INFO`, retryable degradation
 `WARNING`, failed operations `ERROR`. Logs must not contain secrets, Telegram
 identifiers, or full registrar payloads.
@@ -315,7 +319,7 @@ Every page is `noindex, nofollow`; `robots.txt` lets crawlers read that directiv
 `.checksums.json` and `.frontend-build-hash` stay local (`.assetsignore`).
 
 The frontend bundle is rebuilt only when `frontend/src`, `package.json`,
-`package-lock.json`, or `vite.config.js` change (hash in `.frontend-build-hash`), so
+`package-lock.json`, or `vite.config.mjs` change (hash in `.frontend-build-hash`), so
 routine publications do not run Node builds on the 1 GB VM. Frontend builds rely
 on the VM's 2 GB of swap. Wrangler uploads only
 assets Cloudflare does not already have, so each deploy sends just the changed pages

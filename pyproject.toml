@@ -54,12 +54,11 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "-v",
     "--tb=short",
     "--strict-markers",
-    "--disable-warnings",
 ]
 asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
@@ -68,7 +67,7 @@ markers = [
 [dependency-groups]
 dev = [
     "ruff==0.17.3",
-    "ty==0.0.96",
+    "ty==0.0.97",
     "pytest==9.2.0",
     "pytest-asyncio==1.4.1.post1",
     "pytest-cov==7.1.0",
@@ -89,7 +88,6 @@ ignore = [
     "ARG",    # callback and framework signatures commonly need unused arguments
     "ASYNC",  # async I/O migration needs an application-wide library choice
     "B007",   # tuple-unpacking readability preference
-    "B904",   # legacy configuration exception preserves its existing public API
     "BLE",    # boundary handlers intentionally report broad failures
     "C90",    # complexity thresholds require design work, not a lint-only change
     "C4",     # collection micro-optimizations require benchmarked refactors
@@ -99,14 +97,10 @@ ignore = [
     "DTZ",    # snapshot timestamps intentionally preserve registrar-local naive values
     "E501",   # Ruff's formatter owns line wrapping
     "EM",     # exception-message construction is stylistic
-    "ERA",    # commented-out code needs human review
     "EXE",    # executable bits are managed by version control
     "FBT",    # public API compatibility uses positional booleans
-    "FIX",    # TODO policy belongs in issue tracking
     "G004",   # existing logging API uses f-strings consistently
-    "G201",   # existing error logging carries explicit context
     "INP",    # utility scripts intentionally are not packages
-    "ISC001", # Ruff formatter may legitimately produce implicit concatenation
     "N",      # preserve established public names
     "PLC0415", # local imports avoid optional-dependency and cycle issues
     "PLC0207", # split-limit micro-optimization is not a correctness concern
@@ -118,28 +112,23 @@ ignore = [
     "RET",    # return-layout preferences are stylistic
     "RUF001", # user-facing emoji and mathematical symbols are intentional
     "RUF012", # legacy tables are immutable by convention
-    "RUF022",
-    "RUF059",
+    "RUF022",  # hand-curated __all__ order in package re-exports
+    "RUF059",  # unused unpacked names in test tuple unpacking
     "RUF043", # test patterns intentionally exercise regular-expression matching
-    "S110",   # best-effort cleanup can intentionally suppress failures
-    "S112",
-    "S501",   # registrar endpoint compatibility currently requires this setting
-    "S603",
-    "S607",
+    "S112",  # best-effort loops skip malformed entries with try/except/continue
+    "S603",  # subprocess calls run fixed, project-controlled argument lists
+    "S607",  # npm is resolved from PATH, which the Makefile sets up deliberately
     "S608",   # SQL identifiers are application-controlled, not user input
     "S324",   # MD5 is used solely for non-security static-asset checksums
     "SLF",    # internal implementation tests legitimately inspect state
     "SIM",    # simplifications are readability preferences in established flows
     "T20",    # command-line utilities intentionally print
     "TC",     # runtime annotation imports are deliberate for this Python version
-    "TD",     # TODO metadata is tracked outside lint
     "TID",    # package-relative imports are the established project convention
-    "TRY201",
     "TRY002", # legacy public API raises Exception for configuration failures
     "TRY003", # project exceptions carry contextual messages at call sites
-    "TRY300",
-    "TRY301",
-    "TRY400",
+    "TRY300",  # return placed at the end of try blocks in CLI and service handlers
+    "TRY301",  # explicit raise inside try blocks for local control flow
 ]
 
 [tool.ruff.lint.per-file-ignores]

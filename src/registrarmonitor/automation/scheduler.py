@@ -15,6 +15,7 @@ next window start or milestone.
 import asyncio
 import datetime as dt
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -26,13 +27,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..config import Settings, get_settings, get_timezone
-from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..heartbeat import send_heartbeat
 from .downloader import DataDownloader
 
 if TYPE_CHECKING:
     from ..cli.commands import PollResult
+logger = logging.getLogger(__name__)
 
 # ReportingService is imported lazily to avoid circular import
 # (reporting_service imports the scheduler, scheduler imports ReportingService)
@@ -231,7 +232,6 @@ class _Coalesced:
         self.job = job
         self.task: asyncio.Task | None = None
         self.pending = False
-        self.log = get_logger(__name__)
 
     def trigger(self) -> None:
         if self.task is None or self.task.done():
@@ -244,11 +244,11 @@ class _Coalesced:
             self.pending = False
             try:
                 await self.job()
-            except Exception as e:
-                self.log.error(f"Error in background {self.name}: {e}")
+            except Exception:
+                logger.exception("Background job failed name=%s", self.name)
             if not self.pending:
                 return
-            self.log.info(f"Another {self.name} is pending. Running it again.")
+            logger.info("Another %s is pending; running it again", self.name)
 
     async def cancel(self) -> None:
         if self.task and not self.task.done():
@@ -302,7 +302,6 @@ class TwoPhaseScheduler:
         no_telegram: bool = False,
     ):
         self.no_telegram = no_telegram
-        self.logger_ops = get_logger(__name__)
         if log_file is None:
             log_dir = get_settings().directories.logs
             log_file = Path(log_dir) / "scheduler_decisions.jsonl"
@@ -332,7 +331,7 @@ class TwoPhaseScheduler:
 
             self._reporting_service_class = RS  # type: ignore[assignment]
         except ImportError:
-            print("⚠️  Warning: ReportingService unavailable")
+            logger.warning("ReportingService unavailable")
 
         self._semester: str | None = None  # active semester, learned from polls
         self._rows_digest: str | None = None  # parsed rows of the last stored poll
@@ -376,9 +375,7 @@ class TwoPhaseScheduler:
             with self.log_file.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
         except OSError:
-            self.logger_ops.warning(
-                "Failed to write scheduler decision log %s", self.log_file
-            )
+            logger.warning("Failed to write scheduler decision log %s", self.log_file)
 
     def _get_next_report_time(self) -> dt.datetime:
         """Next :15 or :45 in registrar-local wall time."""
@@ -402,10 +399,12 @@ class TwoPhaseScheduler:
             memory_max = settings.website.build_memory_max
             root = Path(__file__).resolve().parents[3]
 
-            print("\n🌐 Starting Website Update...")
+            logger.info("Starting website update")
             service = WebsiteService()
             if not service.is_any_semester_active():
-                print("💤 Outside active registration windows. Skipping build/deploy.")
+                logger.info(
+                    "Outside active registration windows; skipping website build/deploy"
+                )
                 return
             generation = subprocess.run(
                 isolated_command(
@@ -418,7 +417,7 @@ class TwoPhaseScheduler:
                 preexec_fn=_prefer_oom_kill,
             )
             if generation.returncode != 0:
-                self.logger_ops.error(
+                logger.error(
                     "Website generation child failed exit_code=%s",
                     generation.returncode,
                 )
@@ -432,12 +431,12 @@ class TwoPhaseScheduler:
                 preexec_fn=_prefer_oom_kill,
             )
             if deployment.returncode != 0:
-                self.logger_ops.error(
+                logger.error(
                     "Website deploy child failed exit_code=%s", deployment.returncode
                 )
 
-        except Exception as e:
-            print(f"❌ Website update failed: {e}")
+        except Exception:
+            logger.exception("Website update failed")
 
     def _cooled_down(self, last, seconds: float, now: dt.datetime) -> bool:
         return last is None or (now - last).total_seconds() >= seconds
@@ -471,18 +470,22 @@ class TwoPhaseScheduler:
             if not last_reported_id:
                 first_snapshot_id = db_manager.get_first_snapshot_id()
                 if first_snapshot_id is None or first_snapshot_id == latest_snapshot_id:
-                    self.logger_ops.info(
-                        "ℹ️  First run detected with one snapshot. Setting the "
-                        f"baseline reported snapshot to {latest_snapshot_id}."
+                    logger.info(
+                        "First run with one snapshot; setting baseline reported "
+                        "snapshot_id=%s semester=%s",
+                        latest_snapshot_id,
+                        semester,
                     )
                     db_manager.add_reporting_log(
                         snapshot_id=latest_snapshot_id, changes_were_found=False
                     )
                     return
-                self.logger_ops.info(
-                    "ℹ️  First run detected with retained history. Comparing "
-                    f"latest snapshot {latest_snapshot_id} against first "
-                    f"snapshot {first_snapshot_id}."
+                logger.info(
+                    "First run with retained history; comparing latest "
+                    "snapshot_id=%s against first snapshot_id=%s semester=%s",
+                    latest_snapshot_id,
+                    first_snapshot_id,
+                    semester,
                 )
                 last_reported_id = first_snapshot_id
 
@@ -507,41 +510,42 @@ class TwoPhaseScheduler:
             score, status_changed = _pending_activity(comparison, current, previous)
             if not (status_changed or score >= 1.0):
                 # Minor changes accumulate; the reporting log is not advanced.
-                self.logger_ops.info(
-                    f"ℹ️  Minor activity detected (Pending Score: {score:.1f}). Accumulating changes."
+                logger.info(
+                    "Minor activity; accumulating changes semester=%s score=%.1f",
+                    semester,
+                    score,
                 )
                 return
 
-            self.logger_ops.info(
-                f"📢 Significant activity detected (Pending Score: {score:.1f}, Status Change: {status_changed})"
+            logger.info(
+                "Significant activity semester=%s score=%.1f status_changed=%s",
+                semester,
+                score,
+                status_changed,
             )
             now = dt.datetime.now()
             if not self.no_telegram:
                 if self._cooled_down(
                     self.last_report_sent_time, self.report_cooldown_seconds, now
                 ):
-                    self.logger_ops.info("📝 Triggering Telegram Report...")
+                    logger.info("Triggering Telegram report semester=%s", semester)
                     self._report_job.trigger()
                     self.last_report_sent_time = now
                 else:
                     self._deferred = True
-                    self.logger_ops.info(
-                        "⏳ Telegram Report is on cooldown. Will report next cycle."
-                    )
+                    logger.info("Telegram report on cooldown; will report next cycle")
             if self._cooled_down(
                 self.last_website_updated_time, self.website_cooldown_seconds, now
             ):
-                self.logger_ops.info("🌐 Triggering Website Update...")
+                logger.info("Triggering website update semester=%s", semester)
                 self._website_job.trigger()
                 self.last_website_updated_time = now
             else:
                 self._deferred = True
-                self.logger_ops.info(
-                    "⏳ Website Update is on cooldown. Will update next cycle."
-                )
+                logger.info("Website update on cooldown; will update next cycle")
 
-        except Exception as e:
-            self.logger_ops.error(f"❌ Error in check_and_trigger_updates: {e}")
+        except Exception:
+            logger.exception("Error in check_and_trigger_updates")
 
     async def _single_poll_and_process(self) -> float:
         """Download and process the latest file once; return its change score."""
@@ -575,27 +579,28 @@ class TwoPhaseScheduler:
                 download_task, poll_start_time = await self.pending_polls.get()
                 try:
                     file_path = await download_task
-                    self.logger_ops.info(
-                        f"🔄 Processing poll from {poll_start_time.strftime('%H:%M:%S')}..."
+                    logger.info(
+                        "Processing poll started_at=%s",
+                        poll_start_time.strftime("%H:%M:%S"),
                     )
                     result = await self._process_file(file_path)
                     self._last_poll_time = dt.datetime.now()
                     if result.unchanged:
-                        self.logger_ops.info("No registrar changes; nothing stored.")
+                        logger.info("No registrar changes; nothing stored")
                     if not result.unchanged or self._deferred:
                         await self._check_and_trigger_updates()
                     self._last_change_score = result.change_score
                     self._new_poll_processed = True
-                except Exception as e:
-                    self.logger_ops.error(f"❌ Error processing pending poll: {e}")
+                except Exception:
+                    logger.exception("Error processing pending poll")
                     self._last_change_score = 0.0
                     self._new_poll_processed = True
                 finally:
                     self.pending_polls.task_done()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                print(f"❌ Error in process pending polls loop: {e}")
+            except Exception:
+                logger.exception("Error in pending polls loop")
                 await asyncio.sleep(1)
 
     async def _run_report_cycle(self, force_poll: bool = True) -> float:
@@ -605,16 +610,18 @@ class TwoPhaseScheduler:
 
     async def _run_report_cycle_unlocked(self, force_poll: bool = True) -> float:
         """Optionally poll, then generate and send the stateful report."""
-        print("\n📝 Starting Scheduled Reporting Cycle...")
+        logger.info("Starting reporting cycle force_poll=%s", force_poll)
         if force_poll:
             start_time = time.time()
             change_score = await self._single_poll_and_process()
             self._last_poll_time = dt.datetime.now()
             self._last_change_score = change_score
             self._new_poll_processed = True
-            print(
-                f"✅ Data fetched ({time.time() - start_time:.1f}s). "
-                f"Activity: {change_score:.2f}, Mode: {self.mode}"
+            logger.info(
+                "Data fetched duration_s=%.1f change_score=%.2f mode=%s",
+                time.time() - start_time,
+                change_score,
+                self.mode,
             )
         else:
             change_score = self._last_change_score
@@ -627,7 +634,7 @@ class TwoPhaseScheduler:
 
             semester = self._semester or await detect_active_semester()
             self.reporting_service = self._reporting_service_class(semester=semester)
-            print(f"📋 Using semester: {semester or 'default'}")
+            logger.info("Reporting semester=%s", semester or "default")
 
         if self.reporting_service:
             try:
@@ -636,15 +643,15 @@ class TwoPhaseScheduler:
                     debug_mode=False,
                 )
                 if not changes_found:
-                    print("ℹ️  No significant changes to report.")
+                    logger.info("No significant changes to report")
                 elif self.no_telegram:
-                    print("✅ Report generated (Telegram disabled, not sent).")
+                    logger.info("Report generated; not sent (--no-telegram)")
                 else:
-                    print("✅ Report generated and sent.")
-            except Exception as e:
-                print(f"❌ Error during reporting: {e}")
+                    logger.info("Report generated and sent")
+            except Exception:
+                logger.exception("Error during reporting")
         else:
-            print("❌ ReportingService not initialized, skipping report.")
+            logger.error("ReportingService not initialized; skipping report")
         return change_score
 
     async def _scheduled_report_loop(self) -> None:
@@ -658,26 +665,27 @@ class TwoPhaseScheduler:
                 await self._run_report_cycle(force_poll=False)
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
-                self.logger_ops.error(f"Scheduled stateful report failed: {e}")
+            except Exception:
+                logger.exception("Scheduled stateful report failed")
 
     async def start(self):
         """Run the polling loop."""
-        print("🚀 Starting Two-Phase Scheduler (Event-Driven Polling)")
+        logger.info("Starting two-phase scheduler (event-driven polling)")
         schedule = Schedule.from_settings()
         upcoming = [m for m in schedule.milestones if m > _registrar_now()]
-        print(
-            f"   📅 {len(schedule.milestones)} milestones, next: "
-            f"{upcoming[0].isoformat() if upcoming else 'none'}"
+        logger.info(
+            "Schedule loaded milestones=%d next=%s",
+            len(schedule.milestones),
+            upcoming[0].isoformat() if upcoming else "none",
         )
 
-        print("\n🔄 Performing Initial Sync...")
+        logger.info("Performing initial sync")
         try:
             self._last_change_score = await self._single_poll_and_process()
             self._last_poll_time = dt.datetime.now()
             self._new_poll_processed = True
-        except Exception as e:
-            print(f"❌ Initial sync failed: {e}")
+        except Exception:
+            logger.exception("Initial sync failed")
             self._last_change_score = 0.0
         await self._check_and_trigger_updates()
 
@@ -689,16 +697,13 @@ class TwoPhaseScheduler:
                     self._last_change_score, update_state=self._new_poll_processed
                 )
                 self._new_poll_processed = False
-                print(
-                    f"\n⏱️  Next poll in {wait // 60}m {wait % 60}s   Mode: {self.mode.upper()}"
-                )
-                sys.stdout.flush()
+                logger.info("Next poll in wait_s=%d mode=%s", wait, self.mode.upper())
                 await asyncio.sleep(wait)
 
                 download_task = asyncio.create_task(self.downloader.download())
                 await self.pending_polls.put((download_task, dt.datetime.now()))
         except KeyboardInterrupt:
-            print("\n⚠️  Scheduler interrupted by user.")
+            logger.warning("Scheduler interrupted by user")
         finally:
             for task in (processor_task, scheduled_report_task):
                 task.cancel()
@@ -708,4 +713,4 @@ class TwoPhaseScheduler:
                     pass
             await self._report_job.cancel()
             await self._website_job.cancel()
-            print("📊 Scheduler stopped")
+            logger.info("Scheduler stopped")

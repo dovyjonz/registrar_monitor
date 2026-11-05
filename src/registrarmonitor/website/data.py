@@ -1,5 +1,6 @@
 """Data access layer for querying enrollment data from the database."""
 
+import logging
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import pairwise
@@ -11,6 +12,8 @@ from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.data.instructor_normalization import instructor_identity
 
 from .config import KEY_MAP, get_milestones
+
+logger = logging.getLogger(__name__)
 
 WEBSITE_HISTORY_BUFFER_HOURS = 24
 
@@ -333,7 +336,7 @@ def _checkpointed_semester_data(
         "courses": {},
     }
     if not metadata:
-        print(f"No snapshots found for semester: {semester}")
+        logger.warning("No snapshots found semester=%s", semester)
         return _minify_keys(data) if minify else data
 
     history_indices = _history_indices_for_website(

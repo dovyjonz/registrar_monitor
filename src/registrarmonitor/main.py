@@ -22,6 +22,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -37,9 +38,11 @@ from .cli import (
     ScheduleCommand,
     StatusCommand,
 )
-from .core import get_logger, setup_logging
+from .core import setup_logging
 from .observability import init_sentry
 from .operational import build_doctor_report, write_json
+
+logger = logging.getLogger(__name__)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -407,7 +410,7 @@ async def handle_analyze_command(args) -> int:
         finally:
             connection.close()
     except analysis.AnalysisError as error:
-        print(f"Error: {error}", file=sys.stderr)
+        logger.warning("Analysis failed: %s", error)
         return 1
     if args.csv:
         analysis.write_csv(args.csv, columns, rows)
@@ -429,7 +432,7 @@ async def handle_db_command(args) -> int:
             database=getattr(args, "database", None),
         )
     else:
-        print("❌ Invalid database command")
+        logger.error("Invalid database command: %s", args.db_command)
         return 1
 
     return 0 if success else 1
@@ -477,11 +480,7 @@ async def async_main() -> int:
     if not (is_doctor or is_rehearsal):
         init_sentry()
 
-    logger = get_logger(__name__)
-    logger.info("Starting Registrar Monitor CLI with command: %s", args.command)
-
-    if args.debug:
-        print(f"🔍 DEBUG MODE ENABLED - Log level: {log_level}")
+    logger.info("CLI started command=%s log_level=%s", args.command, log_level)
 
     # Handle commands
     try:
@@ -515,17 +514,10 @@ async def async_main() -> int:
             return 1
 
     except KeyboardInterrupt:
-        print("\n\n👋 Operation interrupted by user")
         logger.info("Operation interrupted by user")
         return 130  # Standard exit code for Ctrl+C
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
-        logger.exception("Unexpected error in CLI")
-        if args.debug:
-            import traceback
-
-            print("\n🔍 DEBUG: Full traceback:")
-            traceback.print_exc()
+    except Exception:
+        logger.exception("Unexpected error in CLI command=%s", args.command)
         return 1
 
 
@@ -535,10 +527,10 @@ def cli_main() -> None:
         exit_code = asyncio.run(async_main())
         sys.exit(exit_code)
     except KeyboardInterrupt:
-        print("\n\n👋 Application interrupted")
+        logger.info("Application interrupted")
         sys.exit(130)
-    except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
+    except Exception:
+        logger.exception("Fatal error")
         sys.exit(1)
 
 

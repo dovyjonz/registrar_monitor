@@ -1,5 +1,6 @@
 """Tests for CLI command implementations."""
 
+import logging
 import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -211,9 +212,9 @@ class TestPollCommand:
 
             detect.assert_not_called()
             ms_cls.assert_called_once_with(semester="Spring 2024")
-            summary = [r.message for r in caplog.records if "Poll " in r.message]
+            summary = [r.message for r in caplog.records if "duration=" in r.message]
             assert len(summary) == 1
-            assert "duration=" in summary[0]
+            assert summary[0].startswith("Poll stored ")
             assert "peak_rss=" in summary[0]
         finally:
             for patcher in patches:
@@ -450,9 +451,10 @@ class TestBaselineCommand:
         assert await service.run_stateful_report_cycle(send_telegram=False) is False
 
     @pytest.mark.asyncio
-    async def test_unknown_semester_creates_nothing(self, live, capsys):
+    async def test_unknown_semester_creates_nothing(self, live, caplog):
+        caplog.set_level(logging.INFO)
         from registrarmonitor.cli.commands import BaselineCommand
 
         assert await BaselineCommand().run(semester="Spring 2027") is False
-        assert "no database" in capsys.readouterr().out
+        assert "no database" in caplog.text
         assert not (live.parent / "enrollment_spring_2027.db").exists()

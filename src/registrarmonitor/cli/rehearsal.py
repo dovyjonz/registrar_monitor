@@ -7,6 +7,7 @@ posted, queued, or deployed; the live database files are fingerprinted before
 and after to prove they did not change.
 """
 
+import logging
 import os
 import shutil
 import sqlite3
@@ -16,12 +17,13 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 
 from ..config import Settings, get_settings
-from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..models import EnrollmentSnapshot
 from ..services import ReportingService
 from .commands import PollCommand
 from .utils import detect_active_semester
+
+logger = logging.getLogger(__name__)
 
 # Blank values count as unset, and the environment outranks ``.env``.
 CLEARED_ENVIRONMENT = (
@@ -111,7 +113,6 @@ class RehearseCommand:
     def __init__(self, debug: bool = False, keep: bool = False):
         self.debug = debug
         self.keep = keep
-        self.logger = get_logger(__name__)
 
     async def run(self, semester: str | None = None) -> bool:
         live_settings = get_settings()
@@ -133,9 +134,8 @@ class RehearseCommand:
                     print(f"Scratch directory kept: {scratch}")
                 else:
                     shutil.rmtree(scratch, ignore_errors=True)
-        except Exception as error:
-            print(f"❌ Rehearsal failed: {error}")
-            self.logger.error(f"Rehearsal error: {error}")
+        except Exception:
+            logger.exception("Rehearsal failed")
             return False
 
     async def _rehearse(
@@ -146,7 +146,7 @@ class RehearseCommand:
         before: Fingerprint,
         live_settings: Settings,
     ) -> bool:
-        print(f"🧪 Rehearsing {semester} on a scratch copy of {live.name}")
+        print(f"Rehearsing {semester} on a scratch copy of {live.name}")
         with scratch_settings(scratch) as settings:
             copy_database(live, semester_database_path(settings, semester))
             poll = await PollCommand(debug=self.debug).run_with_result(

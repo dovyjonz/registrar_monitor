@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime as dt
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -155,6 +156,28 @@ class TestScheduledReportLoop:
             )
 
         assert maximum_active == 1
+
+
+class TestReportCycleMessage:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("no_telegram", "expected"),
+        [(True, "Report generated; not sent"), (False, "Report generated and sent")],
+    )
+    async def test_message_says_sent_only_when_sent(
+        self, caplog, no_telegram, expected
+    ):
+        scheduler = TwoPhaseScheduler(no_telegram=no_telegram)
+        scheduler.reporting_service = MagicMock(
+            run_stateful_report_cycle=AsyncMock(return_value=True)
+        )
+
+        with caplog.at_level(
+            logging.INFO, logger="registrarmonitor.automation.scheduler"
+        ):
+            await scheduler._run_report_cycle(force_poll=False)
+
+        assert expected in caplog.text
 
 
 class TestSinglePollAndProcess:
@@ -358,23 +381,6 @@ class TestPollHandoff:
         scheduler._reporting_service_class.assert_called_once_with(
             semester="Spring 2024"
         )
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("no_telegram", "expected"),
-        [(True, "not sent"), (False, "generated and sent")],
-    )
-    async def test_report_message_says_whether_it_was_sent(
-        self, capsys, no_telegram, expected
-    ):
-        scheduler = TwoPhaseScheduler(no_telegram=no_telegram)
-        scheduler.reporting_service = MagicMock(
-            run_stateful_report_cycle=AsyncMock(return_value=True)
-        )
-
-        await scheduler._run_report_cycle(force_poll=False)
-
-        assert expected in capsys.readouterr().out
 
 
 class TestStartInitialization:

@@ -16,7 +16,7 @@
         "strictFunctionTypes": true,
         "noUnusedLocals": true,
         "noUnusedParameters": false,
-        "types": []
+        "types": ["vite/client"]
     },
     "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

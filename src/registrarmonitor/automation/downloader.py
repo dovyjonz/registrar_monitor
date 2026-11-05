@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import uuid
 from datetime import datetime
@@ -6,7 +7,6 @@ from datetime import datetime
 import httpx
 
 from ..config import get_settings
-from ..core import get_logger
 from ..core.exceptions import FileProcessingError
 from ..validation import validate_directory_exists
 from ..website.config import semester_sort_key
@@ -15,6 +15,7 @@ DOWNLOAD_PREFIX = "school_schedule_by_term_"
 # Newest downloads to keep. More than one so a download still queued for
 # parsing is not pruned by the next burst-rate download.
 KEEP_DOWNLOADS = 5
+logger = logging.getLogger(__name__)
 
 
 class DataDownloader:
@@ -22,7 +23,6 @@ class DataDownloader:
 
     def __init__(self, semester: str | None = None):
         self.settings = get_settings()
-        self.logger = get_logger(__name__)
         semester_configs = self.settings.semesters
         if semester is None:
             candidates = [
@@ -102,30 +102,28 @@ class DataDownloader:
         try:
             verify = self._tls_verification()
             async with httpx.AsyncClient(verify=verify) as client:
-                print(f"Downloading file from {self.url}...")
+                logger.info("Downloading registrar file semester=%s", self.semester)
                 response = await client.get(self.url, timeout=30.0)
                 response.raise_for_status()
 
                 # Offload blocking I/O to a separate thread
                 await asyncio.to_thread(self._write_file, filename, response.content)
 
-                print(f"File downloaded successfully as {filename}")
-                self.logger.info(f"Successfully downloaded file: {filename}")
+                logger.info(
+                    "Downloaded registrar file semester=%s bytes=%d path=%s",
+                    self.semester,
+                    len(response.content),
+                    filename,
+                )
                 return filename
 
         except httpx.TimeoutException as e:
-            self.logger.error(f"Download timeout: {e}")
             raise FileProcessingError(f"Download timeout: {e}") from e
         except httpx.NetworkError as e:
-            self.logger.error(f"Connection error: {e}")
             raise FileProcessingError(f"Connection error: {e}") from e
         except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-            self.logger.error(f"HTTP error {status_code}: {e}")
             raise FileProcessingError(f"HTTP error: {e}") from e
         except httpx.RequestError as e:
-            self.logger.error(f"Request error: {e}")
             raise FileProcessingError(f"Request error: {e}") from e
         except Exception as e:
-            self.logger.error(f"Unexpected error during download: {e}")
             raise FileProcessingError(f"Unexpected download error: {e}") from e
