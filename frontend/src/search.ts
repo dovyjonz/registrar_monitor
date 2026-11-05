@@ -181,22 +181,7 @@ export function hideTimeoutWarning() {
     if (existing) existing.remove();
 }
 
-let pendingFilterFrame = 0;
-
-/** Coalesce rapid input into at most one filter pass per animation frame. */
-function scheduleFilters() {
-    if (pendingFilterFrame) cancelAnimationFrame(pendingFilterFrame);
-    pendingFilterFrame = requestAnimationFrame(() => {
-        pendingFilterFrame = 0;
-        applyFilters();
-    });
-}
-
 export function applyFilters() {
-    if (pendingFilterFrame) {
-        cancelAnimationFrame(pendingFilterFrame);
-        pendingFilterFrame = 0;
-    }
     const searchQuery = searchInput?.value.toLowerCase().trim() || '';
     const electiveCategory = electiveFilter?.value || 'all';
     document.querySelectorAll<HTMLElement>('.catalog-select').forEach(field => {
@@ -278,12 +263,12 @@ searchInput?.addEventListener('input', (event) => {
     updateSearchControls();
     // Wait for the IME to commit; compositionend applies the final text.
     if ((event as InputEvent).isComposing) return;
-    scheduleFilters();
+    applyFilters();
 });
 
 searchInput?.addEventListener('compositionend', () => {
     updateSearchControls();
-    scheduleFilters();
+    applyFilters();
 });
 
 searchInput?.addEventListener('keydown', (event) => {
