@@ -129,16 +129,24 @@ class SnapshotProcessor:
 
         return snapshot
 
-    def save_snapshot(self, snapshot: EnrollmentSnapshot) -> None:
+    def save_snapshot(self, snapshot: EnrollmentSnapshot) -> bool:
         """Save enrollment snapshot to the database.
 
         Args:
             snapshot: The enrollment snapshot to persist.
+
+        Returns:
+            True if a new snapshot row was stored, False if it was a duplicate.
         """
         # Create or get database manager for this semester
         if self.db_manager is None or self._current_semester != snapshot.semester:
             self.db_manager = DatabaseManager.create_for_semester(snapshot.semester)
             self._current_semester = snapshot.semester
 
-        self.db_manager.store_enrollment_snapshot(snapshot)
-        print("✅ Stored snapshot in database")
+        stored = self.db_manager.store_enrollment_snapshot(snapshot)
+        print(
+            "✅ Stored snapshot in database"
+            if stored
+            else "ℹ️  Snapshot unchanged; not stored"
+        )
+        return stored

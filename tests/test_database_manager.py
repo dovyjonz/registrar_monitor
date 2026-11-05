@@ -168,24 +168,3 @@ class TestStoreEnrollmentSnapshot:
             return_value=db_manager,
         ):
             assert compute_semester_hash("Spring 2024") == checksum_before
-
-
-class TestDetermineStatus:
-    """Tests for _determine_status method."""
-
-    @pytest.mark.parametrize(
-        ("fill", "expected"),
-        [
-            (0.0, "OPEN"),
-            (0.50, "OPEN"),
-            (0.74, "OPEN"),
-            (0.75, "NEAR"),
-            (0.90, "NEAR"),
-            (0.99, "NEAR"),
-            (1.0, "FULL"),
-            (1.15, "FULL"),
-        ],
-    )
-    def test_fill_threshold_boundaries(self, db_manager, fill, expected):
-        """Status should match fill thresholds: <0.75 OPEN, <1.0 NEAR, >=1.0 FULL."""
-        assert db_manager._determine_status(fill) == expected

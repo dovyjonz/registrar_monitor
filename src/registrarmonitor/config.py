@@ -70,12 +70,10 @@ class DataSource(_Section):
 
 
 class Notifications(_Section):
-    file_write_delay: float = 3
     dry_run: bool = False
 
 
 class Website(_Section):
-    update_interval: PositiveInt = 30
     generation_timeout_seconds: PositiveInt = 3600
     base_url: str
     web_analytics_token: str = ""

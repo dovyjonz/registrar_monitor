@@ -1,6 +1,7 @@
 """Tests for the snapshot processor module."""
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -184,3 +185,26 @@ class TestProcessData:
         snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
 
         assert snapshot.courses["BUS 101"].sections["10L"].instructor == ""
+
+
+class TestSaveSnapshot:
+    """Tests for save_snapshot output."""
+
+    @pytest.mark.parametrize(
+        ("stored", "message"),
+        [(True, "Stored snapshot"), (False, "not stored")],
+    )
+    def test_message_reflects_whether_row_was_stored(
+        self,
+        processor: SnapshotProcessor,
+        capsys: pytest.CaptureFixture[str],
+        stored: bool,
+        message: str,
+    ):
+        processor.db_manager = MagicMock()
+        processor.db_manager.store_enrollment_snapshot.return_value = stored
+        snapshot = MagicMock()
+        processor._current_semester = snapshot.semester
+
+        assert processor.save_snapshot(snapshot) is stored
+        assert message in capsys.readouterr().out

@@ -157,6 +157,25 @@ class TestScheduledReportLoop:
         assert maximum_active == 1
 
 
+class TestReportCycleMessage:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("no_telegram", "expected"),
+        [(True, "Report generated (not sent"), (False, "Report generated and sent")],
+    )
+    async def test_message_says_sent_only_when_sent(
+        self, capsys, no_telegram, expected
+    ):
+        scheduler = TwoPhaseScheduler(no_telegram=no_telegram)
+        scheduler.reporting_service = MagicMock(
+            run_stateful_report_cycle=AsyncMock(return_value=True)
+        )
+
+        await scheduler._run_report_cycle(force_poll=False)
+
+        assert expected in capsys.readouterr().out
+
+
 class TestSinglePollAndProcess:
     @pytest.mark.asyncio
     async def test_unchanged_download_skips_parse_and_compare(self):

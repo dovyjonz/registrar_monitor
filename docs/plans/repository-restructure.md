@@ -164,15 +164,6 @@ Incremental generation is the target: one changed course should not rebuild ever
 - **Baseline without posting:** a command that marks the latest snapshot as reported
   after a long stop, so the first start does not post months of changes.
 - **`monitor deploy --dry-run`** and progress output: `--force` is silent for minutes.
-- **Honest messages:** `--no-telegram` still prints "Report generated and sent"
-  (`automation/scheduler.py:547`), and "Stored snapshot" prints when nothing was stored.
-- **Remove dead settings:** `website.update_interval` is read by nothing, and
-  `file_write_delay` only sleeps 3 seconds before each send
-  (`reporting/telegram_reporter.py:52`).
-- **Remove dead code:** `_filter_snapshots_to_milestone_window` (tests only),
-  `construct_output_path`, `generate_safe_filename_components`,
-  `get_enrollment_summary`, `get_latest_snapshot_timestamp`, `get_timestamp_from_file`,
-  `get_available_reports`, `send_existing_reports`, and `get_database_stats`.
 - **`monitor export-parquet`** now has no consumer. Decide whether to keep it, and
   whether `monitor analyze` justifies the DuckDB dependency on the VM.
 - **`workers_dev: true`** leaves a second public origin; turn it off, and use the Cache

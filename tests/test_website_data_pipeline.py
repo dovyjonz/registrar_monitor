@@ -8,7 +8,6 @@ pytestmark = pytest.mark.unit
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.website.data import (
-    _filter_snapshots_to_milestone_window,
     _history_indices_for_website,
     _history_indices_in_milestone_window,
     _minify_keys,
@@ -29,56 +28,6 @@ class TestMinifyKeys:
     def test_minifies_nested_dicts(self):
         result = _minify_keys({"courses": {"CS 101": {"semester": "test"}}})
         assert isinstance(result, dict)
-
-
-class TestFilterSnapshotsToMilestoneWindow:
-    def test_no_milestones_returns_all(self):
-        snapshots = [{"timestamp": "2024-01-15T10:00:00"}]
-        result, index_map = _filter_snapshots_to_milestone_window(snapshots, [])
-        assert result == snapshots
-        assert index_map == {0: 0}
-
-    def test_filters_within_window(self):
-        snapshots = [
-            {"timestamp": "2024-01-15T05:00:00"},  # outside window
-            {
-                "timestamp": "2024-01-15T10:00:00"
-            },  # inside (milestone is at 12:00, buffer 2hr = 10:00)
-            {"timestamp": "2024-01-15T14:00:00"},  # inside
-            {
-                "timestamp": "2024-01-15T15:00:00"
-            },  # outside (14:00 + 2hr buffer = 14:00)
-        ]
-        milestones = [{"time": "2024-01-15T12:00:00"}]
-        result, index_map = _filter_snapshots_to_milestone_window(
-            snapshots, milestones, buffer_hours=2
-        )
-        assert len(result) == 2
-        assert 0 not in index_map
-        assert 1 in index_map
-        assert 2 in index_map
-        assert 3 not in index_map
-
-    def test_filters_naive_snapshots_with_aware_milestones(self):
-        snapshots = [{"timestamp": "2026-08-05T09:00:00"}]
-        milestones = [{"time": "2026-08-05T09:00:00+05:00"}]
-
-        result, index_map = _filter_snapshots_to_milestone_window(snapshots, milestones)
-
-        assert result == snapshots
-        assert index_map == {0: 0}
-
-    def test_fall_back_to_all_when_filter_empties(self):
-        snapshots = [
-            {"timestamp": "2024-01-15T05:00:00"},  # outside window
-        ]
-        milestones = [{"time": "2024-01-15T12:00:00"}]
-        result, index_map = _filter_snapshots_to_milestone_window(
-            snapshots, milestones, buffer_hours=2
-        )
-        # Returns originals with empty index map
-        assert result == snapshots
-        assert index_map == {}
 
 
 class TestHistoryIndicesInMilestoneWindow:

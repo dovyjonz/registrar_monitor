@@ -543,11 +543,12 @@ class TwoPhaseScheduler:
                     send_telegram=not self.no_telegram,
                     debug_mode=False,
                 )
-                print(
-                    "✅ Report generated and sent."
-                    if changes_found
-                    else "ℹ️  No significant changes to report."
-                )
+                if not changes_found:
+                    print("ℹ️  No significant changes to report.")
+                elif self.no_telegram:
+                    print("✅ Report generated (not sent: --no-telegram).")
+                else:
+                    print("✅ Report generated and sent.")
             except Exception as e:
                 print(f"❌ Error during reporting: {e}")
         else:
