@@ -726,11 +726,40 @@ class WebsiteService:
                     path.unlink()
                     removed["blobs"] += 1
 
+        removed["assets"] = self._prune_unreferenced_assets()
+
+        return removed
+
+    def _prune_unreferenced_assets(self) -> int:
+        """Prune hashed assets, keeping the current and previous Vite builds.
+
+        Open tabs lazily import chunks from the prior deploy, so one earlier
+        build stays published, mirroring the data pointers' ``previous``.
+        """
         asset_root = self.output_dir / "assets"
-        vite_manifest = asset_root / ".vite" / "manifest.json"
-        if vite_manifest.is_file():
-            manifest = json.loads(vite_manifest.read_text(encoding="utf-8"))
-            retained_assets = {vite_manifest.resolve()}
+        vite_dir = asset_root / ".vite"
+        vite_manifest = vite_dir / "manifest.json"
+        if not vite_manifest.is_file():
+            return 0
+        published = vite_dir / "published-manifest.json"
+        previous = vite_dir / "previous-manifest.json"
+        current_text = vite_manifest.read_text(encoding="utf-8")
+        if published.is_file() and published.read_text(encoding="utf-8") != (
+            current_text
+        ):
+            published.replace(previous)
+        if not published.is_file():
+            published.write_text(current_text, encoding="utf-8")
+
+        retained_assets = {
+            vite_manifest.resolve(),
+            published.resolve(),
+            previous.resolve(),
+        }
+        for path in (vite_manifest, previous):
+            if not path.is_file():
+                continue
+            manifest = json.loads(path.read_text(encoding="utf-8"))
             for entry in manifest.values():
                 if not isinstance(entry, dict):
                     continue
@@ -742,12 +771,12 @@ class WebsiteService:
                 for reference in references:
                     if isinstance(reference, str):
                         retained_assets.add((asset_root / reference).resolve())
-            for path in asset_root.rglob("*"):
-                if path.is_file() and path.resolve() not in retained_assets:
-                    path.unlink()
-                    removed["assets"] += 1
-
-        return removed
+        count = 0
+        for path in asset_root.rglob("*"):
+            if path.is_file() and path.resolve() not in retained_assets:
+                path.unlink()
+                count += 1
+        return count
 
     def validate_public_output(self) -> list[str]:
         """Validate that the public output directory contains only allowed files.

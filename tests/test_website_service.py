@@ -868,3 +868,49 @@ def test_prunes_unreferenced_immutable_publication_files(tmp_path):
     assert (blobs_root / "current.json").exists()
     assert (blobs_root / "previous.json").exists()
     assert (assets / "current.js").exists()
+
+
+def _write_build(assets, name):
+    (assets / ".vite").mkdir(parents=True, exist_ok=True)
+    files = {
+        "src/main.js": {"file": f"main-{name}.js", "css": [f"main-{name}.css"]},
+        "src/chart.js": {"file": f"chart-{name}.js"},
+    }
+    for entry in files.values():
+        for ref in (entry["file"], *entry.get("css", [])):
+            (assets / ref).write_text("")
+    (assets / ".vite" / "manifest.json").write_text(json.dumps(files))
+
+
+class TestAssetRetention:
+    def test_keeps_one_previous_build(self, tmp_path):
+        service = WebsiteService(output_dir=tmp_path)
+        assets = tmp_path / "assets"
+
+        _write_build(assets, "a")
+        service._prune_unreferenced_publication_files()
+        _write_build(assets, "b")
+        service._prune_unreferenced_publication_files()
+        for name in ("a", "b"):
+            assert (assets / f"chart-{name}.js").exists()
+            assert (assets / f"main-{name}.css").exists()
+
+        _write_build(assets, "c")
+        service._prune_unreferenced_publication_files()
+        assert not (assets / "chart-a.js").exists()
+        assert not (assets / "main-a.css").exists()
+        assert (assets / "chart-b.js").exists()
+        assert (assets / "chart-c.js").exists()
+
+    def test_unchanged_manifest_keeps_previous(self, tmp_path):
+        service = WebsiteService(output_dir=tmp_path)
+        assets = tmp_path / "assets"
+
+        _write_build(assets, "a")
+        service._prune_unreferenced_publication_files()
+        _write_build(assets, "b")
+        for _ in range(3):
+            service._prune_unreferenced_publication_files()
+        assert (assets / "chart-a.js").exists()
+        assert (assets / "chart-b.js").exists()
+        assert (assets / ".vite" / "previous-manifest.json").exists()
