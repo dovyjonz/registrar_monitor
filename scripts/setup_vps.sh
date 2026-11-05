@@ -62,7 +62,7 @@ if ! loginctl show-user "$RUNTIME_USER" --property=Linger 2>/dev/null | grep -q 
     fi
 fi
 
-echo "For a make-free, no-sync runtime diagnostic, run:"
+echo "For a make-free runtime diagnostic, run:"
 echo "  ./scripts/runtime_doctor.sh"
 
 # Generate systemd service file dynamically

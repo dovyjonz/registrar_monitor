@@ -9,6 +9,11 @@ import xlrd
 class ExcelReader:
     """Reads and processes Excel data files."""
 
+    def read_semester(self, input_file: str) -> str:
+        """Return the semester label in the first cell without parsing the rows."""
+        wb = xlrd.open_workbook(input_file, ignore_workbook_corruption=True)
+        return str(wb.sheet_by_index(0).cell_value(0, 0)).strip()
+
     def read_excel_data(self, input_file: str) -> tuple[str, str, list[dict[str, Any]]]:
         """Read and process the Excel data file."""
         wb = xlrd.open_workbook(input_file, ignore_workbook_corruption=True)

@@ -26,7 +26,10 @@ website settings.
 ## Commands
 
 ```bash
+monitor db initialize --semester "Fall 2026"  # create a semester's storage (never implicit)
 monitor poll                         # download and store the latest spreadsheet
+monitor poll --file F.xls            # store a downloaded file under its configured semester
+monitor poll --semester "Fall 2026"  # poll a specific semester
 monitor status "CSCI 151"            # inspect current enrollment
 monitor report --stateful            # report new changes
 monitor run                          # poll, report, and generate the dashboard

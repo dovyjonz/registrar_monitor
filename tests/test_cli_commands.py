@@ -60,7 +60,7 @@ class TestPollCommand:
             result = await cmd.run(file_path="test.xls")
 
         assert result is True
-        mock_rwr.assert_awaited_once_with(file_path="test.xls")
+        mock_rwr.assert_awaited_once_with(file_path="test.xls", semester=None)
 
     @pytest.mark.asyncio
     async def test_run_with_result_download_success(self, sample_snapshot):

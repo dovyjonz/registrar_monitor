@@ -16,7 +16,6 @@ from typing import Any
 
 from ..config import get_settings
 from ..models import EnrollmentSnapshot
-from ..validation import validate_directory_exists
 from .checkpointed_state import (
     CHECKPOINTED_SCHEMA_VERSION,
     CheckpointedStateStore,
@@ -47,38 +46,31 @@ class DatabaseManager:
         self._uses_configured_path = db_path is None
         self._read_only = read_only
         if db_path is None:
+            if not semester:
+                raise ValueError("a semester is required to open enrollment storage")
             data_dir = get_settings().directories.data_storage
-            validate_directory_exists(data_dir, create_if_missing=not read_only)
-
-            if semester:
-                # Create semester-specific database filename
-                safe_semester = self._sanitize_semester_name(semester)
-                self.db_path = Path(data_dir) / f"enrollment_{safe_semester}.db"
-            else:
-                # Fallback to default database name
-                self.db_path = Path(data_dir) / "enrollment.db"
+            safe_semester = self._sanitize_semester_name(semester)
+            self.db_path = Path(data_dir) / f"enrollment_{safe_semester}.db"
         else:
             self.db_path = Path(db_path)
 
         # Store semester for reference
         self.semester = semester
 
-        # Ensure parent directory exists
-        if not read_only:
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Set up logging
-
         self._checkpointed_store = self._open_store()
 
     def _open_store(self) -> CheckpointedStateStore:
-        """Open the v2 store, creating it for a new explicit database path."""
+        """Open the v2 store.
+
+        Storage for a semester in the configured data directory is created only
+        by ``monitor db initialize``; opening it never creates files. An explicit
+        database path may be created by the caller that chose it.
+        """
+        if self._uses_configured_path and self._stored_version() == 0:
+            raise self._uninitialized_error()
+        if not self._read_only and not self._uses_configured_path:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         if not self._read_only and self._schema_version() == 0:
-            if self._uses_configured_path and self.semester:
-                raise sqlite3.DatabaseError(
-                    "checkpointed storage must be initialized explicitly; "
-                    f"run `monitor db initialize --semester {self.semester!r}`"
-                )
             return CheckpointedStateStore(self.db_path)
         version = self._schema_version()
         if version != CHECKPOINTED_SCHEMA_VERSION:
@@ -87,6 +79,22 @@ class DatabaseManager:
             )
         return CheckpointedStateStore(
             self.db_path, initialize=False, read_only=self._read_only
+        )
+
+    def _stored_version(self) -> int:
+        """Schema version of an existing file, read without creating anything."""
+        if not self.db_path.is_file():
+            return 0
+        connection = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+        try:
+            return int(connection.execute("PRAGMA user_version").fetchone()[0])
+        finally:
+            connection.close()
+
+    def _uninitialized_error(self) -> sqlite3.DatabaseError:
+        return sqlite3.DatabaseError(
+            f"checkpointed storage for {self.semester!r} is not initialized; "
+            f'run `monitor db initialize --semester "{self.semester}"` first'
         )
 
     def _schema_version(self) -> int:

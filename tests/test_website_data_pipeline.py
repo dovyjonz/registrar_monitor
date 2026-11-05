@@ -266,3 +266,20 @@ class TestGetSemesterDataWindowing:
         history = data["courses"]["CS 101"]["sections"]["10L"]["history"]
         assert [p["snapshotIdx"] for p in history] == [0, 1, 2, 3]
         assert "MATH 1" not in data["courses"]
+
+
+def test_course_without_sections_has_zero_average_fill(tmp_path):
+    db = DatabaseManager(db_path=str(tmp_path / "bare.db"), semester="Spring 2024")
+    db.store_enrollment_snapshot(
+        EnrollmentSnapshot(
+            "2024-03-01 00:00:00",
+            "Spring 2024",
+            0.0,
+            {"CS 101": Course("CS 101", "CS", {}, 0.0, "Intro")},
+        )
+    )
+
+    data = get_semester_data("Spring 2024", minify=False, database=db)
+
+    assert data["courses"]["CS 101"]["sections"] == {}
+    assert data["courses"]["CS 101"]["averageFill"] == 0.0

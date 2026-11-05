@@ -3,14 +3,12 @@ import logging
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 
-from ..config import get_settings
 from ..models import (
     Course,
     EnrollmentSnapshot,
     Section,
 )
 from ..utils import get_section_type
-from ..validation import validate_directory_exists
 from .checkpointed_state import WriteResult
 from .database_manager import DatabaseManager
 from .instructor_normalization import aggregate_instructors_by_section
@@ -21,12 +19,7 @@ logger = logging.getLogger(__name__)
 class SnapshotProcessor:
     """Processes data into EnrollmentSnapshot objects and stores them in the database."""
 
-    def __init__(self, data_dir: str | None = None):
-        if data_dir is None:
-            data_dir = get_settings().directories.data_storage
-        self.data_dir = data_dir
-        validate_directory_exists(data_dir, create_if_missing=True)
-
+    def __init__(self):
         # Database manager will be created per semester
         self.db_manager: DatabaseManager | None = None
         self._current_semester: str | None = None

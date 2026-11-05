@@ -108,6 +108,14 @@ Telegram Control:
         metavar="PATH",
         help="Process a specific Excel file instead of downloading latest",
     )
+    poll_parser.add_argument(
+        "--semester",
+        type=str,
+        help=(
+            "Semester whose storage receives the poll (default: with --file, the "
+            "file's semester when configured; otherwise the freshest stored one)"
+        ),
+    )
     # Status command
     status_parser = subparsers.add_parser(
         "status",
@@ -316,7 +324,10 @@ Telegram Control:
 async def handle_poll_command(args) -> int:
     """Handle the poll command."""
     command = PollCommand(debug=args.debug)
-    success = await command.run(file_path=getattr(args, "file", None))
+    success = await command.run(
+        file_path=getattr(args, "file", None),
+        semester=getattr(args, "semester", None),
+    )
     return 0 if success else 1
 
 
