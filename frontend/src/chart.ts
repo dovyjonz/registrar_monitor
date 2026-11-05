@@ -806,7 +806,11 @@ export async function renderChart(
         sourceIndex: i,
         limitingTypes: visibleChartPoints[i]?.limitingTypes ?? [],
     }));
-    const capacityDataPoints = buildObservedCapacityPoints(capacityData, xValues);
+    const capacityDataPoints = buildObservedCapacityPoints(
+        capacityData,
+        xValues,
+        visibleChartPoints,
+    );
     const displayDataPoints = extendSteppedSeriesToDomainEnd(dataPoints, recordedDomainEnd);
     const displayCapacityDataPoints = extendSteppedSeriesToDomainEnd(
         capacityDataPoints,
@@ -841,8 +845,13 @@ export async function renderChart(
         tension: 0,
         stepped: OBSERVATION_STEP_MODE,
         borderWidth: 6,
-        pointRadius: 0,
-        pointHoverRadius: 0,
+        // Only real capacity changes get a marker; regular and hover radii stay zero.
+        pointRadius: context => context.raw?.capacityChanged ? 4 : 0,
+        pointHoverRadius: context => context.raw?.capacityChanged ? 4 : 0,
+        pointStyle: 'circle',
+        pointBackgroundColor: 'hsl(177 65% 68%)',
+        pointBorderColor: 'hsl(234 45% 13%)',
+        pointBorderWidth: 2,
         // The wide supporting stroke remains visible as a teal halo when the
         // yellow enrollment line is exactly equal to capacity.
         order: 2,

@@ -279,6 +279,20 @@ test('capacity line covers observed timestamps only', () => {
     );
 });
 
+test('buildObservedCapacityPoints marks only real capacity changes', () => {
+    const chartPoints = [
+        { capacityChanged: false, prevCapacity: null },
+        { capacityChanged: false, prevCapacity: 100 },
+        { capacityChanged: true, prevCapacity: 100 },
+    ];
+    const points = buildObservedCapacityPoints([100, 100, 125], [10, 20, 30], chartPoints);
+    assert.deepEqual(points.map(point => point.capacityChanged ?? false), [false, false, true]);
+    assert.equal(points[2].prevCapacity, 100);
+    const extended = extendSteppedSeriesToDomainEnd(points, 40);
+    assert.equal(extended.at(-1).synthetic, true);
+    assert.equal(extended.at(-1).capacityChanged, undefined);
+});
+
 test('removed sections do not dilute later course enrollment or capacity levels', () => {
     const courseWithRemovedSection = {
         ah: [{ i: 3, f: 1 }],

@@ -433,12 +433,20 @@ export function markObservationEnd(points) {
     return series;
 }
 
-export function buildObservedCapacityPoints(capacityValues, xValues) {
-    return (capacityValues || []).flatMap((y, index) => (
-        Number.isFinite(y) && Number.isFinite(xValues?.[index])
-            ? [{ x: xValues[index], y, sourceIndex: index }]
-            : []
-    ));
+export function buildObservedCapacityPoints(capacityValues, xValues, chartPoints = []) {
+    return (capacityValues || []).flatMap((y, index) => {
+        if (!Number.isFinite(y) || !Number.isFinite(xValues?.[index])) return [];
+        const source = chartPoints?.[index];
+        return [{
+            x: xValues[index],
+            y,
+            sourceIndex: index,
+            ...(source?.capacityChanged ? {
+                capacityChanged: true,
+                prevCapacity: source.prevCapacity,
+            } : {}),
+        }];
+    });
 }
 
 export function buildRegistrationUnavailableIntervals(points, domainEnd) {
