@@ -111,6 +111,13 @@ body {
     box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
 }
 
+@media (forced-colors: active) {
+    :focus-visible {
+        outline: 2px solid CanvasText;
+        outline-offset: 2px;
+    }
+}
+
 /* Accessibility: Reduced motion */
 @media (prefers-reduced-motion: reduce) {
 
@@ -307,7 +314,9 @@ header p {
     border-radius: 50%;
     background: transparent;
     color: hsl(var(--muted-foreground));
-    font: 1rem/1 inherit;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1;
     cursor: pointer;
     transition:
         background-color var(--transition-fast),
@@ -922,9 +931,6 @@ header p {
     color: hsl(var(--foreground));
 }
 
-.jump-to-nav a:active {
-}
-
 /* Department headers */
 .dept-header {
     grid-column: 1 / -1;
@@ -994,12 +1000,7 @@ header p {
     box-shadow: var(--shadow-sm);
 }
 
-.course-cell.full {
-    background: linear-gradient(135deg, hsl(var(--destructive-surface)), hsl(346 84% 38%));
-    border-color: hsl(var(--destructive));
-    color: hsl(var(--destructive-foreground));
-}
-
+.course-cell.full,
 .course-cell.full:hover,
 .course-cell.full:focus,
 .course-cell.full:active {
@@ -1012,10 +1013,6 @@ header p {
     background: linear-gradient(135deg, hsl(var(--warning)), hsl(38 90% 40%));
     border-color: hsl(var(--warning));
     color: hsl(var(--warning-foreground));
-}
-
-.course-cell.expanded {
-    outline: 2px solid hsl(var(--accent));
 }
 
 .course-code {
@@ -1441,19 +1438,6 @@ header p {
     white-space: nowrap;
 }
 
-.historical-legend-item[hidden] {
-    display: none;
-}
-
-.chart-legend-dot {
-    width: 18px;
-    height: 18px;
-    flex: 0 0 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
 .capacity-legend-line {
     width: 22px;
     height: 0;
@@ -1557,7 +1541,7 @@ header p {
     background: hsl(var(--muted-foreground));
     border: 2px solid hsl(var(--card));
     z-index: 2;
-    transition: all var(--transition-fast);
+    transition: box-shadow var(--transition-fast);
 }
 
 .mp-dot.passed {
@@ -1746,10 +1730,6 @@ header p {
     display: flex;
     align-items: center;
     flex: 0 0 auto;
-}
-
-.historical-comparison-controls[hidden] {
-    display: flex;
 }
 
 .historical-comparison-toggle {

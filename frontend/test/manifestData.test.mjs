@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
     IntegrityError,
     UnsupportedSchemaError,
+    adaptPreviewCourseState,
     loadDepartmentPayload,
     loadSemesterManifest,
 } from '../src/manifestData.mjs';
@@ -143,6 +144,146 @@ test('startup fetches pointer, current manifest, and verified summary only', asy
     assert.equal(requests[0].cache, 'no-cache');
     assert.equal(requests[1].cache, undefined);
     assert.equal(requests[2].cache, undefined);
+});
+
+test('inlined current manifest skips the manifest fetch and resolves blob URLs against the current file', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const manifest = v3Manifest(summaryArtifact, {}, {
+        summary: {
+            schemaVersion: 1,
+            ...summaryArtifact.reference,
+            url: '../../blobs/summary.json',
+        },
+    });
+    const requests = [];
+    const fetchImpl = async url => {
+        requests.push(String(url));
+        if (String(url).endsWith('/manifest.json')) {
+            return jsonResponse({ ...pointer('manifests/v3-build.json'), currentManifest: manifest });
+        }
+        if (String(url) === summaryArtifact.reference.url) {
+            return bytesResponse(summaryArtifact);
+        }
+        throw new Error(`unexpected request ${url}`);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, false);
+    assert.equal(loaded.manifestUrl, 'https://example.test/data/summer-2026/manifests/v3-build.json');
+    assert.deepEqual(requests, [
+        'https://example.test/data/summer-2026/manifest.json',
+        'https://example.test/data/blobs/summary.json',
+    ]);
+});
+
+test('inlined manifest for a different build than current is ignored', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const manifest = v3Manifest(summaryArtifact, {}, {
+        summary: {
+            schemaVersion: 1,
+            ...summaryArtifact.reference,
+            url: '../../blobs/summary.json',
+        },
+    });
+    const requests = [];
+    const fetchImpl = async url => {
+        requests.push(String(url));
+        if (String(url).endsWith('/manifest.json')) {
+            return jsonResponse({ ...pointer(), currentManifest: manifest });
+        }
+        if (String(url).endsWith('/manifests/current.json')) {
+            return jsonResponse(manifest);
+        }
+        if (String(url) === summaryArtifact.reference.url) {
+            return bytesResponse(summaryArtifact);
+        }
+        throw new Error(`unexpected request ${url}`);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, false);
+    assert.equal(loaded.manifestUrl, 'https://example.test/data/summer-2026/manifests/current.json');
+    assert.deepEqual(requests, [
+        'https://example.test/data/summer-2026/manifest.json',
+        'https://example.test/data/summer-2026/manifests/current.json',
+        'https://example.test/data/blobs/summary.json',
+    ]);
+});
+
+test('invalid inlined manifest falls back to fetching the current manifest', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const manifest = v3Manifest(summaryArtifact);
+    const requests = [];
+    const fetchImpl = async url => {
+        requests.push(String(url));
+        if (String(url).endsWith('/manifest.json')) {
+            return jsonResponse({
+                ...pointer(),
+                currentManifest: { ...manifest, dataModelVersion: 4 },
+            });
+        }
+        if (String(url).endsWith('/manifests/current.json')) return jsonResponse(manifest);
+        return bytesResponse(summaryArtifact);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, false);
+    assert.equal(requests.length, 3);
+    assert.match(requests[1], /manifests\/current\.json$/);
+});
+
+test('inlined current manifest whose summary fails falls back to previous', async () => {
+    const goodArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/previous-summary.json',
+    );
+    const brokenArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/broken-summary.json',
+    );
+    const fetchImpl = async url => {
+        const value = String(url);
+        if (value.endsWith('/manifest.json')) {
+            return jsonResponse({
+                ...pointer('manifests/current.json', 'manifests/previous.json'),
+                currentManifest: v3Manifest(brokenArtifact),
+            });
+        }
+        if (value.endsWith('/manifests/previous.json')) {
+            return jsonResponse(v3Manifest(goodArtifact));
+        }
+        if (value === goodArtifact.reference.url) return bytesResponse(goodArtifact);
+        return jsonResponse({}, false, 404);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, true);
+    assert.match(loaded.manifestUrl, /previous\.json$/);
 });
 
 test('unsupported pointer versions are rejected before following references', async () => {
@@ -598,4 +739,86 @@ test('unknown versions are never silently accepted', async () => {
         ),
         error => error instanceof UnsupportedSchemaError,
     );
+});
+
+function previewState(mutate) {
+    const course = {
+        code: 'CSCI 101',
+        department: 'CSCI',
+        title: 'Intro',
+        averageFill: 0.5,
+        isFilled: false,
+        sections: {
+            '1L': {
+                type: 'L',
+                instructor: '',
+                currentEnrollment: 5,
+                currentCapacity: 10,
+                currentFill: 0.5,
+            },
+        },
+        averageHistory: [{ timestampIdx: 0, fill: 0.5 }],
+        sectionHistory: { '1L': [{ timestampIdx: 0, fill: 0.5, enrollment: 5, capacity: 10 }] },
+        events: [{ timestampIdx: 0, eventType: 'capacity_changed', sectionCode: '1L' }],
+    };
+    mutate(course);
+    return { kind: 'course', semester: SEMESTER, timestamps: ['2026-06-01T00:00:00+00:00'], course };
+}
+
+test('invalid history points and events keep their contextual error messages', () => {
+    const prefix = 'department CSCI.courses.CSCI 101';
+    const cases = [
+        [c => { c.averageHistory[0].fill = 'x'; }, `${prefix}.averageHistory[0].fill must be a finite number`],
+        [c => { c.averageHistory.push(null); }, `${prefix}.averageHistory[1] must be an object`],
+        [c => { c.sectionHistory['1L'][0].timestampIdx = 5; }, `${prefix}.sectionHistory.1L[0].timestampIdx is outside the timestamp table`],
+        [c => { c.sectionHistory['1L'][0].capacity = -1; }, `${prefix}.sectionHistory.1L[0].capacity must be a non-negative integer`],
+        [c => { c.events[0].timestampIdx = 9; }, `${prefix}.events[0].timestampIdx is outside the timestamp table`],
+        [c => { c.events.push('bad'); }, `${prefix}.events[1] must be an object`],
+    ];
+    for (const [mutate, message] of cases) {
+        assert.throws(() => adaptPreviewCourseState(previewState(mutate)), { message });
+    }
+    assert.equal(adaptPreviewCourseState(previewState(() => {})).code, 'CSCI 101');
+});
+
+test('a caller joining a request aborted by another caller retries instead of failing', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const departmentArtifact = await artifact(
+        emptyV3Department('CSCI'),
+        'https://example.test/data/blobs/csci.json',
+    );
+    const manifest = v3Manifest(summaryArtifact, { CSCI: departmentArtifact });
+    const manifestUrl = 'https://example.test/data/summer-2026/manifests/current.json';
+    const cache = new Map();
+    let fetchCount = 0;
+    const fetchImpl = (url, { signal } = {}) => {
+        fetchCount += 1;
+        if (!signal) return Promise.resolve(bytesResponse(departmentArtifact));
+        return new Promise((resolve, reject) => {
+            signal.addEventListener('abort', () => {
+                reject(new DOMException('aborted', 'AbortError'));
+            });
+        });
+    };
+
+    const controller = new AbortController();
+    const first = loadDepartmentPayload('CSCI', manifest, manifestUrl, cache, {
+        fetchImpl,
+        signal: controller.signal,
+        cryptoImpl: webcrypto,
+    });
+    const second = loadDepartmentPayload('CSCI', manifest, manifestUrl, cache, {
+        fetchImpl,
+        cryptoImpl: webcrypto,
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    controller.abort();
+
+    await assert.rejects(first, { name: 'AbortError' });
+    assert.equal((await second).department, 'CSCI');
+    assert.equal(fetchCount, 2);
+    assert.equal(cache.has('CSCI'), true);
 });

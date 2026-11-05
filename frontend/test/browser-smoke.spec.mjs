@@ -132,7 +132,8 @@ test('generated production site serves a working semester dashboard', async ({ p
     expect(await manifestPointerResponse.json()).toBeTruthy();
 
     expect(jsonRequests.some(url => /\/data\/[^/]+\/manifest\.json$/.test(url))).toBe(true);
-    expect(jsonRequests.some(url => /\/data\/[^/]+\/manifests\/.+\.json$/.test(url))).toBe(true);
+    // The pointer inlines the current manifest, so no manifest file is fetched.
+    expect(jsonRequests.some(url => /\/data\/[^/]+\/manifests\/.+\.json$/.test(url))).toBe(false);
     const blobRequests = () => jsonRequests.filter(
         url => /\/data\/blobs\/.+\.json$/.test(url),
     );

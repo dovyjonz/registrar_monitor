@@ -1,9 +1,12 @@
 import { buildTelegramImportText, telegramImportPresentation } from './telegramImport.mjs';
 import { bookmarks, summaryCourses } from './state';
+import { writeStoredJson } from './safeStorage.mjs';
 import { modalBookmarkBtn, telegramBookmarkImport } from './dom';
 
+export const BOOKMARKS_CHANGED_EVENT = 'registrar:bookmarks-changed';
+
 function saveBookmarks() {
-    localStorage.setItem('courseBookmarks', JSON.stringify([...bookmarks]));
+    writeStoredJson('courseBookmarks', [...bookmarks]);
     updateTelegramBookmarkImport();
 }
 
@@ -70,10 +73,13 @@ export function updateModalBookmark(code) {
         saveBookmarks();
         updateModalBookmark(code);
         // Update course cell
-        const cell = document.querySelector<HTMLElement>(`.course-cell[data-course="${code}"]`);
+        const cell = document.querySelector<HTMLElement>(`.course-cell[data-course="${CSS.escape(code)}"]`);
         if (cell) {
             cell.classList.toggle('starred', bookmarks.has(code));
         }
+        // search.ts re-runs filters (the starred filter reads the cell class);
+        // an event avoids a bookmarks -> search import cycle.
+        document.dispatchEvent(new CustomEvent(BOOKMARKS_CHANGED_EVENT));
         showToast(bookmarks.has(code) ? 'Course bookmarked' : 'Bookmark removed');
     };
 }

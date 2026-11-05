@@ -928,28 +928,6 @@ def publish_semester(
     build_id = _sha256(_canonical_bytes(identity))[:24]
     current_ref = f"manifests/{build_id}.json"
 
-    prior_pointer = _read_json(pointer_path) if pointer_path.exists() else None
-    if prior_pointer and prior_pointer.get("current") == current_ref:
-        return PublicationResult(
-            status="unchanged",
-            pointer_path=pointer_path,
-            manifest_path=semester_root / current_ref,
-            build_id=build_id,
-            blobs_written=0,
-        )
-
-    if hook:
-        hook("blobs", "before")
-    blobs_written = int(
-        _write_once(blobs_root / f"{summary_hash}.json", summary_payload)
-    )
-    for name, payload in department_payloads.items():
-        blobs_written += int(
-            _write_once(blobs_root / f"{department_hashes[name]}.json", payload)
-        )
-    if hook:
-        hook("blobs", "after")
-
     manifest = {
         "manifestVersion": MANIFEST_VERSION,
         "dataModelVersion": DATA_MODEL_VERSION_V3,
@@ -973,6 +951,32 @@ def publish_semester(
             for name in department_payloads
         },
     }
+    prior_pointer = _read_json(pointer_path) if pointer_path.exists() else None
+    if (
+        prior_pointer
+        and prior_pointer.get("current") == current_ref
+        and prior_pointer.get("currentManifest") is not None
+    ):
+        return PublicationResult(
+            status="unchanged",
+            pointer_path=pointer_path,
+            manifest_path=semester_root / current_ref,
+            build_id=build_id,
+            blobs_written=0,
+        )
+
+    if hook:
+        hook("blobs", "before")
+    blobs_written = int(
+        _write_once(blobs_root / f"{summary_hash}.json", summary_payload)
+    )
+    for name, payload in department_payloads.items():
+        blobs_written += int(
+            _write_once(blobs_root / f"{department_hashes[name]}.json", payload)
+        )
+    if hook:
+        hook("blobs", "after")
+
     manifest_path = manifests_root / f"{build_id}.json"
     if hook:
         hook("manifest", "before")
@@ -980,10 +984,21 @@ def publish_semester(
     if hook:
         hook("manifest", "after")
 
+    previous = None
+    if prior_pointer:
+        prior_current = prior_pointer.get("current")
+        previous = (
+            prior_pointer.get("previous")
+            if prior_current == current_ref
+            else prior_current
+        )
     pointer = {
         "manifestVersion": MANIFEST_VERSION,
         "current": current_ref,
-        "previous": prior_pointer.get("current") if prior_pointer else None,
+        "previous": previous,
+        # Inlined so the first render needs no second round trip; blob URLs
+        # still resolve against the `current` manifest file.
+        "currentManifest": manifest,
     }
     if hook:
         hook("pointer", "before")

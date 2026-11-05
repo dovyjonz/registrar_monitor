@@ -52,6 +52,24 @@ describe('preview request handling', () => {
     expect(quickAction).toHaveBeenCalledTimes(1);
   });
 
+  it('ignores query strings in the cache key and drops upstream headers', async () => {
+    const hash = 'obLD1OX2';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json(state(hash)));
+    const rendered = new Response('png', { status: 200, headers: { 'Set-Cookie': 'a=b', 'X-Upstream': '1' } });
+    const { cache, env, quickAction } = runtime(rendered);
+    const base = `https://example.test/preview/course/fall-2026/ant-140/${hash}.png`;
+    const context = createExecutionContext();
+    const first = await handlePreviewRequest(new Request(`${base}?n=1`), env, context, cache);
+    await waitOnExecutionContext(context);
+    const second = await handlePreviewRequest(new Request(`${base}?n=2#x`), env, createExecutionContext(), cache);
+
+    expect(second.status).toBe(200);
+    expect(quickAction).toHaveBeenCalledTimes(1);
+    expect(first.headers.get('Set-Cookie')).toBeNull();
+    expect(first.headers.get('X-Upstream')).toBeNull();
+    expect(first.headers.get('Content-Type')).toBe('image/png');
+  });
+
   it('uses a distinct cache identity for a new hash', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const hash = /([A-Za-z0-9_-]{8})\.json$/.exec(input instanceof Request ? input.url : String(input))?.[1] ?? '';

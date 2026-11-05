@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -9,6 +11,8 @@ from typing import Any, Protocol
 from registrarmonitor.data.database_manager import DatabaseManager
 
 from .config import get_configured_semesters, get_registrar_url
+
+logger = logging.getLogger(__name__)
 
 
 class CatalogDatabase(Protocol):
@@ -47,7 +51,10 @@ def build_publication_catalog(
             database = factory(semester)
             if not database.latest_snapshot_has_courses(semester):
                 continue
-        except Exception:
+        except sqlite3.Error:
+            logger.warning(
+                "Skipping %s: its database could not be read", semester, exc_info=True
+            )
             continue
         catalog.append(
             PublishedSemester(

@@ -5,18 +5,14 @@
 import { buildSectionActivityTimeline } from './historicalComparison.mjs';
 
 export {
-    buildInstructorAssignmentTimeline,
     buildProfessorAverageChartPoints,
-    buildProfessorChartPoints,
     buildSectionActivityTimeline,
     courseHasProfessor,
     createHistoricalCoordinateMapper,
     getInstructorAtSnapshot,
     getHistoricalMilestoneAlignment,
-    normalizeHistoricalChartDomain,
     normalizeHistoricalDomain,
     normalizeInstructorName,
-    normalizeProfessorIdentity,
 } from './historicalComparison.mjs';
 
 // Chart.js's "before" mode draws the transition at the newer observation's
@@ -70,17 +66,28 @@ export function filterMilestonesToObservedRange(milestones, chartDomain) {
     });
 }
 
-export function findSteppedPointIndexAtX(xValues, pixelX) {
-    const values = (xValues || []).filter(Number.isFinite);
-    if (!Number.isFinite(pixelX) || values.length === 0) return null;
-    if (pixelX < values[0] || pixelX > values.at(-1)) return null;
+/**
+ * Binary search over indices 0..count-1 for the last index whose x is at or
+ * before pixelX. getX(i) must be finite and nondecreasing. Returns null when
+ * pixelX is outside the observed range.
+ */
+export function findSteppedIndex(count, getX, pixelX) {
+    if (!(count > 0) || !Number.isFinite(pixelX)) return null;
+    if (pixelX < getX(0) || pixelX > getX(count - 1)) return null;
 
-    let selectedIndex = 0;
-    for (let index = 1; index < values.length; index++) {
-        if (values[index] > pixelX) break;
-        selectedIndex = index;
+    let low = 0;
+    let high = count - 1;
+    while (low < high) {
+        const middle = (low + high + 1) >> 1;
+        if (getX(middle) <= pixelX) low = middle;
+        else high = middle - 1;
     }
-    return selectedIndex;
+    return low;
+}
+
+export function findSteppedPointIndexAtX(xValues, pixelX) {
+    const values = xValues || [];
+    return findSteppedIndex(values.length, index => values[index], pixelX);
 }
 
 export function getMedianPositiveGap(values) {
@@ -212,33 +219,64 @@ function getCapacityChangesBySnapshot(course, activity) {
     return changes;
 }
 
-function getSectionFillAtSnapshot(section, snapshotIdx) {
-    let fill = null;
-    for (const point of section?.h || []) {
-        if (!Number.isInteger(point.i) || point.i > snapshotIdx) continue;
-        if (Number.isFinite(point.f)) fill = point.f;
+/**
+ * Resolve the latest accepted history point at or before a snapshot. Histories
+ * are normally ordered by snapshot index, which allows a binary search; an
+ * unordered history falls back to a scan so results never depend on ordering.
+ */
+function createLatestPointResolver(history, accept) {
+    const entries = [];
+    for (const point of history || []) {
+        if (Number.isInteger(point.i) && accept(point)) entries.push(point);
     }
-    return fill;
+    const ordered = entries.every((point, index) => (
+        index === 0 || entries[index - 1].i <= point.i
+    ));
+    return (snapshotIdx) => {
+        if (!ordered) {
+            let latest = null;
+            for (const point of entries) {
+                if (point.i <= snapshotIdx) latest = point;
+            }
+            return latest;
+        }
+        let low = 0;
+        let high = entries.length;
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if (entries[middle].i <= snapshotIdx) low = middle + 1;
+            else high = middle;
+        }
+        return low > 0 ? entries[low - 1] : null;
+    };
 }
 
-function getSectionStateAtSnapshot(section, snapshotIdx) {
-    let state = null;
-    for (const point of section?.h || []) {
-        if (!Number.isInteger(point.i) || point.i > snapshotIdx) continue;
-        if (Number.isFinite(point.e) && Number.isFinite(point.c)) state = point;
-    }
-    return state;
+// Per-section values that do not depend on the snapshot, computed once.
+function buildSectionInfos(course) {
+    return Object.entries(getCourseSections(course)).map(([sectionCode, section]) => {
+        const fillPoint = createLatestPointResolver(section?.h, point => Number.isFinite(point.f));
+        const statePoint = createLatestPointResolver(
+            section?.h,
+            point => Number.isFinite(point.e) && Number.isFinite(point.c),
+        );
+        return {
+            sectionCode,
+            section,
+            fillAt: snapshotIdx => fillPoint(snapshotIdx)?.f ?? null,
+            stateAt: statePoint,
+            openingCapacity: getOpeningCapacity(section),
+        };
+    });
 }
 
 function getOpeningCapacity(section) {
     return (section?.h || []).find(point => Number.isFinite(point.c) && point.c > 0)?.c ?? null;
 }
 
-function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
-    const levels = Object.entries(getCourseSections(course)).flatMap(([sectionCode, section]) => {
+function getCourseLevelsAtSnapshot(sectionInfos, snapshotIdx, activity) {
+    const levels = sectionInfos.flatMap(({ sectionCode, section, stateAt, openingCapacity }) => {
         if (!isSectionActiveAtSnapshot(activity, sectionCode, snapshotIdx)) return [];
-        const state = getSectionStateAtSnapshot(section, snapshotIdx);
-        const openingCapacity = getOpeningCapacity(section);
+        const state = stateAt(snapshotIdx);
         if (!state) return [];
         return [{
             sectionType: getSectionTypeName(section.t || section.type || 'Other'),
@@ -284,10 +322,10 @@ function getCourseLevelsAtSnapshot(course, snapshotIdx, activity) {
     };
 }
 
-function getAverageFillAtSnapshot(course, snapshotIdx, activity) {
-    const fills = Object.entries(getCourseSections(course))
-        .filter(([sectionCode]) => isSectionActiveAtSnapshot(activity, sectionCode, snapshotIdx))
-        .map(([, section]) => getSectionFillAtSnapshot(section, snapshotIdx))
+function getAverageFillAtSnapshot(sectionInfos, snapshotIdx, activity) {
+    const fills = sectionInfos
+        .filter(({ sectionCode }) => isSectionActiveAtSnapshot(activity, sectionCode, snapshotIdx))
+        .map(({ fillAt }) => fillAt(snapshotIdx))
         .filter(Number.isFinite);
     if (fills.length === 0) return null;
     return fills.reduce((total, fill) => total + fill, 0) / fills.length;
@@ -295,6 +333,7 @@ function getAverageFillAtSnapshot(course, snapshotIdx, activity) {
 
 export function buildAverageChartPoints(course, snapshots) {
     const activity = buildCourseSectionActivity(course, snapshots);
+    const sectionInfos = buildSectionInfos(course);
     const pointsBySnapshot = new Map(
         (course?.ah || [])
             .filter(point => Number.isInteger(point.i))
@@ -303,7 +342,7 @@ export function buildAverageChartPoints(course, snapshots) {
     const capacityChanges = getCapacityChangesBySnapshot(course, activity);
     for (const snapshotIdx of capacityChanges.keys()) {
         if (pointsBySnapshot.has(snapshotIdx)) continue;
-        const fill = getAverageFillAtSnapshot(course, snapshotIdx, activity);
+        const fill = getAverageFillAtSnapshot(sectionInfos, snapshotIdx, activity);
         if (fill !== null) pointsBySnapshot.set(snapshotIdx, { i: snapshotIdx, f: fill });
     }
 
@@ -313,7 +352,7 @@ export function buildAverageChartPoints(course, snapshots) {
             const timestamp = toTimestamp(snapshots?.[point.i]);
             if (timestamp === null) return [];
             const snapshotCapacityChanges = capacityChanges.get(snapshotIdx) || [];
-            const levels = getCourseLevelsAtSnapshot(course, snapshotIdx, activity);
+            const levels = getCourseLevelsAtSnapshot(sectionInfos, snapshotIdx, activity);
             const chartPoint = {
                 snapshotIdx,
                 timestamp,
@@ -394,12 +433,20 @@ export function markObservationEnd(points) {
     return series;
 }
 
-export function buildObservedCapacityPoints(capacityValues, xValues) {
-    return (capacityValues || []).flatMap((y, index) => (
-        Number.isFinite(y) && Number.isFinite(xValues?.[index])
-            ? [{ x: xValues[index], y, sourceIndex: index }]
-            : []
-    ));
+export function buildObservedCapacityPoints(capacityValues, xValues, chartPoints = []) {
+    return (capacityValues || []).flatMap((y, index) => {
+        if (!Number.isFinite(y) || !Number.isFinite(xValues?.[index])) return [];
+        const source = chartPoints?.[index];
+        return [{
+            x: xValues[index],
+            y,
+            sourceIndex: index,
+            ...(source?.capacityChanged ? {
+                capacityChanged: true,
+                prevCapacity: source.prevCapacity,
+            } : {}),
+        }];
+    });
 }
 
 export function buildRegistrationUnavailableIntervals(points, domainEnd) {
@@ -534,8 +581,9 @@ export function getSnapshotsMapper(points, domain) {
 
         for (let i = 0; i < domainTimes.length - 1; i++) {
             if (t >= domainTimes[i] && t <= domainTimes[i + 1]) {
-                const frac = (t - domainTimes[i]) / (domainTimes[i + 1] - domainTimes[i]);
-                return i + frac;
+                const span = domainTimes[i + 1] - domainTimes[i];
+                // Duplicate consecutive timestamps have no width to interpolate.
+                return span > 0 ? i + (t - domainTimes[i]) / span : i;
             }
         }
         return 0;

@@ -55,7 +55,11 @@ export async function handlePreviewRequest(
   const identity = parsePreviewRoute(new URL(request.url).pathname);
   if (!identity) return failure(404, 'Not found');
 
-  const cacheKey = new Request(request.url, { method: 'GET' });
+  // Key on origin + pathname so query strings and fragments cannot force re-renders.
+  const keyUrl = new URL(request.url);
+  keyUrl.search = '';
+  keyUrl.hash = '';
+  const cacheKey = new Request(keyUrl.href, { method: 'GET' });
   const cached = await cache.match(cacheKey);
   if (cached) {
     return request.method === 'HEAD'
@@ -98,9 +102,9 @@ export async function handlePreviewRequest(
     return failure(502, 'Preview rendering failed');
   }
 
-  const headers = new Headers(rendered.headers);
-  headers.set('Cache-Control', IMMUTABLE);
-  headers.set('Content-Type', 'image/png');
+  const headers = new Headers({ 'Cache-Control': IMMUTABLE, 'Content-Type': 'image/png' });
+  const length = rendered.headers.get('Content-Length');
+  if (length) headers.set('Content-Length', length);
   const response = new Response(rendered.body, {
     status: 200,
     headers,

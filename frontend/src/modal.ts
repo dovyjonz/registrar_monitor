@@ -192,7 +192,11 @@ function renderCoursePublicationState(course) {
 export function openCourseModal(courseCode, summaryCourse) {
     const overlay = document.getElementById('modalOverlay');
     if (!overlay?.classList.contains('active')) {
-        appState.modalOpener = document.activeElement as HTMLElement;
+        const active = document.activeElement as HTMLElement | null;
+        // Never remember body or an element inside the modal as the opener.
+        appState.modalOpener = active && active !== document.body && !overlay.contains(active)
+            ? active
+            : null;
     }
 
     appState.selectedCourse = courseCode;
@@ -360,9 +364,21 @@ async function retryCourse(courseCode) {
     await loadAndRenderCourse(courseCode, requestVersion);
 }
 
-/**
- * Close the course detail modal.
- */
+function restoreModalFocus() {
+    const opener = appState.modalOpener;
+    appState.modalOpener = null;
+    if (opener?.isConnected && typeof opener.focus === 'function') {
+        opener.focus();
+        if (document.activeElement === opener) return;
+    }
+    // The opener is gone or hidden (or there was none, e.g. a deep link). Use the
+    // grid rather than the search input so touch keyboards do not pop up.
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    if (!grid.hasAttribute('tabindex')) grid.setAttribute('tabindex', '-1');
+    grid.focus({ preventScroll: true });
+}
+
 function finishModalClose(overlay) {
     if (overlay.classList.contains('active')) return;
 
@@ -375,10 +391,7 @@ function finishModalClose(overlay) {
     const shareBtn = document.getElementById('modalShareLink');
     if (shareBtn) shareBtn.style.display = 'none';
 
-    if (appState.modalOpener && typeof appState.modalOpener.focus === 'function') {
-        appState.modalOpener.focus();
-        appState.modalOpener = null;
-    }
+    restoreModalFocus();
 
     appState.selectedCourse = null;
     appState.selectedSection = null;
@@ -389,11 +402,18 @@ function finishModalClose(overlay) {
     resetCourseDetailView();
 }
 
+/**
+ * Close the course detail modal.
+ */
 function closeModal() {
     const overlay = document.getElementById('modalOverlay');
     if (!overlay?.classList.contains('active')) return;
 
+    // Invalidate in-flight loads and route resolutions immediately; waiting for
+    // the fade-out lets a late showCourseRoute rewrite the URL back.
     appState.courseRequestVersion += 1;
+    appState.selectedCourse = null;
+    appState.selectedCourseShareUrl = null;
     const finish = event => {
         if (event.target !== overlay || event.propertyName !== 'opacity') return;
         overlay.removeEventListener('transitionend', finish);
@@ -441,6 +461,14 @@ modalOverlay.addEventListener('click', (event) => {
     if (dismiss) closeModal();
 });
 
+/** Hidden or display:none elements cannot take focus, so they must not anchor the trap. */
+function isFocusableVisible(element: HTMLElement) {
+    if (element.closest('[hidden]')) return false;
+    return typeof element.checkVisibility === 'function'
+        ? element.checkVisibility()
+        : element.offsetParent !== null;
+}
+
 /**
  * Get all focusable elements within the modal.
  */
@@ -451,7 +479,7 @@ function getModalFocusableElements() {
         'button:not([disabled]):not([tabindex="-1"]), ' +
         '[href], input:not([disabled]), select:not([disabled]), ' +
         'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
-    )];
+    )].filter(isFocusableVisible);
 }
 
 /**

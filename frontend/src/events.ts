@@ -1,7 +1,5 @@
 import { appState, getHydratedCourse } from './state';
 
- // 'all' or specific section code
-
 const EVENT_ICONS = {
     'course_added': '🟢', 'course_removed': '🔴',
     'section_added': '➕', 'section_removed': '➖',
@@ -13,6 +11,16 @@ const EVENT_LABELS = {
     'section_added': 'Sec +', 'section_removed': 'Sec −',
     'capacity_changed': 'Capacity', 'instructor_changed': 'Instructor'
 };
+
+function syncSortButton(button: HTMLElement) {
+    const newest = appState._eventSortOrder === 'newest';
+    button.dataset.sort = appState._eventSortOrder;
+    button.textContent = newest ? '↓ Newest' : '↑ Oldest';
+    button.setAttribute(
+        'aria-label',
+        `Sort order: ${newest ? 'newest' : 'oldest'} first. Activate to show ${newest ? 'oldest' : 'newest'} first.`,
+    );
+}
 
 function eventDesc(e) {
     const descs = {
@@ -39,6 +47,8 @@ export function renderEventHistory(courseCode, course = getHydratedCourse(course
     appState._currentEvents = course?.ev || [];
     appState._eventFilterType = 'all';
     appState._eventFilterSection = 'all';
+    // The rebuilt controls start at "Newest"; keep state in step with them.
+    appState._eventSortOrder = 'newest';
 
     if (appState._currentEvents.length === 0) {
         details.style.display = 'none';
@@ -59,9 +69,9 @@ export function renderEventHistory(courseCode, course = getHydratedCourse(course
 
         const sortBtn = document.createElement('button');
         sortBtn.className = 'ef-pill ef-sort';
-        sortBtn.dataset.sort = 'newest';
+        sortBtn.type = 'button';
         sortBtn.title = 'Sort order';
-        sortBtn.textContent = '↓ Newest';
+        syncSortButton(sortBtn);
         efRow.appendChild(sortBtn);
 
         const typeSelect = document.createElement('select');
@@ -103,7 +113,7 @@ export function renderEventHistory(courseCode, course = getHydratedCourse(course
         // Wire up events
         filtersEl.querySelector<HTMLElement>('.ef-sort')?.addEventListener('click', (e) => {
             appState._eventSortOrder = appState._eventSortOrder === 'newest' ? 'oldest' : 'newest';
-            (e.target as HTMLElement).textContent = appState._eventSortOrder === 'newest' ? '↓ Newest' : '↑ Oldest';
+            syncSortButton(e.currentTarget as HTMLElement);
             _renderFilteredEvents();
         });
         filtersEl.querySelector<HTMLElement>('#efType')?.addEventListener('change', (e) => {

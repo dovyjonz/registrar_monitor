@@ -3,13 +3,10 @@ import { getElectiveCategories } from './electiveFilters.mjs';
 import { loadDepartmentPayload } from './manifestData.mjs';
 import { appState, bookmarks, dataLoadController, departmentPayloads, getCourseDepartment, getCourseSections, getData, hydratedCourses, refreshCourseMaps, summaryCourses } from './state';
 import { applyFilters, setDepartmentPanelOpen } from './search';
-import { formatCourseCode, formatDate, getStatusClass } from './format';
+import { formatDate, getStatusClass } from './format';
 import { openCourse } from './modal';
 import { markPerformance } from './perf';
 
-/**
- * Render the main course grid.
- */
 function getCourseSectionStats(course) {
     if (Number.isInteger(course.sectionCount) && Number.isInteger(course.fullSectionCount)) {
         return {
@@ -65,6 +62,9 @@ export function renderJumpToNavigation(sortedDepts) {
     if (panel) panel.hidden = !hasDepartments || toggle?.getAttribute('aria-expanded') !== 'true';
 }
 
+/**
+ * Render the main course grid.
+ */
 export function renderCourseGrid() {
     const data = getData();
     const grid = document.getElementById('courseGrid');
@@ -141,12 +141,12 @@ export function renderCourseGrid() {
             cell.setAttribute('data-electives', getElectiveCategories(course.code).join(' '));
             cell.setAttribute(
                 'aria-label',
-                `${formatCourseCode(course.code)}: ${publicState.accessibilityCopy}`,
+                `${course.code}: ${publicState.accessibilityCopy}`,
             );
             cell.style.setProperty('--cell-index', String(totalCourses));
             const codeSpan = document.createElement('span');
             codeSpan.className = 'course-code';
-            codeSpan.textContent = formatCourseCode(course.code);
+            codeSpan.textContent = course.code;
             cell.appendChild(codeSpan);
             const fillSpan = document.createElement('span');
             fillSpan.className = 'course-fill';
@@ -175,7 +175,7 @@ export function renderCourseGrid() {
 }
 
 /**
- * Open course detail modal.
+ * Load a course's full details from its department payload (cached).
  */
 export async function hydrateCourse(courseCode) {
     refreshCourseMaps();

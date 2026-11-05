@@ -11,6 +11,7 @@ import {
     buildRegistrationUnavailableIntervals,
     buildSectionChartPoints,
     extendSteppedSeriesToDomainEnd,
+    findSteppedIndex,
     findSteppedPointIndexAtX,
     filterMilestonesToObservedRange,
     getChartMapper,
@@ -28,6 +29,23 @@ test('stepped interactions stop outside the recorded observation range', () => {
     assert.equal(findSteppedPointIndexAtX(xValues, 35), 1);
     assert.equal(findSteppedPointIndexAtX(xValues, 40), 2);
     assert.equal(findSteppedPointIndexAtX(xValues, 41), null);
+});
+
+test('findSteppedIndex binary-searches the last index at or before pixelX', () => {
+    const xs = [10, 20, 20, 40, 50];
+    const get = index => xs[index];
+
+    assert.equal(findSteppedIndex(0, get, 10), null);
+    assert.equal(findSteppedIndex(xs.length, get, Number.NaN), null);
+    assert.equal(findSteppedIndex(xs.length, get, 9), null);
+    assert.equal(findSteppedIndex(xs.length, get, 51), null);
+    assert.equal(findSteppedIndex(xs.length, get, 10), 0);
+    assert.equal(findSteppedIndex(xs.length, get, 19.9), 0);
+    assert.equal(findSteppedIndex(xs.length, get, 20), 2);
+    assert.equal(findSteppedIndex(xs.length, get, 39), 2);
+    assert.equal(findSteppedIndex(xs.length, get, 50), 4);
+    assert.equal(findSteppedIndex(1, get, 10), 0);
+    assert.equal(findSteppedIndex(1, get, 11), null);
 });
 
 test('archived milestone guides stay inside real observed bounds', () => {
@@ -259,6 +277,20 @@ test('capacity line covers observed timestamps only', () => {
             { x: 30, y: 125, sourceIndex: 2 },
         ],
     );
+});
+
+test('buildObservedCapacityPoints marks only real capacity changes', () => {
+    const chartPoints = [
+        { capacityChanged: false, prevCapacity: null },
+        { capacityChanged: false, prevCapacity: 100 },
+        { capacityChanged: true, prevCapacity: 100 },
+    ];
+    const points = buildObservedCapacityPoints([100, 100, 125], [10, 20, 30], chartPoints);
+    assert.deepEqual(points.map(point => point.capacityChanged ?? false), [false, false, true]);
+    assert.equal(points[2].prevCapacity, 100);
+    const extended = extendSteppedSeriesToDomainEnd(points, 40);
+    assert.equal(extended.at(-1).synthetic, true);
+    assert.equal(extended.at(-1).capacityChanged, undefined);
 });
 
 test('removed sections do not dilute later course enrollment or capacity levels', () => {
@@ -499,4 +531,40 @@ test('observation-end cue decorates the last real point without changing the ser
     assert.deepEqual(decorated.map(({ x, y, sourceIndex }) => ({ x, y, sourceIndex })), points);
     assert.equal(decorated.at(-1).observationEnded, true);
     assert.equal(points.at(-1).observationEnded, undefined);
+});
+
+test('snapshot mapper tolerates duplicate consecutive timestamps', () => {
+    const domain = [
+        { snapshotIdx: 0, timestamp: 100 },
+        { snapshotIdx: 1, timestamp: 200 },
+        { snapshotIdx: 2, timestamp: 200 },
+        { snapshotIdx: 3, timestamp: 300 },
+    ];
+    const mapper = getChartMapper('snapshots', [], domain, []);
+
+    assert.equal(mapper.mapTime(150), 0.5);
+    assert.equal(mapper.mapTime(200), 1);
+    assert.equal(mapper.mapTime(250), 2.5);
+    for (const time of [50, 100, 150, 200, 250, 300, 400]) {
+        assert.ok(Number.isFinite(mapper.mapTime(time)), `mapTime(${time}) is finite`);
+    }
+});
+
+test('average chart points add a point where section capacity changes', () => {
+    const snapshots = [0, 1, 2, 3].map(index => ({ ts: new Date(1000 * (index + 1)).toISOString() }));
+    const history = [
+        { i: 0, f: 0.1, e: 1, c: 10 },
+        { i: 1, f: 0.2, e: 2, c: 10 },
+        { i: 2, f: 0.5, e: 5, c: 12 },
+        { i: 3, f: 0.6, e: 6, c: 12 },
+    ];
+    const build = h => buildAverageChartPoints({
+        ah: [{ i: 0, f: 0.1 }],
+        s: { '01': { t: 'L', h } },
+        ev: [],
+    }, snapshots);
+
+    assert.deepEqual(build(history).map(p => p.snapshotIdx), [0, 2]);
+    assert.equal(build(history)[1].fill, 50);
+    assert.equal(build(history)[1].capacity, 12);
 });
