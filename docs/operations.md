@@ -63,8 +63,8 @@ systemctl show registrarmonitor.service -p MemoryMax -p OOMScoreAdjust
 ```
 
 Memory controller delegation to `user@.service` is the default on modern systemd; if
-`memory` is missing, add `Delegate=memory pids` through a drop-in for
-`user@.service`, otherwise `MemoryMax` on the build scope is silently not enforced.
+`memory` is missing, `MemoryMax` on the build scope is silently not enforced.
+`scripts/tune_vm.sh` installs the drop-in that fixes it (see "VM tuning").
 
 ### Deploy
 
@@ -140,6 +140,94 @@ The operator owns source, `.git`, `.jj`, and `.venv`. The runtime user owns `dat
 `registrarmonitor`; shared directories are setgid with default ACLs. `.env` is
 `0600`, owned by the runtime user, with no shared ACL. Do not broaden the checkout
 root or `.env` permissions to fix a nested-path problem.
+
+### VM tuning
+
+The VM has 1 GB of RAM, 2 GB of disk swap, a small slow persistent disk, and a
+shared-core CPU. Goal: the poller and bot are never starved by a website build or a
+registration burst, and swap and writeback do not stall them. `scripts/setup_vps.sh`
+tunes the project units; `scripts/tune_vm.sh` tunes the operating system.
+
+**Unit budget** (set by `setup_vps.sh`; override with the `*_MEMORY_*` variables).
+"Typical" is the scheduler's measured peak and the build's measured share of RAM;
+the other rows are estimates until measured with `tune_vm.sh --status` during a period.
+
+| Unit | MemoryHigh / MemoryMax | OOMScoreAdjust | CPU / IO weight | Typical |
+|---|---|---|---|---|
+| `registrarmonitor` (scheduler) | 300M / 400M | -500 | 200 / 200 | 68M |
+| `registrarmonitor-bot` | 200M / 300M | -200 | 150 / 150 | ~90M |
+| `registrarmonitor-tunnel` | 96M / 128M | 0 | 75 / 75 | ~40M |
+| `registrarmonitor-litestream` | 128M / 192M | 200 | 50 / 50, `Nice=10` | ~60M |
+| website build scope (transient) | none / `website.build_memory_max` (600M) | 500 | 20 / 20, nice 10, ionice idle | ~220M (23%) |
+| kernel, systemd, journald, sshd, guest agents | uncapped | 0 | 100 / 100 | ~150M |
+
+The caps are ceilings, not a forecast: they sum to more than RAM (services 1,020M,
+plus 600M for the build). Expected use is about 410M steady and about 630M during a
+build, which leaves the rest for page cache. If every cap were hit, zram and the disk
+swap absorb the excess, and the kernel kills in this order: build, Litestream, other
+processes, bot, scheduler. The scheduler and bot also run with `MALLOC_ARENA_MAX=2`
+(glibc per-thread arenas inflate RSS), the scheduler with
+`NODE_OPTIONS=--max-old-space-size=384` so vite and wrangler children collect garbage
+inside the build cap, and the Go units with a `GOMEMLIMIT` below their `MemoryHigh`.
+`IOWeight`, `ionice -c 3`, and the build's I/O priority only take effect under the
+`bfq` I/O scheduler (see `--bfq` below); with the default `mq-deadline` or `none` they
+are inert, while CPU weights and memory caps work regardless.
+
+**What `scripts/tune_vm.sh` does.** Dry run by default; it prints the current values
+and the plan, and changes nothing without `--apply`. It uses `sudo`, is idempotent
+(files with matching content are left alone), never restarts a project unit, never
+touches `/etc/fstab`, networking, or `google-guest-agent`, and never reads `.env`.
+
+| Step | Change |
+|---|---|
+| `zram` | installs `zram-tools`, sets zstd at 50% of RAM, priority 100 (disk swap, priority -2, stays as the fallback), enables `zramswap.service`. Skipped when the kernel has no zram. If zram already holds more than 64 MiB, a settings change waits for a reboot. |
+| `sysctl` | `vm.dirty_background_bytes` 16 MiB, `vm.dirty_bytes` 64 MiB (bound writeback stalls on the slow disk), `vm.vfs_cache_pressure` 50, and, only with zram, `vm.swappiness` 100 and `vm.page-cluster` 0 |
+| `thp` | transparent hugepages to `madvise` (Debian defaults to `always`, which bloats small processes) |
+| `journald` | persistent, compressed, `SystemMaxUse=200M`, 14 days, rate limit 5000 per 30 s; restarts `systemd-journald` |
+| `timers` | `apt-daily` at 03:30 and `apt-daily-upgrade` at 04:00 `Asia/Almaty` (20 min random delay), `fstrim` Mondays 04:40, all `Persistent=false` so a boot or timer restart never triggers a catch-up run; disables `man-db.timer`. Check the next milestone in `settings.toml` first: 03:30-04:40 must not fall in a registration window. |
+| `delegation` | drop-in so `user@.service` delegates `memory pids cpu io`, which the build scope's `MemoryMax`, `CPUWeight`, and `IOWeight` need. It is read when `user@<uid>.service` next starts (reboot, or restart it while no build runs). |
+
+Opt-in only: `--disable-osconfig` stops `google-osconfig-agent` (saves tens of MB;
+GCP OS Config patching and inventory stop), and `--bfq` switches the disk to the `bfq`
+scheduler (makes the build's idle I/O class and `IOWeight` effective; costs some CPU).
+`--skip zram,timers,...` leaves steps out.
+
+Run on the VM as the SSH operator, naming the runtime account:
+
+```bash
+RUNTIME_USER=dmitry_s_ivanenko scripts/tune_vm.sh            # dry run
+RUNTIME_USER=dmitry_s_ivanenko scripts/tune_vm.sh --apply    # only when authorized
+```
+
+Apply well outside a milestone window; installing zram and restarting journald are
+brief but real activity on a 1 GB VM. Also re-run `scripts/setup_vps.sh`, then install
+the regenerated units and restart them one at a time (each is a separate authorized
+action) so the new limits and environment take effect.
+
+**Verify.** `scripts/runtime_doctor.sh --vm` (or `scripts/tune_vm.sh --status`) is
+read-only and needs no sudo. It reports swap devices and zram usage, the sysctls,
+THP and I/O scheduler, whether `user@<uid>.service` delegates `memory`, journald disk
+usage, the maintenance timers, and each project unit's current memory and limits.
+Also `swapon --show` (zram first, priority 100), `systemctl list-timers 'apt-daily*'`,
+and the `systemd-run` check under "Production".
+
+**Revert.** Each item is a file or state this script created; remove it and reload:
+
+| Created | Undo |
+|---|---|
+| `/etc/default/zramswap` (original at `.registrarmonitor.bak`), `zramswap.service` | restore the backup, or `sudo apt-get remove zram-tools`; reboot or `swapoff /dev/zram0` |
+| `/etc/sysctl.d/90-registrarmonitor.conf` | delete, then `sudo sysctl --system` (the old values return after reboot) |
+| `/etc/tmpfiles.d/90-registrarmonitor-thp.conf` | delete; `echo always` to the sysfs knob or reboot |
+| `/etc/systemd/journald.conf.d/90-registrarmonitor.conf` | delete, `sudo systemctl restart systemd-journald` |
+| `/etc/systemd/system/{apt-daily,apt-daily-upgrade,fstrim}.timer.d/90-registrarmonitor.conf` | delete the files, `sudo systemctl daemon-reload`, restart the timers; `sudo systemctl enable --now man-db.timer` |
+| `/etc/systemd/system/user@.service.d/90-registrarmonitor-delegate.conf` | delete, `sudo systemctl daemon-reload` |
+| `/etc/udev/rules.d/60-registrarmonitor-io-scheduler.rules` (`--bfq`) | delete, `sudo udevadm control --reload`, reboot |
+| `google-osconfig-agent` (`--disable-osconfig`) | `sudo systemctl enable --now google-osconfig-agent` |
+
+Not done on purpose: no fstab or mount-option changes (`noatime`, `commit=`), no
+`MemorySwapMax` on the scheduler (forbidding swap makes it the first thing killed under
+pressure), no `vm.min_free_kbytes` or overcommit changes, and no change to the page
+cache or database settings; there is no measurement yet that justifies them.
 
 ### Change boundaries
 

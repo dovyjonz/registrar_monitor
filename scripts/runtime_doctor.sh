@@ -5,6 +5,12 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 USER_HOME="${HOME:-}"
 
+# `--vm` prints the read-only OS tuning report (swap and zram, sysctls, cgroup
+# delegation for the build scope, journald usage, unit limits) and nothing else.
+if [[ "${1:-}" == "--vm" ]]; then
+    exec "$SCRIPT_DIR/tune_vm.sh" --status
+fi
+
 if [[ -n "${UV_BIN:-}" ]]; then
     UV_COMMAND="$UV_BIN"
 elif UV_COMMAND="$(command -v uv 2>/dev/null)"; then
