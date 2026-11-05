@@ -36,6 +36,14 @@ TZ_NAME=Asia/Almaty
 DELEGATE_CONTROLLERS="memory pids cpu io"
 PROJECT_UNITS=(registrarmonitor registrarmonitor-bot registrarmonitor-tunnel registrarmonitor-litestream)
 
+# Operator login shells often lack the sbin directories (sysctl, swapon, modinfo).
+PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"
+
+# Default to the account the installed scheduler unit runs as, not the caller.
+unit_user() {
+    { sed -n 's/^User=//p' /etc/systemd/system/registrarmonitor.service 2>/dev/null || true; } | head -n 1
+}
+RUNTIME_USER="${RUNTIME_USER:-$(unit_user)}"
 RUNTIME_USER="${RUNTIME_USER:-$(id -un)}"
 
 usage() {
@@ -53,7 +61,8 @@ Usage: scripts/tune_vm.sh [--apply] [--status] [options]
                        idle class and IOWeight used by the build actually apply
   -h, --help           this text
 
-Environment: RUNTIME_USER (default: invoking user) names the account whose user
+Environment: RUNTIME_USER (default: the User= of the installed scheduler unit,
+then the invoking user) names the account whose user
 manager runs the website build scope.
 EOF
 }
@@ -169,13 +178,15 @@ status_report() {
         if [[ -r /sys/block/zram0/mm_stat ]]; then
             awk '{printf "  zram0 stored %.1f MiB uncompressed in %.1f MiB RAM\n", $1/1048576, $3/1048576}' /sys/block/zram0/mm_stat
         fi
-    else
+    elif [[ -d /sys/block/zram0 ]] || modinfo zram >/dev/null 2>&1; then
         flag warn "no zram swap (disk swap only)"
+    else
+        flag info "no zram swap: this kernel has no zram module (disk swap only)"
     fi
 
     say "== Kernel tunables =="
     for key in vm.swappiness vm.page-cluster vm.vfs_cache_pressure vm.dirty_background_bytes vm.dirty_bytes; do
-        val=$(sysctl -n "$key" 2>/dev/null || echo n/a)
+        val=$(cat "/proc/sys/${key//.//}" 2>/dev/null || echo n/a)
         case $key in
             vm.swappiness) target=$SWAPPINESS ;;
             vm.page-cluster) target=$PAGE_CLUSTER ;;
