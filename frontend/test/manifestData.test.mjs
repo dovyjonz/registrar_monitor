@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
     IntegrityError,
     UnsupportedSchemaError,
+    adaptPreviewCourseState,
     loadDepartmentPayload,
     loadSemesterManifest,
 } from '../src/manifestData.mjs';
@@ -598,4 +599,86 @@ test('unknown versions are never silently accepted', async () => {
         ),
         error => error instanceof UnsupportedSchemaError,
     );
+});
+
+function previewState(mutate) {
+    const course = {
+        code: 'CSCI 101',
+        department: 'CSCI',
+        title: 'Intro',
+        averageFill: 0.5,
+        isFilled: false,
+        sections: {
+            '1L': {
+                type: 'L',
+                instructor: '',
+                currentEnrollment: 5,
+                currentCapacity: 10,
+                currentFill: 0.5,
+            },
+        },
+        averageHistory: [{ timestampIdx: 0, fill: 0.5 }],
+        sectionHistory: { '1L': [{ timestampIdx: 0, fill: 0.5, enrollment: 5, capacity: 10 }] },
+        events: [{ timestampIdx: 0, eventType: 'capacity_changed', sectionCode: '1L' }],
+    };
+    mutate(course);
+    return { kind: 'course', semester: SEMESTER, timestamps: ['2026-06-01T00:00:00+00:00'], course };
+}
+
+test('invalid history points and events keep their contextual error messages', () => {
+    const prefix = 'department CSCI.courses.CSCI 101';
+    const cases = [
+        [c => { c.averageHistory[0].fill = 'x'; }, `${prefix}.averageHistory[0].fill must be a finite number`],
+        [c => { c.averageHistory.push(null); }, `${prefix}.averageHistory[1] must be an object`],
+        [c => { c.sectionHistory['1L'][0].timestampIdx = 5; }, `${prefix}.sectionHistory.1L[0].timestampIdx is outside the timestamp table`],
+        [c => { c.sectionHistory['1L'][0].capacity = -1; }, `${prefix}.sectionHistory.1L[0].capacity must be a non-negative integer`],
+        [c => { c.events[0].timestampIdx = 9; }, `${prefix}.events[0].timestampIdx is outside the timestamp table`],
+        [c => { c.events.push('bad'); }, `${prefix}.events[1] must be an object`],
+    ];
+    for (const [mutate, message] of cases) {
+        assert.throws(() => adaptPreviewCourseState(previewState(mutate)), { message });
+    }
+    assert.equal(adaptPreviewCourseState(previewState(() => {})).code, 'CSCI 101');
+});
+
+test('a caller joining a request aborted by another caller retries instead of failing', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const departmentArtifact = await artifact(
+        emptyV3Department('CSCI'),
+        'https://example.test/data/blobs/csci.json',
+    );
+    const manifest = v3Manifest(summaryArtifact, { CSCI: departmentArtifact });
+    const manifestUrl = 'https://example.test/data/summer-2026/manifests/current.json';
+    const cache = new Map();
+    let fetchCount = 0;
+    const fetchImpl = (url, { signal } = {}) => {
+        fetchCount += 1;
+        if (!signal) return Promise.resolve(bytesResponse(departmentArtifact));
+        return new Promise((resolve, reject) => {
+            signal.addEventListener('abort', () => {
+                reject(new DOMException('aborted', 'AbortError'));
+            });
+        });
+    };
+
+    const controller = new AbortController();
+    const first = loadDepartmentPayload('CSCI', manifest, manifestUrl, cache, {
+        fetchImpl,
+        signal: controller.signal,
+        cryptoImpl: webcrypto,
+    });
+    const second = loadDepartmentPayload('CSCI', manifest, manifestUrl, cache, {
+        fetchImpl,
+        cryptoImpl: webcrypto,
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    controller.abort();
+
+    await assert.rejects(first, { name: 'AbortError' });
+    assert.equal((await second).department, 'CSCI');
+    assert.equal(fetchCount, 2);
+    assert.equal(cache.has('CSCI'), true);
 });

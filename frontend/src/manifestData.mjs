@@ -221,11 +221,6 @@ function validateV3Summary(summary, semester) {
     return summary;
 }
 
-export function validateSummary(summary, semester) {
-    const value = requireRecord(summary, 'semester summary');
-    return validateV3Summary(value, semester);
-}
-
 function validateTimestampIndex(value, timestampCount, context) {
     const index = requireNonNegativeInteger(value, `${context}.timestampIdx`);
     if (index >= timestampCount) {
@@ -233,7 +228,24 @@ function validateTimestampIndex(value, timestampCount, context) {
     }
 }
 
-function validateV3HistoryPoint(pointValue, timestampCount, context, section) {
+function isValidTimestampIndex(value, timestampCount) {
+    return Number.isInteger(value) && value >= 0 && value < timestampCount;
+}
+
+// Contexts are only built when a point is invalid: valid points take the
+// allocation-free fast path and invalid ones re-run the strict checks below
+// to raise the exact message.
+function validateV3HistoryPoint(pointValue, timestampCount, arrayContext, index, section) {
+    if (
+        isRecord(pointValue)
+        && isValidTimestampIndex(pointValue.timestampIdx, timestampCount)
+        && typeof pointValue.fill === 'number' && Number.isFinite(pointValue.fill)
+        && (!section || (
+            Number.isInteger(pointValue.enrollment) && pointValue.enrollment >= 0
+            && Number.isInteger(pointValue.capacity) && pointValue.capacity >= 0
+        ))
+    ) return;
+    const context = `${arrayContext}[${index}]`;
     const point = requireRecord(pointValue, context);
     validateTimestampIndex(point.timestampIdx, timestampCount, context);
     requireFiniteNumber(point.fill, `${context}.fill`);
@@ -273,8 +285,9 @@ function validateV3DepartmentCourse(
     }
 
     const averageHistory = requireArray(course.averageHistory, `${context}.averageHistory`);
-    for (const [index, point] of averageHistory.entries()) {
-        validateV3HistoryPoint(point, timestampCount, `${context}.averageHistory[${index}]`, false);
+    const averageContext = `${context}.averageHistory`;
+    for (let index = 0; index < averageHistory.length; index++) {
+        validateV3HistoryPoint(averageHistory[index], timestampCount, averageContext, index, false);
     }
     const sectionHistory = requireRecord(course.sectionHistory, `${context}.sectionHistory`);
     for (const [sectionCode, pointsValue] of Object.entries(sectionHistory)) {
@@ -282,24 +295,23 @@ function validateV3DepartmentCourse(
             pointsValue,
             `${context}.sectionHistory.${sectionCode}`,
         );
-        for (const [index, point] of points.entries()) {
-            validateV3HistoryPoint(
-                point,
-                timestampCount,
-                `${context}.sectionHistory.${sectionCode}[${index}]`,
-                true,
-            );
+        const pointsContext = `${context}.sectionHistory.${sectionCode}`;
+        for (let index = 0; index < points.length; index++) {
+            validateV3HistoryPoint(points[index], timestampCount, pointsContext, index, true);
         }
     }
     const events = requireArray(course.events, `${context}.events`);
-    for (const [index, eventValue] of events.entries()) {
-        const event = requireRecord(eventValue, `${context}.events[${index}]`);
+    for (let index = 0; index < events.length; index++) {
+        const eventValue = events[index];
+        if (
+            isRecord(eventValue)
+            && (!Object.hasOwn(eventValue, 'timestampIdx')
+                || isValidTimestampIndex(eventValue.timestampIdx, timestampCount))
+        ) continue;
+        const eventContext = `${context}.events[${index}]`;
+        const event = requireRecord(eventValue, eventContext);
         if (Object.hasOwn(event, 'timestampIdx')) {
-            validateTimestampIndex(
-                event.timestampIdx,
-                timestampCount,
-                `${context}.events[${index}]`,
-            );
+            validateTimestampIndex(event.timestampIdx, timestampCount, eventContext);
         }
     }
 }
@@ -328,11 +340,6 @@ function validateV3Department(payload, semester, department) {
         validateV3DepartmentCourse(code, course, department, timestamps.length);
     }
     return payload;
-}
-
-export function validateDepartmentPayload(payload, semester, department) {
-    const value = requireRecord(payload, 'department payload');
-    return validateV3Department(value, semester, department);
 }
 
 async function fetchJson(url, { fetchImpl, signal, cache } = {}) {
@@ -486,12 +493,7 @@ export function adaptPreviewCourseState(state) {
     const timestamps = requireArray(value.timestamps, 'preview state timestamps');
     const course = requireRecord(value.course, 'preview state course');
     const department = requireString(course.department, 'preview course department');
-    validateV3DepartmentCourse(
-        course.code,
-        course,
-        department,
-        timestamps.length,
-    );
+    // adaptV3Department validates the wrapped course.
     const payload = adaptV3Department(
         {
             schemaVersion: DEPARTMENT_SCHEMA_VERSION,
@@ -551,40 +553,52 @@ export async function loadSemesterManifest(
 }
 
 /**
+ * Load one department payload, sharing in-flight and completed requests through
+ * `cache`. `manifest` must come from `loadSemesterManifest`, which has already
+ * validated it. A failed or aborted request is evicted so a later call refetches,
+ * and a caller whose own signal is still live retries once when it joined a
+ * request that another caller's signal aborted.
+ *
  * @param {string} department
  * @param {any} manifest
  * @param {string} manifestUrl
  * @param {Map<string, any>} cache
  * @param {{ fetchImpl?: typeof fetch, signal?: AbortSignal, cryptoImpl?: Crypto }} [options]
  */
-export function loadDepartmentPayload(
+export async function loadDepartmentPayload(
     department,
     manifest,
     manifestUrl,
     cache,
     { fetchImpl = fetch, signal, cryptoImpl = globalThis.crypto } = {},
 ) {
-    if (!cache.has(department)) {
-        const request = Promise.resolve().then(async () => {
-            const validatedManifest = validateManifest(manifest);
-            const reference = validatedManifest.departments?.[department];
-            if (!reference) {
-                throw new Error(`No static payload for department ${department}`);
-            }
-            const url = new URL(reference.url, manifestUrl).href;
-            const rawPayload = await fetchVerifiedJson(url, reference, {
-                fetchImpl,
-                signal,
-                cryptoImpl,
+    for (let attempt = 0; ; attempt++) {
+        let request = cache.get(department);
+        if (!request) {
+            request = Promise.resolve().then(async () => {
+                const reference = manifest.departments?.[department];
+                if (!reference) {
+                    throw new Error(`No static payload for department ${department}`);
+                }
+                const url = new URL(reference.url, manifestUrl).href;
+                const rawPayload = await fetchVerifiedJson(url, reference, {
+                    fetchImpl,
+                    signal,
+                    cryptoImpl,
+                });
+                return adaptV3Department(rawPayload, manifest.semester, department);
             });
-            return adaptV3Department(
-                rawPayload,
-                validatedManifest.semester,
-                department,
-            );
-        });
-        cache.set(department, request);
-        request.catch(() => cache.delete(department));
+            const started = request;
+            cache.set(department, started);
+            started.catch(() => {
+                if (cache.get(department) === started) cache.delete(department);
+            });
+        }
+        try {
+            return await request;
+        } catch (error) {
+            const abortedByOtherCaller = error?.name === 'AbortError' && !signal?.aborted;
+            if (!abortedByOtherCaller || attempt > 0) throw error;
+        }
     }
-    return cache.get(department);
 }

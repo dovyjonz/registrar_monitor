@@ -192,20 +192,47 @@ function getCurrentInstructor(section) {
     return section?.instructor ?? section?.in ?? '';
 }
 
-function getLatestKnownInstructor(sectionCode, events) {
-    const instructorEvents = getSectionEvents(
-        events,
-        sectionCode,
-        new Set(['instructor_changed']),
-    );
-    const latestEvent = instructorEvents.at(-1)?.event;
-    return latestEvent ? normalizeInstructorName(getEventNewValue(latestEvent)) : '';
+const INSTRUCTOR_CHANGED = new Set(['instructor_changed']);
+
+/**
+ * Prepare one section's instructor events once so assignments can be resolved
+ * for many snapshots. Events are walked backward from the current/last-known
+ * value so an old instructor is never applied retroactively after a change
+ * event; `at(snapshotIdx)` finds the first later event by binary search.
+ */
+function createInstructorResolver(sectionCode, section, events) {
+    const changes = getSectionEvents(events, sectionCode, INSTRUCTOR_CHANGED);
+    const count = changes.length;
+    const latestKnown = count > 0
+        ? normalizeInstructorName(getEventNewValue(changes[count - 1].event))
+        : '';
+    const current = normalizeInstructorName(getCurrentInstructor(section));
+    const base = current || latestKnown;
+    const oldValues = changes.map(({ event }) => normalizeInstructorName(getEventOldValue(event)));
+    // blocked[p] is true when any event p..count-1 has no usable old value.
+    const blocked = new Array(count + 1).fill(false);
+    for (let index = count - 1; index >= 0; index--) {
+        blocked[index] = blocked[index + 1] || !oldValues[index];
+    }
+    return {
+        current,
+        latestKnown,
+        at(snapshotIdx) {
+            let low = 0;
+            let high = count;
+            while (low < high) {
+                const middle = (low + high) >> 1;
+                if (!(changes[middle].snapshotIdx <= snapshotIdx)) high = middle;
+                else low = middle + 1;
+            }
+            if (low === count) return base;
+            return blocked[low] ? '' : oldValues[low];
+        },
+    };
 }
 
 /**
- * Return the instructor assigned at a snapshot. Events are walked backward
- * from the current/last-known value so an old instructor is never applied
- * retroactively after a change event.
+ * Return the instructor assigned at a snapshot.
  */
 export function getInstructorAtSnapshot(
     sectionCode,
@@ -213,44 +240,7 @@ export function getInstructorAtSnapshot(
     events = [],
     snapshotIdx,
 ) {
-    const instructorEvents = getSectionEvents(
-        events,
-        sectionCode,
-        new Set(['instructor_changed']),
-    ).toReversed();
-    let assignment = normalizeInstructorName(getCurrentInstructor(section));
-    if (!assignment) assignment = getLatestKnownInstructor(sectionCode, events);
-
-    for (const { event, snapshotIdx: eventIdx } of instructorEvents) {
-        if (eventIdx <= snapshotIdx) break;
-        const oldAssignment = normalizeInstructorName(getEventOldValue(event));
-        if (!oldAssignment) return '';
-        assignment = oldAssignment;
-    }
-    return assignment;
-}
-
-/**
- * Build the reconstructed instructor assignment at each relevant snapshot.
- */
-export function buildInstructorAssignmentTimeline(
-    sectionCode,
-    section,
-    events = [],
-    snapshotIndexes = [],
-) {
-    return [...new Set(snapshotIndexes)]
-        .filter(Number.isInteger)
-        .sort((first, second) => first - second)
-        .map(snapshotIdx => ({
-            snapshotIdx,
-            instructor: getInstructorAtSnapshot(
-                sectionCode,
-                section,
-                events,
-                snapshotIdx,
-            ),
-        }));
+    return createInstructorResolver(sectionCode, section, events).at(snapshotIdx);
 }
 
 function getSectionCodes(course, events) {
@@ -284,31 +274,61 @@ function getRelevantSnapshotIndexes(course, sectionCodes, events, snapshots) {
     return [...indexes].sort((first, second) => first - second);
 }
 
-function getFillAtOrBefore(sectionHistory, snapshotIdx) {
-    let latestFill = null;
-    const points = [...sectionHistory]
-        .map(point => ({ point, snapshotIdx: getHistorySnapshotIndex(point) }))
-        .filter(item => item.snapshotIdx !== null && item.snapshotIdx <= snapshotIdx)
-        .sort((first, second) => first.snapshotIdx - second.snapshotIdx);
-    for (const { point } of points) {
-        const fill = getHistoryFill(point);
-        if (fill !== null) latestFill = fill;
+// Count of items (sorted ascending by getIdx) with getIdx(item) <= snapshotIdx.
+function countAtOrBefore(items, snapshotIdx) {
+    let low = 0;
+    let high = items.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (items[middle].snapshotIdx <= snapshotIdx) low = middle + 1;
+        else high = middle;
     }
-    return latestFill;
+    return low;
 }
 
-function getEnrollmentStateAtOrBefore(sectionHistory, snapshotIdx) {
-    let latest = null;
+function createFillResolver(sectionHistory) {
+    const points = [...sectionHistory]
+        .map(point => ({ snapshotIdx: getHistorySnapshotIndex(point), fill: getHistoryFill(point) }))
+        .filter(item => item.snapshotIdx !== null)
+        .sort((first, second) => first.snapshotIdx - second.snapshotIdx);
+    let latestFill = null;
+    const latestByPosition = points.map(({ fill }) => {
+        if (fill !== null) latestFill = fill;
+        return latestFill;
+    });
+    return snapshotIdx => {
+        const count = countAtOrBefore(points, snapshotIdx);
+        return count > 0 ? latestByPosition[count - 1] : null;
+    };
+}
+
+function createEnrollmentStateResolver(sectionHistory) {
+    const states = [];
     for (const point of sectionHistory || []) {
-        const pointIndex = getHistorySnapshotIndex(point);
+        const snapshotIdx = getHistorySnapshotIndex(point);
         const enrollment = point?.enrollment ?? point?.e;
         const capacity = point?.capacity ?? point?.c;
-        if (pointIndex === null || pointIndex > snapshotIdx) continue;
+        if (snapshotIdx === null) continue;
         if (Number.isFinite(enrollment) && Number.isFinite(capacity)) {
-            latest = { enrollment, capacity };
+            states.push({ snapshotIdx, enrollment, capacity });
         }
     }
-    return latest;
+    const ordered = states.every((state, index) => (
+        index === 0 || states[index - 1].snapshotIdx <= state.snapshotIdx
+    ));
+    return snapshotIdx => {
+        if (ordered) {
+            const count = countAtOrBefore(states, snapshotIdx);
+            return count > 0
+                ? { enrollment: states[count - 1].enrollment, capacity: states[count - 1].capacity }
+                : null;
+        }
+        let latest = null;
+        for (const state of states) {
+            if (state.snapshotIdx <= snapshotIdx) latest = state;
+        }
+        return latest ? { enrollment: latest.enrollment, capacity: latest.capacity } : null;
+    };
 }
 
 function getOpeningCapacity(sectionHistory) {
@@ -319,23 +339,29 @@ function getOpeningCapacity(sectionHistory) {
     return null;
 }
 
-function sectionSeriesEndsByRemoval(
-    sectionCode,
-    events,
-    finalSnapshotIdx,
-    professor,
-    section,
-) {
-    const transitions = getSectionEvents(
-        events,
+// Everything derived from one section that does not depend on the snapshot.
+function createSectionContext(course, sectionCode, section, events, snapshots) {
+    const history = getSectionHistory(course, sectionCode, section);
+    return {
         sectionCode,
-        new Set(['section_removed', 'instructor_changed']),
-    ).filter(({ snapshotIdx }) => snapshotIdx > finalSnapshotIdx);
-    for (const { event, snapshotIdx } of transitions) {
+        activity: buildSectionActivityTimeline(sectionCode, section, events, snapshots, course),
+        instructor: createInstructorResolver(sectionCode, section, events),
+        fillAt: createFillResolver(history),
+        stateAt: createEnrollmentStateResolver(history),
+        openingCapacity: getOpeningCapacity(history),
+        transitions: getSectionEvents(
+            events,
+            sectionCode,
+            new Set(['section_removed', 'instructor_changed']),
+        ),
+    };
+}
+
+function sectionSeriesEndsByRemoval(context, finalSnapshotIdx, professor) {
+    for (const { event, snapshotIdx } of context.transitions) {
+        if (snapshotIdx <= finalSnapshotIdx) continue;
         if (getEventType(event) === 'section_removed') return true;
-        if (getInstructorAtSnapshot(sectionCode, section, events, snapshotIdx) !== professor) {
-            return false;
-        }
+        if (context.instructor.at(snapshotIdx) !== professor) return false;
     }
     return false;
 }
@@ -363,35 +389,29 @@ export function buildProfessorAverageChartPoints(
         snapshots,
     );
     const sections = getCourseSections(course);
+    const contexts = sectionCodes.map(sectionCode => createSectionContext(
+        course,
+        sectionCode,
+        sections[sectionCode],
+        courseEvents,
+        snapshots,
+    ));
     const points = [];
 
     for (const snapshotIdx of relevantIndexes) {
         const contributions = [];
-        for (const sectionCode of sectionCodes) {
-            const section = sections[sectionCode];
-            const activity = buildSectionActivityTimeline(
-                sectionCode,
-                section,
-                courseEvents,
-                snapshots,
-                course,
-            );
-            if (!activity.isActiveAt(snapshotIdx)) continue;
+        for (const context of contexts) {
+            if (!context.activity.isActiveAt(snapshotIdx)) continue;
+            if (context.instructor.at(snapshotIdx) !== professor) continue;
 
-            const instructor = getInstructorAtSnapshot(
-                sectionCode,
-                section,
-                courseEvents,
-                snapshotIdx,
-            );
-            if (instructor !== professor) continue;
-
-            const history = getSectionHistory(course, sectionCode, section);
-            const fill = getFillAtOrBefore(history, snapshotIdx);
-            const state = getEnrollmentStateAtOrBefore(history, snapshotIdx);
-            const openingCapacity = getOpeningCapacity(history);
+            const fill = context.fillAt(snapshotIdx);
             if (fill !== null) {
-                contributions.push({ sectionCode, fill, state, openingCapacity });
+                contributions.push({
+                    sectionCode: context.sectionCode,
+                    fill,
+                    state: context.stateAt(snapshotIdx),
+                    openingCapacity: context.openingCapacity,
+                });
             }
         }
 
@@ -411,28 +431,21 @@ export function buildProfessorAverageChartPoints(
             label: formatSnapshotLabel(timestamp),
             fill: Math.round(fillRatio * 100),
             fillRatio,
-            averageFill: fillRatio,
             enrollment: null,
             capacity: null,
             capacityChanged: false,
             enrollmentLevel: averageLevel('enrollment') ?? fillRatio * 100,
             capacityLevel: averageLevel('capacity') ?? 100,
             contributingSections: contributions.length,
-            contributorCount: contributions.length,
             contributingSectionCodes: contributions.map(value => value.sectionCode),
         });
     }
     const chartPoints = points.filter(point => Number.isFinite(point.timestamp));
     const finalPoint = chartPoints.at(-1);
     if (finalPoint && finalPoint.contributingSectionCodes.length > 0) {
+        const contextsByCode = new Map(contexts.map(context => [context.sectionCode, context]));
         const endedByRemoval = finalPoint.contributingSectionCodes.every(sectionCode => (
-            sectionSeriesEndsByRemoval(
-                sectionCode,
-                courseEvents,
-                finalPoint.snapshotIdx,
-                professor,
-                sections[sectionCode],
-            )
+            sectionSeriesEndsByRemoval(contextsByCode.get(sectionCode), finalPoint.snapshotIdx, professor)
         ));
         if (endedByRemoval) finalPoint.removalEnded = true;
     }
@@ -453,13 +466,10 @@ export function courseHasProfessor(course, selectedProfessor, snapshots, events 
         snapshots,
     );
     for (const sectionCode of sectionCodes) {
-        const section = sections[sectionCode];
-        if (normalizeInstructorName(getCurrentInstructor(section)) === professor) return true;
-        if (normalizeInstructorName(getLatestKnownInstructor(sectionCode, courseEvents)) === professor) return true;
+        const resolver = createInstructorResolver(sectionCode, sections[sectionCode], courseEvents);
+        if (resolver.current === professor || resolver.latestKnown === professor) return true;
         for (const snapshotIdx of relevantIndexes) {
-            if (getInstructorAtSnapshot(sectionCode, section, courseEvents, snapshotIdx) === professor) {
-                return true;
-            }
+            if (resolver.at(snapshotIdx) === professor) return true;
         }
     }
     return false;
@@ -663,7 +673,3 @@ export function createHistoricalCoordinateMapper({
         targetDomain: target,
     };
 }
-
-export const normalizeProfessorIdentity = normalizeInstructorName;
-export const buildProfessorChartPoints = buildProfessorAverageChartPoints;
-export const normalizeHistoricalChartDomain = normalizeHistoricalDomain;

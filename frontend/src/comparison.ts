@@ -55,18 +55,13 @@ function loadHistoricalSemester(candidate) {
 function loadHistoricalDepartmentPayload(candidate, department) {
     const semesterCache = historicalDepartmentPayloads.get(candidate.semester) || new Map();
     historicalDepartmentPayloads.set(candidate.semester, semesterCache);
-    if (!semesterCache.has(department)) {
-        const request = loadDepartmentPayload(
-            department,
-            candidate.manifest,
-            candidate.manifestUrl,
-            semesterCache,
-            { signal: dataLoadController.signal },
-        );
-        semesterCache.set(department, request);
-        request.catch(() => semesterCache.delete(department));
-    }
-    return semesterCache.get(department);
+    return loadDepartmentPayload(
+        department,
+        candidate.manifest,
+        candidate.manifestUrl,
+        semesterCache,
+        { signal: dataLoadController.signal },
+    );
 }
 
 async function findEarlierCourseCandidate(courseCode) {
