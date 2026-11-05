@@ -433,7 +433,7 @@ class WebsiteService:
         sources = [
             root / "package.json",
             root / "package-lock.json",
-            root / "vite.config.js",
+            root / "vite.config.mjs",
             *sorted(path for path in (root / "src").rglob("*") if path.is_file()),
         ]
         for path in sources:

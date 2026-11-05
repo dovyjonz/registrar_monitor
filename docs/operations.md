@@ -154,7 +154,7 @@ Every page is `noindex, nofollow`; `robots.txt` lets crawlers read that directiv
 `.checksums.json` and `.frontend-build-hash` stay local (`.assetsignore`).
 
 The frontend bundle is rebuilt only when `frontend/src`, `package.json`,
-`package-lock.json`, or `vite.config.js` change (hash in `.frontend-build-hash`), so
+`package-lock.json`, or `vite.config.mjs` change (hash in `.frontend-build-hash`), so
 routine publications do not run Node builds on the 1 GB VM. Frontend builds rely
 on the VM's 2 GB of swap. Wrangler uploads only
 assets Cloudflare does not already have, so each deploy sends just the changed pages

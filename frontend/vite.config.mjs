@@ -3,7 +3,7 @@ import { resolve } from 'path';
 
 const outputDir = process.env.REGISTRAR_VITE_OUTPUT_DIR
   ? resolve(process.env.REGISTRAR_VITE_OUTPUT_DIR)
-  : resolve(__dirname, 'public/assets');
+  : resolve(import.meta.dirname, 'public/assets');
 
 export default defineConfig({
   build: {
@@ -15,7 +15,7 @@ export default defineConfig({
     assetsDir: '', // Put assets directly in outDir to avoid assets/assets/
     manifest: true, // Generate manifest.json for Python to read
     rollupOptions: {
-      input: { main: resolve(__dirname, 'src/main.js') }
+      input: { main: resolve(import.meta.dirname, 'src/main.js') }
     }
   },
   publicDir: false, // Disable public dir copying to avoid recursion/conflicts

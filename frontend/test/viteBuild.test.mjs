@@ -25,7 +25,7 @@ test('standalone build preserves bundles referenced by generated HTML', async t 
     await writeFile(join(outputDir, oldAssetReference), 'const previous = true;\n', 'utf8');
 
     await build({
-        configFile: join(websiteRoot, 'vite.config.js'),
+        configFile: join(websiteRoot, 'vite.config.mjs'),
         build: { outDir: assetsDir },
     });
 
