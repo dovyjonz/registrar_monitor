@@ -156,7 +156,7 @@ class Semester(_Section):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
 
     timezone: str = "Asia/Almaty"
     directories: Directories

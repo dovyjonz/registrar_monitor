@@ -159,8 +159,7 @@ healthy and pings the heartbeat.
 ## Analysis
 
 SQLite stays the write path. `analysis.py` attaches the per-semester databases to
-DuckDB read-only and exposes cross-semester views; saved queries live in `analysis/`
-and Parquet exports go to `data/open-data/`.
+DuckDB read-only and exposes cross-semester views; saved queries live in `analysis/`.
 
 ## Static dashboard read model
 

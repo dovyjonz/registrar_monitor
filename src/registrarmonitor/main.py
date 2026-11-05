@@ -12,7 +12,9 @@ Usage:
     monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
     monitor [--debug] bot
-    monitor [--debug] deploy [--deploy]
+    monitor [--debug] deploy [--deploy | --dry-run | --upload-only]
+    monitor [--debug] baseline [--semester S]
+    monitor [--debug] rehearse [--semester S] [--keep]
     monitor [--debug] doctor [--json]
     monitor [--debug] db <command>
 """
@@ -25,9 +27,11 @@ import sys
 from pathlib import Path
 
 from .cli import (
+    BaselineCommand,
     DatabaseCommands,
     DeployCommand,
     PollCommand,
+    RehearseCommand,
     ReportCommand,
     RunCommand,
     ScheduleCommand,
@@ -53,6 +57,9 @@ Examples:
   monitor report --no-telegram          # Generate reports without sending
   monitor run                           # Complete workflow (poll + report + website)
   monitor schedule                      # Run the scheduler
+  monitor baseline                      # Mark the latest snapshot reported (no posts)
+  monitor rehearse                      # One poll+report cycle on a scratch copy
+  monitor deploy --dry-run              # Generate, then wrangler deploy --dry-run
   monitor bot                           # Run the subscription bot
   monitor db stats                      # Show database statistics
 
@@ -178,6 +185,16 @@ Telegram Control:
         help="Run `wrangler deploy` after generation",
     )
     deploy_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate, then validate with `wrangler deploy --dry-run` (uploads nothing)",
+    )
+    deploy_parser.add_argument(
+        "--upload-only",
+        action="store_true",
+        help="Skip generation and deploy the existing output; exits non-zero on failure",
+    )
+    deploy_parser.add_argument(
         "--semester",
         type=str,
         help="Generate only for specific semester (e.g. 'fall2025')",
@@ -196,6 +213,41 @@ Telegram Control:
         "--output-dir",
         type=Path,
         help="Generate into an isolated directory (deployment is refused)",
+    )
+
+    baseline_parser = subparsers.add_parser(
+        "baseline",
+        help="Mark the latest snapshot as reported without sending anything",
+        description=(
+            "After a long stop, record the latest stored snapshot as reported so "
+            "the first scheduler start does not post the catch-up to the channel "
+            "or queue subscriber digests for it. Sends nothing; safe to repeat."
+        ),
+    )
+    baseline_parser.add_argument(
+        "--semester",
+        type=str,
+        help="Semester to baseline (default: the one with the freshest snapshot)",
+    )
+
+    rehearse_parser = subparsers.add_parser(
+        "rehearse",
+        help="Run one poll and report cycle on a scratch copy of the database",
+        description=(
+            "Copy a semester database to a scratch directory, download, store, and "
+            "report once against the copy with Telegram, Cloudflare, and heartbeat "
+            "credentials cleared, then verify the live database files did not change."
+        ),
+    )
+    rehearse_parser.add_argument(
+        "--semester",
+        type=str,
+        help="Semester to rehearse (default: the one with the freshest snapshot)",
+    )
+    rehearse_parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep the scratch directory (copy, download, report) for inspection",
     )
 
     # Database commands
@@ -225,19 +277,6 @@ Telegram Control:
     )
     analyze_parser.add_argument(
         "--csv", type=Path, metavar="PATH", help="Write CSV instead of a table"
-    )
-
-    export_parser = subparsers.add_parser(
-        "export-parquet",
-        help="Export one semester's per-snapshot enrollment as Parquet",
-        description="Write <semester>.parquet, one row per section per snapshot",
-    )
-    export_parser.add_argument("semester", help='Semester name, e.g. "Fall 2026"')
-    export_parser.add_argument(
-        "--out",
-        type=Path,
-        metavar="DIR",
-        help="Output directory (default: data/open-data)",
     )
 
     # Database commands
@@ -326,8 +365,22 @@ async def handle_deploy_command(args) -> int:
         force=getattr(args, "force", False),
         minify=not getattr(args, "no_minify", False),
         output_dir=getattr(args, "output_dir", None),
+        dry_run=getattr(args, "dry_run", False),
+        upload_only=getattr(args, "upload_only", False),
     )
     return 0 if success else 1
+
+
+async def handle_baseline_command(args) -> int:
+    """Mark the latest snapshot as reported."""
+    command = BaselineCommand(debug=args.debug)
+    return 0 if await command.run(semester=getattr(args, "semester", None)) else 1
+
+
+async def handle_rehearse_command(args) -> int:
+    """Rehearse a poll and report cycle on a scratch copy."""
+    command = RehearseCommand(debug=args.debug, keep=getattr(args, "keep", False))
+    return 0 if await command.run(semester=getattr(args, "semester", None)) else 1
 
 
 async def handle_status_command(args) -> int:
@@ -361,21 +414,6 @@ async def handle_analyze_command(args) -> int:
         print(f"Wrote {len(rows)} rows to {args.csv}")
     else:
         print(analysis.format_table(columns, rows))
-    return 0
-
-
-async def handle_export_parquet_command(args) -> int:
-    """Export one semester as Parquet."""
-    from . import analysis
-
-    try:
-        target = analysis.export_parquet(
-            args.semester, args.out or analysis.DEFAULT_EXPORT_DIR
-        )
-    except analysis.AnalysisError as error:
-        print(f"Error: {error}", file=sys.stderr)
-        return 1
-    print(f"Wrote {target}")
     return 0
 
 
@@ -424,6 +462,7 @@ async def async_main() -> int:
     # Keep structured doctor output free of log lines and side effects.
     log_level = "DEBUG" if args.debug else args.log_level
     is_doctor = args.command == "doctor"
+    is_rehearsal = args.command == "rehearse"
     # Long-running services log JSON lines for journald; the interactive CLI
     # keeps colored human-readable output.
     is_service = args.command in ("schedule", "bot") or (
@@ -435,7 +474,7 @@ async def async_main() -> int:
         enable_file=not is_doctor,
         json_logs=is_service,
     )
-    if not is_doctor:
+    if not (is_doctor or is_rehearsal):
         init_sentry()
 
     logger = get_logger(__name__)
@@ -460,12 +499,14 @@ async def async_main() -> int:
             return await handle_bot_command(args)
         elif args.command == "deploy":
             return await handle_deploy_command(args)
+        elif args.command == "baseline":
+            return await handle_baseline_command(args)
+        elif args.command == "rehearse":
+            return await handle_rehearse_command(args)
         elif args.command == "doctor":
             return await handle_doctor_command(args)
         elif args.command == "analyze":
             return await handle_analyze_command(args)
-        elif args.command == "export-parquet":
-            return await handle_export_parquet_command(args)
         elif args.command == "db":
             return await handle_db_command(args)
         else:
