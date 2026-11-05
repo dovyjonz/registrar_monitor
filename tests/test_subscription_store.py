@@ -1,5 +1,6 @@
 """Durable state for Telegram course subscriptions."""
 
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -158,3 +159,10 @@ def test_cleanup_keeps_inactive_users_who_still_have_subscriptions(tmp_path):
     assert deleted_users == 1
     assert store.get_user(41) is not None
     assert store.get_user(42) is None
+
+
+def test_store_connections_use_normal_synchronous(tmp_path):
+    store = SubscriptionStore(tmp_path / "bot.db")
+    with closing(store._connect()) as connection:
+        assert connection.execute("PRAGMA synchronous").fetchone()[0] == 1
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"

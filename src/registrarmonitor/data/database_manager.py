@@ -122,6 +122,10 @@ class DatabaseManager:
             conn.execute("PRAGMA busy_timeout = 5000")
             if self._read_only:
                 conn.execute("PRAGMA query_only = ON")
+            else:
+                conn.execute("PRAGMA journal_mode = WAL")
+                conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA cache_size = -16384")
             conn.row_factory = sqlite3.Row  # Enable column access by name
             yield conn
         except sqlite3.Error as e:

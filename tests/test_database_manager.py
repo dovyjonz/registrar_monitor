@@ -189,3 +189,15 @@ class TestDetermineStatus:
     def test_fill_threshold_boundaries(self, db_manager, fill, expected):
         """Status should match fill thresholds: <0.75 OPEN, <1.0 NEAR, >=1.0 FULL."""
         assert db_manager._determine_status(fill) == expected
+
+
+def test_connections_use_wal_and_normal_synchronous(db_manager: DatabaseManager):
+    with db_manager.get_connection() as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+
+    read_only = DatabaseManager(
+        db_path=str(db_manager.db_path), semester="Test 2024", read_only=True
+    )
+    with read_only.get_connection() as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"

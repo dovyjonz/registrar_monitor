@@ -107,6 +107,10 @@ class CheckpointedStateStore:
         connection.execute("PRAGMA busy_timeout = 5000")
         if self.read_only:
             connection.execute("PRAGMA query_only = ON")
+        else:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = NORMAL")
+        connection.execute("PRAGMA cache_size = -16384")
         try:
             yield connection
         finally:

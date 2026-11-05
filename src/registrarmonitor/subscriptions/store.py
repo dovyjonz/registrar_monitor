@@ -28,6 +28,8 @@ class SubscriptionStore:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
+        # WAL is persistent (set in _initialize); NORMAL avoids an fsync per commit.
+        connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
     @contextmanager

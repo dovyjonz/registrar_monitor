@@ -311,3 +311,37 @@ def test_pending_batch_recovery_contains_transient_enrollment_lock(monkeypatch, 
         runtime._recover_pending_batches()
 
     assert "Enrollment database is busy; pending batch recovery deferred" in caplog.text
+
+
+def test_idle_backoff_doubles_to_cap_and_resets():
+    from registrarmonitor.subscriptions.runtime import IdleBackoff
+
+    backoff = IdleBackoff(1, 8)
+    assert [backoff.next_delay() for _ in range(5)] == [1, 2, 4, 8, 8]
+    backoff.reset()
+    assert backoff.next_delay() == 1
+
+
+@pytest.mark.asyncio
+async def test_active_semester_is_cached_for_ttl(monkeypatch):
+    from registrarmonitor.subscriptions import runtime as runtime_module
+
+    calls = 0
+
+    def active_semester():
+        nonlocal calls
+        calls += 1
+        return "Spring 2024"
+
+    monkeypatch.setattr(runtime_module, "find_active_semester", active_semester)
+    now = 100.0
+    runtime = make_catalog_runtime()
+    runtime._clock = lambda: now
+
+    await runtime._active_semester()
+    now += runtime_module.ACTIVE_SEMESTER_TTL_SECONDS - 1
+    await runtime._active_semester()
+    assert calls == 1
+    now += 2
+    await runtime._active_semester()
+    assert calls == 2
