@@ -1,5 +1,7 @@
 """Tests for the website data pipeline helper functions."""
 
+from unittest.mock import patch
+
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -163,3 +165,155 @@ class TestGetSemesterData:
         assert full["semester"] == "Spring 2024"
         assert list(minified["cr"]) == ["CS 101"]
         assert minified["sem"] == "Spring 2024"
+
+
+def _store(db, timestamp, courses):
+    built = {}
+    for code, (title, sections) in courses.items():
+        built[code] = Course(
+            code,
+            code.split()[0],
+            {
+                section_id: Section(
+                    section_id,
+                    section_id[-1],
+                    enrolled,
+                    capacity,
+                    enrolled / capacity,
+                    instructor,
+                )
+                for section_id, (enrolled, capacity, instructor) in sections.items()
+            },
+            0.0,
+            title,
+        )
+    db.store_enrollment_snapshot(
+        EnrollmentSnapshot(timestamp, "Spring 2024", 0.5, built)
+    )
+
+
+@pytest.fixture
+def timeline_db(tmp_path):
+    """Four observations; only the middle two fall inside the milestone window."""
+    db = DatabaseManager(db_path=str(tmp_path / "timeline.db"), semester="Spring 2024")
+    _store(
+        db,
+        "2024-03-01 00:00:00",
+        {
+            "CS 101": ("Intro", {"10L": (10, 30, "Smith, John")}),
+            "MATH 1": ("Calc", {"1L": (5, 20, "TBA")}),
+        },
+    )
+    # Reformatting the instructor is not a change; the new section is.
+    _store(
+        db,
+        "2024-03-05 12:00:00",
+        {
+            "CS 101": (
+                "Intro",
+                {"10L": (20, 30, "John Smith"), "11L": (1, 10, "Lee, Ann")},
+            ),
+            "BIO 1": ("Cells", {"1L": (2, 10, "TBA")}),
+        },
+    )
+    _store(
+        db,
+        "2024-03-05 13:00:00",
+        {
+            "CS 101": (
+                "Intro",
+                {"10L": (20, 40, "Ann Lee"), "11L": (1, 10, "Lee, Ann")},
+            ),
+            "BIO 1": ("Cells", {"1L": (2, 10, "TBA")}),
+        },
+    )
+    _store(
+        db,
+        "2024-03-20 00:00:00",
+        {
+            "CS 101": (
+                "Intro",
+                {"10L": (25, 40, "Ann Lee"), "11L": (1, 10, "Lee, Ann")},
+            ),
+            "BIO 1": ("Cells", {"1L": (2, 10, "TBA")}),
+        },
+    )
+    return db
+
+
+MILESTONE = [{"time": "2024-03-05T12:00:00", "label": "Open", "color": "#000"}]
+
+
+def _event_summary(course):
+    return [
+        (event["eventType"], event.get("sectionCode"), event["snapshotTimestamp"])
+        for event in course.get("events", [])
+    ]
+
+
+class TestGetSemesterDataWindowing:
+    def test_current_semester_lists_every_snapshot_but_windows_histories(
+        self, timeline_db
+    ):
+        with patch(
+            "registrarmonitor.website.data.get_milestones", return_value=MILESTONE
+        ):
+            data = get_semester_data(
+                "Spring 2024", minify=False, database=timeline_db, archive_window=False
+            )
+
+        assert [s["timestamp"] for s in data["snapshots"]] == [
+            "2024-03-01 00:00:00",
+            "2024-03-05 12:00:00",
+            "2024-03-05 13:00:00",
+            "2024-03-20 00:00:00",
+        ]
+        assert data["lastReportTime"] == "2024-03-20 00:00:00"
+        assert list(data["courses"]) == ["CS 101", "BIO 1"]
+        cs = data["courses"]["CS 101"]
+        assert [p["snapshotIdx"] for p in cs["sections"]["10L"]["history"]] == [1, 2]
+        assert [p["snapshotIdx"] for p in cs["sections"]["11L"]["history"]] == [1, 2]
+        assert [p["snapshotIdx"] for p in cs["averageHistory"]] == [1, 2]
+        assert _event_summary(cs) == [
+            ("section_added", "11L", "2024-03-05 12:00:00"),
+            ("capacity_changed", "10L", "2024-03-05 13:00:00"),
+            ("instructor_changed", "10L", "2024-03-05 13:00:00"),
+        ]
+        assert _event_summary(data["courses"]["BIO 1"]) == [
+            ("course_added", None, "2024-03-05 12:00:00")
+        ]
+
+    def test_archived_semester_drops_snapshots_and_events_outside_the_window(
+        self, timeline_db
+    ):
+        with patch(
+            "registrarmonitor.website.data.get_milestones", return_value=MILESTONE
+        ):
+            data = get_semester_data(
+                "Spring 2024", minify=False, database=timeline_db, archive_window=True
+            )
+
+        assert [s["timestamp"] for s in data["snapshots"]] == [
+            "2024-03-05 12:00:00",
+            "2024-03-05 13:00:00",
+        ]
+        assert data["lastReportTime"] == "2024-03-05 13:00:00"
+        cs = data["courses"]["CS 101"]
+        assert cs["sections"]["10L"]["currentEnrollment"] == 20
+        assert [p["snapshotIdx"] for p in cs["sections"]["10L"]["history"]] == [0, 1]
+        assert _event_summary(cs) == [
+            ("capacity_changed", "10L", "2024-03-05 13:00:00"),
+            ("instructor_changed", "10L", "2024-03-05 13:00:00"),
+        ]
+        assert "events" not in data["courses"]["BIO 1"]
+
+    def test_without_milestones_every_snapshot_contributes_history(self, timeline_db):
+        with patch("registrarmonitor.website.data.get_milestones", return_value=[]):
+            data = get_semester_data(
+                "Spring 2024", minify=False, database=timeline_db, archive_window=True
+            )
+
+        assert len(data["snapshots"]) == 4
+        history = data["courses"]["CS 101"]["sections"]["10L"]["history"]
+        assert [p["snapshotIdx"] for p in history] == [0, 1, 2, 3]
+        assert "MATH 1" not in data["courses"]
