@@ -1,6 +1,6 @@
 """Personal notification matching and durable delivery."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -58,7 +58,7 @@ async def test_retry_after_is_persisted(tmp_path, current_snapshot, previous_sna
     enrollment_db = MagicMock()
     enrollment_db.get_snapshot_data.side_effect = [current_snapshot, previous_snapshot]
     messenger = AsyncMock()
-    messenger.send_message.side_effect = RetryAfter(7)
+    messenger.send_message.side_effect = RetryAfter(timedelta(seconds=7))
 
     assert (
         await SubscriptionDispatcher(store, enrollment_db, messenger).dispatch_one()
