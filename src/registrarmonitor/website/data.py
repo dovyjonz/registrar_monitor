@@ -1,6 +1,8 @@
 """Data access layer for querying enrollment data from the database."""
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import Any
 
 from registrarmonitor.config import get_timezone
@@ -146,76 +148,191 @@ def _history_indices_for_website(
     )
 
 
+# A run is ``(first, last, enrollment, capacity)``: a section was present at every
+# history position in ``first..last`` with constant enrollment and capacity.
+_Run = tuple[int, int, int, int]
+_AVERAGE_FILL_TOLERANCE = 1e-9
+
+
 def _compact_section_history(
-    history: list[dict[str, Any]],
+    runs: Sequence[_Run], snapshot_indices: Sequence[int]
 ) -> list[dict[str, Any]]:
     """
     Keep endpoints plus every enrollment/capacity change and its previous point.
+
+    ``runs`` are a section's chronological runs and ``snapshot_indices`` maps a
+    history position to its snapshot index.
     """
-    if len(history) <= 2:
-        return history
+    if not runs:
+        return []
 
-    keep = {0, len(history) - 1}
-    prev = history[0]
-    for idx in range(1, len(history)):
-        point = history[idx]
-        if point.get("enrollment") != prev.get("enrollment") or point.get(
-            "capacity"
-        ) != prev.get("capacity"):
-            keep.add(idx - 1)
-            keep.add(idx)
-        prev = point
+    keep = {
+        runs[0][0]: (runs[0][2], runs[0][3]),
+        runs[-1][1]: (runs[-1][2], runs[-1][3]),
+    }
+    for previous, run in pairwise(runs):
+        if previous[2:] != run[2:]:
+            keep[previous[1]] = (previous[2], previous[3])
+            keep[run[0]] = (run[2], run[3])
 
-    return [history[idx] for idx in sorted(keep)]
-
-
-def _add_course_average_history(course_data: dict[str, Any]) -> None:
-    """Build course-level average fill history from section histories."""
-    fills_by_snapshot: dict[int, list[float]] = {}
-    for section in course_data["sections"].values():
-        for point in section["history"]:
-            fills_by_snapshot.setdefault(point["snapshotIdx"], []).append(point["fill"])
-
-    average_history = []
-    for snapshot_idx in sorted(fills_by_snapshot):
-        fills = fills_by_snapshot[snapshot_idx]
-        average_history.append(
-            {
-                "snapshotIdx": snapshot_idx,
-                "fill": sum(fills) / len(fills),
-            }
-        )
-    course_data["averageHistory"] = average_history
+    return [
+        {
+            "snapshotIdx": snapshot_indices[position],
+            "fill": enrollment / capacity,
+            "enrollment": enrollment,
+            "capacity": capacity,
+        }
+        for position, (enrollment, capacity) in sorted(keep.items())
+    ]
 
 
 def _compact_average_history(
-    history: list[dict[str, Any]], *, tolerance: float = 1e-9
+    section_runs: Sequence[Sequence[_Run]],
+    snapshot_indices: Sequence[int],
 ) -> list[dict[str, Any]]:
-    """Keep endpoints plus points where average fill changes."""
-    if len(history) <= 2:
-        return history
+    """
+    Build the course-level average fill history from its sections' runs.
 
-    keep = {0, len(history) - 1}
-    prev_fill = history[0].get("fill", 0.0)
-    for idx in range(1, len(history)):
-        fill = history[idx].get("fill", 0.0)
-        if abs(fill - prev_fill) > tolerance:
-            keep.add(idx - 1)
-            keep.add(idx)
-        prev_fill = fill
+    The average only changes where some section starts, stops, or changes a run,
+    so it is evaluated once per segment between those boundaries. Keeps endpoints
+    plus points where the average changes and the point before each change.
+    """
+    boundaries = sorted(
+        {run[0] for runs in section_runs for run in runs}
+        | {run[1] + 1 for runs in section_runs for run in runs}
+    )
+    cursors = [0] * len(section_runs)
+    segments: list[tuple[int, int, float]] = []
+    for start, stop in pairwise(boundaries):
+        fills: list[float] = []
+        for index, runs in enumerate(section_runs):
+            cursor = cursors[index]
+            while cursor < len(runs) and runs[cursor][1] < start:
+                cursor += 1
+            cursors[index] = cursor
+            if cursor < len(runs) and runs[cursor][0] <= start:
+                fills.append(runs[cursor][2] / runs[cursor][3])
+        if fills:
+            segments.append((start, stop - 1, sum(fills) / len(fills)))
 
-    return [history[idx] for idx in sorted(keep)]
+    if not segments:
+        return []
+
+    keep = {segments[0][0]: segments[0][2], segments[-1][1]: segments[-1][2]}
+    for previous, segment in pairwise(segments):
+        if abs(segment[2] - previous[2]) > _AVERAGE_FILL_TOLERANCE:
+            keep[previous[1]] = previous[2]
+            keep[segment[0]] = segment[2]
+
+    return [
+        {"snapshotIdx": snapshot_indices[position], "fill": fill}
+        for position, fill in sorted(keep.items())
+    ]
 
 
-def _compact_histories_for_website(data: dict[str, Any]) -> None:
-    """Add course average histories, then compact per-section histories."""
-    for course_data in data["courses"].values():
-        _add_course_average_history(course_data)
-        course_data["averageHistory"] = _compact_average_history(
-            course_data["averageHistory"]
-        )
-        for section_data in course_data["sections"].values():
-            section_data["history"] = _compact_section_history(section_data["history"])
+def _instructor_changed(old: str | None, new: str | None) -> bool:
+    """Compare raw strings first so identical names are never tokenized."""
+    return old != new and instructor_identity(old) != instructor_identity(new)
+
+
+_SectionState = tuple[str, int, int, str]
+
+
+def _append_change_events(
+    events_by_course: dict[str, list[dict[str, Any]]],
+    timestamp: str,
+    *,
+    courses: dict[str, Any],
+    sections: dict[tuple[str, str], _SectionState],
+    changed_courses: dict[str, bool],
+    changed_sections: dict[tuple[str, str], _SectionState | None],
+) -> None:
+    """
+    Append structural events for what changed since the previous observation.
+
+    ``changed_courses`` maps each touched course to whether it was present before
+    and ``changed_sections`` maps each touched section to its previous state, so
+    only touched entries are compared.
+
+    Tracked events: course_added/removed, section_added/removed,
+    capacity_changed, instructor_changed.
+    """
+    for course_code in sorted(changed_courses):
+        if course_code in courses and not changed_courses[course_code]:
+            events_by_course.setdefault(course_code, []).append(
+                {"eventType": "course_added", "snapshotTimestamp": timestamp}
+            )
+    for course_code in sorted(changed_courses):
+        if course_code not in courses and changed_courses[course_code]:
+            events_by_course.setdefault(course_code, []).append(
+                {"eventType": "course_removed", "snapshotTimestamp": timestamp}
+            )
+
+    section_codes_by_course: dict[str, list[str]] = {}
+    for course_code, section_code in changed_sections:
+        section_codes_by_course.setdefault(course_code, []).append(section_code)
+
+    for course_code in sorted(section_codes_by_course):
+        present = course_code in courses
+        if not (present and changed_courses.get(course_code, present)):
+            continue
+        added: list[str] = []
+        removed: list[str] = []
+        shared: list[str] = []
+        for section_code in section_codes_by_course[course_code]:
+            old = changed_sections[(course_code, section_code)]
+            new = sections.get((course_code, section_code))
+            if old is None and new is not None:
+                added.append(section_code)
+            elif old is not None and new is None:
+                removed.append(section_code)
+            elif old is not None and new is not None:
+                shared.append(section_code)
+
+        events: list[dict[str, Any]] = []
+        for section_code in sorted(added):
+            events.append(
+                {
+                    "eventType": "section_added",
+                    "sectionCode": section_code,
+                    "snapshotTimestamp": timestamp,
+                }
+            )
+        for section_code in sorted(removed):
+            events.append(
+                {
+                    "eventType": "section_removed",
+                    "sectionCode": section_code,
+                    "snapshotTimestamp": timestamp,
+                }
+            )
+        for section_code in sorted(shared):
+            old = changed_sections[(course_code, section_code)]
+            new = sections[(course_code, section_code)]
+            if old is None:
+                continue
+            if old[2] != new[2]:
+                events.append(
+                    {
+                        "eventType": "capacity_changed",
+                        "sectionCode": section_code,
+                        "oldValue": str(old[2]),
+                        "newValue": str(new[2]),
+                        "snapshotTimestamp": timestamp,
+                    }
+                )
+            if _instructor_changed(old[3], new[3]):
+                events.append(
+                    {
+                        "eventType": "instructor_changed",
+                        "sectionCode": section_code,
+                        "oldValue": old[3] or "TBA",
+                        "newValue": new[3] or "TBA",
+                        "snapshotTimestamp": timestamp,
+                    }
+                )
+        if events:
+            events_by_course.setdefault(course_code, []).extend(events)
 
 
 def _checkpointed_semester_data(
@@ -225,10 +342,18 @@ def _checkpointed_semester_data(
     minify: bool,
     archive_window: bool,
 ) -> dict[str, Any]:
-    """Build the production payload while retaining at most two full states."""
+    """
+    Build the production payload by folding stored change events over one state.
+
+    No full snapshot is reconstructed. The initial checkpoint state is mutated by
+    each observation's events, and only the sections and courses an interval
+    touched are compared, so the cost follows the number of changes rather than
+    snapshots times sections. Sections always belong to a present course because
+    the store writes them from a snapshot's courses.
+    """
     store = CheckpointedStateStore(db.db_path, initialize=False)
     with db.get_connection() as connection:
-        metadata = [
+        metadata: list[dict[str, Any]] = [
             {
                 "id": int(row[0]),
                 "timestamp": str(row[1]),
@@ -252,6 +377,7 @@ def _checkpointed_semester_data(
             )
         }
 
+    stored_snapshot_ids = [item["id"] for item in metadata]
     milestones = get_milestones(semester)
     selected_indices: set[int] | None = None
     if archive_window and metadata:
@@ -283,7 +409,7 @@ def _checkpointed_semester_data(
         buffer_hours=WEBSITE_HISTORY_BUFFER_HOURS,
     )
     selected_global_indices = (
-        [index for index in range(len(data["snapshots"]))]
+        list(range(len(metadata)))
         if selected_indices is None
         else sorted(selected_indices)
     )
@@ -291,136 +417,130 @@ def _checkpointed_semester_data(
         global_index: local_index
         for local_index, global_index in enumerate(selected_global_indices)
     }
-    histories: dict[tuple[str, str], list[tuple[int, float, int, int]]] = {}
+    # Snapshot indices that contribute history points, in order; a history
+    # position is an offset into this list.
+    history_snapshot_indices = (
+        list(range(len(metadata)))
+        if history_indices is None
+        else sorted(history_indices)
+    )
+    history_position = {
+        snapshot_index: position
+        for position, snapshot_index in enumerate(history_snapshot_indices)
+    }
+
+    replay = store.read_state_replay()
+    courses = replay.courses
+    sections = replay.sections
     events_by_course: dict[str, list[dict[str, Any]]] = {}
-    previous = None
-    latest = None
+    # Touched since the previous observation (for events) or history position.
+    changed_courses: dict[str, bool] = {}
+    changed_sections: dict[tuple[str, str], _SectionState | None] = {}
+    changed_since_history: set[tuple[str, str]] = set()
+    open_runs: dict[tuple[str, str], tuple[int, int, int]] = {}
+    runs: dict[tuple[str, str], list[_Run]] = {}
 
-    def append_event(course_code: str, event: dict[str, Any]) -> None:
-        events_by_course.setdefault(course_code, []).append(event)
+    for global_index in range(selected_global_indices[-1] + 1):
+        snapshot_id = stored_snapshot_ids[global_index]
+        if global_index > 0:
+            for row in replay.course_events.get(snapshot_id, ()):
+                code = row["course_code"]
+                changed_courses.setdefault(code, code in courses)
+                if row["event_kind"] == "REMOVE":
+                    courses.pop(code, None)
+                else:
+                    courses[code] = (row["new_title"] or "", row["new_department"])
+            for row in replay.section_events.get(snapshot_id, ()):
+                key = (row["course_code"], row["section_code"])
+                changed_sections.setdefault(key, sections.get(key))
+                changed_since_history.add(key)
+                if row["event_kind"] == "REMOVE":
+                    sections.pop(key, None)
+                else:
+                    sections[key] = (
+                        row["new_section_type"],
+                        row["new_enrollment_count"],
+                        row["new_capacity_count"],
+                        row["new_instructor"],
+                    )
 
-    for global_index, (_, snapshot) in enumerate(store.iter_reconstructed_snapshots()):
-        if global_index not in local_index_by_global:
+        snapshot_index = local_index_by_global.get(global_index)
+        if snapshot_index is None:
             continue
-        snapshot_index = local_index_by_global[global_index]
-        if history_indices is None or snapshot_index in history_indices:
-            for course_code, course in snapshot.courses.items():
-                for section_code, section in course.sections.items():
-                    histories.setdefault((course_code, section_code), []).append(
-                        (
-                            snapshot_index,
-                            section.fill,
-                            section.enrollment,
-                            section.capacity,
-                        )
-                    )
 
-        if previous is not None:
-            timestamp = snapshot.timestamp
-            previous_courses = set(previous.courses)
-            current_courses = set(snapshot.courses)
-            for course_code in sorted(current_courses - previous_courses):
-                append_event(
-                    course_code,
-                    {"eventType": "course_added", "snapshotTimestamp": timestamp},
-                )
-            for course_code in sorted(previous_courses - current_courses):
-                append_event(
-                    course_code,
-                    {"eventType": "course_removed", "snapshotTimestamp": timestamp},
-                )
-            for course_code in sorted(previous_courses & current_courses):
-                old_sections = previous.courses[course_code].sections
-                new_sections = snapshot.courses[course_code].sections
-                for section_code in sorted(set(new_sections) - set(old_sections)):
-                    append_event(
-                        course_code,
-                        {
-                            "eventType": "section_added",
-                            "sectionCode": section_code,
-                            "snapshotTimestamp": timestamp,
-                        },
+        position = history_position.get(snapshot_index)
+        if position == 0:
+            for key, state in sections.items():
+                open_runs[key] = (0, state[1], state[2])
+        elif position is not None:
+            for key in changed_since_history:
+                state = sections.get(key)
+                opened = open_runs.get(key)
+                if opened is not None and (
+                    state is None or (state[1], state[2]) != opened[1:]
+                ):
+                    runs.setdefault(key, []).append(
+                        (opened[0], position - 1, opened[1], opened[2])
                     )
-                for section_code in sorted(set(old_sections) - set(new_sections)):
-                    append_event(
-                        course_code,
-                        {
-                            "eventType": "section_removed",
-                            "sectionCode": section_code,
-                            "snapshotTimestamp": timestamp,
-                        },
-                    )
-                for section_code in sorted(set(old_sections) & set(new_sections)):
-                    old = old_sections[section_code]
-                    new = new_sections[section_code]
-                    if old.capacity != new.capacity:
-                        append_event(
-                            course_code,
-                            {
-                                "eventType": "capacity_changed",
-                                "sectionCode": section_code,
-                                "oldValue": str(old.capacity),
-                                "newValue": str(new.capacity),
-                                "snapshotTimestamp": timestamp,
-                            },
-                        )
-                    if instructor_identity(old.instructor) != instructor_identity(
-                        new.instructor
-                    ):
-                        append_event(
-                            course_code,
-                            {
-                                "eventType": "instructor_changed",
-                                "sectionCode": section_code,
-                                "oldValue": old.instructor or "TBA",
-                                "newValue": new.instructor or "TBA",
-                                "snapshotTimestamp": timestamp,
-                            },
-                        )
-        previous = snapshot
-        latest = snapshot
+                    del open_runs[key]
+                    opened = None
+                if opened is None and state is not None:
+                    open_runs[key] = (position, state[1], state[2])
+        if position is not None:
+            changed_since_history.clear()
 
-    if latest is None:
-        print(f"No snapshots found for semester: {semester}")
-        return _minify_keys(data) if minify else data
+        if snapshot_index > 0:
+            _append_change_events(
+                events_by_course,
+                metadata[snapshot_index]["timestamp"],
+                courses=courses,
+                sections=sections,
+                changed_courses=changed_courses,
+                changed_sections=changed_sections,
+            )
+        changed_courses.clear()
+        changed_sections.clear()
 
-    data["lastReportTime"] = latest.timestamp
-    for course_code, course in latest.courses.items():
+    last_position = len(history_snapshot_indices) - 1
+    for key, (first, enrollment, capacity) in open_runs.items():
+        runs.setdefault(key, []).append((first, last_position, enrollment, capacity))
+
+    data["lastReportTime"] = metadata[-1]["timestamp"]
+    sections_by_course: dict[str, list[tuple[str, _SectionState]]] = {}
+    for (course_code, section_code), state in sections.items():
+        if course_code in courses:
+            sections_by_course.setdefault(course_code, []).append((section_code, state))
+    for course_code, (title, department) in courses.items():
         course_data = {
-            "department": course.department
-            or (course_code.split()[0] if course_code else ""),
-            "title": course.course_title or "",
+            "department": department or (course_code.split()[0] if course_code else ""),
+            "title": title or "",
             "averageFill": 0.0,
             "sections": {},
         }
-        for section_code, section in course.sections.items():
+        for section_code, state in sections_by_course.get(course_code, ()):
+            section_type, enrollment, capacity, instructor = state
             course_data["sections"][section_code] = {
-                "type": section.section_type or "",
-                "instructor": section.instructor or "",
-                "currentEnrollment": section.enrollment,
-                "currentCapacity": section.capacity,
-                "currentFill": section.fill,
+                "type": section_type or "",
+                "instructor": instructor or "",
+                "currentEnrollment": enrollment,
+                "currentCapacity": capacity,
+                "currentFill": enrollment / capacity,
                 "sectionId": section_ids[(course_code, section_code)],
-                "history": [
-                    {
-                        "snapshotIdx": point[0],
-                        "fill": point[1],
-                        "enrollment": point[2],
-                        "capacity": point[3],
-                    }
-                    for point in histories.get((course_code, section_code), [])
-                ],
+                "history": _compact_section_history(
+                    runs.get((course_code, section_code), ()),
+                    history_snapshot_indices,
+                ),
             }
         if course_code in events_by_course:
             course_data["events"] = events_by_course[course_code]
         data["courses"][course_code] = course_data
 
-    for course_data in data["courses"].values():
-        sections = course_data["sections"]
-        total_fill = sum(section["currentFill"] for section in sections.values())
-        course_data["averageFill"] = total_fill / len(sections)
+    for course_code, course_data in data["courses"].items():
+        course_sections = course_data["sections"]
+        total_fill = sum(section["currentFill"] for section in course_sections.values())
+        course_data["averageFill"] = total_fill / len(course_sections)
         sections_by_type: dict[str, list[float]] = {}
-        for section in sections.values():
+        for section in course_sections.values():
             sections_by_type.setdefault(section.get("type", ""), []).append(
                 section["currentFill"]
             )
@@ -428,8 +548,11 @@ def _checkpointed_semester_data(
             fills and all(fill >= 1.0 for fill in fills)
             for fills in sections_by_type.values()
         )
+        course_data["averageHistory"] = _compact_average_history(
+            [runs.get((course_code, code), ()) for code in course_sections],
+            history_snapshot_indices,
+        )
 
-    _compact_histories_for_website(data)
     return _minify_keys(data) if minify else data
 
 

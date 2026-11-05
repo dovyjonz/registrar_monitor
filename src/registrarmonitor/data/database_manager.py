@@ -264,6 +264,31 @@ class DatabaseManager:
             self.logger.error(f"Database error getting latest snapshot ID: {e}")
             raise
 
+    def latest_snapshot_has_courses(self, semester: str) -> bool:
+        """Return whether the latest snapshot belongs to ``semester`` and has courses.
+
+        Answered with one ``EXISTS`` query against the latest-state tables, so
+        callers that only need to know if a semester is publishable do not
+        reconstruct a full snapshot.
+        """
+        try:
+            with self.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM state_snapshot
+                        WHERE sequence_no = (SELECT MAX(sequence_no) FROM state_snapshot)
+                          AND semester = ?
+                          AND EXISTS (SELECT 1 FROM course_latest_state)
+                    )
+                    """,
+                    (semester,),
+                ).fetchone()
+                return bool(row[0])
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error checking latest snapshot courses: {e}")
+            raise
+
     def get_first_snapshot_id(self) -> int | None:
         """Find the ID of the earliest retained snapshot."""
         try:

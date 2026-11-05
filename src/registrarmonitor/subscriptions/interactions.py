@@ -674,7 +674,6 @@ class SubscriptionInteractions:
         course.average_fill = sum(item.fill for item in course.sections.values()) / len(
             course.sections
         )
-        course._invalidate_cache()
         comparison = SnapshotComparator().compare_snapshots(current, previous)
         chunks = render_personal_digest(comparison, current, previous, targets)
         if not chunks:
