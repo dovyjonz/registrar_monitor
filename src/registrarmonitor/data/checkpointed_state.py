@@ -447,7 +447,7 @@ class CheckpointedStateStore:
                 ):
                     connection.execute(
                         """
-                        UPDATE state_snapshot SET last_seen_at = ?
+                        UPDATE state_snapshot SET last_seen_at = MAX(last_seen_at, ?)
                         WHERE snapshot_id = ?
                         """,
                         (snapshot.timestamp, latest["snapshot_id"]),

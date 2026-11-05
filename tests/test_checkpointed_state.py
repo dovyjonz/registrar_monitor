@@ -122,6 +122,15 @@ def test_identical_poll_only_advances_last_seen(tmp_path: Path) -> None:
             "SELECT observed_at, last_seen_at FROM state_snapshot"
         ).fetchone() == (first.timestamp, duplicate.timestamp)
 
+    # Replaying an older identical file never moves last_seen_at backwards.
+    older = _changed_snapshot()
+    older.timestamp = first.timestamp
+    manager.store_enrollment_snapshot(older)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT last_seen_at FROM state_snapshot"
+        ).fetchone() == (duplicate.timestamp,)
+
 
 def test_v2_deduplicates_instructor_markup_and_order_only_changes(
     tmp_path: Path,

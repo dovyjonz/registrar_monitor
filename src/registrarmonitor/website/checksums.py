@@ -65,7 +65,10 @@ def save_checksums(
     """Save checksums to file."""
     checksums_file = checksums_file or CHECKSUMS_FILE
     checksums_file.parent.mkdir(parents=True, exist_ok=True)
-    checksums_file.write_text(json.dumps(checksums, indent=2))
+    content = json.dumps(checksums, indent=2)
+    if checksums_file.is_file() and checksums_file.read_text() == content:
+        return
+    checksums_file.write_text(content)
 
 
 def get_semesters_needing_update(
