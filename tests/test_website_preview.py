@@ -195,3 +195,30 @@ def test_semester_state_sums_raw_open_seats_and_can_be_archived():
     assert state["status"] == "archived"
     assert state["archived"] is True
     assert "footer" not in state
+
+
+def test_course_state_keeps_only_referenced_timestamps_without_touching_input():
+    course = {
+        "code": "ANT 140",
+        "sections": {},
+        "averageHistory": [{"timestampIdx": 1, "fill": 0.5}],
+        "sectionHistory": {"1": [{"timestampIdx": 3, "enrollment": 10}]},
+        "events": [{"timestampIdx": 3, "eventType": "change"}],
+    }
+    timestamps = [
+        "2026-08-01T09:00:00+05:00",
+        "2026-08-02T09:00:00+05:00",
+        "2026-08-03T09:00:00+05:00",
+        "2026-08-04T09:00:00+05:00",
+    ]
+
+    state = build_course_preview_state(
+        semester="Fall 2026", course=course, timestamps=timestamps, milestones=[]
+    )
+
+    assert state["timestamps"] == [timestamps[1], timestamps[3]]
+    assert state["course"]["averageHistory"][0]["timestampIdx"] == 0
+    assert state["course"]["sectionHistory"]["1"][0]["timestampIdx"] == 1
+    assert state["course"]["events"][0]["timestampIdx"] == 1
+    assert course["averageHistory"][0]["timestampIdx"] == 1
+    assert course["events"][0]["timestampIdx"] == 3

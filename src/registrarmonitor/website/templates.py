@@ -1,6 +1,7 @@
 """Template loading and HTML assembly for website generation."""
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -87,6 +88,26 @@ def _build_nav_html(current_semester: str, semesters: list[str] | None = None) -
     return "\n            ".join(nav_items)
 
 
+@dataclass(frozen=True)
+class PageShell:
+    """The parts of a semester's pages that do not vary from page to page."""
+
+    js_file: str | None
+    css_file: str | None
+    nav_html: str
+
+
+def build_page_shell(
+    semester: str,
+    *,
+    manifest_path: Path | None = None,
+    semesters: list[str] | None = None,
+) -> PageShell:
+    """Read the Vite manifest and render the navigation once for a semester."""
+    js_file, css_file = _get_asset_info(manifest_path=manifest_path)
+    return PageShell(js_file, css_file, _build_nav_html(semester, semesters))
+
+
 def build_semester_page(
     data: dict[str, Any],
     milestones: list[dict[str, str]],
@@ -97,15 +118,19 @@ def build_semester_page(
     semesters: list[str] | None = None,
     preview_state: dict[str, Any] | None = None,
     course_state: dict[str, Any] | None = None,
+    shell: PageShell | None = None,
 ) -> str:
     """
     Build HTML for a single semester page using Jinja2 templates.
-    """
-    # Get asset filenames
-    js_file, css_file = _get_asset_info(manifest_path=manifest_path)
 
-    # Build navigation
-    nav_html = _build_nav_html(semester, semesters)
+    Pass a ``shell`` from :func:`build_page_shell` when rendering many pages of
+    one semester so the manifest is read once instead of once per page.
+    """
+    if shell is None:
+        shell = build_page_shell(
+            semester, manifest_path=manifest_path, semesters=semesters
+        )
+    js_file, css_file, nav_html = shell.js_file, shell.css_file, shell.nav_html
 
     # Format last updated text
     last_report_time = data.get("lrt")

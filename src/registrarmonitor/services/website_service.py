@@ -3,15 +3,25 @@
 import hashlib
 import json
 import re
+import resource
 import shutil
 import subprocess
+import sys
+import time
+from collections.abc import Generator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import get_settings
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..website.catalog import build_publication_catalog
-from ..website.checksums import get_semesters_needing_update, update_checksum
+from ..website.checksums import (
+    compute_semester_hash,
+    get_semesters_needing_update,
+    update_checksum,
+)
 from ..website.config import (
     OUTPUT_DIR,
     content_security_policy,
@@ -26,14 +36,38 @@ from ..website.preview import (
     build_semester_preview_state,
     publish_preview_state,
 )
-from ..website.static_manifest import build_frontend_payloads_v3, publish_semester
+from ..website.static_manifest import (
+    build_frontend_payloads_v3,
+    publish_semester,
+    write_if_changed,
+)
 from ..website.templates import (
+    PageShell,
+    build_page_shell,
     build_redirect_index,
     build_semester_page,
 )
 
 DEPLOY_TIMEOUT_SECONDS = 900
 WORKER_CONFIG = Path(__file__).resolve().parents[3] / "workers/site/wrangler.jsonc"
+
+_ASSET_REFERENCE = re.compile(r'(?:src|href)="(/assets/[^"]+\.(?:js|css))"')
+_PREVIEW_HASH_REFERENCE = re.compile(r"(?:/|&quot;)([A-Za-z0-9_-]{8})(?:\.json|\.png)")
+
+
+def peak_rss_mb() -> float:
+    """Return this process's peak resident set size in megabytes."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # ru_maxrss is KB on Linux and bytes on macOS.
+    return peak / (1024 * 1024 if sys.platform == "darwin" else 1024)
+
+
+@dataclass(frozen=True)
+class _HtmlScan:
+    """What one generated page references; enough to validate and prune."""
+
+    asset_urls: tuple[str, ...]
+    preview_hashes: frozenset[str]
 
 
 class WebsiteService:
@@ -52,6 +86,41 @@ class WebsiteService:
         )
         self.website_assets_dir = self._default_website_assets_dir
         self._semester_data_cache: dict[tuple[str, bool], dict] = {}
+        self._html_scan_cache: dict[Path, tuple[tuple[int, int], _HtmlScan]] = {}
+
+    @contextmanager
+    def _phase(self, name: str) -> Generator[None]:
+        """Report a phase's start, duration, and peak RSS so long runs are not silent."""
+        print(f"  [{name}] started", flush=True)
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            print(
+                f"  [{name}] finished in {time.perf_counter() - started:.1f}s "
+                f"(peak RSS {peak_rss_mb():.0f} MB)",
+                flush=True,
+            )
+
+    def _write_page(self, path: Path, html: str) -> bool:
+        """Write a generated page unless it is unchanged; return whether it changed."""
+        self._html_scan_cache.pop(path, None)
+        return write_if_changed(path, html)
+
+    def _scan_html(self, page: Path) -> _HtmlScan:
+        """Read a generated page once and reuse the result while it is unchanged."""
+        stat = page.stat()
+        key = (stat.st_size, stat.st_mtime_ns)
+        cached = self._html_scan_cache.get(page)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        text = page.read_text(encoding="utf-8")
+        scan = _HtmlScan(
+            asset_urls=tuple(_ASSET_REFERENCE.findall(text)),
+            preview_hashes=frozenset(_PREVIEW_HASH_REFERENCE.findall(text)),
+        )
+        self._html_scan_cache[page] = (key, scan)
+        return scan
 
     def _get_semester_data(self, semester: str, *, archive_window: bool) -> dict:
         """Load each semester payload at most once during a generation run."""
@@ -97,19 +166,26 @@ class WebsiteService:
             entry.label for entry in build_publication_catalog()
         ]
         archived = bool(semesters and semester != semesters[0])
-
-        # Get data and milestones
-        data = (
-            get_semester_data(
-                semester,
-                minify=True,
-                database=database,
-                archive_window=archived,
-            )
-            if database is not None
-            else self._get_semester_data(semester, archive_window=archived)
-        )
         milestones = get_milestones(semester)
+
+        # Fingerprint the stored data before reading it. A snapshot stored while
+        # the build runs then differs from this checksum, so the next run
+        # regenerates instead of recording the stale pages as published.
+        checksum = compute_semester_hash(
+            semester, database=database, milestones=milestones, archived=archived
+        )
+
+        with self._phase(f"{semester}: read data"):
+            data = (
+                get_semester_data(
+                    semester,
+                    minify=True,
+                    database=database,
+                    archive_window=archived,
+                )
+                if database is not None
+                else self._get_semester_data(semester, archive_window=archived)
+            )
 
         # Check if we have data
         if not data.get("cr"):
@@ -119,19 +195,20 @@ class WebsiteService:
 
         # Publish the v3 read model consumed by the generated frontend. The
         # stable pointer is the only mutable JSON URL embedded in the HTML.
-        summary_payload, departments = build_frontend_payloads_v3(
-            data=data,
-            milestones=milestones,
-            semester=semester,
-        )
-        publish_semester(
-            self.output_dir,
-            semester_slug=semester_to_slug(semester),
-            semester=semester,
-            current_snapshot=summary_payload["currentSnapshot"],
-            summary=summary_payload,
-            departments=departments,
-        )
+        with self._phase(f"{semester}: publish data"):
+            summary_payload, departments = build_frontend_payloads_v3(
+                data=data,
+                milestones=milestones,
+                semester=semester,
+            )
+            publish_semester(
+                self.output_dir,
+                semester_slug=semester_to_slug(semester),
+                semester=semester,
+                current_snapshot=summary_payload["currentSnapshot"],
+                summary=summary_payload,
+                departments=departments,
+            )
 
         semester_preview = build_semester_preview_state(
             summary=summary_payload,
@@ -141,6 +218,12 @@ class WebsiteService:
         )
         publish_preview_state(self.output_dir, semester_preview)
 
+        # The Vite manifest and navigation are shared by every page of the semester.
+        shell = build_page_shell(
+            semester,
+            manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
+            semesters=semesters,
+        )
         html = build_semester_page(
             data,
             milestones,
@@ -149,29 +232,29 @@ class WebsiteService:
             manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
             semesters=semesters,
             preview_state=semester_preview,
+            shell=shell,
         )
         output_path = (
             self.output_dir / "semesters" / semester_to_slug(semester) / "index.html"
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(html, encoding="utf-8")
-        course_count = self._publish_course_routes(
-            semester=semester,
-            data=data,
-            milestones=milestones,
-            departments=departments,
-            semesters=semesters,
-            archived_semester=archived,
-            published_at=(summary_payload.get("currentSnapshot") or {}).get(
-                "observedAt"
-            ),
-            minify_assets=minify_assets,
-        )
+        self._write_page(output_path, html)
+        with self._phase(f"{semester}: course routes"):
+            course_count = self._publish_course_routes(
+                semester=semester,
+                data=data,
+                milestones=milestones,
+                departments=departments,
+                semesters=semesters,
+                archived_semester=archived,
+                published_at=(summary_payload.get("currentSnapshot") or {}).get(
+                    "observedAt"
+                ),
+                minify_assets=minify_assets,
+                shell=shell,
+            )
 
-        # Remove a stale pre-v3 root payload when regenerating an existing
-        # public directory. The v3 manifest pointer is the only data entrypoint.
-        # Update checksum
-        update_checksum(semester, self.checksums_file, database=database)
+        update_checksum(semester, checksum, self.checksums_file)
 
         file_size_kb = output_path.stat().st_size / 1024
         snapshot_count = len(data.get("sn", []))
@@ -206,6 +289,7 @@ class WebsiteService:
         milestones: list[dict[str, str]],
         semesters: list[str],
         minify_assets: bool,
+        shell: PageShell | None = None,
     ) -> Path:
         route = (
             self.output_dir
@@ -223,8 +307,9 @@ class WebsiteService:
             manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
             semesters=semesters,
             course_state=state,
+            shell=shell,
         )
-        route.write_text(html, encoding="utf-8")
+        self._write_page(route, html)
         return route
 
     def _publish_course_routes(
@@ -238,6 +323,7 @@ class WebsiteService:
         archived_semester: bool,
         published_at: str | None,
         minify_assets: bool,
+        shell: PageShell | None = None,
     ) -> int:
         """Publish current routes and archive previously published removals."""
         states: dict[str, dict] = {}
@@ -276,6 +362,15 @@ class WebsiteService:
                 removed=True,
             )
 
+        if shell is None:
+            shell = build_page_shell(
+                semester,
+                manifest_path=self.output_dir / "assets" / ".vite" / "manifest.json",
+                semesters=semesters,
+            )
+        # Previews are content-addressed: an unchanged course hashes to the file
+        # already on disk, which is verified rather than rewritten, and its page
+        # renders to the same bytes, which are not rewritten either.
         for state in states.values():
             publish_preview_state(self.output_dir, state)
             self._write_course_route(
@@ -284,6 +379,7 @@ class WebsiteService:
                 milestones=milestones,
                 semesters=semesters,
                 minify_assets=minify_assets,
+                shell=shell,
             )
         print(f"  Published {len(states)} clean course routes", flush=True)
         return len(states)
@@ -349,7 +445,7 @@ class WebsiteService:
                 )
 
             if text != original:
-                html_file.write_text(text, encoding="utf-8")
+                self._write_page(html_file, text)
                 patched += 1
 
         print(
@@ -397,18 +493,14 @@ class WebsiteService:
 
     def _frontend_asset_reference_issues(self) -> list[str]:
         """Return missing local frontend assets referenced by generated HTML."""
-        import re
-
         output_dir = self.output_dir
         issues: list[str] = []
+        exists: dict[str, bool] = {}
         for html_file in output_dir.rglob("*.html"):
-            text = html_file.read_text(encoding="utf-8")
-            asset_urls = re.findall(
-                r'(?:src|href)="(/assets/[^"]+\.(?:js|css))"',
-                text,
-            )
-            for asset_url in asset_urls:
-                if not (output_dir / asset_url.lstrip("/")).is_file():
+            for asset_url in self._scan_html(html_file).asset_urls:
+                if asset_url not in exists:
+                    exists[asset_url] = (output_dir / asset_url.lstrip("/")).is_file()
+                if not exists[asset_url]:
                     issues.append(
                         "Missing frontend asset referenced by "
                         f"{html_file.relative_to(output_dir)}: {asset_url}"
@@ -479,10 +571,13 @@ class WebsiteService:
 
         try:
             if self._frontend_dependencies_need_install():
-                print("Installing/updating frontend dependencies...")
-                subprocess.run(
-                    ["npm", "install"], cwd=self.website_assets_dir, check=True, env=env
+                message = (
+                    "Frontend dependencies are missing or out of date. "
+                    "Run `npm ci --prefix frontend` as the operator, then retry."
                 )
+                self.logger.error(message)
+                print(f"Error: {message}")
+                return False
 
             subprocess.run(build_cmd, cwd=self.website_assets_dir, check=True, env=env)
             print("Frontend build successful.")
@@ -508,7 +603,7 @@ class WebsiteService:
             return False
 
     def _remove_obsolete_html(self) -> None:
-        """Remove generated .html files now represented by exact redirects."""
+        """Remove leftover .html pages from earlier publications."""
         for semester in get_configured_semesters():
             old_page = self.output_dir / f"{semester.replace(' ', '').lower()}.html"
             old_page.unlink(missing_ok=True)
@@ -518,7 +613,12 @@ class WebsiteService:
                 old_page.unlink()
 
     def _build_redirects(self) -> str:
-        """Build exact .html redirects only for clean targets that exist."""
+        """Build the exact semester .html redirects whose clean targets exist.
+
+        Course pages get no redirect: there is one per course across every
+        semester, which grew past the 2,000 static redirect limit and failed the
+        whole publish.
+        """
         redirects: list[str] = []
         for semester in get_configured_semesters():
             sem_slug = semester_to_slug(semester)
@@ -526,19 +626,6 @@ class WebsiteService:
             if target.is_file():
                 old_path = f"/{semester.replace(' ', '').lower()}.html"
                 redirects.append(f"{old_path} /semesters/{sem_slug}/ 301")
-        courses = self.output_dir / "courses"
-        if courses.exists():
-            for target in sorted(courses.glob("*/*/index.html")):
-                sem_slug = target.parents[1].name
-                course_slug = target.parent.name
-                redirects.append(
-                    f"/courses/{sem_slug}/{course_slug}.html "
-                    f"/courses/{sem_slug}/{course_slug}/ 301"
-                )
-        if len(redirects) > 2_000:
-            raise ValueError(
-                f"generated redirect count {len(redirects)} exceeds the static redirect limit"
-            )
         return "\n".join(redirects) + ("\n" if redirects else "")
 
     def _build_headers_content(self) -> str:
@@ -583,14 +670,11 @@ class WebsiteService:
         """Remove immutable files that no current page or rollback pointer uses."""
         removed = {"assets": 0, "blobs": 0, "manifests": 0, "previews": 0}
 
-        html = "\n".join(
-            page.read_text(encoding="utf-8") for page in self.output_dir.rglob("*.html")
-        )
+        referenced_preview_hashes: set[str] = set()
+        for page in self.output_dir.rglob("*.html"):
+            referenced_preview_hashes |= self._scan_html(page).preview_hashes
 
         preview_root = self.output_dir / "data" / "previews"
-        referenced_preview_hashes = set(
-            re.findall(r"(?:/|&quot;)([A-Za-z0-9_-]{8})(?:\.json|\.png)", html)
-        )
         if preview_root.is_dir():
             for path in preview_root.rglob("*.json"):
                 if path.stem not in referenced_preview_hashes:
@@ -776,6 +860,19 @@ class WebsiteService:
         Returns:
             True if successful
         """
+        started = time.perf_counter()
+        try:
+            return self._generate(semester_key, force=force, minify=minify)
+        finally:
+            elapsed = time.perf_counter() - started
+            summary = (
+                f"Website generation took {elapsed:.1f}s, "
+                f"peak RSS {peak_rss_mb():.0f} MB"
+            )
+            print(summary, flush=True)
+            self.logger.info(summary)
+
+    def _generate(self, semester_key: str | None, *, force: bool, minify: bool) -> bool:
         try:
             self.last_generation_skipped = False
             self._semester_data_cache.clear()
@@ -796,7 +893,9 @@ class WebsiteService:
                 return False
 
             # Build frontend assets first
-            if not self.build_frontend_assets():
+            with self._phase("frontend assets"):
+                frontend_ready = self.build_frontend_assets()
+            if not frontend_ready:
                 print("❌ Frontend build failed. Aborting website generation.")
                 return False
 
@@ -852,37 +951,40 @@ class WebsiteService:
                 # Always regenerate index.html (redirect page)
                 index_html = build_redirect_index(publishable_semesters[0])
                 index_path = self.output_dir / "index.html"
-                index_path.write_text(index_html)
+                write_if_changed(index_path, index_html)
                 print("Updated index.html (redirect)")
 
                 # Generate Cloudflare _headers file with security headers
                 headers_path = self.output_dir / "_headers"
-                headers_path.write_text(self._build_headers_content())
+                write_if_changed(headers_path, self._build_headers_content())
                 print("Generated Cloudflare _headers")
 
                 # Keep local state out of the deployed assets
-                (self.output_dir / ".assetsignore").write_text(
-                    ".assetsignore\n.checksums.json\n.frontend-build-hash\n"
+                write_if_changed(
+                    self.output_dir / ".assetsignore",
+                    ".assetsignore\n.checksums.json\n.frontend-build-hash\n",
                 )
 
                 # Generate robots.txt
                 robots_path = self.output_dir / "robots.txt"
-                robots_path.write_text(self._build_robots_content())
+                write_if_changed(robots_path, self._build_robots_content())
                 print("Generated robots.txt")
 
                 self._remove_obsolete_html()
                 redirects_path = self.output_dir / "_redirects"
-                redirects_path.write_text(self._build_redirects(), encoding="utf-8")
+                write_if_changed(redirects_path, self._build_redirects())
                 print("Generated narrow .html redirects")
 
-            removed = self._prune_unreferenced_publication_files()
+            with self._phase("prune"):
+                removed = self._prune_unreferenced_publication_files()
             print(
                 "Pruned obsolete immutable files: "
                 + ", ".join(f"{count} {kind}" for kind, count in removed.items())
             )
 
             # Validate public output before any deploy can publish private artifacts.
-            issues = self.validate_public_output()
+            with self._phase("validate"):
+                issues = self.validate_public_output()
             if issues:
                 print("Public output validation errors:")
                 for issue in issues:
@@ -897,13 +999,17 @@ class WebsiteService:
             print(f"❌ Website generation failed: {e}")
             return False
 
-    def deploy(self) -> bool:
+    def deploy(self, *, dry_run: bool = False) -> bool:
         """
         Deploy the generated site and the preview Worker with ``wrangler deploy``.
 
         The site is the Worker's Static Assets directory (``frontend/public``).
         Wrangler hashes every file and uploads only the ones Cloudflare does not
         already have, so each deploy sends just the changed pages and data.
+
+        With ``dry_run`` the output is still validated and wrangler still
+        bundles and checks the Worker, but nothing is uploaded and no
+        Cloudflare credentials are needed.
 
         Returns:
             True if successful
@@ -932,33 +1038,40 @@ class WebsiteService:
             str(WORKER_CONFIG),
             "--strict",
         ]
+        if dry_run:
+            deploy_cmd.append("--dry-run")
 
         env = os.environ.copy()
         settings = get_settings()
-        if settings.cloudflare_api_token is None:
-            print("❌ Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN is not set.")
-            print(
-                "   Add CLOUDFLARE_API_TOKEN=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
-            )
-            print(
-                "   Settings read .env once at process start, so restart the service afterwards."
-            )
-            return False
-        if settings.cloudflare_account_id is None:
-            print("❌ Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set.")
-            print(
-                "   Add CLOUDFLARE_ACCOUNT_ID=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
-            )
-            print(
-                "   Wrangler custom API tokens can fail account discovery without it."
-            )
-            print(
-                "   Settings read .env once at process start, so restart the service afterwards."
-            )
-            return False
+        if not dry_run:
+            if settings.cloudflare_api_token is None:
+                print("❌ Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN is not set.")
+                print(
+                    "   Add CLOUDFLARE_API_TOKEN=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
+                )
+                print(
+                    "   Settings read .env once at process start, so restart the service afterwards."
+                )
+                return False
+            if settings.cloudflare_account_id is None:
+                print("❌ Cloudflare deploy skipped: CLOUDFLARE_ACCOUNT_ID is not set.")
+                print(
+                    "   Add CLOUDFLARE_ACCOUNT_ID=... to /home/dmitry_s_ivanenko/registrar_monitor/.env"
+                )
+                print(
+                    "   Wrangler custom API tokens can fail account discovery without it."
+                )
+                print(
+                    "   Settings read .env once at process start, so restart the service afterwards."
+                )
+                return False
 
-        env["CLOUDFLARE_API_TOKEN"] = settings.cloudflare_api_token.get_secret_value()
-        env["CLOUDFLARE_ACCOUNT_ID"] = settings.cloudflare_account_id.get_secret_value()
+            env["CLOUDFLARE_API_TOKEN"] = (
+                settings.cloudflare_api_token.get_secret_value()
+            )
+            env["CLOUDFLARE_ACCOUNT_ID"] = (
+                settings.cloudflare_account_id.get_secret_value()
+            )
         env["NODE_OPTIONS"] = "--max_old_space_size=512"
         env["CLOUDFLARE_TELEMETRY_DISABLED"] = "1"
         env["NO_UPDATE_NOTIFIER"] = "1"
@@ -967,14 +1080,19 @@ class WebsiteService:
             # Inherit stdout/stderr so Wrangler progress reaches the operator and
             # systemd journal immediately. Bound the process so a stalled network
             # upload cannot block the scheduler indefinitely.
-            result = subprocess.run(
-                deploy_cmd,
-                cwd=self.website_assets_dir,
-                env=env,
-                timeout=DEPLOY_TIMEOUT_SECONDS,
-            )
+            with self._phase("wrangler dry run" if dry_run else "wrangler deploy"):
+                result = subprocess.run(
+                    deploy_cmd,
+                    cwd=self.website_assets_dir,
+                    env=env,
+                    timeout=DEPLOY_TIMEOUT_SECONDS,
+                )
             if result.returncode == 0:
-                print("✅ Deployment successful!")
+                print(
+                    "✅ Dry run succeeded; nothing was uploaded."
+                    if dry_run
+                    else "✅ Deployment successful!"
+                )
                 return True
             else:
                 print(f"❌ Deployment failed with exit code: {result.returncode}")
