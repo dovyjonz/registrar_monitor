@@ -1,5 +1,4 @@
 import datetime as dt
-import os
 import re
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
@@ -136,21 +135,3 @@ class ExcelReader:
             processed_data.append(record)
 
         return semester, ieee_timestamp, processed_data
-
-    def get_timestamp_from_file(self, file_path: str) -> str:
-        """
-        Get the timestamp from the file's modification time.
-
-        Args:
-            file_path: The path to the file.
-
-        Returns:
-            A formatted timestamp string.
-        """
-        try:
-            mtime = os.path.getmtime(file_path)
-            dt_object = dt.datetime.fromtimestamp(mtime)
-            return dt_object.strftime("%Y-%m-%d %H:%M:%S")
-        except FileNotFoundError:
-            # Fallback to current time if file not found, though unlikely
-            return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

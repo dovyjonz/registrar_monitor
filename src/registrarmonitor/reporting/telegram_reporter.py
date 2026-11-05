@@ -28,7 +28,6 @@ class TelegramReporter:
         self.bot_token = token.get_secret_value()
         self.chat_id = chat.get_secret_value()
         self.text_reports_dir = settings.directories.text_reports
-        self.file_write_delay = settings.notifications.file_write_delay
         self.dry_run = settings.notifications.dry_run
         self.bot = Bot(token=self.bot_token)
         self._bot_username: str | None = None
@@ -49,7 +48,6 @@ class TelegramReporter:
 
         With ``snapshot``, each listed course links to a one-tap watch in the bot.
         """
-        await asyncio.sleep(self.file_write_delay)
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"TXT file disappeared before sending: {file_path}")
 

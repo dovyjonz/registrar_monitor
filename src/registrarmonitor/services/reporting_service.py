@@ -290,64 +290,6 @@ class ReportingService:
 
         return changes_found
 
-    async def send_existing_reports(self, txt_path: str | None = None) -> bool:
-        """
-        Send existing report files via Telegram.
-
-        Args:
-            txt_path: Path to text report file
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            await self._send_reports_via_telegram(txt_path)
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to send existing reports: {e}")
-            return False
-
-    def get_available_reports(self, limit: int = 10) -> list[dict]:
-        """
-        Get a list of recently generated text reports.
-
-        Args:
-            limit: Maximum number of reports to return
-
-        Returns:
-            List of report information dictionaries
-        """
-        try:
-            from ..config import get_settings
-
-            settings = get_settings()
-            txt_dir = Path(settings.directories.text_reports)
-
-            reports: list[dict] = []
-
-            # Get text reports
-            if txt_dir.exists():
-                for txt_file in sorted(
-                    txt_dir.glob("*.txt"), key=lambda x: x.stat().st_mtime, reverse=True
-                )[:limit]:
-                    reports.append(
-                        {
-                            "type": "Text",
-                            "path": str(txt_file),
-                            "filename": txt_file.name,
-                            "size": txt_file.stat().st_size,
-                            "modified": txt_file.stat().st_mtime,
-                        }
-                    )
-
-            # Sort by modification time
-            reports.sort(key=lambda x: x["modified"], reverse=True)
-            return reports[:limit]
-
-        except Exception as e:
-            self.logger.error(f"Failed to get available reports: {e}")
-            return []
-
     async def _generate_text_report(
         self,
         current_snapshot: EnrollmentSnapshot,
