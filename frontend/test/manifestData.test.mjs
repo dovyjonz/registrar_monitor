@@ -146,6 +146,105 @@ test('startup fetches pointer, current manifest, and verified summary only', asy
     assert.equal(requests[2].cache, undefined);
 });
 
+test('inlined current manifest skips the manifest fetch and resolves blob URLs against the current file', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const manifest = v3Manifest(summaryArtifact, {}, {
+        summary: {
+            schemaVersion: 1,
+            ...summaryArtifact.reference,
+            url: '../../blobs/summary.json',
+        },
+    });
+    const requests = [];
+    const fetchImpl = async url => {
+        requests.push(String(url));
+        if (String(url).endsWith('/manifest.json')) {
+            return jsonResponse({ ...pointer(), currentManifest: manifest });
+        }
+        if (String(url) === summaryArtifact.reference.url) {
+            return bytesResponse(summaryArtifact);
+        }
+        throw new Error(`unexpected request ${url}`);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, false);
+    assert.equal(loaded.manifestUrl, 'https://example.test/data/summer-2026/manifests/current.json');
+    assert.deepEqual(requests, [
+        'https://example.test/data/summer-2026/manifest.json',
+        'https://example.test/data/blobs/summary.json',
+    ]);
+});
+
+test('invalid inlined manifest falls back to fetching the current manifest', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const manifest = v3Manifest(summaryArtifact);
+    const requests = [];
+    const fetchImpl = async url => {
+        requests.push(String(url));
+        if (String(url).endsWith('/manifest.json')) {
+            return jsonResponse({
+                ...pointer(),
+                currentManifest: { ...manifest, dataModelVersion: 4 },
+            });
+        }
+        if (String(url).endsWith('/manifests/current.json')) return jsonResponse(manifest);
+        return bytesResponse(summaryArtifact);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, false);
+    assert.equal(requests.length, 3);
+    assert.match(requests[1], /manifests\/current\.json$/);
+});
+
+test('inlined current manifest whose summary fails falls back to previous', async () => {
+    const goodArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/previous-summary.json',
+    );
+    const brokenArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/broken-summary.json',
+    );
+    const fetchImpl = async url => {
+        const value = String(url);
+        if (value.endsWith('/manifest.json')) {
+            return jsonResponse({
+                ...pointer('manifests/current.json', 'manifests/previous.json'),
+                currentManifest: v3Manifest(brokenArtifact),
+            });
+        }
+        if (value.endsWith('/manifests/previous.json')) {
+            return jsonResponse(v3Manifest(goodArtifact));
+        }
+        if (value === goodArtifact.reference.url) return bytesResponse(goodArtifact);
+        return jsonResponse({}, false, 404);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, true);
+    assert.match(loaded.manifestUrl, /previous\.json$/);
+});
+
 test('unsupported pointer versions are rejected before following references', async () => {
     let manifestFetches = 0;
     const fetchImpl = async url => {

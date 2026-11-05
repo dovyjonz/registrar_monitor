@@ -134,6 +134,9 @@ export function validatePointer(pointer) {
     if (value.previous !== null && value.previous !== undefined) {
         requireString(value.previous, 'manifest pointer.previous');
     }
+    if (value.currentManifest !== null && value.currentManifest !== undefined) {
+        requireRecord(value.currentManifest, 'manifest pointer.currentManifest');
+    }
     return value;
 }
 
@@ -509,9 +512,22 @@ export function adaptPreviewCourseState(state) {
     return payload.courses[course.code];
 }
 
-async function loadManifestVersion(reference, pointerUrl, options) {
+/**
+ * The pointer inlines the current manifest to save a round trip. An inlined
+ * manifest that fails validation is ignored so the fetched file decides.
+ */
+function inlineCurrentManifest(pointer) {
+    if (!pointer.currentManifest) return null;
+    try {
+        return validateManifest(pointer.currentManifest);
+    } catch {
+        return null;
+    }
+}
+
+async function loadManifestVersion(reference, pointerUrl, options, inlined = null) {
     const manifestUrl = new URL(reference, pointerUrl).href;
-    const manifest = validateManifest(await fetchJson(manifestUrl, options));
+    const manifest = inlined ?? validateManifest(await fetchJson(manifestUrl, options));
     const summaryUrl = new URL(manifest.summary.url, manifestUrl).href;
     const rawPayload = await fetchVerifiedJson(
         summaryUrl,
@@ -540,7 +556,12 @@ export async function loadSemesterManifest(
 
     try {
         return {
-            ...(await loadManifestVersion(pointer.current, absolutePointerUrl, options)),
+            ...(await loadManifestVersion(
+                pointer.current,
+                absolutePointerUrl,
+                options,
+                inlineCurrentManifest(pointer),
+            )),
             stale: false,
         };
     } catch (currentError) {

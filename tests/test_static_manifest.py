@@ -369,3 +369,34 @@ def test_publication_is_content_addressed_pointer_last_and_unchanged_is_noop(
     )
     assert events.index(("blobs", "after")) < events.index(("manifest", "after"))
     assert events.index(("manifest", "after")) < events.index(("pointer", "before"))
+
+
+def test_pointer_inlines_current_manifest_and_keeps_rollback_reference(
+    tmp_path: Path,
+) -> None:
+    first = _publish(tmp_path, enrollment=10)
+    second = _publish(tmp_path, enrollment=11)
+    pointer = json.loads(second.pointer_path.read_text())
+
+    assert pointer["current"] == f"manifests/{second.build_id}.json"
+    assert pointer["previous"] == f"manifests/{first.build_id}.json"
+    assert pointer["currentManifest"] == json.loads(second.manifest_path.read_text())
+    assert len(second.pointer_path.read_bytes()) < 10_000
+
+
+def test_legacy_pointer_without_inline_manifest_is_upgraded_in_place(
+    tmp_path: Path,
+) -> None:
+    first = _publish(tmp_path, enrollment=10)
+    second = _publish(tmp_path, enrollment=11)
+    legacy = json.loads(second.pointer_path.read_text())
+    del legacy["currentManifest"]
+    second.pointer_path.write_text(json.dumps(legacy))
+
+    upgraded = _publish(tmp_path, enrollment=11)
+    pointer = json.loads(upgraded.pointer_path.read_text())
+
+    assert upgraded.status == "published"
+    assert upgraded.blobs_written == 0
+    assert pointer["previous"] == f"manifests/{first.build_id}.json"
+    assert pointer["currentManifest"] == json.loads(upgraded.manifest_path.read_text())

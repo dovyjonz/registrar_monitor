@@ -173,7 +173,10 @@ DuckDB read-only and exposes cross-semester views; saved queries live in `analys
 
 The dashboard has no backend. Each semester has a stable pointer
 `data/<semester>/manifest.json` (`Cache-Control: no-cache`) naming the current and
-previous immutable manifests `data/<semester>/manifests/<build-id>.json`. Manifests
+previous immutable manifests `data/<semester>/manifests/<build-id>.json` and inlining
+the current one as `currentManifest`, so first render skips a round trip; blob URLs
+still resolve against the `current` file, and a missing or invalid inline copy falls
+back to fetching it. Manifests
 reference canonical JSON blobs addressed by SHA-256, `data/blobs/<sha256>.json`;
 manifests and blobs are cached for a year as `immutable`.
 
@@ -194,8 +197,8 @@ by the next one.
 
 Publication order is blobs, then the versioned manifest, then the pointer. An
 unchanged build writes no blobs and leaves the pointer byte-identical. Cloudflare
-versions each deploy atomically, so rollback is `wrangler rollback`. Size targets: manifest and
-pointer under 10 KB, summary under 100 KB, each department blob under 150 KB.
+versions each deploy atomically, so rollback is `wrangler rollback`. Size targets: manifest under
+10 KB, pointer under 11 KB (the manifest plus its references), summary under 100 KB, each department blob under 150 KB.
 
 ## Decisions worth remembering
 
