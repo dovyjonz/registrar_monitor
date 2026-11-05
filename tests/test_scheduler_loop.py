@@ -58,8 +58,11 @@ class TestTwoPhaseSchedulerLoop:
         generate, deploy = run.call_args_list
         assert generate.args[0][-2:] == ["registrarmonitor.main", "deploy"]
         assert generate.kwargs["timeout"] == 7200
-        assert deploy.args[0][-2] == "-c"
-        assert "WebsiteService().deploy()" in deploy.args[0][-1]
+        assert deploy.args[0][-3:] == [
+            "registrarmonitor.main",
+            "deploy",
+            "--upload-only",
+        ]
         for call in (generate, deploy):
             assert call.kwargs["preexec_fn"] is not None
 

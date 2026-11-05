@@ -100,6 +100,22 @@ sync and verify first (`monitor doctor`), then start the scheduler. The check
 resumes by itself on the first successful poll's ping; there is no separate resume
 step. Create the read-write API key in the Healthchecks.io project settings.
 
+After a long stop, before the first start:
+
+1. `monitor rehearse [--semester S]` copies the semester database to a scratch
+   directory (all `DIRECTORIES__*` paths redirected), clears the Telegram, Cloudflare,
+   heartbeat, and Sentry credentials, runs one download, store, and report cycle on the
+   copy, and checks that the live database files are unchanged. It prints whether the
+   download and parse worked, the parsed size, whether a snapshot was stored, and the
+   catch-up report size. `--keep` leaves the scratch directory for inspection. It
+   sends, queues, and deploys nothing.
+2. `monitor poll` stores the current state, then `monitor baseline [--semester S]`
+   records the latest snapshot as reported (it prints the old and new snapshot ids).
+   Otherwise the first start would post everything that changed since the last
+   report to the channel and queue subscriber digests for it. Baseline sends nothing
+   and is safe to repeat. Both change the live database, so they need explicit
+   authorization like any other production write.
+
 ### Registrar TLS
 
 Downloads always verify the registrar's certificate. `data_source.ca_bundle` in
@@ -172,7 +188,8 @@ polling.
 ## Website publication
 
 The dashboard is a static site generated from matching, non-empty SQLite snapshots
-(`monitor deploy`; `--deploy` runs `wrangler deploy`) and served as the Static Assets
+(`monitor deploy`; `--deploy` runs `wrangler deploy`, `--dry-run` runs it with
+`--dry-run` after generating, `--upload-only` deploys the existing output) and served as the Static Assets
 of the `registrar-monitor` Worker (`workers/site`). `settings.toml` defines
 registrar sources, milestones, and publication settings; configured terms without
 valid stored courses are not published. Terms order Fall, Spring, Summer within
@@ -240,7 +257,8 @@ Invalid state is a non-cacheable 404; read or render failure is a non-cacheable 
 and never blocks publication or substitutes stale content. The Telegram Mini App API is
 not on this Worker; the bot serves it (see Telegram).
 
-`monitor deploy --deploy` (and the scheduler) runs `wrangler deploy` for the Worker
+`monitor deploy --deploy` (and the scheduler, as `monitor deploy --upload-only` in a
+capped child process) runs `wrangler deploy` for the Worker
 and the site together; it needs `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` in `.env`. The token needs Account > Workers Scripts > Edit,
 Zone > Workers Routes > Edit on `seatwatch.fyi`, and Zone > Zone > Read. The
@@ -388,14 +406,12 @@ verify, then restart. Bot recovery can replay deliveries or lose watches created
 after the last replicated write; reconcile before resuming. Site Worker deployment
 stays separately authorized.
 
-## Analysis and open data
+## Analysis
 
 `monitor analyze` lists the saved DuckDB queries in `analysis/*.sql`;
 `monitor analyze <name> [--csv FILE]` runs one across every configured semester
 database, attached read-only through DuckDB's `sqlite` extension (downloaded on first
-use). `monitor export-parquet "<semester>" [--out DIR]` writes one row per section
-per snapshot to `<DIR>/<semester>.parquet` (default `data/open-data/`, untracked).
-Neither command writes to SQLite.
+use). It never writes to SQLite.
 
 ## Free tiers
 

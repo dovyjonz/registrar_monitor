@@ -17,7 +17,7 @@ Read `docs/architecture.md` before editing.
 - Litestream continuously replicates every enrollment database and
   `telegram_bot.db` to R2 and replaces manual backups. Restore with
   `scripts/restore_litestream.sh` into a new file; never overwrite a live database.
-- Cross-semester analysis (`monitor analyze`, `monitor export-parquet`) reads the
+- Cross-semester analysis (`monitor analyze`) reads the
   databases read-only through DuckDB; never write to SQLite from it.
 - v2 is the only schema; schema changes are forward-only migrations in code. Do not
   add compatibility layers, JSON snapshots, or silent schema upgrades.

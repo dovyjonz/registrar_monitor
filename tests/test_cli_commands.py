@@ -1,5 +1,6 @@
 """Tests for CLI command implementations."""
 
+import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -320,7 +321,7 @@ class TestDeployCommand:
             result = cmd.run(deploy=True)
 
         assert result is True
-        ws_cls.return_value.deploy.assert_called_once_with()
+        ws_cls.return_value.deploy.assert_called_once_with(dry_run=False)
 
     def test_refuses_deploy_when_generation_skipped(self):
         from registrarmonitor.cli.commands import DeployCommand
@@ -333,3 +334,125 @@ class TestDeployCommand:
             result = cmd.run(deploy=True)
 
         assert result is False
+
+    def test_dry_run_generates_then_validates_without_upload(self):
+        from registrarmonitor.cli.commands import DeployCommand
+
+        with patch("registrarmonitor.cli.commands.WebsiteService") as ws_cls:
+            ws_cls.return_value.generate.return_value = True
+            ws_cls.return_value.deploy.return_value = True
+            ws_cls.return_value.last_generation_skipped = True
+
+            result = DeployCommand().run(dry_run=True)
+
+        assert result is True
+        ws_cls.return_value.generate.assert_called_once()
+        ws_cls.return_value.deploy.assert_called_once_with(dry_run=True)
+
+    @pytest.mark.parametrize("deployed", [True, False])
+    def test_upload_only_skips_generation_and_returns_deploy_result(self, deployed):
+        from registrarmonitor.cli.commands import DeployCommand
+
+        with patch("registrarmonitor.cli.commands.WebsiteService") as ws_cls:
+            ws_cls.return_value.deploy.return_value = deployed
+
+            result = DeployCommand().run(upload_only=True)
+
+        assert result is deployed
+        ws_cls.return_value.generate.assert_not_called()
+        ws_cls.return_value.deploy.assert_called_once_with(dry_run=False)
+
+    @pytest.mark.parametrize(
+        "options",
+        [{"semester": "Fall 2026"}, {"force": True}, {"output_dir": Path("out")}],
+    )
+    def test_upload_only_rejects_generation_options(self, options):
+        from registrarmonitor.cli.commands import DeployCommand
+
+        with patch("registrarmonitor.cli.commands.WebsiteService") as ws_cls:
+            result = DeployCommand().run(upload_only=True, **options)
+
+        assert result is False
+        ws_cls.return_value.deploy.assert_not_called()
+
+
+# ── BaselineCommand tests ─────────────────────────────────────────
+
+
+class TestBaselineCommand:
+    @pytest.fixture
+    def live(self, tmp_path, monkeypatch):
+        from registrarmonitor.config import get_settings
+        from registrarmonitor.data.checkpointed_state import CheckpointedStateStore
+
+        data = tmp_path / "data"
+        data.mkdir()
+        monkeypatch.setenv("DIRECTORIES__DATA_STORAGE", str(data))
+        get_settings.cache_clear()
+        store = CheckpointedStateStore(data / "enrollment_fall_2026.db")
+        for stamp, enrolled in (
+            ("2026-08-01 08:00:00", 1),
+            ("2026-08-02 08:00:00", 2),
+            ("2026-08-03 08:00:00", 3),
+        ):
+            store.write_snapshot(
+                EnrollmentSnapshot(
+                    timestamp=stamp,
+                    semester="Fall 2026",
+                    overall_fill=enrolled / 10,
+                    courses={
+                        "CS 101": Course(
+                            "CS 101",
+                            "CS",
+                            {"1L": Section("1L", "L", enrolled, 10, enrolled / 10)},
+                            enrolled / 10,
+                        )
+                    },
+                )
+            )
+        return data / "enrollment_fall_2026.db"
+
+    @pytest.mark.asyncio
+    async def test_marks_latest_snapshot_reported_once(self, live, capsys):
+        from registrarmonitor.cli.commands import BaselineCommand
+        from registrarmonitor.data.database_manager import DatabaseManager
+
+        db = DatabaseManager(semester="Fall 2026")
+        latest = db.get_latest_snapshot_id()
+        db.add_reporting_log(
+            snapshot_id=db.get_first_snapshot_id() or 0, changes_were_found=True
+        )
+
+        assert await BaselineCommand().run(semester="Fall 2026") is True
+        assert f"-> {latest}" in capsys.readouterr().out
+        assert db.get_last_reported_snapshot_id() == latest
+
+        with sqlite3.connect(live) as connection:
+            rows_before = connection.execute(
+                "SELECT count(*) FROM reporting_log_v2"
+            ).fetchone()
+        assert await BaselineCommand().run(semester="Fall 2026") is True
+        assert "already the baseline" in capsys.readouterr().out
+        with sqlite3.connect(live) as connection:
+            assert (
+                connection.execute("SELECT count(*) FROM reporting_log_v2").fetchone()
+                == rows_before
+            )
+
+    @pytest.mark.asyncio
+    async def test_baselined_snapshot_produces_no_report(self, live):
+        from registrarmonitor.cli.commands import BaselineCommand
+        from registrarmonitor.services import ReportingService
+
+        assert await BaselineCommand().run(semester="Fall 2026") is True
+
+        service = ReportingService(semester="Fall 2026")
+        assert await service.run_stateful_report_cycle(send_telegram=False) is False
+
+    @pytest.mark.asyncio
+    async def test_unknown_semester_creates_nothing(self, live, capsys):
+        from registrarmonitor.cli.commands import BaselineCommand
+
+        assert await BaselineCommand().run(semester="Spring 2027") is False
+        assert "no database" in capsys.readouterr().out
+        assert not (live.parent / "enrollment_spring_2027.db").exists()

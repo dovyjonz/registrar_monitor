@@ -623,6 +623,42 @@ class DatabaseCommands:
             return False
 
 
+class BaselineCommand:
+    """Mark the latest stored snapshot as reported without sending anything."""
+
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+        self.logger = get_logger(__name__)
+
+    async def run(self, semester: str | None = None) -> bool:
+        try:
+            semester = semester or await detect_active_semester(self.debug)
+            if not semester:
+                raise ValueError("no semester database found; pass --semester")
+            slug = DatabaseManager._sanitize_semester_name_static(semester)
+            data_dir = Path(get_settings().directories.data_storage)
+            if not (data_dir / f"enrollment_{slug}.db").is_file():
+                raise ValueError(f"no database for {semester!r}")
+            db_manager = DatabaseManager(semester=semester)
+            latest = db_manager.get_latest_snapshot_id()
+            if latest is None:
+                raise ValueError(f"{semester} has no stored snapshots")
+            previous = db_manager.get_last_reported_snapshot_id()
+            if previous == latest:
+                print(f"ℹ️  {semester}: snapshot {latest} is already the baseline")
+                return True
+            db_manager.add_reporting_log(snapshot_id=latest, changes_were_found=False)
+            print(
+                f"✅ {semester}: last reported snapshot {previous} -> {latest}. "
+                "Nothing was sent."
+            )
+            return True
+        except Exception as error:
+            print(f"❌ Baseline failed: {error}")
+            self.logger.error(f"Baseline error: {error}")
+            return False
+
+
 class StatusCommand:
     """Command for checking status of specific courses."""
 
@@ -707,13 +743,22 @@ class DeployCommand:
         force: bool = False,
         minify: bool = True,
         output_dir: Path | None = None,
+        dry_run: bool = False,
+        upload_only: bool = False,
     ) -> bool:
-        """Run the deploy command."""
+        """Run the deploy command.
+
+        ``dry_run`` still generates, then runs ``wrangler deploy --dry-run``.
+        ``upload_only`` skips generation and deploys the existing output.
+        """
         if self.debug:
             print("🔍 DEBUG MODE: Website generation/deployment")
 
-        if deploy and output_dir is not None:
+        if (deploy or dry_run or upload_only) and output_dir is not None:
             print("❌ Isolated website output is generation-only; refusing deploy.")
+            return False
+        if upload_only and (semester or force):
+            print("❌ --upload-only skips generation; drop --semester and --force.")
             return False
 
         service = (
@@ -722,16 +767,20 @@ class DeployCommand:
             else WebsiteService()
         )
 
+        if upload_only:
+            return service.deploy(dry_run=dry_run)
+
         # Step 1: Generate
         success = service.generate(semester_key=semester, force=force, minify=minify)
         if not success:
             return False
 
-        # Step 2: Deploy if requested
-        if deploy:
-            if getattr(service, "last_generation_skipped", False):
+        # Step 2: Deploy if requested. A dry run uploads nothing, so a skipped
+        # generation does not make it stale.
+        if deploy or dry_run:
+            if not dry_run and getattr(service, "last_generation_skipped", False):
                 print("❌ Website generation was skipped; refusing stale deploy.")
                 return False
-            return service.deploy()
+            return service.deploy(dry_run=dry_run)
 
         return True

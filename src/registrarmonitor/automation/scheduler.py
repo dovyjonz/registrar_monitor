@@ -96,10 +96,13 @@ def _prefer_oom_kill() -> None:
 
 
 # Deploy runs in the same kind of scope as generation: wrangler is a Node process.
-DEPLOY_CODE = (
-    "import sys; from registrarmonitor.services.website_service import "
-    "WebsiteService; sys.exit(0 if WebsiteService().deploy() else 1)"
-)
+DEPLOY_COMMAND = [
+    sys.executable,
+    "-m",
+    "registrarmonitor.main",
+    "deploy",
+    "--upload-only",
+]
 
 
 def _tier(table: tuple[tuple[int, int], ...], score: float) -> int:
@@ -422,7 +425,7 @@ class TwoPhaseScheduler:
                 return
 
             deployment = subprocess.run(
-                isolated_command([sys.executable, "-c", DEPLOY_CODE], memory_max),
+                isolated_command(DEPLOY_COMMAND, memory_max),
                 cwd=root,
                 check=False,
                 timeout=DEPLOY_TIMEOUT_SECONDS + 60,
