@@ -364,6 +364,13 @@ def test_generate_headers_contains_security_headers(tmp_path, monkeypatch):
     )
 
 
+def test_headers_root_block_has_no_cache_control():
+    content = WebsiteService()._build_headers_content()
+    root_block = content.split("\n/assets/*", 1)[0]
+    assert root_block.startswith("/*\n")
+    assert "Cache-Control" not in root_block
+
+
 def test_generate_always_excludes_pages_from_search_results():
     service = WebsiteService()
     assert "X-Robots-Tag: noindex, nofollow" in service._build_headers_content()

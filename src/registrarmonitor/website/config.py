@@ -29,17 +29,6 @@ def course_to_slug(course_code: str) -> str:
     return slug
 
 
-def slug_to_course_code(slug: str) -> str:
-    """Convert URL slug back to course code.
-
-    "csci-101" -> "CSCI 101"
-    """
-    parts = slug.split("-", 1)
-    if len(parts) == 2:
-        return f"{parts[0].upper()} {parts[1]}"
-    return slug.upper()
-
-
 _SEMESTER_PATTERN = re.compile(r"^(Fall|Spring|Summer) (\d{4})$")
 
 
@@ -82,14 +71,6 @@ def get_registrar_url(semester: str) -> str:
     if not url or not url.strip():
         raise ValueError(f"no registrar source configured for {semester!r}")
     return url.strip()
-
-
-def latest_configured_semester() -> str:
-    """Return the newest canonical semester that has a registrar source."""
-    semesters = get_configured_semesters()
-    if not semesters:
-        raise ValueError("no semesters with registrar sources are configured")
-    return semesters[0]
 
 
 # Default output directory

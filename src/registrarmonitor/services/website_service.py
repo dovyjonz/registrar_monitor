@@ -635,8 +635,10 @@ class WebsiteService:
             if get_settings().website.miniapp_api_url
             else "  X-Frame-Options: DENY\n"
         )
+        # No Cache-Control on /*: Cloudflare joins same-named headers from every
+        # matching rule, and Static Assets already default to
+        # "public, max-age=0, must-revalidate".
         return f"""/*
-  Cache-Control: public, max-age=0, must-revalidate
   X-Content-Type-Options: nosniff
 {frame_options}  Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()

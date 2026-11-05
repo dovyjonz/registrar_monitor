@@ -167,7 +167,6 @@ def build_semester_page(
             f"{course_state['hash']}.png"
         )
         image_alt = f"{course_state['code']} enrollment preview for {semester}"
-        state = course_state
     else:
         state = preview_state or {}
         title = f"{semester}: Enrollment Monitor"
