@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import os
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,13 @@ from ..availability import calculate_availability
 from .config import course_to_slug, semester_to_slug
 
 PREVIEW_SCHEMA_VERSION = 1
+
+# The site Worker refuses to read a preview state above MAX_STATE_BYTES (512_000)
+# in workers/site/src/handler.ts, which turns the og:image into a 502. Keep this
+# below that cap with headroom; tests/test_website_preview.py asserts the pair.
+PREVIEW_STATE_BUDGET_BYTES = 480_000
+_STRUCTURAL_EVENTS = frozenset({"section_added", "section_removed"})
+_HASH_PLACEHOLDER = "x" * 8
 
 
 def _registrar_timestamp(value: str | None) -> str | None:
@@ -109,26 +117,129 @@ def _compact_course_timestamps(
     return compact_course, [timestamps[index] for index in referenced]
 
 
-def build_course_preview_state(
-    *,
-    semester: str,
+def _history_key(point: dict[str, Any]) -> tuple[Any, ...]:
+    return (point.get("fill"), point.get("enrollment"), point.get("capacity"))
+
+
+def _dedupe_history(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop points repeating the previous value; charts step between changes."""
+    kept: list[dict[str, Any]] = []
+    for index, point in enumerate(points):
+        if 0 < index < len(points) - 1 and _history_key(point) == _history_key(
+            points[index - 1]
+        ):
+            continue
+        kept.append(point)
+    return kept
+
+
+def _thin_history(
+    points: list[dict[str, Any]], stride: int | None
+) -> list[dict[str, Any]]:
+    """Keep the ends and capacity-change edges, plus every ``stride``-th point.
+
+    ``stride=None`` keeps only the protected points. Capacity-change markers in
+    the chart compare consecutive points, so both edges of a change survive.
+    """
+    last = len(points) - 1
+    kept: list[dict[str, Any]] = []
+    for index, point in enumerate(points):
+        previous = points[index - 1] if index > 0 else None
+        following = points[index + 1] if index < last else None
+        protected = (
+            index in (0, last)
+            or (
+                previous is not None
+                and previous.get("capacity") != point.get("capacity")
+            )
+            or (
+                following is not None
+                and following.get("capacity") != point.get("capacity")
+            )
+        )
+        if protected or (stride is not None and index % stride == 0):
+            kept.append(point)
+    return kept
+
+
+def _reduced_courses(course: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Yield progressively smaller courses; each stays valid for both consumers.
+
+    Both the Worker card and the dashboard's modal fallback (which validates the
+    course like a department payload) need every section, the history arrays and
+    the events array present, so reductions only shorten lists. Section add or
+    remove events are kept as long as possible because they drive the section
+    activity timeline.
+    """
+
+    def variant(
+        *,
+        thin: Any = None,
+        events: bool | None = None,
+        history: bool = True,
+    ) -> dict[str, Any]:
+        reduced = dict(course)
+        if "averageHistory" in course:
+            reduced["averageHistory"] = (
+                thin(course["averageHistory"]) if history and thin else []
+            )
+        if "sectionHistory" in course:
+            reduced["sectionHistory"] = {
+                key: thin(points) if history and thin else []
+                for key, points in course["sectionHistory"].items()
+            }
+        if "events" in course and events is not None:
+            reduced["events"] = [
+                event
+                for event in course["events"]
+                if events and event.get("eventType") in _STRUCTURAL_EVENTS
+            ]
+        return reduced
+
+    yield variant(thin=_dedupe_history)
+    yield variant(thin=_dedupe_history, events=True)
+    longest = max(
+        (len(points) for points in course.get("sectionHistory", {}).values()),
+        default=0,
+    )
+    longest = max(longest, len(course.get("averageHistory", [])))
+    stride = 2
+    while stride < longest:
+        yield variant(
+            thin=lambda points, stride=stride: _thin_history(
+                _dedupe_history(points), stride
+            ),
+            events=True,
+        )
+        stride *= 2
+    yield variant(thin=lambda points: _thin_history(points, None), events=True)
+    yield variant(history=False, events=False)
+
+
+def _state_size(state: dict[str, Any]) -> int:
+    """Published byte size, counting the eight-character hash field."""
+    return len(canonical_bytes({"hash": _HASH_PLACEHOLDER, **state}))
+
+
+def _assemble_course_state(
     course: dict[str, Any],
     timestamps: list[str],
+    *,
+    last_changed: str | None,
+    semester: str,
     milestones: list[dict[str, str]],
-    published_at: str | None = None,
-    archived: bool = False,
-    removed: bool = False,
+    published_at: str | None,
+    archived: bool,
+    removed: bool,
 ) -> dict[str, Any]:
-    """Build a content-addressed state for metadata, modal fallback, and image."""
     code = course["code"]
-    last_changed = _registrar_timestamp(_course_last_changed(course, timestamps))
     compact_course, compact_timestamps = _compact_course_timestamps(course, timestamps)
     compact_timestamps = [
         normalized
         for value in compact_timestamps
         if (normalized := _registrar_timestamp(value)) is not None
     ]
-    state = {
+    return {
         "schemaVersion": PREVIEW_SCHEMA_VERSION,
         "kind": "course",
         "semester": semester,
@@ -155,6 +266,49 @@ def build_course_preview_state(
         "timestamps": compact_timestamps,
         "course": compact_course,
     }
+
+
+def build_course_preview_state(
+    *,
+    semester: str,
+    course: dict[str, Any],
+    timestamps: list[str],
+    milestones: list[dict[str, str]],
+    published_at: str | None = None,
+    archived: bool = False,
+    removed: bool = False,
+) -> dict[str, Any]:
+    """Build a content-addressed state for metadata, modal fallback, and image.
+
+    The state must stay below ``PREVIEW_STATE_BUDGET_BYTES`` so the Worker can
+    render the og:image; an oversized course is reduced deterministically.
+    """
+    code = course["code"]
+    last_changed = _registrar_timestamp(_course_last_changed(course, timestamps))
+
+    def assemble(candidate: dict[str, Any]) -> dict[str, Any]:
+        return _assemble_course_state(
+            candidate,
+            timestamps,
+            last_changed=last_changed,
+            semester=semester,
+            milestones=milestones,
+            published_at=published_at,
+            archived=archived,
+            removed=removed,
+        )
+
+    state = assemble(course)
+    for reduced in _reduced_courses(course):
+        if _state_size(state) <= PREVIEW_STATE_BUDGET_BYTES:
+            break
+        state = assemble(reduced)
+    size = _state_size(state)
+    if size > PREVIEW_STATE_BUDGET_BYTES:
+        raise ValueError(
+            f"preview state for {code} is {size} bytes after reduction; "
+            f"budget is {PREVIEW_STATE_BUDGET_BYTES}"
+        )
     digest = _short_hash(state)
     return {"hash": digest, **state}
 
