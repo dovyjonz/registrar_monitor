@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -18,6 +19,10 @@ from typing import Any
 from .data.checkpointed_state import CHECKPOINTED_SCHEMA_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
+CA_EXPIRY_WARNING_DAYS = 30
+_PEM_BLOCK = re.compile(
+    r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.DOTALL
+)
 
 
 def _check(name: str, status: str, message: str, **details: object) -> dict[str, Any]:
@@ -179,6 +184,64 @@ def _database_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any
     return checks
 
 
+def _ca_bundle_checks(root: Path, settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """Warn when a certificate in the pinned ``ca_bundle`` expires soon."""
+    configured = settings.get("data_source", {}).get("ca_bundle")
+    if not configured:
+        return []
+    bundle = root / configured
+    name = "tls:ca_bundle"
+    if not bundle.is_file():
+        return [_check(name, "warn", "configured ca_bundle file is missing")]
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        return [_check(name, "warn", "openssl not found; expiry not checked")]
+    blocks = _PEM_BLOCK.findall(bundle.read_text(encoding="utf-8", errors="replace"))
+    if not blocks:
+        return [_check(name, "fail", "ca_bundle contains no certificates")]
+
+    window = CA_EXPIRY_WARNING_DAYS * 86400
+    expiring: list[str] = []
+    for index, block in enumerate(blocks, start=1):
+        result = subprocess.run(
+            [openssl, "x509", "-noout", "-enddate", "-checkend", str(window)],
+            input=block,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode not in (0, 1):
+            return [_check(name, "fail", f"certificate {index} is not valid PEM")]
+        if result.returncode == 1:
+            enddate = next(
+                (
+                    line.removeprefix("notAfter=")
+                    for line in result.stdout.splitlines()
+                    if line.startswith("notAfter=")
+                ),
+                "unknown",
+            )
+            expiring.append(f"#{index} (notAfter {enddate})")
+    if expiring:
+        return [
+            _check(
+                name,
+                "warn",
+                f"expires within {CA_EXPIRY_WARNING_DAYS} days: {', '.join(expiring)}; "
+                "re-run scripts/fetch_registrar_ca.sh",
+            )
+        ]
+    return [
+        _check(
+            name,
+            "pass",
+            f"{len(blocks)} certificate(s); none expire within "
+            f"{CA_EXPIRY_WARNING_DAYS} days",
+        )
+    ]
+
+
 def build_doctor_report(root: Path = ROOT) -> dict[str, Any]:
     """Collect bounded diagnostics without printing secrets or mutating databases."""
     checks = _tool_checks(root)
@@ -203,6 +266,7 @@ def build_doctor_report(root: Path = ROOT) -> dict[str, Any]:
             )
         )
 
+    checks.extend(_ca_bundle_checks(root, settings))
     checks.extend(_database_checks(root, settings))
     counts = {
         status: sum(check["status"] == status for check in checks)

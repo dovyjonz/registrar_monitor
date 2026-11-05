@@ -37,17 +37,68 @@ user and not as the operator:
 RUNTIME_USER=dmitry_s_ivanenko scripts/setup_vps.sh
 ```
 
-The units use `uv run --locked --no-sync`: the operator owns `.venv` and syncs it,
-and the runtime user cannot write to it, so a plain `uv run` would fail trying to
-sync. This matches `scripts/runtime_doctor.sh`.
+The scheduler and bot units run `.venv/bin/monitor` directly (no `uv run`, so no
+start-up cost and no chance of a sync). The operator owns `.venv` and syncs it; the
+runtime user cannot write to it.
+
+Resource limits (override via `SCHEDULER_MEMORY_*` / `BOT_MEMORY_*` when running the
+script): the scheduler gets `MemoryHigh=300M`, `MemoryMax=400M`, and
+`OOMScoreAdjust=-500` so it is the last process the kernel kills; the bot gets
+`MemoryHigh=200M`, `MemoryMax=300M`, and `OOMScoreAdjust=-200`. The scheduler unit
+also sets `XDG_RUNTIME_DIR=/run/user/<runtime uid>`, because the poller runs the
+website build in its own `systemd-run --user --scope` with a separate memory cap and
+low CPU and I/O priority. That needs the runtime user's systemd manager running with
+no login session, so setup runs `sudo loginctl enable-linger <runtime user>` (it warns
+with the command if sudo is not available).
+
+After re-running setup and installing the units, verify on the VM:
+
+```bash
+loginctl show-user <runtime user> --property=Linger          # Linger=yes
+cat /sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service/cgroup.controllers
+                                                             # must list "memory"
+sudo -u <runtime user> XDG_RUNTIME_DIR=/run/user/<uid> \
+  systemd-run --user --scope -p MemoryMax=64M true           # exits 0
+systemctl show registrarmonitor.service -p MemoryMax -p OOMScoreAdjust
+```
+
+Memory controller delegation to `user@.service` is the default on modern systemd; if
+`memory` is missing, add `Delegate=memory pids` through a drop-in for
+`user@.service`, otherwise `MemoryMax` on the build scope is silently not enforced.
 
 ### Deploy
 
-`make deploy-vm REV=<revision> UNIT=<unit>.service` runs `scripts/deploy_vm.sh`: it
-fetches the named revision on the VM (`VM_HOST`, `VM_PATH`, optional `VM_USER` and
-`VM_REMOTE` in `.env`), runs `uv sync --locked`, restarts only that unit, and prints
-the deployed revision. Push the revision first. It runs only when explicitly
-authorized.
+Sync and restart are separate steps. `make deploy-vm REV=<revision>` runs
+`scripts/deploy_vm.sh sync`: fetch and check out the revision on the VM, `uv sync
+--locked`, and `npm ci --prefix frontend` only when the frontend lockfile changed. It
+restarts nothing, so running processes keep the old code. Add `UNIT=<unit>.service`
+to also run `scripts/deploy_vm.sh restart`, which restarts that one unit only if it
+is currently active, then waits `HEALTH_WAIT` seconds (default 30) and fails if the
+unit leaves `active` or restarts on its own. A stopped unit is never started; in
+particular the scheduler stays stopped between registration periods. The bot has no
+health endpoint, so its check is the stable `active` state. Deploy well outside a
+milestone window and only when explicitly authorized.
+
+Configuration comes from the environment: `VM_HOST`, `VM_PATH`, optional `VM_USER`
+and `VM_REMOTE`. Plain `ssh` is the default. `gcloud compute ssh` uses its own key
+and known-hosts, so with it set `VM_SSH=gcloud`, `VM_HOST=<instance name>`, and
+`GCLOUD_SSH_ARGS="--project registrarmonitor --zone us-east1-c"`. Pushing the
+revision first is required.
+
+Installs always run here as the SSH operator, which owns `frontend/node_modules`
+(group-readable for the runtime user). Do not run `npm install` or `npm ci` as the
+runtime user.
+
+### Period start and stop
+
+End of a period: stop `registrarmonitor.service` (authorized), then run
+`scripts/healthcheck_pause.sh` on the VM so the Healthchecks.io check does not alert
+while polling is deliberately off. It calls the management API
+(`POST /api/v3/checks/<uuid>/pause`) with `HEALTHCHECKS_API_KEY` and
+`HEALTHCHECKS_CHECK_UUID` from `.env` and prints no secrets. Start of a period:
+sync and verify first (`monitor doctor`), then start the scheduler. The check
+resumes by itself on the first successful poll's ping; there is no separate resume
+step. Create the read-write API key in the Healthchecks.io project settings.
 
 ### Registrar TLS
 
@@ -55,7 +106,10 @@ Downloads always verify the registrar's certificate. `data_source.ca_bundle` in
 `settings.toml` names a PEM file with the intermediate and root certificates; create
 it on the polling host with `scripts/fetch_registrar_ca.sh` (defaults to
 `data/registrar-chain.pem`) and re-run it if the registrar changes its chain.
-Without a bundle, system verification applies. Scheduler polls send the stored
+`scripts/fetch_registrar_ca.sh` exits non-zero if the connection fails, no
+certificate is sent, or the written chain does not verify. `monitor doctor` warns when
+any certificate in the bundle expires within 30 days; refresh it then. Without a
+bundle, system verification applies. Scheduler polls send the stored
 `ETag`/`Last-Modified` (`data/download_state.json`) and compare a SHA-256 of the
 body, so an unchanged file skips parse, compare, and publish.
 
@@ -90,7 +144,7 @@ gcloud compute ssh instance-20260501-152532 --project registrarmonitor \
 ## Doctor and logs
 
 `monitor doctor` (`--json`, `--output`) checks toolchains and lockfiles, required
-paths with temporary write probes, frontend executables, and SQLite integrity,
+paths with temporary write probes, frontend executables, the `ca_bundle` expiry, and SQLite integrity,
 foreign keys, and schema version. Missing optional state is a warning; integrity
 failures and missing required tools are errors. On the VM, run
 `scripts/runtime_doctor.sh` as the application user (locked dependencies, no sync).
@@ -368,7 +422,7 @@ Neither command writes to SQLite.
   `output/playwright/`.
 - `make worker-check`: site Worker tests, types, and `wrangler deploy --dry-run`.
 - `make site-generate`: builds the dashboard and generates the production site.
-- `make deploy-vm`: authorized VM deploy of one revision and unit (see Deploy).
+- `make deploy-vm`: authorized VM sync of one revision, optionally restarting one active unit (see Deploy).
 
 CI has three jobs: Python 3.13 (Ruff, ty, pytest); Frontend and Worker (lint, unit
 tests, build, Worker checks); and Browser smoke, run only when `frontend/` or

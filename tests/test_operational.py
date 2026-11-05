@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
+import subprocess
 from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +14,7 @@ import pytest
 from registrarmonitor.data.checkpointed_state import CHECKPOINTED_SCHEMA_VERSION
 from registrarmonitor.data.database_manager import DatabaseManager
 from registrarmonitor.operational import (
+    _ca_bundle_checks,
     _database_checks,
     build_doctor_report,
 )
@@ -102,3 +105,37 @@ def test_schema_version_is_stored_in_new_databases(tmp_path: Path):
         version = connection.execute("PRAGMA user_version").fetchone()[0]
 
     assert version == CHECKPOINTED_SCHEMA_VERSION
+
+
+def _make_cert(directory: Path, days: int) -> str:
+    key, cert = directory / "k.pem", directory / "c.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(key), "-out", str(cert), "-subj", "/CN=test-ca",
+            "-days", str(days),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    return cert.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="openssl required")
+def test_ca_bundle_expiry_warning(tmp_path: Path):
+    settings = {"data_source": {"ca_bundle": "bundle.pem"}}
+
+    assert _ca_bundle_checks(tmp_path, {}) == []
+
+    (tmp_path / "bundle.pem").write_text(_make_cert(tmp_path, 5), encoding="utf-8")
+    (soon,) = _ca_bundle_checks(tmp_path, settings)
+    assert soon["status"] == "warn"
+    assert "fetch_registrar_ca.sh" in soon["message"]
+
+    (tmp_path / "bundle.pem").write_text(_make_cert(tmp_path, 365), encoding="utf-8")
+    (fine,) = _ca_bundle_checks(tmp_path, settings)
+    assert fine["status"] == "pass"
+
+    (tmp_path / "bundle.pem").write_text("not a cert\n", encoding="utf-8")
+    (bad,) = _ca_bundle_checks(tmp_path, settings)
+    assert bad["status"] == "fail"

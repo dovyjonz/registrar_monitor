@@ -24,7 +24,7 @@ help:
 		'  test-browser    Run Chromium smoke tests against generated output' \
 		'  site-generate   Build the dashboard and generate the site (frontend/public)' \
 		'  worker-check    Run site Worker types, tests, TypeScript, and deploy dry-run' \
-		'  deploy-vm       Deploy REV to the VM and restart UNIT (make deploy-vm REV=main UNIT=<unit>.service)' \
+		'  deploy-vm       Sync REV to the VM; with UNIT, restart it if active (make deploy-vm REV=main UNIT=<unit>.service)' \
 		'  clean           Remove reproducible website output artifacts'
 
 bootstrap:
@@ -58,8 +58,9 @@ worker-check:
 	$(NPM) --prefix workers/site run check
 
 deploy-vm:
-	@test -n "$(REV)" -a -n "$(UNIT)" || { echo "usage: make deploy-vm REV=<revision> UNIT=<unit>.service"; exit 2; }
-	./scripts/deploy_vm.sh "$(REV)" "$(UNIT)"
+	@test -n "$(REV)" || { echo "usage: make deploy-vm REV=<revision> [UNIT=<unit>.service]  (without UNIT: sync only)"; exit 2; }
+	./scripts/deploy_vm.sh sync "$(REV)"
+	@if [ -n "$(UNIT)" ]; then ./scripts/deploy_vm.sh restart "$(UNIT)"; fi
 
 clean:
 	rm -f frontend/public/*.html frontend/public/*.json frontend/public/_headers frontend/public/robots.txt frontend/public/.checksums.json
