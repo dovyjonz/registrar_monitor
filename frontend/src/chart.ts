@@ -1,21 +1,56 @@
-import { OBSERVATION_STEP_MODE, buildAverageChartPoints, buildChartPresentation, buildCourseChartDomain, buildObservedCapacityPoints, buildRegistrationUnavailableIntervals, buildSectionChartPoints, createHistoricalCoordinateMapper, extendSteppedSeriesToDomainEnd, filterMilestonesToObservedRange, findSteppedPointIndexAtX, getChartMapper, getEnrollmentScaleMax, getXScaleBounds, limitPointsAroundMilestones, markObservationEnd } from './chartMapping.mjs';
+import { OBSERVATION_STEP_MODE, buildAverageChartPoints, buildChartPresentation, buildCourseChartDomain, buildObservedCapacityPoints, buildRegistrationUnavailableIntervals, buildSectionChartPoints, createHistoricalCoordinateMapper, extendSteppedSeriesToDomainEnd, filterMilestonesToObservedRange, findSteppedIndex, getChartMapper, getEnrollmentScaleMax, getXScaleBounds, limitPointsAroundMilestones, markObservationEnd } from './chartMapping.mjs';
 import { formatPriorityCompact, formatPriorityFull } from './registrationSemantics.mjs';
 import { appState, getCourseSections, getCourseSnapshots, getHydratedCourse, getMilestones } from './state';
 import { getContrastColor } from './format';
 import { enableHistoricalComparison, initializeHistoricalComparisonControl, mapHistoricalComparisonPoints, resetHistoricalComparisonState, resolveHistoricalAvailability, updateHistoricalLegend } from './comparison';
 import { renderWatchControls } from './miniapp';
 
-async function loadChartJs() {
-    if (appState.chartJsLoaded) return;
-    const [chartModule, chartHelpers, annotationModule, zoomModule] = await Promise.all([
-        import('chart.js/auto'),
+let chartJsLoading: Promise<void> | null = null;
+
+function loadChartJs(): Promise<void> {
+    if (appState.chartJsLoaded) return Promise.resolve();
+    chartJsLoading ??= setupChartJs().catch(error => {
+        chartJsLoading = null;
+        throw error;
+    });
+    return chartJsLoading;
+}
+
+/** Start fetching the Chart.js chunk early; failures surface on first render. */
+export function preloadChartJs() {
+    loadChartJs().catch(() => {});
+}
+
+function sameActiveElements(first, second) {
+    return first.length === second.length && first.every((item, position) => (
+        item.datasetIndex === second[position].datasetIndex
+        && item.index === second[position].index
+    ));
+}
+
+function getSteppedIndexAtX(meta, pixelX, useFinalPosition = false) {
+    return findSteppedIndex(
+        meta.data.length,
+        index => meta.data[index].getProps(['x'], useFinalPosition).x,
+        pixelX,
+    );
+}
+
+async function setupChartJs() {
+    const [
+        { Chart, Interaction, Tooltip },
+        chartHelpers,
+        annotationModule,
+        zoomModule,
+    ] = await Promise.all([
+        import('./chartJsCore'),
         import('chart.js/helpers'),
         import('chartjs-plugin-annotation'),
         import('chartjs-plugin-zoom'),
     ]);
-    appState.Chart = chartModule.default;
-    (chartModule.Tooltip.positioners as any).glide = function(items, eventPosition) {
-        const average = chartModule.Tooltip.positioners.average.call(this, items, eventPosition);
+    appState.Chart = Chart;
+    (Tooltip.positioners as any).glide = function(items, eventPosition) {
+        const average = Tooltip.positioners.average.call(this, items, eventPosition);
         if (average === false) return false;
         return {
             x: Math.min(Math.max(eventPosition.x, this.chart.chartArea.left), this.chart.chartArea.right),
@@ -23,13 +58,10 @@ async function loadChartJs() {
         };
     };
     const getSteppedElementAtX = (meta, pixelX, useFinalPosition = false) => {
-        const xValues = meta.data.map(element => (
-            element.getProps(['x'], useFinalPosition).x
-        ));
-        const index = findSteppedPointIndexAtX(xValues, pixelX);
+        const index = getSteppedIndexAtX(meta, pixelX, useFinalPosition);
         return index === null ? null : { element: meta.data[index], index };
     };
-    (chartModule.Interaction.modes as any).glideStepped = (chartInstance, event, options, useFinalPosition) => {
+    (Interaction.modes as any).glideStepped = (chartInstance, event, options, useFinalPosition) => {
         const position = chartHelpers.getRelativePosition(event, chartInstance);
         return chartInstance.data.datasets.flatMap((_, datasetIndex) => {
             const meta = chartInstance.getDatasetMeta(datasetIndex);
@@ -83,9 +115,14 @@ async function loadChartJs() {
             const { event } = args;
             const nextX = resolveHoverPixel(chartInstance, event, options);
             if (chartInstance.$tooltipPinned && Number.isFinite(chartInstance.$pinnedPixelX)) {
+                const hoverMoved = chartInstance.$hoverPixelX !== chartInstance.$pinnedPixelX;
+                const previousActive = chartInstance.tooltip?.getActiveElements() ?? [];
                 chartInstance.$hoverPixelX = chartInstance.$pinnedPixelX;
                 refreshChartTooltip(chartInstance);
-                args.changed = true;
+                const nextActive = chartInstance.tooltip?.getActiveElements() ?? [];
+                if (hoverMoved || !sameActiveElements(previousActive, nextActive)) {
+                    args.changed = true;
+                }
                 return;
             }
             if (chartInstance.$hoverPixelX !== nextX) {
@@ -135,36 +172,39 @@ async function loadChartJs() {
 
 export const DEADLINE_LABELS = new Set(['Drop', 'WL', 'Close']);
 
-function shouldRenderMilestone(milestone, chartMode, dataTimestamps) {
+function getTimestampBounds(timestamps) {
+    if (timestamps.length === 0) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const timestamp of timestamps) {
+        if (timestamp < min) min = timestamp;
+        if (timestamp > max) max = timestamp;
+    }
+    return { min, max };
+}
+
+function shouldRenderMilestone(milestone, chartMode, dataBounds) {
     if (chartMode !== 'phased' && DEADLINE_LABELS.has(milestone.label)) return false;
     const milestoneTime = new Date(milestone.time).getTime();
     if (!Number.isFinite(milestoneTime)) return false;
-    if (chartMode !== 'phased' && dataTimestamps.length > 0) {
-        const dataMin = Math.min(...dataTimestamps);
-        const dataMax = Math.max(...dataTimestamps);
-        if (milestoneTime < dataMin || milestoneTime > dataMax) return false;
+    if (chartMode !== 'phased' && dataBounds
+        && (milestoneTime < dataBounds.min || milestoneTime > dataBounds.max)) {
+        return false;
     }
     return true;
-}
-
-function getCurrentMilestoneXValues(milestones, chartMode, dataTimestamps, mapTime) {
-    return milestones
-        .filter(milestone => shouldRenderMilestone(milestone, chartMode, dataTimestamps))
-        .map(milestone => mapTime(new Date(milestone.time).getTime()))
-        .filter(Number.isFinite);
 }
 
 function addCurrentMilestoneAnnotations({
     annotations,
     milestones,
     chartMode,
-    dataTimestamps,
+    dataBounds,
     mapTime,
     compactLabels,
 }: any) {
     const renderedPriorities = new Set();
     milestones.forEach((milestone, index) => {
-        if (!shouldRenderMilestone(milestone, chartMode, dataTimestamps)) return;
+        if (!shouldRenderMilestone(milestone, chartMode, dataBounds)) return;
         const xPos = mapTime(new Date(milestone.time).getTime());
         if (!Number.isFinite(xPos)) return;
 
@@ -264,18 +304,15 @@ function buildMilestoneRenderState({
     milestones,
     domainTimestamps,
     mapTime,
-    xValues,
-    fillData,
-    historicalDataPoints,
     compactLabels,
 }) {
-    const currentMilestoneXValues = getCurrentMilestoneXValues(
-        milestones,
-        chartMode,
-        domainTimestamps,
-        mapTime,
-    );
-    const annotationXValues = chartMode === 'phased' ? [...currentMilestoneXValues] : [];
+    const dataBounds = getTimestampBounds(domainTimestamps);
+    const annotationXValues = chartMode === 'phased'
+        ? milestones
+            .filter(milestone => shouldRenderMilestone(milestone, chartMode, dataBounds))
+            .map(milestone => mapTime(new Date(milestone.time).getTime()))
+            .filter(Number.isFinite)
+        : [];
     const annotations = {};
     if (milestones.length > 0
         && (chartMode === 'phased' || domainTimestamps.length > 0)) {
@@ -283,11 +320,8 @@ function buildMilestoneRenderState({
             annotations,
             milestones,
             chartMode,
-            dataTimestamps: domainTimestamps,
+            dataBounds,
             mapTime,
-            xValues,
-            fillData,
-            historicalDataPoints,
             compactLabels,
         });
     }
@@ -356,7 +390,6 @@ function syncChartViewportState(chartInstance, canvas, coarsePointer) {
         ? 'pan'
         : coarsePointer ? 'inspect' : 'hover';
     canvas.parentElement.dataset.gestureMode = canvas.dataset.touchMode;
-    canvas.dataset.viewportMin = String(chartInstance?.scales?.x?.min ?? '');
     if (chartInstance.$tooltipPinned
         && Number.isFinite(chartInstance.$hoverPixelX)
         && typeof chartInstance.$unmapHoverX === 'function') {
@@ -385,8 +418,7 @@ function refreshChartTooltip(chartInstance) {
     const active = chartInstance.data.datasets.flatMap((_, datasetIndex) => {
         const meta = chartInstance.getDatasetMeta(datasetIndex);
         if (!meta.visible) return [];
-        const xValues = meta.data.map(element => element.getProps(['x'], false).x);
-        const index = findSteppedPointIndexAtX(xValues, pixelX);
+        const index = getSteppedIndexAtX(meta, pixelX);
         return index === null ? [] : [{ datasetIndex, index }];
     });
     chartInstance.tooltip.setActiveElements(active, {
@@ -398,21 +430,23 @@ function refreshChartTooltip(chartInstance) {
     }
 }
 
-function getMilestoneReference(timestamp, milestones, compact = false) {
-    if (!Number.isFinite(timestamp)) return '';
+function createMilestoneReference(milestones) {
     const ordered = milestones
-        .map(milestone => ({
-            label: formatMilestoneReference(milestone, compact),
-            time: new Date(milestone.time).getTime(),
-        }))
-        .filter(milestone => Number.isFinite(milestone.time))
+        .map(milestone => ({ milestone, time: new Date(milestone.time).getTime() }))
+        .filter(entry => Number.isFinite(entry.time))
         .sort((first, second) => first.time - second.time);
-    const previous = ordered.filter(milestone => milestone.time <= timestamp).at(-1);
-    const next = ordered.find(milestone => milestone.time > timestamp);
-    if (previous && next) return `${previous.label} → ${next.label}`;
-    if (next) return `Until ${next.label}`;
-    if (previous) return `Since ${previous.label}`;
-    return '';
+    return (timestamp, compact = false) => {
+        if (!Number.isFinite(timestamp)) return '';
+        const nextIndex = ordered.findIndex(entry => entry.time > timestamp);
+        const previousEntry = nextIndex === -1 ? ordered.at(-1) : ordered[nextIndex - 1];
+        const nextEntry = nextIndex === -1 ? undefined : ordered[nextIndex];
+        const previous = previousEntry && formatMilestoneReference(previousEntry.milestone, compact);
+        const next = nextEntry && formatMilestoneReference(nextEntry.milestone, compact);
+        if (previous && next) return `${previous} → ${next}`;
+        if (next) return `Until ${next}`;
+        if (previous) return `Since ${previous}`;
+        return '';
+    };
 }
 
 function formatMilestoneReference(milestone, compact = false) {
@@ -470,7 +504,7 @@ function shouldFreezePinnedReadout(chartInstance, viewportMin, readout) {
         && readout.childElementCount > 0;
 }
 
-function renderChartReadout({ chart: chartInstance, tooltip }, canvas, milestones) {
+function renderChartReadout({ chart: chartInstance, tooltip }, canvas, getMilestoneReference) {
     const readout = document.getElementById('chartReadout');
     if (!readout) return;
     const viewportMin = chartInstance.scales.x?.min;
@@ -492,7 +526,6 @@ function renderChartReadout({ chart: chartInstance, tooltip }, canvas, milestone
     const compactMilestones = window.matchMedia('(width <= 768px)').matches;
     const context = getMilestoneReference(
         Number(canvas.dataset.hoverTimestamp),
-        milestones,
         compactMilestones,
     );
     if (context) {
@@ -528,7 +561,6 @@ function renderChartReadout({ chart: chartInstance, tooltip }, canvas, milestone
     readout.appendChild(values);
     readout.hidden = false;
     if (chartInstance.$tooltipPinned) chartInstance.$pinnedViewportMin = viewportMin;
-    canvas.dataset.tooltipWidth = String(Math.round(readout.getBoundingClientRect().width));
 }
 
 function selectChartScaleDomain(currentDomain, historicalDomain) {
@@ -539,8 +571,16 @@ function selectChartScaleDomain(currentDomain, historicalDomain) {
 
 function replaceActiveChart() {
     if (!appState.chart) return;
+    const { canvas } = appState.chart;
     appState.chart.destroy();
     appState.chart = null;
+    // A pinned readout belongs to the destroyed chart; do not let it outlive it.
+    delete canvas.dataset.hoverTimestamp;
+    const readout = document.getElementById('chartReadout');
+    if (readout) {
+        readout.hidden = true;
+        readout.textContent = '';
+    }
 }
 
 /**
@@ -598,19 +638,6 @@ function updateChartAccessibilitySummary({
 function updateRegistrationUnavailableGuide(intervals) {
     const guide = document.getElementById('registrationUnavailableGuide');
     if (guide) guide.hidden = intervals.length === 0;
-}
-
-function updateHistoricalChartStateAttributes(canvas, historicalPoints, currentPoints) {
-    const historicalEnd = historicalPoints.at(-1);
-    canvas.dataset.historicalPointCount = String(historicalPoints.length);
-    canvas.dataset.historicalSyntheticPoints = String(
-        historicalPoints.filter(point => point.synthetic).length,
-    );
-    canvas.dataset.historicalEndKind = historicalEnd?.removalEnded
-        ? 'removal'
-        : historicalEnd?.observationEnded ? 'observation' : 'none';
-    canvas.dataset.historicalEndpointX = String(historicalEnd?.x ?? '');
-    canvas.dataset.currentEndpointX = String(currentPoints.at(-1)?.x ?? '');
 }
 
 /**
@@ -726,6 +753,7 @@ export async function renderChart(
         ...capacityData,
         ...historicalDataPoints.map(point => point.y),
     ]);
+    const getMilestoneReference = createMilestoneReference(milestones);
     const canvas = document.getElementById('enrollment-chart');
     const compactMilestoneLabels = canvas.parentElement.clientWidth < 520;
     const { annotations, annotationXValues } = buildMilestoneRenderState({
@@ -733,9 +761,6 @@ export async function renderChart(
         milestones,
         domainTimestamps,
         mapTime,
-        xValues,
-        fillData,
-        historicalDataPoints,
         compactLabels: compactMilestoneLabels,
     });
     const registrationUnavailableIntervals = addRegistrationUnavailableAnnotations(
@@ -758,8 +783,6 @@ export async function renderChart(
     // Show chart canvas
     document.getElementById('chartPlaceholder').style.display = 'none';
     canvas.classList.remove('chart-hidden');
-    canvas.dataset.milestoneLabels = String(Object.values<any>(annotations)
-        .filter(annotation => annotation.label?.display).length);
     updateChartAccessibilitySummary({
         canvas,
         chartLabel,
@@ -772,7 +795,6 @@ export async function renderChart(
     canvas.dataset.registrationUnavailableIntervals = String(
         registrationUnavailableIntervals.length,
     );
-    canvas.offsetHeight;
 
     replaceActiveChart();
     setZoomControlsState(false);
@@ -850,16 +872,8 @@ export async function renderChart(
         // Draw above capacity and milestones, but behind the current line.
         order: 1,
     } : null;
-    canvas.dataset.historicalDatasets = historicalDataset ? '1' : '0';
-    updateHistoricalChartStateAttributes(
-        canvas,
-        displayHistoricalDataPoints,
-        displayDataPoints,
-    );
-    canvas.dataset.enrollmentLineStyle = 'solid';
     const compactTooltip = window.matchMedia('(max-width: 768px)').matches;
     const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
-    canvas.dataset.tooltipDensity = compactTooltip ? 'compact' : 'regular';
     canvas.dataset.touchMode = coarsePointer ? 'inspect' : 'hover';
     canvas.dataset.tooltipPinned = 'false';
     const observedXValues = [...displayDataPoints, ...displayHistoricalDataPoints]
@@ -868,26 +882,9 @@ export async function renderChart(
         .sort((first, second) => first - second);
     const observedMinX = observedXValues[0] ?? xBounds.min;
     const observedMaxX = observedXValues.at(-1) ?? xBounds.max;
-    const tooltipMetrics = {
-        id: 'tooltipMetrics',
-        afterDraw(chartInstance) {
-            const { left, top, right, bottom } = chartInstance.chartArea;
-            canvas.dataset.chartArea = [left, top, right, bottom]
-                .map(value => value.toFixed(2))
-                .join(',');
-            const readout = document.getElementById('chartReadout');
-            const width = coarsePointer && readout && !readout.hidden
-                ? Math.round(readout.getBoundingClientRect().width)
-                : chartInstance.tooltip?.opacity > 0
-                    ? Math.round(chartInstance.tooltip.width)
-                    : 0;
-            canvas.dataset.tooltipWidth = String(width);
-        },
-    };
 
     appState.chart = new appState.Chart(canvas, {
         type: 'line',
-        plugins: [tooltipMetrics],
         data: {
             datasets: [historicalDataset, capacityDataset, currentDataset].filter(Boolean),
         },
@@ -940,7 +937,7 @@ export async function renderChart(
                 },
                 tooltip: {
                     enabled: false,
-                    external: context => renderChartReadout(context, canvas, milestones),
+                    external: context => renderChartReadout(context, canvas, getMilestoneReference),
                     position: 'glide',
                     backgroundColor: '#1a1a2e', titleColor: '#ffd700', bodyColor: '#eaeaea',
                     borderColor: '#3a3a5e', borderWidth: 1,
@@ -1070,10 +1067,16 @@ export function clearChartActiveElements() {
     }
 }
 
+if (document.body.dataset.initialCourse) preloadChartJs();
+
 document.querySelectorAll<HTMLElement>('.chart-mode-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
         appState.chartMode = btn.dataset.mode;
-        localStorage.setItem('chartMode', appState.chartMode);
+        try {
+            localStorage.setItem('chartMode', appState.chartMode);
+        } catch {
+            // Storage can be blocked; the mode still applies for this page.
+        }
         setZoomControlsState(false);
         document.querySelectorAll<HTMLElement>('.chart-mode-btn').forEach(b => {
             const isActive = b.dataset.mode === appState.chartMode;
