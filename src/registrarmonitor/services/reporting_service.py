@@ -18,6 +18,9 @@ from ..subscriptions.publication import ReportPublication
 from ..subscriptions.store import SubscriptionStore
 from ..utils import construct_output_path
 
+# Text reports to keep in data/changes; older ones are pruned after each report.
+KEEP_REPORTS = 200
+
 
 class ReportingService:
     """
@@ -403,6 +406,7 @@ class ReportingService:
             self.logger.info(
                 f"Successfully generated text report: {txt_path} ({file_size} bytes)"
             )
+            self.cleanup_old_reports(keep_count=KEEP_REPORTS)
             return txt_path
 
         except Exception as e:

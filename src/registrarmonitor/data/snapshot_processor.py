@@ -10,6 +10,7 @@ from ..models import (
 )
 from ..utils import get_section_type
 from ..validation import validate_directory_exists
+from .checkpointed_state import WriteResult
 from .database_manager import DatabaseManager
 from .instructor_normalization import aggregate_instructors_by_section
 
@@ -129,16 +130,28 @@ class SnapshotProcessor:
 
         return snapshot
 
-    def save_snapshot(self, snapshot: EnrollmentSnapshot) -> None:
+    def save_snapshot(
+        self, snapshot: EnrollmentSnapshot, db_manager: DatabaseManager | None = None
+    ) -> WriteResult:
         """Save enrollment snapshot to the database.
 
         Args:
             snapshot: The enrollment snapshot to persist.
-        """
-        # Create or get database manager for this semester
-        if self.db_manager is None or self._current_semester != snapshot.semester:
-            self.db_manager = DatabaseManager.create_for_semester(snapshot.semester)
-            self._current_semester = snapshot.semester
+            db_manager: Manager for the snapshot's semester, when the caller
+                already holds one.
 
-        self.db_manager.store_enrollment_snapshot(snapshot)
-        print("✅ Stored snapshot in database")
+        Returns:
+            Whether a new state was stored or only its last-seen time advanced.
+        """
+        if db_manager is None:
+            if self.db_manager is None or self._current_semester != snapshot.semester:
+                self.db_manager = DatabaseManager.create_for_semester(snapshot.semester)
+                self._current_semester = snapshot.semester
+            db_manager = self.db_manager
+
+        result = db_manager.store_enrollment_snapshot(snapshot)
+        if result.created:
+            print("✅ Stored snapshot in database")
+        else:
+            print("ℹ️  Snapshot unchanged; stored state not modified")
+        return result

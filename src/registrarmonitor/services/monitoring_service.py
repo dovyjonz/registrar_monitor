@@ -5,16 +5,40 @@ This service encapsulates the business logic for monitoring enrollment data,
 providing a clean interface that reduces coupling in the main module.
 """
 
+import asyncio
+import hashlib
+import json
 from pathlib import Path
+from typing import Any, NamedTuple
 
 from ..automation.downloader import DataDownloader
 from ..core import get_logger
 from ..core.exceptions import FileProcessingError
+from ..data.checkpointed_state import WriteResult
 from ..data.database_manager import DatabaseManager
 from ..data.excel_reader import ExcelReader
 from ..data.snapshot_processor import SnapshotProcessor
 from ..heartbeat import send_heartbeat
 from ..models import EnrollmentSnapshot
+
+
+class ProcessedFile(NamedTuple):
+    """Outcome of processing one registrar file."""
+
+    success: bool
+    snapshot: EnrollmentSnapshot | None = None
+    digest: str | None = None
+    # The parsed rows match ``previous_digest``: nothing was stored.
+    unchanged: bool = False
+
+
+def rows_digest(semester: str, rows: list[dict[str, Any]]) -> str:
+    """Hash parsed rows independent of row order and of the sheet timestamp."""
+    digest = hashlib.sha256(semester.strip().encode())
+    for line in sorted(json.dumps(row, sort_keys=True, default=str) for row in rows):
+        digest.update(b"\n")
+        digest.update(line.encode())
+    return digest.hexdigest()
 
 
 class MonitoringService:
@@ -25,12 +49,18 @@ class MonitoringService:
     and storing enrollment data while maintaining separation of concerns.
     """
 
-    def __init__(self, semester: str | None = None):
+    def __init__(
+        self,
+        semester: str | None = None,
+        *,
+        db_manager: DatabaseManager | None = None,
+    ):
         """
         Initialize the monitoring service.
 
         Args:
             semester: Optional semester identifier for database selection
+            db_manager: Optional manager for ``semester`` to reuse
         """
         self.semester = semester
         self.logger = get_logger(__name__)
@@ -39,11 +69,20 @@ class MonitoringService:
         self.downloader = DataDownloader(semester=semester)
         self.excel_reader = ExcelReader()
         self.snapshot_processor = SnapshotProcessor()
-        self.db_manager = DatabaseManager(semester=semester)
+        self.db_manager = db_manager or DatabaseManager(semester=semester)
+        self._other_dbs: dict[str, DatabaseManager] = {}
 
         self.logger.info(
             f"Monitoring service initialized for semester: {semester or 'default'}"
         )
+
+    def db_for(self, semester: str) -> DatabaseManager:
+        """Return the manager for ``semester``, opening other semesters once."""
+        if semester == self.semester:
+            return self.db_manager
+        if semester not in self._other_dbs:
+            self._other_dbs[semester] = DatabaseManager.create_for_semester(semester)
+        return self._other_dbs[semester]
 
     async def download_and_process_latest(
         self,
@@ -66,7 +105,8 @@ class MonitoringService:
                 return False, None, None
 
             # Step 2: Process the downloaded file
-            snapshot = self._process_file(downloaded_file)
+            processed = await asyncio.to_thread(self._process_file, downloaded_file)
+            snapshot = processed.snapshot
             if not snapshot:
                 return False, None, downloaded_file
 
@@ -80,17 +120,19 @@ class MonitoringService:
             self.logger.error(f"Failed to download and process data: {e}")
             return False, None, None
 
-    def process_specific_file(
-        self, file_path: str
-    ) -> tuple[bool, EnrollmentSnapshot | None]:
+    async def process_specific_file(
+        self, file_path: str, previous_digest: str | None = None
+    ) -> ProcessedFile:
         """
-        Process a specific Excel file.
+        Process a specific Excel file off the event loop.
 
         Args:
             file_path: Path to the Excel file to process
+            previous_digest: Digest of the last processed rows; when the parsed
+                rows hash to it, nothing is stored and ``unchanged`` is set
 
         Returns:
-            Tuple of (success, snapshot)
+            The outcome, with the digest of the parsed rows on success
         """
         self.logger.info(f"Processing specific file: {file_path}")
 
@@ -98,18 +140,20 @@ class MonitoringService:
             if not Path(file_path).exists():
                 raise FileProcessingError(f"File not found: {file_path}")
 
-            snapshot = self._process_file(file_path)
-            if snapshot:
+            processed = await asyncio.to_thread(
+                self._process_file, file_path, previous_digest
+            )
+            if processed.unchanged:
+                self.logger.info("Parsed rows unchanged; nothing stored")
+            elif processed.snapshot:
                 self.logger.info(
-                    f"Successfully processed file with {len(snapshot.courses)} courses"
+                    f"Successfully processed file with {len(processed.snapshot.courses)} courses"
                 )
-                return True, snapshot
-            else:
-                return False, None
+            return processed
 
         except Exception as e:
             self.logger.error(f"Failed to process file {file_path}: {e}")
-            return False, None
+            return ProcessedFile(success=False)
 
     def get_latest_snapshot(self) -> EnrollmentSnapshot | None:
         """
@@ -223,15 +267,21 @@ class MonitoringService:
             self.logger.error(f"Download failed: {e}")
             raise FileProcessingError(f"Download failed: {e}") from e
 
-    def _process_file(self, file_path: str) -> EnrollmentSnapshot | None:
+    def _process_file(
+        self, file_path: str, previous_digest: str | None = None
+    ) -> ProcessedFile:
         """
-        Process an Excel file into an enrollment snapshot.
+        Parse an Excel file and store it as an enrollment snapshot.
+
+        Runs in a worker thread: it parses the workbook and writes SQLite.
 
         Args:
             file_path: Path to the Excel file
+            previous_digest: Digest of the last processed rows, if known
 
         Returns:
-            Processed enrollment snapshot or None if failed
+            The processed file, or an unchanged marker when the rows match
+            ``previous_digest``
         """
         try:
             self.logger.info(f"Processing file: {file_path}")
@@ -246,14 +296,24 @@ class MonitoringService:
             if not data:
                 raise FileProcessingError("Excel file is empty or invalid")
 
+            digest = rows_digest(semester, data)
+            if digest == previous_digest:
+                return ProcessedFile(success=True, digest=digest, unchanged=True)
+
             # Process into snapshot
             snapshot = self.snapshot_processor.process_data(data, semester, timestamp)
 
             # Save snapshot to database
-            self.snapshot_processor.save_snapshot(snapshot)
-            self.logger.info("Saved snapshot to database")
+            result: WriteResult = self.snapshot_processor.save_snapshot(
+                snapshot, self.db_for(snapshot.semester)
+            )
+            self.logger.info(
+                "Saved snapshot to database"
+                if result.created
+                else "Snapshot matches the stored state; advanced last-seen"
+            )
 
-            return snapshot
+            return ProcessedFile(success=True, snapshot=snapshot, digest=digest)
 
         except Exception as e:
             self.logger.error(f"Failed to process file {file_path}: {e}")

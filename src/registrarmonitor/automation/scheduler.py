@@ -15,18 +15,24 @@ next window start or milestone.
 import asyncio
 import datetime as dt
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..config import Settings, get_settings, get_timezone
 from ..core import get_logger
 from ..data.database_manager import DatabaseManager
 from ..heartbeat import send_heartbeat
 from .downloader import DataDownloader
+
+if TYPE_CHECKING:
+    from ..cli.commands import PollResult
 
 # ReportingService is imported lazily to avoid circular import
 # (reporting_service imports the scheduler, scheduler imports ReportingService)
@@ -46,6 +52,54 @@ RESET_INTERVAL_SECONDS = 300
 HOT_WINDOW = (dt.timedelta(minutes=-5), dt.timedelta(minutes=30))
 HOT_CAP_SECONDS = 300
 COOLDOWN_SECONDS = 300.0
+BUILD_OOM_SCORE_ADJ = "500"  # the kernel kills a build before the poller
+
+
+def isolated_command(command: list[str], memory_max: str) -> list[str]:
+    """Prefix ``command`` so a build cannot starve or take down the poller.
+
+    With ``systemd-run`` and a user runtime directory the command gets its own
+    transient scope with a memory cap and low CPU and I/O weight; the
+    scheduler unit sets ``XDG_RUNTIME_DIR`` and the runtime user lingers. Without
+    them it still runs at low CPU and I/O priority.
+    """
+    prefix: list[str] = []
+    if shutil.which("systemd-run") and os.environ.get("XDG_RUNTIME_DIR"):
+        prefix += [
+            "systemd-run",
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "-p",
+            f"MemoryMax={memory_max}",
+            "-p",
+            "CPUWeight=20",
+            "-p",
+            "IOWeight=20",
+            "--",
+        ]
+    if shutil.which("nice"):
+        prefix += ["nice", "-n", "10"]
+    if shutil.which("ionice"):
+        prefix += ["ionice", "-c", "3"]
+    return prefix + command
+
+
+def _prefer_oom_kill() -> None:
+    """Child-side: raise the OOM score so the kernel picks the build first."""
+    try:
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write(BUILD_OOM_SCORE_ADJ)
+    except OSError:
+        pass
+
+
+# Deploy runs in the same kind of scope as generation: wrangler is a Node process.
+DEPLOY_CODE = (
+    "import sys; from registrarmonitor.services.website_service import "
+    "WebsiteService; sys.exit(0 if WebsiteService().deploy() else 1)"
+)
 
 
 def _tier(table: tuple[tuple[int, int], ...], score: float) -> int:
@@ -277,6 +331,10 @@ class TwoPhaseScheduler:
         except ImportError:
             print("⚠️  Warning: ReportingService unavailable")
 
+        self._semester: str | None = None  # active semester, learned from polls
+        self._rows_digest: str | None = None  # parsed rows of the last stored poll
+        self._latest_poll: PollResult | None = None  # consumed by the next check
+
         self.downloader = DataDownloader()
         self.pending_polls: asyncio.Queue = asyncio.Queue()
 
@@ -329,13 +387,17 @@ class TwoPhaseScheduler:
         return min(t for t in slots if t > now)
 
     def _run_website_update(self):
-        """Generate in a disposable process, then deploy the completed output."""
+        """Generate, then deploy, each in a disposable resource-capped process."""
         try:
-            from ..services.website_service import WebsiteService
-
-            generation_timeout_seconds = (
-                get_settings().website.generation_timeout_seconds
+            from ..services.website_service import (
+                DEPLOY_TIMEOUT_SECONDS,
+                WebsiteService,
             )
+
+            settings = get_settings()
+            generation_timeout_seconds = settings.website.generation_timeout_seconds
+            memory_max = settings.website.build_memory_max
+            root = Path(__file__).resolve().parents[3]
 
             print("\n🌐 Starting Website Update...")
             service = WebsiteService()
@@ -343,10 +405,14 @@ class TwoPhaseScheduler:
                 print("💤 Outside active registration windows. Skipping build/deploy.")
                 return
             generation = subprocess.run(
-                [sys.executable, "-m", "registrarmonitor.main", "deploy"],
-                cwd=Path(__file__).resolve().parents[3],
+                isolated_command(
+                    [sys.executable, "-m", "registrarmonitor.main", "deploy"],
+                    memory_max,
+                ),
+                cwd=root,
                 check=False,
                 timeout=generation_timeout_seconds,
+                preexec_fn=_prefer_oom_kill,
             )
             if generation.returncode != 0:
                 self.logger_ops.error(
@@ -355,7 +421,17 @@ class TwoPhaseScheduler:
                 )
                 return
 
-            service.deploy()
+            deployment = subprocess.run(
+                isolated_command([sys.executable, "-c", DEPLOY_CODE], memory_max),
+                cwd=root,
+                check=False,
+                timeout=DEPLOY_TIMEOUT_SECONDS + 60,
+                preexec_fn=_prefer_oom_kill,
+            )
+            if deployment.returncode != 0:
+                self.logger_ops.error(
+                    "Website deploy child failed exit_code=%s", deployment.returncode
+                )
 
         except Exception as e:
             print(f"❌ Website update failed: {e}")
@@ -374,8 +450,13 @@ class TwoPhaseScheduler:
 
         try:
             self._deferred = False
-            semester = await detect_active_semester()
-            db_manager = DatabaseManager(semester=semester)
+            poll, self._latest_poll = self._latest_poll, None
+            if poll is not None and poll.db_manager is not None:
+                db_manager = poll.db_manager
+            else:
+                poll = None
+                semester = self._semester or await detect_active_semester()
+                db_manager = DatabaseManager(semester=semester)
             latest_snapshot_id = db_manager.get_latest_snapshot_id()
             last_reported_id = db_manager.get_last_reported_snapshot_id()
             if not latest_snapshot_id:
@@ -405,8 +486,17 @@ class TwoPhaseScheduler:
             if latest_snapshot_id == last_reported_id:
                 return
 
-            current = db_manager.get_snapshot_data(latest_snapshot_id)
-            previous = db_manager.get_snapshot_data(last_reported_id)
+            # The poll already read the latest snapshot and the one before it.
+            current = (
+                poll.latest_snapshot
+                if poll and latest_snapshot_id == poll.snapshot_id_after
+                else None
+            ) or db_manager.get_snapshot_data(latest_snapshot_id)
+            previous = (
+                poll.previous_snapshot
+                if poll and last_reported_id == poll.previous_snapshot_id
+                else None
+            ) or db_manager.get_snapshot_data(last_reported_id)
             if not current or not previous:
                 return
 
@@ -452,25 +542,28 @@ class TwoPhaseScheduler:
 
     async def _single_poll_and_process(self) -> float:
         """Download and process the latest file once; return its change score."""
-        file_path = await self.downloader.download(skip_unchanged=True)
-        if not file_path:
-            await send_heartbeat()  # an unchanged file is still a healthy poll
-            return 0.0
-        return await self._process_file(file_path)
+        file_path = await self.downloader.download()
+        return (await self._process_file(file_path)).change_score
 
-    async def _process_file(self, file_path: str) -> float:
+    async def _process_file(self, file_path: str) -> "PollResult":
         try:
             from ..cli.commands import PollCommand
         except ImportError:
             from registrarmonitor.cli.commands import PollCommand
 
-        result = await PollCommand(debug=False).run_with_result(file_path=file_path)
+        result = await PollCommand(debug=False).run_with_result(
+            file_path=file_path,
+            semester=self._semester,
+            previous_digest=self._rows_digest,
+        )
         if not result.success:
-            # Fetch the same file again next time instead of treating it as seen.
-            self.downloader.forget_last_download()
-            return 0.0
-        await send_heartbeat()
-        return result.change_score
+            # The digest stays, so the same rows are processed again next time.
+            return result
+        self._rows_digest = result.rows_digest
+        self._semester = result.semester or self._semester
+        self._latest_poll = None if result.unchanged else result
+        await send_heartbeat()  # an unchanged file is still a healthy poll
+        return result
 
     async def _process_pending_polls_loop(self):
         """Process downloads in chronological FIFO order and trigger updates."""
@@ -478,21 +571,17 @@ class TwoPhaseScheduler:
             try:
                 download_task, poll_start_time = await self.pending_polls.get()
                 try:
-                    score = 0.0
                     file_path = await download_task
-                    if file_path:
-                        self.logger_ops.info(
-                            f"🔄 Processing poll from {poll_start_time.strftime('%H:%M:%S')}..."
-                        )
-                        score = await self._process_file(file_path)
-                        self._last_poll_time = dt.datetime.now()
+                    self.logger_ops.info(
+                        f"🔄 Processing poll from {poll_start_time.strftime('%H:%M:%S')}..."
+                    )
+                    result = await self._process_file(file_path)
+                    self._last_poll_time = dt.datetime.now()
+                    if result.unchanged:
+                        self.logger_ops.info("No registrar changes; nothing stored.")
+                    if not result.unchanged or self._deferred:
                         await self._check_and_trigger_updates()
-                    else:
-                        self.logger_ops.info("No registrar changes; skipping parse.")
-                        await send_heartbeat()  # still a healthy poll
-                        if self._deferred:
-                            await self._check_and_trigger_updates()
-                    self._last_change_score = score
+                    self._last_change_score = result.change_score
                     self._new_poll_processed = True
                 except Exception as e:
                     self.logger_ops.error(f"❌ Error processing pending poll: {e}")
@@ -533,7 +622,7 @@ class TwoPhaseScheduler:
             except ImportError:
                 from registrarmonitor.cli.utils import detect_active_semester
 
-            semester = await detect_active_semester()
+            semester = self._semester or await detect_active_semester()
             self.reporting_service = self._reporting_service_class(semester=semester)
             print(f"📋 Using semester: {semester or 'default'}")
 
@@ -543,11 +632,12 @@ class TwoPhaseScheduler:
                     send_telegram=not self.no_telegram,
                     debug_mode=False,
                 )
-                print(
-                    "✅ Report generated and sent."
-                    if changes_found
-                    else "ℹ️  No significant changes to report."
-                )
+                if not changes_found:
+                    print("ℹ️  No significant changes to report.")
+                elif self.no_telegram:
+                    print("✅ Report generated (Telegram disabled, not sent).")
+                else:
+                    print("✅ Report generated and sent.")
             except Exception as e:
                 print(f"❌ Error during reporting: {e}")
         else:
@@ -602,9 +692,7 @@ class TwoPhaseScheduler:
                 sys.stdout.flush()
                 await asyncio.sleep(wait)
 
-                download_task = asyncio.create_task(
-                    self.downloader.download(skip_unchanged=True)
-                )
+                download_task = asyncio.create_task(self.downloader.download())
                 await self.pending_polls.put((download_task, dt.datetime.now()))
         except KeyboardInterrupt:
             print("\n⚠️  Scheduler interrupted by user.")

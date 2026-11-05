@@ -184,3 +184,24 @@ class TestProcessData:
         snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
 
         assert snapshot.courses["BUS 101"].sections["10L"].instructor == ""
+
+
+@pytest.mark.parametrize(
+    ("created", "expected"),
+    [(True, "Stored snapshot"), (False, "Snapshot unchanged")],
+)
+def test_save_snapshot_reports_whether_anything_was_stored(
+    tmp_path, capsys, created, expected
+):
+    from unittest.mock import MagicMock
+
+    from registrarmonitor.models import EnrollmentSnapshot
+
+    db = MagicMock()
+    db.store_enrollment_snapshot.return_value.created = created
+    snapshot = EnrollmentSnapshot(timestamp="t", semester="Fall 2026", overall_fill=0)
+
+    result = SnapshotProcessor(data_dir=str(tmp_path)).save_snapshot(snapshot, db)
+
+    assert result is db.store_enrollment_snapshot.return_value
+    assert expected in capsys.readouterr().out
