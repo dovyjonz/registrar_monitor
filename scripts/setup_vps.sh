@@ -23,6 +23,16 @@ if [ -z "$RUNTIME_HOME" ]; then
     exit 1
 fi
 
+RUNTIME_UID=$(id -u "$RUNTIME_USER")
+
+# Resource limits (override from the environment when running this script).
+# The website build runs in its own user-manager scope with its own cap, so the
+# poller stays small; these caps keep a leak from taking the whole VM.
+SCHEDULER_MEMORY_HIGH="${SCHEDULER_MEMORY_HIGH:-300M}"
+SCHEDULER_MEMORY_MAX="${SCHEDULER_MEMORY_MAX:-400M}"
+BOT_MEMORY_HIGH="${BOT_MEMORY_HIGH:-200M}"
+BOT_MEMORY_MAX="${BOT_MEMORY_MAX:-300M}"
+
 if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo "Warning: .env was not found at $PROJECT_ROOT/.env"
     echo "Create it from .env.example and set TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_URL, and TELEGRAM_WEBHOOK_SECRET before enabling Telegram sends."
@@ -31,6 +41,15 @@ fi
 echo "Project root: $PROJECT_ROOT"
 echo "Installing dependencies..."
 uv sync --locked
+
+# The poller starts its website build with `systemd-run --user --scope`, which
+# needs the runtime user's systemd manager (and /run/user/<uid>) to exist even
+# when nobody is logged in.
+if ! loginctl show-user "$RUNTIME_USER" --property=Linger 2>/dev/null | grep -q '=yes'; then
+    if ! sudo -n loginctl enable-linger "$RUNTIME_USER" 2>/dev/null; then
+        echo "Warning: could not enable lingering; run: sudo loginctl enable-linger $RUNTIME_USER" >&2
+    fi
+fi
 
 echo "For a make-free, no-sync runtime diagnostic, run:"
 echo "  ./scripts/runtime_doctor.sh"
@@ -47,7 +66,11 @@ User=$RUNTIME_USER
 WorkingDirectory=$PROJECT_ROOT
 EnvironmentFile=-$PROJECT_ROOT/.env
 Environment="PATH=$RUNTIME_HOME/.local/bin:$RUNTIME_HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/usr/bin/env uv run --locked --no-sync monitor schedule
+Environment=XDG_RUNTIME_DIR=/run/user/$RUNTIME_UID
+ExecStart=$PROJECT_ROOT/.venv/bin/monitor schedule
+MemoryHigh=$SCHEDULER_MEMORY_HIGH
+MemoryMax=$SCHEDULER_MEMORY_MAX
+OOMScoreAdjust=-500
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -70,7 +93,10 @@ User=$RUNTIME_USER
 WorkingDirectory=$PROJECT_ROOT
 EnvironmentFile=-$PROJECT_ROOT/.env
 Environment="PATH=$RUNTIME_HOME/.local/bin:$RUNTIME_HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/usr/bin/env uv run --locked --no-sync monitor bot
+ExecStart=$PROJECT_ROOT/.venv/bin/monitor bot
+MemoryHigh=$BOT_MEMORY_HIGH
+MemoryMax=$BOT_MEMORY_MAX
+OOMScoreAdjust=-200
 Restart=always
 RestartSec=5
 StandardOutput=journal
