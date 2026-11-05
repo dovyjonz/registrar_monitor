@@ -1,5 +1,6 @@
 import { createCourseRouteResolver } from './courseRoutes.mjs';
 import { updateTelegramBookmarkImport } from './bookmarks';
+import { readStoredString, readStoredStringArray } from './safeStorage.mjs';
 
 export const departmentPayloads = new Map<string, any>();
 
@@ -11,7 +12,11 @@ export const resolveCourseRoute = createCourseRouteResolver();
 
 export const dataLoadController = new AbortController();
 
-window.addEventListener('pagehide', () => dataLoadController.abort(), { once: true });
+// A persisted pagehide means the page is entering the back/forward cache and
+// may be restored, so aborting would make every later fetch reject.
+window.addEventListener('pagehide', event => {
+    if (!event.persisted) dataLoadController.abort();
+});
 
 export const historicalSemesterManifests = new Map<string, any>();
 
@@ -24,7 +29,7 @@ export const resolvedCourseComparisons = new Map<string, any>();
 export const resolvedProfessorComparisons = new Map<string, any>();
 
 // Bookmarks/Favorites State
-export const bookmarks = new Set<string>(JSON.parse(localStorage.getItem('courseBookmarks') || '[]'));
+export const bookmarks = new Set<string>(readStoredStringArray('courseBookmarks'));
 
 /**
  * Get the current semester data.
@@ -131,6 +136,8 @@ export interface State {
     currentFilter: string;
 }
 
+const CHART_MODES = ['phased', 'snapshots', 'timeline'];
+
 /** Mutable page state shared by every module. */
 export const appState: State = {
     chartJsLoaded: false,
@@ -140,7 +147,7 @@ export const appState: State = {
     selectedSection: null,
     selectedCourseShareUrl: null,
     currentEnrollmentData: [],
-    chartMode: localStorage.getItem('chartMode') || 'phased',
+    chartMode: readStoredString('chartMode', 'phased', { allowed: CHART_MODES }),
     staticManifest: null,
     staticManifestUrl: null,
     staticManifestStale: false,

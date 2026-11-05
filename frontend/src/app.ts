@@ -9,15 +9,11 @@ import { renderMilestoneProgress } from './milestones';
 import { renderCourseGrid } from './grid';
 import { handleHashNavigation, handleInitialCourseNavigation } from './routing';
 import { showToast } from './bookmarks';
-import './bookmarks';
+// Side-effect imports: these modules register their DOM listeners at load.
 import './chart';
 import './comparison';
 import './events';
-import './grid';
-import './milestones';
 import './modal';
-import './routing';
-import './search';
 
 function installPayload(payload) {
     appState.DATA = payload.data;

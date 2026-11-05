@@ -12,15 +12,6 @@ export function getContrastColor(hexColor) {
 }
 
 /**
- * Format course code for display.
- */
-export function formatCourseCode(code) {
-    const parts = code.split(' ');
-    if (parts.length !== 2) return code;
-    return `${parts[0]} ${parts[1]}`;
-}
-
-/**
  * Get CSS class for fill status.
  */
 export function getStatusClass(fill, isFilled = false) {

@@ -4,6 +4,7 @@ import { clearSearchButton, departmentPanel, departmentSearch, departmentToggle,
 import { appState, summaryCourses } from './state';
 import { initApp } from './app';
 import { renderJumpToNavigation } from './grid';
+import { BOOKMARKS_CHANGED_EVENT } from './bookmarks';
 
 export function setDepartmentPanelOpen(expanded) {
     if (!departmentToggle || !departmentPanel) return;
@@ -49,12 +50,17 @@ departmentSearch?.addEventListener('keydown', event => {
 });
 
 // Keyboard shortcut: "/" to focus search
+function isTextEntryTarget(target: EventTarget | null) {
+    return target instanceof HTMLElement
+        && (target.isContentEditable || target.matches('input, textarea, select'));
+}
+
 document.addEventListener('keydown', (e) => {
-    const modalActive = document.getElementById('modalOverlay').classList.contains('active');
-    if (e.key === '/' && document.activeElement !== searchInput && !modalActive) {
-        e.preventDefault();
-        searchInput?.focus();
-    }
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTextEntryTarget(e.target) || document.activeElement === searchInput) return;
+    if (document.getElementById('modalOverlay').classList.contains('active')) return;
+    e.preventDefault();
+    searchInput?.focus();
 });
 
 // Arrow key navigation in course grid
@@ -66,8 +72,10 @@ document.getElementById('courseGrid')?.addEventListener('keydown', (e) => {
     if (idx === -1) return;
 
     e.preventDefault();
-    const gridEl = document.getElementById('courseGrid');
-    const cols = Math.floor(gridEl.offsetWidth / 128);
+    // Columns are the most cells sharing one row; a department's last row may be partial.
+    const rowCounts = new Map<number, number>();
+    for (const cell of cells) rowCounts.set(cell.offsetTop, (rowCounts.get(cell.offsetTop) ?? 0) + 1);
+    const cols = Math.max(1, ...rowCounts.values());
 
     let next = idx;
     switch (e.key) {
@@ -173,7 +181,22 @@ export function hideTimeoutWarning() {
     if (existing) existing.remove();
 }
 
+let pendingFilterFrame = 0;
+
+/** Coalesce rapid input into at most one filter pass per animation frame. */
+function scheduleFilters() {
+    if (pendingFilterFrame) cancelAnimationFrame(pendingFilterFrame);
+    pendingFilterFrame = requestAnimationFrame(() => {
+        pendingFilterFrame = 0;
+        applyFilters();
+    });
+}
+
 export function applyFilters() {
+    if (pendingFilterFrame) {
+        cancelAnimationFrame(pendingFilterFrame);
+        pendingFilterFrame = 0;
+    }
     const searchQuery = searchInput?.value.toLowerCase().trim() || '';
     const electiveCategory = electiveFilter?.value || 'all';
     document.querySelectorAll<HTMLElement>('.catalog-select').forEach(field => {
@@ -251,9 +274,16 @@ function updateSearchControls() {
     if (clearSearchButton) clearSearchButton.hidden = !searchInput?.value;
 }
 
-searchInput?.addEventListener('input', () => {
+searchInput?.addEventListener('input', (event) => {
     updateSearchControls();
-    applyFilters();
+    // Wait for the IME to commit; compositionend applies the final text.
+    if ((event as InputEvent).isComposing) return;
+    scheduleFilters();
+});
+
+searchInput?.addEventListener('compositionend', () => {
+    updateSearchControls();
+    scheduleFilters();
 });
 
 searchInput?.addEventListener('keydown', (event) => {
@@ -274,15 +304,20 @@ clearSearchButton?.addEventListener('click', () => {
 
 electiveFilter?.addEventListener('change', applyFilters);
 
+// Unbookmarking while the starred filter is active must hide the course.
+document.addEventListener(BOOKMARKS_CHANGED_EVENT, () => {
+    if (appState.currentFilter === 'starred') applyFilters();
+});
+
 function sortCourseGrid(searchRanks) {
     const sortBy = searchRanks ? 'relevance' : (document.getElementById('sortSelect') as HTMLSelectElement)?.value;
     const grid = document.getElementById('courseGrid');
     const cells = [...grid.querySelectorAll<HTMLElement>('.course-cell')];
     const headers = [...grid.querySelectorAll<HTMLElement>('.dept-header')];
-
-    // Remove all items
-    cells.forEach(c => c.remove());
-    headers.forEach(h => h.remove());
+    // Current cell/header order, with headers identified by their id.
+    const currentOrder = [...grid.children]
+        .filter(el => el.classList.contains('course-cell') || el.classList.contains('dept-header'))
+        .map(el => (el.classList.contains('dept-header') ? el.id : el));
 
     // Sort cells
     cells.sort((a, b) => {
@@ -301,6 +336,26 @@ function sortCourseGrid(searchRanks) {
             default: return deptA.localeCompare(deptB) || codeA.localeCompare(codeB);
         }
     });
+
+    // Skip the DOM churn (and focus loss) when nothing would move.
+    const nextOrder: (string | Element)[] = [];
+    let nextDept = '';
+    for (const cell of cells) {
+        const dept = cell.dataset.course.split(' ')[0];
+        if (sortBy === 'department' && dept !== nextDept) {
+            nextDept = dept;
+            nextOrder.push(`dept-${dept}`);
+        }
+        nextOrder.push(cell);
+    }
+    if (nextOrder.length === currentOrder.length && nextOrder.every((item, i) => item === currentOrder[i])) {
+        if (sortBy !== 'department') document.getElementById('jumpToNav').textContent = '';
+        return;
+    }
+
+    // Remove all items
+    cells.forEach(c => c.remove());
+    headers.forEach(h => h.remove());
 
     // Re-add with department headers if sorting by department
     if (sortBy === 'department') {
