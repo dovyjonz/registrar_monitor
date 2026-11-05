@@ -14,7 +14,7 @@ from typing import Any, NamedTuple
 
 from ..automation.downloader import DataDownloader
 from ..core.exceptions import FileProcessingError
-from ..data.checkpointed_state import WriteResult
+from ..data.checkpointed_state import OutOfOrderSnapshotError, WriteResult
 from ..data.database_manager import DatabaseManager
 from ..data.excel_reader import ExcelReader
 from ..data.snapshot_processor import SnapshotProcessor
@@ -154,6 +154,9 @@ class MonitoringService:
                 )
             return processed
 
+        except OutOfOrderSnapshotError as error:
+            logger.warning("Registrar file not stored: %s", error)
+            return ProcessedFile(success=False)
         except Exception:
             logger.exception("Failed to process file %s", file_path)
             return ProcessedFile(success=False)
@@ -323,5 +326,7 @@ class MonitoringService:
 
             return ProcessedFile(success=True, snapshot=snapshot, digest=digest)
 
+        except OutOfOrderSnapshotError:
+            raise
         except Exception as e:
             raise FileProcessingError(f"Failed to process file: {e}") from e

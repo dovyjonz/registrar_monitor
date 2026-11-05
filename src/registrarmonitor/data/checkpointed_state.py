@@ -20,6 +20,10 @@ STATE_THRESHOLD = 96
 EVENT_THRESHOLD = 2_048
 
 
+class OutOfOrderSnapshotError(ValueError):
+    """A changed snapshot is not newer than the latest stored one."""
+
+
 @dataclass(frozen=True)
 class WriteResult:
     snapshot_id: int
@@ -423,7 +427,7 @@ class CheckpointedStateStore:
                 connection.execute("BEGIN IMMEDIATE")
                 latest = connection.execute(
                     """
-                    SELECT snapshot_id, state_hash, semester, overall_fill
+                    SELECT snapshot_id, state_hash, semester, overall_fill, observed_at
                     FROM state_snapshot
                     ORDER BY sequence_no DESC LIMIT 1
                     """
@@ -459,6 +463,13 @@ class CheckpointedStateStore:
                         course_events=0,
                         section_events=0,
                         checkpoint_created=False,
+                    )
+
+                if latest is not None and snapshot.timestamp <= latest["observed_at"]:
+                    raise OutOfOrderSnapshotError(
+                        f"registrar file observed at {snapshot.timestamp} is not newer "
+                        f"than the latest stored snapshot ({latest['observed_at']}); "
+                        "older files are not stored"
                     )
 
                 sequence_no = int(
