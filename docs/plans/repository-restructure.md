@@ -37,8 +37,6 @@ Each step is a production mutation and needs explicit authorization.
   `monitor rehearse`, then `monitor poll` and `monitor baseline` so the first start
   does not post months of changes, then start the scheduler and confirm the first
   Healthchecks.io ping.
-- Confirm on a real download that the sheet's timestamp row is the only byte
-  difference between unchanged files, i.e. that unchanged polls log `Poll unchanged`.
 - Clean up: the stale `scripts/registrarmonitor-health.service` in the VM's git index,
   and the unused `registrar-monitor-preview-images`, `monitor`, and `noisy-water-fd35`
   Workers (list first, delete on confirmation). Deploy the site Worker so
