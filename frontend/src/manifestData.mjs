@@ -519,7 +519,10 @@ export function adaptPreviewCourseState(state) {
 function inlineCurrentManifest(pointer) {
     if (!pointer.currentManifest) return null;
     try {
-        return validateManifest(pointer.currentManifest);
+        const manifest = validateManifest(pointer.currentManifest);
+        // Trust the copy only when it describes the build `current` names.
+        const currentFile = pointer.current.split('/').at(-1);
+        return currentFile === `${manifest.buildId}.json` ? manifest : null;
     } catch {
         return null;
     }

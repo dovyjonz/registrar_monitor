@@ -162,7 +162,47 @@ test('inlined current manifest skips the manifest fetch and resolves blob URLs a
     const fetchImpl = async url => {
         requests.push(String(url));
         if (String(url).endsWith('/manifest.json')) {
+            return jsonResponse({ ...pointer('manifests/v3-build.json'), currentManifest: manifest });
+        }
+        if (String(url) === summaryArtifact.reference.url) {
+            return bytesResponse(summaryArtifact);
+        }
+        throw new Error(`unexpected request ${url}`);
+    };
+
+    const loaded = await loadSemesterManifest(
+        'https://example.test/data/summer-2026/manifest.json',
+        { fetchImpl, cryptoImpl: webcrypto },
+    );
+
+    assert.equal(loaded.stale, false);
+    assert.equal(loaded.manifestUrl, 'https://example.test/data/summer-2026/manifests/v3-build.json');
+    assert.deepEqual(requests, [
+        'https://example.test/data/summer-2026/manifest.json',
+        'https://example.test/data/blobs/summary.json',
+    ]);
+});
+
+test('inlined manifest for a different build than current is ignored', async () => {
+    const summaryArtifact = await artifact(
+        emptyV3Summary(),
+        'https://example.test/data/blobs/summary.json',
+    );
+    const manifest = v3Manifest(summaryArtifact, {}, {
+        summary: {
+            schemaVersion: 1,
+            ...summaryArtifact.reference,
+            url: '../../blobs/summary.json',
+        },
+    });
+    const requests = [];
+    const fetchImpl = async url => {
+        requests.push(String(url));
+        if (String(url).endsWith('/manifest.json')) {
             return jsonResponse({ ...pointer(), currentManifest: manifest });
+        }
+        if (String(url).endsWith('/manifests/current.json')) {
+            return jsonResponse(manifest);
         }
         if (String(url) === summaryArtifact.reference.url) {
             return bytesResponse(summaryArtifact);
@@ -179,6 +219,7 @@ test('inlined current manifest skips the manifest fetch and resolves blob URLs a
     assert.equal(loaded.manifestUrl, 'https://example.test/data/summer-2026/manifests/current.json');
     assert.deepEqual(requests, [
         'https://example.test/data/summer-2026/manifest.json',
+        'https://example.test/data/summer-2026/manifests/current.json',
         'https://example.test/data/blobs/summary.json',
     ]);
 });
