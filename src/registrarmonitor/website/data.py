@@ -474,7 +474,9 @@ def _checkpointed_semester_data(
     for course_code, course_data in data["courses"].items():
         course_sections = course_data["sections"]
         total_fill = sum(section["currentFill"] for section in course_sections.values())
-        course_data["averageFill"] = total_fill / len(course_sections)
+        course_data["averageFill"] = (
+            total_fill / len(course_sections) if course_sections else 0.0
+        )
         sections_by_type: dict[str, list[float]] = {}
         for section in course_sections.values():
             sections_by_type.setdefault(section.get("type", ""), []).append(
