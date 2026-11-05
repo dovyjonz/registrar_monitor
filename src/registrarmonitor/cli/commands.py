@@ -115,8 +115,8 @@ class PollCommand:
                     snapshot_id_before=snapshot_id_before,
                 )
 
-        except FileProcessingError as e:
-            logger.error("Poll file processing error: %s", e)
+        except FileProcessingError:
+            logger.exception("Poll file processing error")
             return PollResult(success=False)
         except Exception:
             logger.exception("Poll failed unexpectedly")
@@ -257,8 +257,8 @@ class ReportCommand:
 
             return success
 
-        except ReportGenerationError as e:
-            logger.error("Reporting error: %s", e)
+        except ReportGenerationError:
+            logger.exception("Reporting error")
             return False
         except Exception:
             logger.exception("Reporting failed unexpectedly")
@@ -423,8 +423,12 @@ class DatabaseCommands:
                 "Fresh storage %s semester=%s database=%s", status, semester, database
             )
             return True
-        except Exception as error:
-            logger.error("Fresh storage initialization failed: %s", error)
+        except Exception:
+            logger.exception(
+                "Fresh storage initialization failed semester=%s database=%s",
+                semester,
+                database,
+            )
             return False
 
     async def stats(self) -> bool:

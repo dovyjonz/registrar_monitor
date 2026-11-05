@@ -357,7 +357,7 @@ async def handle_analyze_command(args) -> int:
         finally:
             connection.close()
     except analysis.AnalysisError as error:
-        logger.error("Analysis failed: %s", error)
+        logger.warning("Analysis failed: %s", error)
         return 1
     if args.csv:
         analysis.write_csv(args.csv, columns, rows)
@@ -376,7 +376,7 @@ async def handle_export_parquet_command(args) -> int:
             args.semester, args.out or analysis.DEFAULT_EXPORT_DIR
         )
     except analysis.AnalysisError as error:
-        logger.error("Parquet export failed semester=%s: %s", args.semester, error)
+        logger.warning("Parquet export failed semester=%s: %s", args.semester, error)
         return 1
     print(f"Wrote {target}")
     return 0

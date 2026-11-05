@@ -116,7 +116,6 @@ class ReportingService:
             return True, generated_files
 
         except Exception as e:
-            logger.error(f"Failed to generate/send reports: {e}")
             raise ReportGenerationError(f"Report generation failed: {e}") from e
 
     async def generate_comparison_report(
@@ -150,8 +149,8 @@ class ReportingService:
 
             return True, txt_path
 
-        except Exception as e:
-            logger.error(f"Failed to generate comparison report: {e}")
+        except Exception:
+            logger.exception("Failed to generate comparison report")
             return False, None
 
     async def run_stateful_report_cycle(
@@ -347,7 +346,6 @@ class ReportingService:
             return txt_path
 
         except Exception as e:
-            logger.error(f"Failed to generate text report: {e}")
             raise ReportGenerationError(f"Text report generation failed: {e}") from e
 
     async def _send_reports_via_telegram(
@@ -372,7 +370,6 @@ class ReportingService:
                 logger.warning("No reports to send via Telegram")
 
         except Exception as e:
-            logger.error(f"Failed to send reports via Telegram: {e}")
             raise NotificationError(f"Telegram sending failed: {e}") from e
 
     def cleanup_old_reports(self, keep_count: int = 20) -> int:
@@ -407,6 +404,6 @@ class ReportingService:
 
             return txt_deleted
 
-        except Exception as e:
-            logger.error(f"Failed to cleanup old reports: {e}")
+        except Exception:
+            logger.exception("Failed to cleanup old reports")
             return 0

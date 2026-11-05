@@ -161,18 +161,12 @@ class DataDownloader:
                 return filename
 
         except httpx.TimeoutException as e:
-            logger.error(f"Download timeout: {e}")
             raise FileProcessingError(f"Download timeout: {e}") from e
         except httpx.NetworkError as e:
-            logger.error(f"Connection error: {e}")
             raise FileProcessingError(f"Connection error: {e}") from e
         except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-            logger.error(f"HTTP error {status_code}: {e}")
             raise FileProcessingError(f"HTTP error: {e}") from e
         except httpx.RequestError as e:
-            logger.error(f"Request error: {e}")
             raise FileProcessingError(f"Request error: {e}") from e
         except Exception as e:
-            logger.error(f"Unexpected error during download: {e}")
             raise FileProcessingError(f"Unexpected download error: {e}") from e

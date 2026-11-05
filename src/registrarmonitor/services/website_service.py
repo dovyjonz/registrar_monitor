@@ -498,11 +498,11 @@ class WebsiteService:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             self._build_hash_file.write_text(source_hash + "\n", encoding="utf-8")
             return True
-        except subprocess.CalledProcessError as e:
-            logger.error("Frontend build failed: %s", e)
+        except subprocess.CalledProcessError:
+            logger.exception("Frontend build failed")
             return False
         except FileNotFoundError:
-            logger.error("npm not found. Is Node.js installed?")
+            logger.exception("npm not found. Is Node.js installed?")
             return False
 
     def _remove_obsolete_html(self) -> None:
@@ -970,10 +970,10 @@ class WebsiteService:
                 logger.error("Deployment failed with exit code: %d", result.returncode)
                 return False
         except FileNotFoundError:
-            logger.error("npx/wrangler not found. Is Node.js installed?")
+            logger.exception("npx/wrangler not found. Is Node.js installed?")
             return False
         except subprocess.TimeoutExpired:
-            logger.error(
+            logger.exception(
                 "Deployment timed out after %d minutes", DEPLOY_TIMEOUT_SECONDS // 60
             )
             return False

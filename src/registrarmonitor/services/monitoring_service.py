@@ -77,8 +77,10 @@ class MonitoringService:
             await send_heartbeat()
             return True, snapshot, downloaded_file
 
-        except Exception as e:
-            logger.error(f"Failed to download and process data: {e}")
+        except Exception:
+            logger.exception(
+                "Failed to download and process data semester=%s", self.semester
+            )
             return False, None, None
 
     def process_specific_file(
@@ -108,8 +110,8 @@ class MonitoringService:
             else:
                 return False, None
 
-        except Exception as e:
-            logger.error(f"Failed to process file {file_path}: {e}")
+        except Exception:
+            logger.exception("Failed to process file %s", file_path)
             return False, None
 
     def get_latest_snapshot(self) -> EnrollmentSnapshot | None:
@@ -133,8 +135,8 @@ class MonitoringService:
 
             return snapshot
 
-        except Exception as e:
-            logger.error(f"Failed to get latest snapshot: {e}")
+        except Exception:
+            logger.exception("Failed to get latest snapshot semester=%s", self.semester)
             return None
 
     def get_snapshot_comparison(
@@ -167,8 +169,10 @@ class MonitoringService:
             )
             return current_snapshot, previous_snapshot
 
-        except Exception as e:
-            logger.error(f"Failed to get snapshots for comparison: {e}")
+        except Exception:
+            logger.exception(
+                "Failed to get snapshots for comparison semester=%s", self.semester
+            )
             return None, None
 
     def get_database_stats(self) -> dict:
@@ -183,8 +187,8 @@ class MonitoringService:
             logger.debug(f"Database stats: {stats}")
             return stats
 
-        except Exception as e:
-            logger.error(f"Failed to get database stats: {e}")
+        except Exception:
+            logger.exception("Failed to get database stats semester=%s", self.semester)
             return {}
 
     def get_course_history(self, course_code: str) -> list[dict]:
@@ -199,8 +203,12 @@ class MonitoringService:
         """
         try:
             return self.db_manager.get_course_history(course_code, self.semester)
-        except Exception as e:
-            logger.error(f"Failed to get course history for {course_code}: {e}")
+        except Exception:
+            logger.exception(
+                "Failed to get course history course=%s semester=%s",
+                course_code,
+                self.semester,
+            )
             return []
 
     async def _download_data(self) -> str | None:
@@ -221,7 +229,6 @@ class MonitoringService:
                 raise FileProcessingError("Download failed - no file returned")
 
         except Exception as e:
-            logger.error(f"Download failed: {e}")
             raise FileProcessingError(f"Download failed: {e}") from e
 
     def _process_file(self, file_path: str) -> EnrollmentSnapshot | None:
@@ -257,5 +264,4 @@ class MonitoringService:
             return snapshot
 
         except Exception as e:
-            logger.error(f"Failed to process file {file_path}: {e}")
             raise FileProcessingError(f"Failed to process file: {e}") from e

@@ -125,13 +125,11 @@ class DatabaseManager:
                 conn.execute("PRAGMA query_only = ON")
             conn.row_factory = sqlite3.Row  # Enable column access by name
             yield conn
-        except sqlite3.Error as e:
-            logger.error(f"Database error: {e}")
+        except sqlite3.Error:
             if conn:
                 conn.rollback()
             raise
-        except Exception as e:
-            logger.error(f"Unexpected error in database connection: {e}")
+        except Exception:
             if conn:
                 conn.rollback()
             raise
@@ -256,8 +254,10 @@ class DatabaseManager:
                     """
                 ).fetchone()
                 return int(row[0]) if row else None
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting latest snapshot ID: {e}")
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to get latest snapshot ID semester=%s", self.semester
+            )
             raise
 
     def get_first_snapshot_id(self) -> int | None:
@@ -271,28 +271,26 @@ class DatabaseManager:
                     """
                 ).fetchone()
                 return int(row[0]) if row else None
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting first snapshot ID: {e}")
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to get first snapshot ID semester=%s", self.semester
+            )
             raise
 
     def get_previous_snapshot_id(self, snapshot_id: int) -> int | None:
         """Return the snapshot immediately preceding ``snapshot_id``."""
-        try:
-            with self.get_connection() as conn:
-                row = conn.execute(
-                    """
-                    SELECT previous.snapshot_id
-                    FROM state_snapshot current
-                    JOIN state_snapshot previous
-                      ON previous.sequence_no = current.sequence_no - 1
-                    WHERE current.snapshot_id = ?
-                    """,
-                    (snapshot_id,),
-                ).fetchone()
-                return int(row[0]) if row else None
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting previous snapshot ID: {e}")
-            raise
+        with self.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT previous.snapshot_id
+                FROM state_snapshot current
+                JOIN state_snapshot previous
+                  ON previous.sequence_no = current.sequence_no - 1
+                WHERE current.snapshot_id = ?
+                """,
+                (snapshot_id,),
+            ).fetchone()
+            return int(row[0]) if row else None
 
     def get_latest_snapshot_last_seen_at(self) -> str | None:
         """Return freshness time for the latest stored state."""
@@ -303,36 +301,34 @@ class DatabaseManager:
                     "ORDER BY sequence_no DESC LIMIT 1"
                 ).fetchone()
                 return str(row[0]) if row else None
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting latest freshness time: {e}")
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to get latest freshness time semester=%s", self.semester
+            )
             raise
 
     def get_database_stats(self) -> dict[str, Any]:
         """Return database statistics."""
-        try:
-            with self.get_connection() as conn:
-                snapshot_count = int(
-                    conn.execute("SELECT count(*) FROM state_snapshot").fetchone()[0]
-                )
-                course_count = int(
-                    conn.execute("SELECT count(*) FROM course_catalog").fetchone()[0]
-                )
-                section_count = int(
-                    conn.execute("SELECT count(*) FROM section_catalog").fetchone()[0]
-                )
-                date_range = conn.execute(
-                    "SELECT min(observed_at), max(observed_at) FROM state_snapshot"
-                ).fetchone()
-            return {
-                "snapshots": snapshot_count,
-                "courses": course_count,
-                "sections": section_count,
-                "earliest_snapshot": date_range[0],
-                "latest_snapshot": date_range[1],
-            }
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting database statistics: {e}")
-            raise
+        with self.get_connection() as conn:
+            snapshot_count = int(
+                conn.execute("SELECT count(*) FROM state_snapshot").fetchone()[0]
+            )
+            course_count = int(
+                conn.execute("SELECT count(*) FROM course_catalog").fetchone()[0]
+            )
+            section_count = int(
+                conn.execute("SELECT count(*) FROM section_catalog").fetchone()[0]
+            )
+            date_range = conn.execute(
+                "SELECT min(observed_at), max(observed_at) FROM state_snapshot"
+            ).fetchone()
+        return {
+            "snapshots": snapshot_count,
+            "courses": course_count,
+            "sections": section_count,
+            "earliest_snapshot": date_range[0],
+            "latest_snapshot": date_range[1],
+        }
 
     def get_last_reported_snapshot_id(self) -> int | None:
         """Finds the ID of the snapshot from the last report log."""
@@ -343,8 +339,10 @@ class DatabaseManager:
                     "ORDER BY report_timestamp DESC LIMIT 1"
                 ).fetchone()
                 return result[0] if result else None
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting last reported snapshot ID: {e}")
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to get last reported snapshot ID semester=%s", self.semester
+            )
             raise
 
     def was_snapshot_reported(
@@ -362,11 +360,11 @@ class DatabaseManager:
                     (snapshot_id, int(changes_were_found)),
                 ).fetchone()
                 return row is not None
-        except sqlite3.Error as error:
-            logger.error(
-                "Database error checking reporting log for snapshot %s: %s",
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to check reporting log snapshot_id=%s semester=%s",
                 snapshot_id,
-                error,
+                self.semester,
             )
             raise
 
@@ -384,17 +382,19 @@ class DatabaseManager:
                 )
                 conn.commit()
                 logger.info(f"Added reporting log entry for snapshot {snapshot_id}")
-        except sqlite3.Error as e:
-            logger.error(f"Database error adding reporting log: {e}")
+        except sqlite3.Error:
+            logger.exception("Failed to add reporting log semester=%s", self.semester)
             raise
 
     def get_snapshot_data(self, snapshot_id: int) -> EnrollmentSnapshot | None:
         """Reconstructs an EnrollmentSnapshot object for a given snapshot ID."""
         try:
             return self._checkpointed_store.get_snapshot_data(snapshot_id)
-        except sqlite3.Error as e:
-            logger.error(
-                f"Database error getting snapshot data for ID {snapshot_id}: {e}"
+        except sqlite3.Error:
+            logger.exception(
+                "Failed to get snapshot data snapshot_id=%s semester=%s",
+                snapshot_id,
+                self.semester,
             )
             raise
 
@@ -411,8 +411,4 @@ class DatabaseManager:
         Returns:
             list[Dict]: List of dictionaries containing timestamp and section info
         """
-        try:
-            return self._checkpointed_store.get_course_history(course_code, semester)
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting course history: {e}")
-            raise
+        return self._checkpointed_store.get_course_history(course_code, semester)

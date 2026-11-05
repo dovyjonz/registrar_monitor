@@ -129,7 +129,6 @@ ignore = [
     "TRY003", # project exceptions carry contextual messages at call sites
     "TRY300",  # return placed at the end of try blocks in CLI and service handlers
     "TRY301",  # explicit raise inside try blocks for local control flow
-    "TRY400",  # logging.error inside except blocks is the established error style
 ]
 
 [tool.ruff.lint.per-file-ignores]
