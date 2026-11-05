@@ -148,3 +148,39 @@ async def test_oversized_course_digest_fails_only_its_delivery(tmp_path):
     delivery = store.list_deliveries(batch.batch_id)[0]
     assert delivery.status == "permanent_failed"
     assert delivery.error_category == "rendering"
+
+
+@pytest.mark.asyncio
+async def test_batch_snapshots_and_comparison_are_computed_once(
+    tmp_path, current_snapshot, previous_snapshot, caplog
+):
+    target = SubscriptionTarget("Spring 2024", "CS 101")
+    store = SubscriptionStore(
+        tmp_path / "subscriptions.db",
+        clock=lambda: datetime(2026, 8, 24, 12, tzinfo=UTC),
+    )
+    for user_id in (41, 42):
+        store.touch_user(telegram_user_id=user_id, private_chat_id=user_id + 50)
+        store.subscribe(user_id, target)
+    batch = store.stage_batch(target.semester, 10, 11)
+    store.mark_channel_succeeded(batch.batch_id)
+    store.activate_batch(batch.batch_id)
+    enrollment_db = MagicMock()
+    enrollment_db.get_snapshot_data.side_effect = lambda snapshot_id: (
+        current_snapshot if snapshot_id == 11 else previous_snapshot
+    )
+    messenger = AsyncMock()
+    dispatcher = SubscriptionDispatcher(
+        store, enrollment_db, messenger, per_chat_interval=0, global_interval=0
+    )
+
+    with caplog.at_level("INFO", logger="registrarmonitor.subscriptions.dispatcher"):
+        while await dispatcher.dispatch_one():
+            pass
+
+    assert enrollment_db.get_snapshot_data.call_count == 2
+    assert messenger.send_message.await_count == 2
+    lines = [r.getMessage() for r in caplog.records if "Digest batch" in r.getMessage()]
+    assert len(lines) == 1
+    assert "deliveries=2" in lines[0]
+    assert "peak_rss_mb=" in lines[0]
