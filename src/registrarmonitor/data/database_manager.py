@@ -166,23 +166,6 @@ class DatabaseManager:
             )
         return self._checkpointed_store.write_snapshot(snapshot)
 
-    def _determine_status(self, fill_percentage: float) -> str:
-        """
-        Determine enrollment status based on fill percentage.
-
-        Args:
-            fill_percentage: Fill percentage (0.0 to 1.0+)
-
-        Returns:
-            str: Status ('OPEN', 'NEAR', 'FULL')
-        """
-        if fill_percentage >= 1.0:
-            return "FULL"
-        elif fill_percentage >= 0.75:
-            return "NEAR"
-        else:
-            return "OPEN"
-
     @staticmethod
     def get_semester_databases(data_dir: str | None = None) -> dict[str, Path]:
         """
@@ -265,58 +248,6 @@ class DatabaseManager:
         safe_name = re.sub(r"[^\w\s-]", "", semester.strip())
         safe_name = re.sub(r"[-\s]+", "_", safe_name)
         return safe_name.lower()
-
-    def get_latest_snapshot_timestamp(self, semester: str | None = None) -> str | None:
-        """
-        Get timestamp of the most recent snapshot.
-
-        Args:
-            semester: Optional semester filter
-
-        Returns:
-            Optional[str]: Latest timestamp or None if no snapshots exist
-        """
-        try:
-            with self.get_connection() as conn:
-                if semester:
-                    row = conn.execute(
-                        """
-                        SELECT observed_at FROM state_snapshot
-                        WHERE semester = ?
-                        ORDER BY sequence_no DESC LIMIT 1
-                        """,
-                        (semester,),
-                    ).fetchone()
-                else:
-                    row = conn.execute(
-                        """
-                        SELECT observed_at FROM state_snapshot
-                        ORDER BY sequence_no DESC LIMIT 1
-                        """
-                    ).fetchone()
-                return str(row[0]) if row else None
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error getting latest snapshot: {e}")
-            raise
-
-    def get_enrollment_summary(self, snapshot_id: int) -> dict[str, int]:
-        """
-        Get enrollment summary for a snapshot.
-
-        Args:
-            snapshot_id: Snapshot ID
-
-        Returns:
-            Dict[str, int]: Summary with counts by status
-        """
-        snapshot = self.get_snapshot_data(snapshot_id)
-        summary = {"OPEN": 0, "NEAR": 0, "FULL": 0}
-        if snapshot is None:
-            return summary
-        for course in snapshot.courses.values():
-            for section in course.sections.values():
-                summary[self._determine_status(section.fill)] += 1
-        return summary
 
     def get_latest_snapshot_id(self) -> int | None:
         """Finds the ID of the most recent snapshot."""

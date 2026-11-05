@@ -17,7 +17,7 @@ def mock_config(make_settings):
     """Settings with a temporary report directory and a short write delay."""
     return make_settings(
         directories={"text_reports": "/tmp/txt"},
-        notifications={"file_write_delay": 0.01, "dry_run": False},
+        notifications={"dry_run": False},
     )
 
 
