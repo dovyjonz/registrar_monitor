@@ -4,6 +4,7 @@ import asyncio
 import logging
 import socket
 import sqlite3
+import time
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -227,6 +228,8 @@ def make_catalog_runtime():
     runtime._catalog_lock = asyncio.Lock()
     runtime._catalog_key = None
     runtime._catalog = None
+    runtime._clock = time.monotonic
+    runtime._semester_cache = None
     return runtime
 
 

@@ -329,6 +329,8 @@ class SubscriptionBotRuntime:
         self.diagnostics = BotRuntimeDiagnostics(self.store)
         self._diagnostics_log_handler = RecentSubscriptionLogHandler(self.diagnostics)
         self._catalog_lock = asyncio.Lock()
+        self._clock: Callable[[], float] = monotonic
+        self._semester_cache: tuple[float, str | None] | None = None
         self._catalog_key: tuple[str, int] | None = None
         self._catalog: SubscriptionCatalog | None = None
         update_processor = LatencyTrackingUpdateProcessor(
@@ -464,9 +466,8 @@ class SubscriptionBotRuntime:
 
     async def _active_semester(self) -> str | None:
         """Find the active semester, scanning databases at most once per TTL."""
-        clock = getattr(self, "_clock", monotonic)
-        now = clock()
-        cached = getattr(self, "_semester_cache", None)
+        now = self._clock()
+        cached = self._semester_cache
         if cached is not None and now - cached[0] < ACTIVE_SEMESTER_TTL_SECONDS:
             return cached[1]
         semester = await asyncio.to_thread(find_active_semester)
