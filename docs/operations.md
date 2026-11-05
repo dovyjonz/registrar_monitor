@@ -125,9 +125,13 @@ it on the polling host with `scripts/fetch_registrar_ca.sh` (defaults to
 `scripts/fetch_registrar_ca.sh` exits non-zero if the connection fails, no
 certificate is sent, or the written chain does not verify. `monitor doctor` warns when
 any certificate in the bundle expires within 30 days; refresh it then. Without a
-bundle, system verification applies. Scheduler polls send the stored
-`ETag`/`Last-Modified` (`data/download_state.json`) and compare a SHA-256 of the
-body, so an unchanged file skips parse, compare, and publish.
+bundle, system verification applies. The registrar file embeds a generation
+timestamp, so its bytes differ on every download; the scheduler instead compares a
+digest of the parsed rows with the previous poll's, and an unchanged poll skips the
+snapshot write, comparison, report, and publish. `data/downloads` keeps the newest 5
+files and `data/changes` the newest 200 reports. Each poll logs one line,
+`Poll <status> duration=… peak_rss=…`; each generation phase logs its duration and
+peak RSS, and each digest batch logs `Digest batch processed … peak_rss_mb=…`.
 
 ### Files and permissions
 
@@ -213,7 +217,9 @@ registrar years.
   (a 32-character hex site token); the cookieless beacon is added to generated pages
   only when it is non-empty.
 
-Only generated `.html` routes get exact redirects. Removed courses keep their last
+Only the old semester `.html` pages get exact redirects; old course `.html` URLs are
+not redirected (one per course exceeded the 2,000-redirect limit). Unchanged pages and
+data files are not rewritten. Removed courses keep their last
 route and modal state. Live course share and Open Graph URLs carry the preview token
 as `?v=<token>`; closing a course restores the clean semester route. Generated-output
 validation rejects private files, root JSON payloads, and obsolete non-index HTML.
@@ -419,7 +425,7 @@ use). It never writes to SQLite.
 |---|---|---|
 | Cloudflare Workers | 100k Worker invocations/day | Only `/preview/*` invokes the Worker; static asset requests are free and unlimited. The Mini App API runs on the VM, not the Worker |
 | Workers Static Assets | 20,000 assets per version, 25 MiB per file | About 1,300 files now; keep the count well under the cap |
-| Cache API | Does nothing on `workers.dev` | Works on a custom domain, which matters only for Worker-handled `/preview/*` responses |
+| Cache API | Does nothing on `workers.dev` | `workers_dev` and preview URLs are off; on the custom domain `/preview/*` responses are cached with `caches.default` |
 | Cloudflare R2 | 10 GB-month, 1M Class A, 10M Class B per month | Litestream only; a 5-minute sync interval is about 8.6k PUTs/month per active database |
 | GCP Always Free | One e2-micro in us-west1, us-central1, or us-east1 | The VM is in us-east1-c |
 | GCP disk | 30 GB standard persistent disk (not balanced, the default for new VMs) | Boot disk must be standard PD |
