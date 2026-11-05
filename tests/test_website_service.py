@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -14,7 +15,11 @@ import pytest
 pytestmark = pytest.mark.unit
 
 from registrarmonitor.config import get_settings
+from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.services.website_service import WebsiteService
+from registrarmonitor.website.checksums import compute_semester_hash, load_checksums
+from registrarmonitor.website.templates import PageShell
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +66,8 @@ def test_isolated_generation_leaves_default_private_artifacts_untouched(
     assert protected.read_bytes() == before
 
 
-def test_build_frontend_assets_installs_when_lockfile_is_newer(tmp_path):
+def test_build_frontend_assets_fails_fast_when_dependencies_are_stale(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
     service = WebsiteService()
     service.website_assets_dir = tmp_path
 
@@ -79,19 +85,29 @@ def test_build_frontend_assets_installs_when_lockfile_is_newer(tmp_path):
     os.utime(package_lock, (200, 200))
     os.utime(package_json, (200, 200))
 
-    with (
-        patch("subprocess.run") as run,
-        patch.object(service, "_patch_asset_hashes_in_html", return_value=True),
-    ):
-        assert service.build_frontend_assets() is True
+    with patch("subprocess.run") as run:
+        assert service.build_frontend_assets() is False
 
-    commands = [call.args[0] for call in run.call_args_list]
-    assert commands == [["npm", "install"], ["npm", "run", "build"]]
-    assert all(call.kwargs["cwd"] == tmp_path for call in run.call_args_list)
-    assert all(call.kwargs["check"] is True for call in run.call_args_list)
+    run.assert_not_called()
+    assert "npm ci --prefix frontend" in caplog.text
 
 
-def test_build_frontend_assets_skips_install_when_dependencies_are_current(tmp_path):
+def test_build_frontend_assets_fails_fast_when_node_modules_is_missing(
+    tmp_path, caplog
+):
+    caplog.set_level(logging.INFO)
+    service = WebsiteService()
+    service.website_assets_dir = tmp_path
+    (tmp_path / "package.json").write_text("{}")
+
+    with patch("subprocess.run") as run:
+        assert service.build_frontend_assets() is False
+
+    run.assert_not_called()
+    assert "npm ci --prefix frontend" in caplog.text
+
+
+def test_build_frontend_assets_only_builds_when_dependencies_are_current(tmp_path):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
 
@@ -148,18 +164,18 @@ def test_build_is_skipped_until_the_frontend_source_changes(tmp_path):
         assert run.call_count == 2
 
 
-def test_build_frontend_assets_returns_false_when_install_fails(tmp_path):
+def test_build_frontend_assets_returns_false_when_build_fails(tmp_path):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
 
-    package_lock = tmp_path / "package-lock.json"
-    package_json = tmp_path / "package.json"
-    package_lock.write_text("{}")
-    package_json.write_text("{}")
-
-    with patch(
-        "subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, ["npm", "install"]),
+    with (
+        patch.object(
+            service, "_frontend_dependencies_need_install", return_value=False
+        ),
+        patch(
+            "subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, ["npm", "run", "build"]),
+        ),
     ):
         assert service.build_frontend_assets() is False
 
@@ -202,7 +218,7 @@ def test_deploy_missing_cloudflare_api_token_skips_wrangler(tmp_path, monkeypatc
     run.assert_not_called()
 
 
-def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, capsys):
+def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, caplog):
     service = WebsiteService()
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
@@ -220,13 +236,13 @@ def test_deploy_rejects_missing_frontend_assets(tmp_path, monkeypatch, capsys):
         assert service.deploy() is False
 
     run.assert_not_called()
-    output = capsys.readouterr().out
+    output = caplog.text
     assert "Missing frontend asset referenced by" in output
     assert "/assets/main-missing.css" in output
     assert "/assets/main-missing.js" in output
 
 
-def test_wrangler_deploy_prints_failure_output(tmp_path, capsys, monkeypatch):
+def test_wrangler_deploy_logs_failure(tmp_path, caplog, monkeypatch):
     service = WebsiteService()
     service.website_assets_dir = tmp_path
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test-token")
@@ -239,7 +255,7 @@ def test_wrangler_deploy_prints_failure_output(tmp_path, capsys, monkeypatch):
         run.return_value.returncode = 1
         assert service.deploy() is False
 
-    output = capsys.readouterr().out
+    output = caplog.text
     assert "Deployment failed with exit code: 1" in output
     assert "capture_output" not in run.call_args.kwargs
     assert "stdout" not in run.call_args.kwargs
@@ -399,6 +415,10 @@ def test_generation_reuses_semester_data_while_publishing_clean_routes(tmp_path)
             "generate_semester_page",
             wraps=service.generate_semester_page,
         ),
+        patch(
+            "registrarmonitor.services.website_service.compute_semester_hash",
+            return_value="hash",
+        ),
         patch("registrarmonitor.services.website_service.update_checksum"),
         patch(
             "registrarmonitor.services.website_service.build_semester_page",
@@ -430,6 +450,10 @@ class TestGenerateSemesterPage:
             patch(
                 "registrarmonitor.website.templates._get_asset_info",
                 return_value=(None, None),
+            ),
+            patch(
+                "registrarmonitor.services.website_service.compute_semester_hash",
+                return_value="hash",
             ),
             patch("registrarmonitor.services.website_service.update_checksum"),
         ):
@@ -465,6 +489,156 @@ class TestGenerateSemesterPage:
             .read_text()
         )
         assert department["kind"] == "department-detail"
+
+
+class TestSemesterChecksumIsTakenBeforeReadingData:
+    def test_a_snapshot_stored_during_the_build_is_not_recorded_as_published(
+        self, tmp_path
+    ):
+        database = DatabaseManager(
+            db_path=str(tmp_path / "enrollment.db"), semester="Spring 2024"
+        )
+        database.store_enrollment_snapshot(_snapshot("2024-01-15 10:00:00"))
+        service = WebsiteService(output_dir=tmp_path / "public")
+
+        def read_data_while_a_snapshot_arrives(*_args, **_kwargs):
+            database.store_enrollment_snapshot(_snapshot("2024-01-15 10:30:00", 12))
+            return {"cr": {}, "sn": []}
+
+        with (
+            patch(
+                "registrarmonitor.services.website_service.get_semester_data",
+                side_effect=read_data_while_a_snapshot_arrives,
+            ),
+            patch(
+                "registrarmonitor.services.website_service.get_milestones",
+                return_value=[],
+            ),
+        ):
+            service.generate_semester_page(
+                "Spring 2024", database=database, publication_semesters=["Spring 2024"]
+            )
+
+        recorded = load_checksums(service.checksums_file)["Spring 2024"]
+        assert recorded != compute_semester_hash(
+            "Spring 2024", database=database, milestones=[]
+        )
+
+
+def _snapshot(timestamp: str, enrollment: int = 10) -> EnrollmentSnapshot:
+    section = Section("1L", "Lecture", enrollment, 20, enrollment / 20, "Prof")
+    course = Course("CS 101", "CS", {"1L": section}, enrollment / 20, "Intro")
+    return EnrollmentSnapshot(
+        timestamp, "Spring 2024", enrollment / 20, {"CS 101": course}
+    )
+
+
+class TestRedirects:
+    def test_many_course_pages_do_not_fail_the_publish(self, tmp_path):
+        service = WebsiteService(output_dir=tmp_path)
+        semester_page = tmp_path / "semesters" / "fall-2026" / "index.html"
+        semester_page.parent.mkdir(parents=True)
+        semester_page.write_text("")
+        for number in range(2_500):
+            page = tmp_path / "courses" / "fall-2026" / f"csci-{number}" / "index.html"
+            page.parent.mkdir(parents=True)
+            page.write_text("")
+
+        redirects = service._build_redirects()
+
+        assert "/fall2026.html /semesters/fall-2026/ 301" in redirects
+        assert "/courses/" not in redirects
+
+
+class TestUnchangedPagesAreNotRewritten:
+    def course_state(self):
+        return {
+            "semester": "Fall 2026",
+            "semesterSlug": "fall-2026",
+            "slug": "csci-101",
+            "code": "CSCI 101",
+            "hash": "abcdefgh",
+            "archived": False,
+            "availability": {"sentence": "Open"},
+        }
+
+    def write(self, service, **state_overrides):
+        return service._write_course_route(
+            state={**self.course_state(), **state_overrides},
+            data={},
+            milestones=[],
+            semesters=["Fall 2026"],
+            minify_assets=False,
+            shell=PageShell("main.js", "main.css", ""),
+        )
+
+    def test_identical_course_page_keeps_its_mtime(self, tmp_path):
+        service = WebsiteService(output_dir=tmp_path)
+        route = self.write(service)
+        os.utime(route, (1_000, 1_000))
+
+        self.write(service)
+        assert route.stat().st_mtime == 1_000
+
+        self.write(service, hash="changed1")
+        assert route.stat().st_mtime != 1_000
+        assert "changed1" in route.read_text()
+
+    def test_manifest_is_read_once_for_all_course_pages(self, tmp_path):
+        service = WebsiteService(output_dir=tmp_path)
+        departments = {
+            "CSCI": {
+                "timestamps": ["2026-08-05T09:00:00+05:00"],
+                "courses": {
+                    f"CSCI {number}": {
+                        "code": f"CSCI {number}",
+                        "title": "Course",
+                        "sections": {},
+                        "averageHistory": [{"timestampIdx": 0, "fill": 0.5}],
+                        "sectionHistory": {},
+                        "events": [],
+                    }
+                    for number in range(25)
+                },
+            }
+        }
+
+        with patch(
+            "registrarmonitor.website.templates._get_asset_info",
+            return_value=("main.js", "main.css"),
+        ) as asset_info:
+            count = service._publish_course_routes(
+                semester="Fall 2026",
+                data={},
+                milestones=[],
+                departments=departments,
+                semesters=["Fall 2026"],
+                archived_semester=False,
+                published_at=None,
+                minify_assets=False,
+            )
+
+        assert count == 25
+        assert asset_info.call_count == 1
+
+
+class TestDeployDryRun:
+    def test_dry_run_needs_no_credentials_and_uploads_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        service = WebsiteService()
+        service.website_assets_dir = tmp_path
+        monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+
+        with (
+            patch.object(service, "validate_public_output", return_value=[]),
+            patch("subprocess.run") as run,
+        ):
+            run.return_value.returncode = 0
+            assert service.deploy(dry_run=True) is True
+
+        assert "--dry-run" in run.call_args.args[0]
 
 
 class TestPatchAssetHashes:
@@ -520,7 +694,7 @@ class TestValidateAssetReferences:
         with patch.object(service, "website_assets_dir", tmp_path):
             assert service._validate_asset_references_in_html() is True
 
-    def test_stale_reference_reports_page_and_url(self, tmp_path, capsys):
+    def test_stale_reference_reports_page_and_url(self, tmp_path, caplog):
         public = tmp_path / "public"
         public.mkdir(parents=True)
         (public / "fall2026.html").write_text(
@@ -531,7 +705,7 @@ class TestValidateAssetReferences:
         with patch.object(service, "website_assets_dir", tmp_path):
             assert service._validate_asset_references_in_html() is False
 
-        output = capsys.readouterr().out
+        output = caplog.text
         assert "fall2026.html" in output
         assert "assets/main-stale.js" in output
 

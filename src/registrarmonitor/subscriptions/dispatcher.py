@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import resource
 import time
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
@@ -71,6 +72,8 @@ class SubscriptionDispatcher:
         self._monotonic = monotonic
         self._last_send: dict[int, float] = {}
         self._last_global_send: float | None = None
+        self._batch_cache: tuple[tuple, tuple] | None = None
+        self._batch_run: tuple[int, float, int] | None = None
 
     async def dispatch_one(self) -> bool:
         """Process at most one due delivery; return whether work was claimed."""
@@ -78,7 +81,9 @@ class SubscriptionDispatcher:
             self.store.claim_due_delivery, lease_seconds=self.lease_seconds
         )
         if delivery is None:
+            self._log_batch_run()
             return False
+        self._note_batch_delivery(delivery.batch_id)
         user, batch = await asyncio.gather(
             asyncio.to_thread(self.store.get_user, delivery.telegram_user_id),
             asyncio.to_thread(self.store.get_batch, delivery.batch_id),
@@ -100,8 +105,10 @@ class SubscriptionDispatcher:
             )
             return True
 
-        current, previous = await asyncio.to_thread(self._load_snapshot_pair, batch)
-        if current is None or previous is None:
+        current, previous, comparison = await asyncio.to_thread(
+            self._load_batch_comparison, batch
+        )
+        if current is None or previous is None or comparison is None:
             await asyncio.to_thread(
                 self.store.finish_delivery,
                 delivery.delivery_id,
@@ -112,7 +119,8 @@ class SubscriptionDispatcher:
 
         try:
             chunks = await asyncio.to_thread(
-                self._render_digest,
+                render_personal_digest,
+                comparison,
                 current,
                 previous,
                 targets,
@@ -207,7 +215,40 @@ class SubscriptionDispatcher:
             )
         return True
 
-    def _load_snapshot_pair(self, batch):
+    def _note_batch_delivery(self, batch_id: int) -> None:
+        if self._batch_run is None or self._batch_run[0] != batch_id:
+            self._log_batch_run()
+            self._batch_run = (batch_id, self._monotonic(), 0)
+        run_batch, started, count = self._batch_run
+        self._batch_run = (run_batch, started, count + 1)
+
+    def _log_batch_run(self) -> None:
+        """Log one line for the digest batch whose deliveries were just processed."""
+        if self._batch_run is None:
+            return
+        batch_id, started, count = self._batch_run
+        self._batch_run = None
+        # ru_maxrss is KiB on Linux (the production platform).
+        peak_rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        logger.info(
+            "Digest batch processed batch_id=%s deliveries=%d duration_ms=%.0f "
+            "peak_rss_mb=%.0f",
+            batch_id,
+            count,
+            (self._monotonic() - started) * 1000,
+            peak_rss_mb,
+        )
+
+    def _load_batch_comparison(self, batch):
+        """Return the batch's snapshots and comparison, computed once per batch."""
+        key = (
+            batch.batch_id,
+            batch.semester,
+            batch.current_snapshot_id,
+            batch.previous_snapshot_id,
+        )
+        if self._batch_cache is not None and self._batch_cache[0] == key:
+            return self._batch_cache[1]
         reader = (
             self.reader_for_semester(batch.semester)
             if self.reader_for_semester
@@ -215,15 +256,17 @@ class SubscriptionDispatcher:
         )
         if reader is None:
             raise RuntimeError("No enrollment reader configured")
-        return (
-            reader.get_snapshot_data(batch.current_snapshot_id),
-            reader.get_snapshot_data(batch.previous_snapshot_id),
+        current = reader.get_snapshot_data(batch.current_snapshot_id)
+        previous = reader.get_snapshot_data(batch.previous_snapshot_id)
+        if current is None or previous is None:
+            return None, None, None
+        value = (
+            current,
+            previous,
+            SnapshotComparator().compare_snapshots(current, previous),
         )
-
-    @staticmethod
-    def _render_digest(current, previous, targets):
-        comparison = SnapshotComparator().compare_snapshots(current, previous)
-        return render_personal_digest(comparison, current, previous, targets)
+        self._batch_cache = (key, value)
+        return value
 
     async def _respect_limits(self, chat_id: int) -> None:
         now = self._monotonic()

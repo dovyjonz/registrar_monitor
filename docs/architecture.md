@@ -138,6 +138,11 @@ coupled to it:
 - Delivery is retryable and restart-safe at chunk boundaries. If Telegram accepts a
   message but the process crashes before SQLite records it, the last chunk may be
   sent again; durable progress is favored over exactly-once.
+- The poller activates batches in another process, so the bot's idle delivery loop
+  backs off from 1 to 30 seconds and resets when it finds work; a new batch can wait
+  up to 30 seconds. The snapshot comparison is computed once per batch, not per
+  recipient. The Mini App caches the active semester for 30 seconds and touches a
+  user at most every 5 minutes.
 - The bot receives updates by webhook through a Cloudflare Tunnel and runs as its
   own process, separate from the scheduler, so it can be
   operated or removed without touching enrollment history. The Mini App writes
@@ -152,15 +157,17 @@ access.
 
 The scheduler derives a `Schedule` from milestones in `settings.toml` and a small
 `Cadence` state machine from tier tables (quiet 5/15/30 minutes with backoff, burst
-down to 10 seconds, capped inside registration windows). A poll that finds the
-registrar file unchanged skips parse, compare, and publish but still counts as
-healthy and pings the heartbeat.
+down to 10 seconds, capped inside registration windows). A poll whose parsed rows
+match the previous poll's digest skips the write, compare, and publish but still
+counts as healthy and pings the heartbeat. Parsing and the SQLite write run in a
+worker thread. The website build and the wrangler upload run as child processes in
+their own memory-capped `systemd-run --user` scope at low CPU and I/O priority, so a
+build cannot starve or take down the poller.
 
 ## Analysis
 
 SQLite stays the write path. `analysis.py` attaches the per-semester databases to
-DuckDB read-only and exposes cross-semester views; saved queries live in `analysis/`
-and Parquet exports go to `data/open-data/`.
+DuckDB read-only and exposes cross-semester views; saved queries live in `analysis/`.
 
 ## Static dashboard read model
 
@@ -177,6 +184,13 @@ has current rows, aggregates, milestones, and recent-event previews, with no
 histories. A department blob has current detail, compact stepped histories, events,
 retired entities, and a local timestamp table. The browser fetches a department blob
 when its first course opens and reuses it afterwards.
+
+The read model is built by folding `course_change_event` and `section_change_event`
+rows over the semester's first checkpoint, in `sequence_no` order, so its cost scales
+with the number of changes rather than snapshots times sections; histories are kept
+as runs of constant values. The semester checksum (data, milestones, archived state)
+is taken before the data is read, so a snapshot stored during a build is published
+by the next one.
 
 Publication order is blobs, then the versioned manifest, then the pointer. An
 unchanged build writes no blobs and leaves the pointer byte-identical. Cloudflare

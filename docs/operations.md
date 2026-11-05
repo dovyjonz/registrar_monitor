@@ -37,17 +37,85 @@ user and not as the operator:
 RUNTIME_USER=dmitry_s_ivanenko scripts/setup_vps.sh
 ```
 
-The units use `uv run --locked --no-sync`: the operator owns `.venv` and syncs it,
-and the runtime user cannot write to it, so a plain `uv run` would fail trying to
-sync. This matches `scripts/runtime_doctor.sh`.
+The scheduler and bot units run `.venv/bin/monitor` directly (no `uv run`, so no
+start-up cost and no chance of a sync). The operator owns `.venv` and syncs it; the
+runtime user cannot write to it.
+
+Resource limits (override via `SCHEDULER_MEMORY_*` / `BOT_MEMORY_*` when running the
+script): the scheduler gets `MemoryHigh=300M`, `MemoryMax=400M`, and
+`OOMScoreAdjust=-500` so it is the last process the kernel kills; the bot gets
+`MemoryHigh=200M`, `MemoryMax=300M`, and `OOMScoreAdjust=-200`. The scheduler unit
+also sets `XDG_RUNTIME_DIR=/run/user/<runtime uid>`, because the poller runs the
+website build in its own `systemd-run --user --scope` with a separate memory cap and
+low CPU and I/O priority. That needs the runtime user's systemd manager running with
+no login session, so setup runs `sudo loginctl enable-linger <runtime user>` (it warns
+with the command if sudo is not available).
+
+After re-running setup and installing the units, verify on the VM:
+
+```bash
+loginctl show-user <runtime user> --property=Linger          # Linger=yes
+cat /sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service/cgroup.controllers
+                                                             # must list "memory"
+sudo -u <runtime user> XDG_RUNTIME_DIR=/run/user/<uid> \
+  systemd-run --user --scope -p MemoryMax=64M true           # exits 0
+systemctl show registrarmonitor.service -p MemoryMax -p OOMScoreAdjust
+```
+
+Memory controller delegation to `user@.service` is the default on modern systemd; if
+`memory` is missing, `MemoryMax` on the build scope is silently not enforced.
+`scripts/tune_vm.sh` installs the drop-in that fixes it (see "VM tuning").
 
 ### Deploy
 
-`make deploy-vm REV=<revision> UNIT=<unit>.service` runs `scripts/deploy_vm.sh`: it
-fetches the named revision on the VM (`VM_HOST`, `VM_PATH`, optional `VM_USER` and
-`VM_REMOTE` in `.env`), runs `uv sync --locked`, restarts only that unit, and prints
-the deployed revision. Push the revision first. It runs only when explicitly
-authorized.
+Sync and restart are separate steps. `make deploy-vm REV=<revision>` runs
+`scripts/deploy_vm.sh sync`: fetch and check out the revision on the VM, `uv sync
+--locked`, and `npm ci --prefix frontend` only when the frontend lockfile changed. It
+restarts nothing, so running processes keep the old code. Add `UNIT=<unit>.service`
+to also run `scripts/deploy_vm.sh restart`, which restarts that one unit only if it
+is currently active, then waits `HEALTH_WAIT` seconds (default 30) and fails if the
+unit leaves `active` or restarts on its own. A stopped unit is never started; in
+particular the scheduler stays stopped between registration periods. The bot has no
+health endpoint, so its check is the stable `active` state. Deploy well outside a
+milestone window and only when explicitly authorized.
+
+Configuration comes from the environment: `VM_HOST`, `VM_PATH`, optional `VM_USER`
+and `VM_REMOTE`. Plain `ssh` is the default. `gcloud compute ssh` uses its own key
+and known-hosts, so with it set `VM_SSH=gcloud`, `VM_HOST=<instance name>`, and
+`GCLOUD_SSH_ARGS="--project registrarmonitor --zone us-east1-c"`. Pushing the
+revision first is required.
+
+Installs always run here as the SSH operator, which owns `frontend/node_modules`
+(group-readable for the runtime user). Do not run `npm install` or `npm ci` as the
+runtime user.
+
+### Period start and stop
+
+End of a period: stop `registrarmonitor.service` (authorized), then run
+`scripts/healthcheck_pause.sh` on the VM so the Healthchecks.io check does not alert
+while polling is deliberately off. It calls the management API
+(`POST /api/v3/checks/<uuid>/pause`) with `HEALTHCHECKS_API_KEY` and
+`HEALTHCHECKS_CHECK_UUID` from `.env` and prints no secrets. Start of a period:
+sync and verify first (`monitor doctor`), then start the scheduler. The check
+resumes by itself on the first successful poll's ping; there is no separate resume
+step. Create the read-write API key in the Healthchecks.io project settings.
+
+After a long stop, before the first start:
+
+1. `monitor rehearse [--semester S]` copies the semester database to a scratch
+   directory (all `DIRECTORIES__*` paths redirected), clears the Telegram, Cloudflare,
+   heartbeat, and Sentry credentials, runs one download, store, and report cycle on the
+   copy, and checks that the live database files are unchanged. It prints whether the
+   download and parse worked, the parsed size, whether a snapshot was stored, and the
+   catch-up report size. `--keep` leaves the scratch directory for inspection. It
+   sends, queues, and deploys nothing.
+2. `monitor poll` (storage must already exist via `monitor db initialize --semester S`;
+   polling never creates it) stores the current state, then `monitor baseline [--semester S]`
+   records the latest snapshot as reported (it prints the old and new snapshot ids).
+   Otherwise the first start would post everything that changed since the last
+   report to the channel and queue subscriber digests for it. Baseline sends nothing
+   and is safe to repeat. Both change the live database, so they need explicit
+   authorization like any other production write.
 
 ### Registrar TLS
 
@@ -55,9 +123,16 @@ Downloads always verify the registrar's certificate. `data_source.ca_bundle` in
 `settings.toml` names a PEM file with the intermediate and root certificates; create
 it on the polling host with `scripts/fetch_registrar_ca.sh` (defaults to
 `data/registrar-chain.pem`) and re-run it if the registrar changes its chain.
-Without a bundle, system verification applies. Scheduler polls send the stored
-`ETag`/`Last-Modified` (`data/download_state.json`) and compare a SHA-256 of the
-body, so an unchanged file skips parse, compare, and publish.
+`scripts/fetch_registrar_ca.sh` exits non-zero if the connection fails, no
+certificate is sent, or the written chain does not verify. `monitor doctor` warns when
+any certificate in the bundle expires within 30 days; refresh it then. Without a
+bundle, system verification applies. The registrar file embeds a generation
+timestamp, so its bytes differ on every download; the scheduler instead compares a
+digest of the parsed rows with the previous poll's, and an unchanged poll skips the
+snapshot write, comparison, report, and publish. `data/downloads` keeps the newest 5
+files and `data/changes` the newest 200 reports. Each poll logs one line,
+`Poll <status> duration=… peak_rss=…`; each generation phase logs its duration and
+peak RSS, and each digest batch logs `Digest batch processed … peak_rss_mb=…`.
 
 ### Files and permissions
 
@@ -66,6 +141,94 @@ The operator owns source, `.git`, `.jj`, and `.venv`. The runtime user owns `dat
 `registrarmonitor`; shared directories are setgid with default ACLs. `.env` is
 `0600`, owned by the runtime user, with no shared ACL. Do not broaden the checkout
 root or `.env` permissions to fix a nested-path problem.
+
+### VM tuning
+
+The VM has 1 GB of RAM, 2 GB of disk swap, a small slow persistent disk, and a
+shared-core CPU. Goal: the poller and bot are never starved by a website build or a
+registration burst, and swap and writeback do not stall them. `scripts/setup_vps.sh`
+tunes the project units; `scripts/tune_vm.sh` tunes the operating system.
+
+**Unit budget** (set by `setup_vps.sh`; override with the `*_MEMORY_*` variables).
+"Typical" is the scheduler's measured peak and the build's measured share of RAM;
+the other rows are estimates until measured with `tune_vm.sh --status` during a period.
+
+| Unit | MemoryHigh / MemoryMax | OOMScoreAdjust | CPU / IO weight | Typical |
+|---|---|---|---|---|
+| `registrarmonitor` (scheduler) | 300M / 400M | -500 | 200 / 200 | 68M |
+| `registrarmonitor-bot` | 200M / 300M | -200 | 150 / 150 | ~90M |
+| `registrarmonitor-tunnel` | 96M / 128M | 0 | 75 / 75 | ~40M |
+| `registrarmonitor-litestream` | 128M / 192M | 200 | 50 / 50, `Nice=10` | ~60M |
+| website build scope (transient) | none / `website.build_memory_max` (600M) | 500 | 20 / 20, nice 10, ionice idle | ~220M (23%) |
+| kernel, systemd, journald, sshd, guest agents | uncapped | 0 | 100 / 100 | ~150M |
+
+The caps are ceilings, not a forecast: they sum to more than RAM (services 1,020M,
+plus 600M for the build). Expected use is about 410M steady and about 630M during a
+build, which leaves the rest for page cache. If every cap were hit, zram and the disk
+swap absorb the excess, and the kernel kills in this order: build, Litestream, other
+processes, bot, scheduler. The scheduler and bot also run with `MALLOC_ARENA_MAX=2`
+(glibc per-thread arenas inflate RSS), the scheduler with
+`NODE_OPTIONS=--max-old-space-size=384` so vite and wrangler children collect garbage
+inside the build cap, and the Go units with a `GOMEMLIMIT` below their `MemoryHigh`.
+`IOWeight`, `ionice -c 3`, and the build's I/O priority only take effect under the
+`bfq` I/O scheduler (see `--bfq` below); with the default `mq-deadline` or `none` they
+are inert, while CPU weights and memory caps work regardless.
+
+**What `scripts/tune_vm.sh` does.** Dry run by default; it prints the current values
+and the plan, and changes nothing without `--apply`. It uses `sudo`, is idempotent
+(files with matching content are left alone), never restarts a project unit, never
+touches `/etc/fstab`, networking, or `google-guest-agent`, and never reads `.env`.
+
+| Step | Change |
+|---|---|
+| `zram` | installs `zram-tools`, sets zstd at 50% of RAM, priority 100 (disk swap, priority -2, stays as the fallback), enables `zramswap.service`. Skipped when the kernel has no zram. If zram already holds more than 64 MiB, a settings change waits for a reboot. |
+| `sysctl` | `vm.dirty_background_bytes` 16 MiB, `vm.dirty_bytes` 64 MiB (bound writeback stalls on the slow disk), `vm.vfs_cache_pressure` 50, and, only with zram, `vm.swappiness` 100 and `vm.page-cluster` 0 |
+| `thp` | transparent hugepages to `madvise` (Debian defaults to `always`, which bloats small processes) |
+| `journald` | persistent, compressed, `SystemMaxUse=200M`, 14 days, rate limit 5000 per 30 s; restarts `systemd-journald` |
+| `timers` | `apt-daily` at 03:30 and `apt-daily-upgrade` at 04:00 `Asia/Almaty` (20 min random delay), `fstrim` Mondays 04:40, all `Persistent=false` so a boot or timer restart never triggers a catch-up run; disables `man-db.timer`. Check the next milestone in `settings.toml` first: 03:30-04:40 must not fall in a registration window. |
+| `delegation` | drop-in so `user@.service` delegates `memory pids cpu io`, which the build scope's `MemoryMax`, `CPUWeight`, and `IOWeight` need. It is read when `user@<uid>.service` next starts (reboot, or restart it while no build runs). |
+
+Opt-in only: `--disable-osconfig` stops `google-osconfig-agent` (saves tens of MB;
+GCP OS Config patching and inventory stop), and `--bfq` switches the disk to the `bfq`
+scheduler (makes the build's idle I/O class and `IOWeight` effective; costs some CPU).
+`--skip zram,timers,...` leaves steps out.
+
+Run on the VM as the SSH operator, naming the runtime account:
+
+```bash
+RUNTIME_USER=dmitry_s_ivanenko scripts/tune_vm.sh            # dry run
+RUNTIME_USER=dmitry_s_ivanenko scripts/tune_vm.sh --apply    # only when authorized
+```
+
+Apply well outside a milestone window; installing zram and restarting journald are
+brief but real activity on a 1 GB VM. Also re-run `scripts/setup_vps.sh`, then install
+the regenerated units and restart them one at a time (each is a separate authorized
+action) so the new limits and environment take effect.
+
+**Verify.** `scripts/runtime_doctor.sh --vm` (or `scripts/tune_vm.sh --status`) is
+read-only and needs no sudo. It reports swap devices and zram usage, the sysctls,
+THP and I/O scheduler, whether `user@<uid>.service` delegates `memory`, journald disk
+usage, the maintenance timers, and each project unit's current memory and limits.
+Also `swapon --show` (zram first, priority 100), `systemctl list-timers 'apt-daily*'`,
+and the `systemd-run` check under "Production".
+
+**Revert.** Each item is a file or state this script created; remove it and reload:
+
+| Created | Undo |
+|---|---|
+| `/etc/default/zramswap` (original at `.registrarmonitor.bak`), `zramswap.service` | restore the backup, or `sudo apt-get remove zram-tools`; reboot or `swapoff /dev/zram0` |
+| `/etc/sysctl.d/90-registrarmonitor.conf` | delete, then `sudo sysctl --system` (the old values return after reboot) |
+| `/etc/tmpfiles.d/90-registrarmonitor-thp.conf` | delete; `echo always` to the sysfs knob or reboot |
+| `/etc/systemd/journald.conf.d/90-registrarmonitor.conf` | delete, `sudo systemctl restart systemd-journald` |
+| `/etc/systemd/system/{apt-daily,apt-daily-upgrade,fstrim}.timer.d/90-registrarmonitor.conf` | delete the files, `sudo systemctl daemon-reload`, restart the timers; `sudo systemctl enable --now man-db.timer` |
+| `/etc/systemd/system/user@.service.d/90-registrarmonitor-delegate.conf` | delete, `sudo systemctl daemon-reload` |
+| `/etc/udev/rules.d/60-registrarmonitor-io-scheduler.rules` (`--bfq`) | delete, `sudo udevadm control --reload`, reboot |
+| `google-osconfig-agent` (`--disable-osconfig`) | `sudo systemctl enable --now google-osconfig-agent` |
+
+Not done on purpose: no fstab or mount-option changes (`noatime`, `commit=`), no
+`MemorySwapMax` on the scheduler (forbidding swap makes it the first thing killed under
+pressure), no `vm.min_free_kbytes` or overcommit changes, and no change to the page
+cache or database settings; there is no measurement yet that justifies them.
 
 ### Change boundaries
 
@@ -90,15 +253,19 @@ gcloud compute ssh instance-20260501-152532 --project registrarmonitor \
 ## Doctor and logs
 
 `monitor doctor` (`--json`, `--output`) checks toolchains and lockfiles, required
-paths with temporary write probes, frontend executables, and SQLite integrity,
+paths with temporary write probes, frontend executables, the `ca_bundle` expiry, and SQLite integrity,
 foreign keys, and schema version. Missing optional state is a warning; integrity
 failures and missing required tools are errors. On the VM, run
-`scripts/runtime_doctor.sh` as the application user (locked dependencies, no sync).
+`scripts/runtime_doctor.sh` as the application user (it runs the same `.venv/bin/monitor` as the units).
 `monitor db stats` summarizes the databases.
 
-Commands write human-readable stdout and rotating logs in the configured logs
-directory; the `schedule` and `bot` services (or `LOG_FORMAT=json`) log JSON lines
-to the journal. The scheduler also writes one JSON object per decision to
+Commands log one plain-text line per event (`time LEVEL logger: message`) to stdout
+and to a single rotating `registrar_monitor.log` in the configured logs directory;
+the level is colored only on a TTY, and `print` is kept for command results such as
+tables and JSON. `doctor` emits no log lines. The `schedule` and `bot` services (or
+`LOG_FORMAT=json`) log JSON lines to the journal only, with no log file; filter them
+with `journalctl -u registrarmonitor.service -o cat | jq -R 'fromjson? | select(.level != "INFO")'`.
+The scheduler also writes one JSON object per decision to
 `scheduler_decisions.jsonl`. Expected no-ops are `INFO`, retryable degradation
 `WARNING`, failed operations `ERROR`. Logs must not contain secrets, Telegram
 identifiers, or full registrar payloads.
@@ -118,7 +285,8 @@ polling.
 ## Website publication
 
 The dashboard is a static site generated from matching, non-empty SQLite snapshots
-(`monitor deploy`; `--deploy` runs `wrangler deploy`) and served as the Static Assets
+(`monitor deploy`; `--deploy` runs `wrangler deploy`, `--dry-run` runs it with
+`--dry-run` after generating, `--upload-only` deploys the existing output) and served as the Static Assets
 of the `registrar-monitor` Worker (`workers/site`). `settings.toml` defines
 registrar sources, milestones, and publication settings; configured terms without
 valid stored courses are not published. Terms order Fall, Spring, Summer within
@@ -142,7 +310,9 @@ registrar years.
   (a 32-character hex site token); the cookieless beacon is added to generated pages
   only when it is non-empty.
 
-Only generated `.html` routes get exact redirects. Removed courses keep their last
+Only the old semester `.html` pages get exact redirects; old course `.html` URLs are
+not redirected (one per course exceeded the 2,000-redirect limit). Unchanged pages and
+data files are not rewritten. Removed courses keep their last
 route and modal state. Live course share and Open Graph URLs carry the preview token
 as `?v=<token>`; closing a course restores the clean semester route. Generated-output
 validation rejects private files, root JSON payloads, and obsolete non-index HTML.
@@ -150,7 +320,7 @@ Every page is `noindex, nofollow`; `robots.txt` lets crawlers read that directiv
 `.checksums.json` and `.frontend-build-hash` stay local (`.assetsignore`).
 
 The frontend bundle is rebuilt only when `frontend/src`, `package.json`,
-`package-lock.json`, or `vite.config.js` change (hash in `.frontend-build-hash`), so
+`package-lock.json`, or `vite.config.mjs` change (hash in `.frontend-build-hash`), so
 routine publications do not run Node builds on the 1 GB VM. Frontend builds rely
 on the VM's 2 GB of swap. Wrangler uploads only
 assets Cloudflare does not already have, so each deploy sends just the changed pages
@@ -186,7 +356,8 @@ Invalid state is a non-cacheable 404; read or render failure is a non-cacheable 
 and never blocks publication or substitutes stale content. The Telegram Mini App API is
 not on this Worker; the bot serves it (see Telegram).
 
-`monitor deploy --deploy` (and the scheduler) runs `wrangler deploy` for the Worker
+`monitor deploy --deploy` (and the scheduler, as `monitor deploy --upload-only` in a
+capped child process) runs `wrangler deploy` for the Worker
 and the site together; it needs `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` in `.env`. The token needs Account > Workers Scripts > Edit,
 Zone > Workers Routes > Edit on `seatwatch.fyi`, and Zone > Zone > Read. The
@@ -334,14 +505,12 @@ verify, then restart. Bot recovery can replay deliveries or lose watches created
 after the last replicated write; reconcile before resuming. Site Worker deployment
 stays separately authorized.
 
-## Analysis and open data
+## Analysis
 
 `monitor analyze` lists the saved DuckDB queries in `analysis/*.sql`;
 `monitor analyze <name> [--csv FILE]` runs one across every configured semester
 database, attached read-only through DuckDB's `sqlite` extension (downloaded on first
-use). `monitor export-parquet "<semester>" [--out DIR]` writes one row per section
-per snapshot to `<DIR>/<semester>.parquet` (default `data/open-data/`, untracked).
-Neither command writes to SQLite.
+use). It never writes to SQLite.
 
 ## Free tiers
 
@@ -349,7 +518,7 @@ Neither command writes to SQLite.
 |---|---|---|
 | Cloudflare Workers | 100k Worker invocations/day | Only `/preview/*` invokes the Worker; static asset requests are free and unlimited. The Mini App API runs on the VM, not the Worker |
 | Workers Static Assets | 20,000 assets per version, 25 MiB per file | About 1,300 files now; keep the count well under the cap |
-| Cache API | Does nothing on `workers.dev` | Works on a custom domain, which matters only for Worker-handled `/preview/*` responses |
+| Cache API | Does nothing on `workers.dev` | `workers_dev` and preview URLs are off; on the custom domain `/preview/*` responses are cached with `caches.default` |
 | Cloudflare R2 | 10 GB-month, 1M Class A, 10M Class B per month | Litestream only; a 5-minute sync interval is about 8.6k PUTs/month per active database |
 | GCP Always Free | One e2-micro in us-west1, us-central1, or us-east1 | The VM is in us-east1-c |
 | GCP disk | 30 GB standard persistent disk (not balanced, the default for new VMs) | Boot disk must be standard PD |
@@ -368,7 +537,7 @@ Neither command writes to SQLite.
   `output/playwright/`.
 - `make worker-check`: site Worker tests, types, and `wrangler deploy --dry-run`.
 - `make site-generate`: builds the dashboard and generates the production site.
-- `make deploy-vm`: authorized VM deploy of one revision and unit (see Deploy).
+- `make deploy-vm`: authorized VM sync of one revision, optionally restarting one active unit (see Deploy).
 
 CI has three jobs: Python 3.13 (Ruff, ty, pytest); Frontend and Worker (lint, unit
 tests, build, Worker checks); and Browser smoke, run only when `frontend/` or

@@ -55,6 +55,36 @@ BOT_ALLOWED_UPDATES = [Update.MESSAGE, Update.CALLBACK_QUERY, Update.MY_CHAT_MEM
 MAX_CONCURRENT_UPDATES = 8
 MAX_QUEUED_UPDATES = 1024
 SLOW_UPDATE_SECONDS = 3.0
+ACTIVE_SEMESTER_TTL_SECONDS = 30.0
+IDLE_POLL_MIN_SECONDS = 1.0
+IDLE_POLL_MAX_SECONDS = 30.0
+
+
+class IdleBackoff:
+    """Exponential idle delay, reset whenever work is found.
+
+    Batches are activated by the poller process, so the bot cannot be woken by
+    an in-process event; a capped backoff bounds both idle cost and latency.
+    """
+
+    def __init__(
+        self,
+        minimum: float = IDLE_POLL_MIN_SECONDS,
+        maximum: float = IDLE_POLL_MAX_SECONDS,
+    ) -> None:
+        self.minimum = minimum
+        self.maximum = maximum
+        self._delay = minimum
+
+    def reset(self) -> None:
+        self._delay = self.minimum
+
+    def next_delay(self) -> float:
+        delay = self._delay
+        self._delay = min(self.maximum, self._delay * 2)
+        return delay
+
+
 MENU_BUTTON_TEXT = "Open app"
 
 
@@ -299,6 +329,8 @@ class SubscriptionBotRuntime:
         self.diagnostics = BotRuntimeDiagnostics(self.store)
         self._diagnostics_log_handler = RecentSubscriptionLogHandler(self.diagnostics)
         self._catalog_lock = asyncio.Lock()
+        self._clock: Callable[[], float] = monotonic
+        self._semester_cache: tuple[float, str | None] | None = None
         self._catalog_key: tuple[str, int] | None = None
         self._catalog: SubscriptionCatalog | None = None
         update_processor = LatencyTrackingUpdateProcessor(
@@ -416,7 +448,7 @@ class SubscriptionBotRuntime:
 
     async def _latest_catalog(self) -> SubscriptionCatalog | None:
         async with self._catalog_lock:
-            semester = await asyncio.to_thread(find_active_semester)
+            semester = await self._active_semester()
             if not semester:
                 return None
             snapshot_id = await asyncio.to_thread(self._latest_snapshot_id, semester)
@@ -431,6 +463,16 @@ class SubscriptionBotRuntime:
             self._catalog_key = key
             self._catalog = SubscriptionCatalog(snapshot) if snapshot else None
             return self._catalog
+
+    async def _active_semester(self) -> str | None:
+        """Find the active semester, scanning databases at most once per TTL."""
+        now = self._clock()
+        cached = self._semester_cache
+        if cached is not None and now - cached[0] < ACTIVE_SEMESTER_TTL_SECONDS:
+            return cached[1]
+        semester = await asyncio.to_thread(find_active_semester)
+        self._semester_cache = (now, semester)
+        return semester
 
     @staticmethod
     def _latest_snapshot_id(semester: str) -> int | None:
@@ -459,6 +501,7 @@ class SubscriptionBotRuntime:
         next_cleanup = 0.0
         next_recovery = 0.0
         loop = asyncio.get_running_loop()
+        backoff = IdleBackoff()
         while True:
             if loop.time() >= next_recovery:
                 await asyncio.to_thread(self._recover_pending_batches)
@@ -470,8 +513,10 @@ class SubscriptionBotRuntime:
                     inactive_user_days=bot_config.inactive_user_days,
                 )
                 next_cleanup = loop.time() + cleanup_interval
-            if not await dispatcher.dispatch_one():
-                await asyncio.sleep(1)
+            if await dispatcher.dispatch_one():
+                backoff.reset()
+            else:
+                await asyncio.sleep(backoff.next_delay())
 
     def _recover_pending_batches(self) -> None:
         semesters = {batch.semester for batch in self.store.list_pending_batches()}

@@ -75,7 +75,9 @@ class TestDownloadAndProcessLatest:
         assert snapshot is sample_snapshot
         assert path == "/tmp/data.xls"
         mock_deps["downloader"].download.assert_awaited_once()
-        mock_deps["processor"].save_snapshot.assert_called_once_with(sample_snapshot)
+        mock_deps["processor"].save_snapshot.assert_called_once_with(
+            sample_snapshot, mock_deps["db_manager"]
+        )
 
     @pytest.mark.asyncio
     async def test_download_failure_returns_false(self, mock_deps):
@@ -90,7 +92,8 @@ class TestDownloadAndProcessLatest:
 
 
 class TestProcessSpecificFile:
-    def test_processes_existing_file(self, mock_deps, sample_snapshot, tmp_path):
+    @pytest.mark.asyncio
+    async def test_processes_existing_file(self, mock_deps, sample_snapshot, tmp_path):
         file_path = str(tmp_path / "data.xls")
         Path(file_path).write_bytes(b"")
         mock_deps["excel_reader"].read_excel_data.return_value = (
@@ -101,12 +104,48 @@ class TestProcessSpecificFile:
         mock_deps["processor"].process_data.return_value = sample_snapshot
 
         service = MonitoringService()
-        success, snapshot = service.process_specific_file(file_path)
+        processed = await service.process_specific_file(file_path)
 
-        assert success is True
-        assert snapshot is sample_snapshot
+        assert processed.success is True
+        assert processed.snapshot is sample_snapshot
+        assert processed.unchanged is False
+        assert processed.digest
 
-    def test_rejects_mismatched_registrar_semester_before_saving(
+    @pytest.mark.asyncio
+    async def test_unchanged_rows_skip_processing_and_storage(
+        self, mock_deps, sample_snapshot, tmp_path
+    ):
+        file_path = str(tmp_path / "data.xls")
+        Path(file_path).write_bytes(b"")
+        rows = [
+            {"Course Abbr": "CS 101", "Enr": 25},
+            {"Course Abbr": "CS 102", "Enr": 3},
+        ]
+        mock_deps["excel_reader"].read_excel_data.side_effect = [
+            ("Spring 2024", "2024-01-15 10:00:00", rows),
+            # Later response: new sheet timestamp and row order, same data.
+            ("Spring 2024", "2024-01-15 10:00:10", list(reversed(rows))),
+            ("Spring 2024", "2024-01-15 10:00:20", [{**rows[0], "Enr": 26}, rows[1]]),
+        ]
+        mock_deps["processor"].process_data.return_value = sample_snapshot
+        service = MonitoringService()
+
+        first = await service.process_specific_file(file_path)
+        same = await service.process_specific_file(file_path, first.digest)
+        changed = await service.process_specific_file(file_path, first.digest)
+
+        assert same.unchanged is True
+        assert same.success is True
+        assert same.snapshot is None
+        assert same.digest == first.digest
+        assert changed.unchanged is False
+        assert changed.snapshot is sample_snapshot
+        assert changed.digest != first.digest
+        assert mock_deps["processor"].process_data.call_count == 2
+        assert mock_deps["processor"].save_snapshot.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_rejects_mismatched_registrar_semester_before_saving(
         self, mock_deps, tmp_path
     ):
         file_path = tmp_path / "data.xls"
@@ -118,11 +157,8 @@ class TestProcessSpecificFile:
         )
 
         service = MonitoringService(semester="Fall 2026")
-        success, snapshot = service.process_specific_file(str(file_path))
+        processed = await service.process_specific_file(str(file_path))
 
-        assert success is False
-        assert snapshot is None
+        assert processed.success is False
+        assert processed.snapshot is None
         mock_deps["processor"].save_snapshot.assert_not_called()
-
-        assert success is False
-        assert snapshot is None

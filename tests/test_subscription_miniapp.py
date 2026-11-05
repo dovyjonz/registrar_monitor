@@ -209,3 +209,29 @@ async def test_only_the_site_origin_may_call_the_api(client, store):
     assert preflight.headers["access-control-allow-origin"] == ORIGIN
     assert rejected_preflight.status_code == 400
     assert allowed.headers["access-control-allow-origin"] == ORIGIN
+
+
+@pytest.mark.asyncio
+async def test_user_touch_is_throttled(store, current_snapshot):
+    touches = []
+    real_touch = store.touch_user
+    store.touch_user = lambda **kw: (touches.append(kw), real_touch(**kw))[1]
+    now = 0.0
+
+    async def provide_catalog():
+        return SubscriptionCatalog(current_snapshot)
+
+    api = MiniAppApi(store, provide_catalog, BOT_TOKEN, ORIGIN, clock=lambda: now)
+    request = SimpleNamespace(
+        headers={
+            "origin": ORIGIN,
+            "authorization": f"tma {sign_init_data()}",
+        }
+    )
+    await api._authenticate(cast(Any, request))
+    now += 10
+    await api._authenticate(cast(Any, request))
+    assert len(touches) == 1
+    now += api.touch_interval
+    await api._authenticate(cast(Any, request))
+    assert len(touches) == 2

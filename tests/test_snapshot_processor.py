@@ -1,6 +1,7 @@
 """Tests for the snapshot processor module."""
 
-from pathlib import Path
+import logging
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -10,9 +11,9 @@ from registrarmonitor.data.snapshot_processor import SnapshotProcessor
 
 
 @pytest.fixture
-def processor(tmp_path: Path) -> SnapshotProcessor:
-    """Create a SnapshotProcessor with a temporary data directory."""
-    return SnapshotProcessor(data_dir=str(tmp_path))
+def processor() -> SnapshotProcessor:
+    """Create a SnapshotProcessor."""
+    return SnapshotProcessor()
 
 
 class TestProcessData:
@@ -184,3 +185,39 @@ class TestProcessData:
         snapshot = processor.process_data(data, "Spring 2024", "2024-01-15 10:30:00")
 
         assert snapshot.courses["BUS 101"].sections["10L"].instructor == ""
+
+
+class TestSaveSnapshot:
+    """Tests for save_snapshot output."""
+
+    @pytest.mark.parametrize(
+        ("stored", "message"),
+        [(True, "Stored snapshot"), (False, "not stored")],
+    )
+    def test_message_reflects_whether_row_was_stored(
+        self,
+        processor: SnapshotProcessor,
+        caplog: pytest.LogCaptureFixture,
+        stored: bool,
+        message: str,
+    ):
+        processor.db_manager = MagicMock()
+        result = processor.db_manager.store_enrollment_snapshot.return_value
+        result.created = stored
+        snapshot = MagicMock()
+        processor._current_semester = snapshot.semester
+
+        with caplog.at_level(
+            logging.INFO, logger="registrarmonitor.data.snapshot_processor"
+        ):
+            assert processor.save_snapshot(snapshot) is result
+        assert message in caplog.text
+
+    def test_uses_the_callers_database_manager(self, processor: SnapshotProcessor):
+        db = MagicMock()
+        snapshot = MagicMock()
+
+        result = processor.save_snapshot(snapshot, db)
+
+        db.store_enrollment_snapshot.assert_called_once_with(snapshot)
+        assert result is db.store_enrollment_snapshot.return_value

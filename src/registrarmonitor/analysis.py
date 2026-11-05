@@ -9,7 +9,6 @@ Saved queries live in ``analysis/<name>.sql`` at the repository root.
 from __future__ import annotations
 
 import csv
-import os
 import re
 import sqlite3
 from collections.abc import Mapping, Sequence
@@ -23,7 +22,6 @@ import duckdb
 from .config import Settings, get_settings, get_timezone
 
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent.parent / "analysis"
-DEFAULT_EXPORT_DIR = Path("data") / "open-data"
 
 # v2 tables exposed as cross-semester views.
 UNION_TABLES = (
@@ -254,51 +252,3 @@ def write_csv(
         writer = csv.writer(handle)
         writer.writerow(columns)
         writer.writerows(rows)
-
-
-EXPORT_QUERY = """
-    SELECT semester,
-           snapshot_id,
-           sequence_no,
-           observed_at,
-           course_code,
-           department,
-           course_title,
-           section_code,
-           section_type,
-           instructor,
-           enrollment_count,
-           capacity_count,
-           round(fill, 6) AS fill
-    FROM section_history
-    ORDER BY sequence_no, course_code, section_code
-"""
-
-
-def export_parquet(
-    semester: str,
-    out_dir: Path | str = DEFAULT_EXPORT_DIR,
-    settings: Settings | None = None,
-) -> Path:
-    """Write ``<out_dir>/<semester stem>.parquet``: one row per section per snapshot."""
-    settings = settings if settings is not None else get_settings()
-    databases = configured_databases(settings)
-    if semester not in databases:
-        known = ", ".join(databases) or "none"
-        raise AnalysisError(f"no database for semester {semester!r}; found: {known}")
-    target_dir = Path(out_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{semester_file_stem(semester)}.parquet"
-    partial = target.with_name(target.name + ".partial")
-    connection = open_analysis({semester: databases[semester]}, settings)
-    try:
-        connection.execute(
-            f"COPY ({EXPORT_QUERY}) TO {_quote(str(partial))} (FORMAT parquet)"
-        )
-    except BaseException:
-        partial.unlink(missing_ok=True)
-        raise
-    finally:
-        connection.close()
-    os.replace(partial, target)
-    return target

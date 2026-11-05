@@ -88,6 +88,24 @@ def _replace_json(path: Path, value: Any) -> None:
     os.replace(temporary, path)
 
 
+def write_if_changed(path: Path, content: str | bytes) -> bool:
+    """Write a generated file only when its bytes differ, keeping its mtime otherwise.
+
+    Returns whether the file was written. Unchanged pages keep their mtime so
+    nothing downstream (uploads, backups, caches keyed on mtime) sees churn.
+    """
+    payload = content.encode("utf-8") if isinstance(content, str) else content
+    try:
+        if path.stat().st_size == len(payload) and path.read_bytes() == payload:
+            return False
+    except FileNotFoundError:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_bytes(payload)
+    os.replace(temporary, path)
+    return True
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -846,9 +864,7 @@ def build_frontend_payloads_v3(
         "milestones": _normalise_milestones(milestones),
         "courses": {code: summary_courses[code] for code in sorted(summary_courses)},
     }
-    _validate_summary_v3(summary, semester)
-    for department, department_payload in departments.items():
-        _validate_department_v3(department_payload, semester, department)
+    # publish_semester validates both payloads before anything is written.
     return summary, departments
 
 

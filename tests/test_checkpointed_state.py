@@ -122,6 +122,15 @@ def test_identical_poll_only_advances_last_seen(tmp_path: Path) -> None:
             "SELECT observed_at, last_seen_at FROM state_snapshot"
         ).fetchone() == (first.timestamp, duplicate.timestamp)
 
+    # Replaying an older identical file never moves last_seen_at backwards.
+    older = _changed_snapshot()
+    older.timestamp = first.timestamp
+    manager.store_enrollment_snapshot(older)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT last_seen_at FROM state_snapshot"
+        ).fetchone() == (duplicate.timestamp,)
+
 
 def test_v2_deduplicates_instructor_markup_and_order_only_changes(
     tmp_path: Path,
@@ -223,3 +232,22 @@ def test_v2_ignores_presentation_only_instructor_change_with_other_changes(
             (result.snapshot_id,),
         ).fetchone()
     assert tuple(event) == ("2L", "Ada Lovelace", "Ada Lovelace")
+
+
+def test_older_changed_file_is_refused_without_writing(tmp_path: Path) -> None:
+    from registrarmonitor.data.checkpointed_state import OutOfOrderSnapshotError
+
+    database = tmp_path / "order.db"
+    manager = DatabaseManager(db_path=str(database), semester="Summer 2025")
+    first = _changed_snapshot()
+    manager.store_enrollment_snapshot(first)
+    older = _changed_snapshot()
+    older.timestamp = "2020-01-01 00:00:00"
+    older.overall_fill = first.overall_fill + 1
+
+    with pytest.raises(OutOfOrderSnapshotError, match="not newer"):
+        manager.store_enrollment_snapshot(older)
+    with sqlite3.connect(database) as connection:
+        assert (
+            connection.execute("SELECT count(*) FROM state_snapshot").fetchone()[0] == 1
+        )

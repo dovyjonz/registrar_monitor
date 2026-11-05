@@ -15,16 +15,15 @@ telegram_bot_state = "data/telegram_bot.db"
 ca_bundle = "data/registrar-chain.pem"
 
 [notifications]
-# File write delay before sending notifications (seconds)
-file_write_delay = 3
 # Enable/disable dry run mode
 dry_run = false
 
 [website]
-# Update interval in minutes
-update_interval = 30
 # Maximum time allowed for a website generation child process (seconds).
 generation_timeout_seconds = 3600
+# Memory cap for the website build and deploy children, which run in their own
+# systemd scope so an out-of-memory kill cannot take the poller with it.
+build_memory_max = "600M"
 # Public origin of the site Worker (workers/site), used for canonical links, Open
 # Graph tags, and preview image URLs.
 base_url = "https://seatwatch.fyi"

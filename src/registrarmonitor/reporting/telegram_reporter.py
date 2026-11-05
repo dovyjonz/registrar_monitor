@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import logging
 import os
 
 from telegram import Bot
@@ -12,6 +13,8 @@ from ..models import EnrollmentSnapshot
 from ..subscriptions.models import SubscriptionTarget
 from ..subscriptions.payloads import watch_deep_link
 from .telegram_formatting import CourseLink, render_report_chunks
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramReporter:
@@ -28,7 +31,6 @@ class TelegramReporter:
         self.bot_token = token.get_secret_value()
         self.chat_id = chat.get_secret_value()
         self.text_reports_dir = settings.directories.text_reports
-        self.file_write_delay = settings.notifications.file_write_delay
         self.dry_run = settings.notifications.dry_run
         self.bot = Bot(token=self.bot_token)
         self._bot_username: str | None = None
@@ -49,7 +51,6 @@ class TelegramReporter:
 
         With ``snapshot``, each listed course links to a one-tap watch in the bot.
         """
-        await asyncio.sleep(self.file_write_delay)
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"TXT file disappeared before sending: {file_path}")
 
@@ -59,20 +60,23 @@ class TelegramReporter:
                 preview = await asyncio.to_thread(
                     self._read_file_content, file_path, "utf-8", 1000
                 )
-                print(
-                    f"[DRY RUN] Would send TXT report: {file_path}\n"
-                    f"Filename: {filename}\n"
-                    f"Content Preview (first 1000 chars):\n{preview}..."
+                logger.info(
+                    "Dry run: would send TXT report path=%s chars=%d",
+                    file_path,
+                    len(preview),
                 )
-            except Exception as error:
-                print(f"[DRY RUN] Error reading TXT file for preview: {error}")
+                logger.debug("Dry run preview: %s", preview)
+            except Exception:
+                logger.exception(
+                    "Dry run: failed to read TXT report preview path=%s", file_path
+                )
             return
 
         content = await asyncio.to_thread(self._read_file_content, file_path, "utf-8")
         await self._send_long_report(
             content, course_link=await self._course_link(snapshot)
         )
-        print(f"Successfully sent TXT report: {filename}")
+        logger.info("Sent TXT report filename=%s", filename)
 
     async def _course_link(
         self, snapshot: EnrollmentSnapshot | None

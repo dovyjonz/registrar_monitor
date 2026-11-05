@@ -13,7 +13,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from urllib.parse import parse_qsl
 
@@ -33,6 +33,7 @@ CLOCK_SKEW_SECONDS = 60
 AUTH_SCHEME = "tma "
 MAX_CODE_LENGTH = 80
 
+TOUCH_INTERVAL_SECONDS = 300.0
 CatalogProvider = Callable[[], Awaitable[SubscriptionCatalog | None]]
 
 
@@ -89,6 +90,9 @@ class MiniAppApi:
     catalog: CatalogProvider
     bot_token: str
     site_origin: str
+    touch_interval: float = TOUCH_INTERVAL_SECONDS
+    clock: Callable[[], float] = time.monotonic
+    _touched: dict[int, float] = field(default_factory=dict, init=False, repr=False)
 
     def routes(self) -> list[Route]:
         return [
@@ -111,9 +115,15 @@ class MiniAppApi:
             logger.info("Rejected Mini App request: %s", error)
             return _error(401, "Invalid Telegram initData")
         # A private chat shares its id with the user, as in the bot's own handlers.
-        await asyncio.to_thread(
-            self.store.touch_user, telegram_user_id=user_id, private_chat_id=user_id
-        )
+        now = self.clock()
+        last = self._touched.get(user_id)
+        if last is None or now - last >= self.touch_interval:
+            self._touched[user_id] = now
+            await asyncio.to_thread(
+                self.store.touch_user,
+                telegram_user_id=user_id,
+                private_chat_id=user_id,
+            )
         return user_id
 
     async def _watches(self, user_id: int, **extra) -> JSONResponse:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Generator, Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +18,10 @@ from .instructor_normalization import clean_instructor_text, instructor_identity
 CHECKPOINTED_SCHEMA_VERSION = 2
 STATE_THRESHOLD = 96
 EVENT_THRESHOLD = 2_048
+
+
+class OutOfOrderSnapshotError(ValueError):
+    """A changed snapshot is not newer than the latest stored one."""
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,16 @@ def canonical_state_hash(snapshot: EnrollmentSnapshot) -> bytes:
     return hashlib.sha256(encoded).digest()
 
 
+@dataclass(frozen=True)
+class StateReplay:
+    """Initial state plus the ordered change events that follow it."""
+
+    courses: dict[str, tuple[str, str]]
+    sections: dict[tuple[str, str], tuple[str, int, int, str]]
+    course_events: dict[int, list[sqlite3.Row]]
+    section_events: dict[int, list[sqlite3.Row]]
+
+
 class CheckpointedStateStore:
     """Small public surface around the ADR-0001 checkpointed data model."""
 
@@ -107,6 +121,10 @@ class CheckpointedStateStore:
         connection.execute("PRAGMA busy_timeout = 5000")
         if self.read_only:
             connection.execute("PRAGMA query_only = ON")
+        else:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = NORMAL")
+        connection.execute("PRAGMA cache_size = -16384")
         try:
             yield connection
         finally:
@@ -409,7 +427,7 @@ class CheckpointedStateStore:
                 connection.execute("BEGIN IMMEDIATE")
                 latest = connection.execute(
                     """
-                    SELECT snapshot_id, state_hash, semester, overall_fill
+                    SELECT snapshot_id, state_hash, semester, overall_fill, observed_at
                     FROM state_snapshot
                     ORDER BY sequence_no DESC LIMIT 1
                     """
@@ -433,7 +451,7 @@ class CheckpointedStateStore:
                 ):
                     connection.execute(
                         """
-                        UPDATE state_snapshot SET last_seen_at = ?
+                        UPDATE state_snapshot SET last_seen_at = MAX(last_seen_at, ?)
                         WHERE snapshot_id = ?
                         """,
                         (snapshot.timestamp, latest["snapshot_id"]),
@@ -445,6 +463,13 @@ class CheckpointedStateStore:
                         course_events=0,
                         section_events=0,
                         checkpoint_created=False,
+                    )
+
+                if latest is not None and snapshot.timestamp <= latest["observed_at"]:
+                    raise OutOfOrderSnapshotError(
+                        f"registrar file observed at {snapshot.timestamp} is not newer "
+                        f"than the latest stored snapshot ({latest['observed_at']}); "
+                        "older files are not stored"
                     )
 
                 sequence_no = int(
@@ -894,8 +919,13 @@ class CheckpointedStateStore:
                 ) / len(course.sections)
         return snapshot
 
-    def iter_reconstructed_snapshots(self) -> Iterator[tuple[int, EnrollmentSnapshot]]:
-        """Yield every state using a fixed set of bulk queries."""
+    def read_state_replay(self) -> StateReplay:
+        """Read the first checkpoint and every later event with fixed bulk queries.
+
+        Callers fold ``course_events`` and ``section_events`` over the initial
+        state in snapshot order to follow the semester without reconstructing
+        a full snapshot per observation.
+        """
         with self.connection() as connection:
             first = connection.execute(
                 """
@@ -906,7 +936,7 @@ class CheckpointedStateStore:
                 """
             ).fetchone()
             if first is None:
-                return
+                return StateReplay({}, {}, {}, {})
             checkpoint_id = int(first["checkpoint_id"])
             first_sequence_no = int(first["sequence_no"])
             courses = {
@@ -970,38 +1000,7 @@ class CheckpointedStateStore:
                 (first_sequence_no,),
             ):
                 section_events.setdefault(int(row["snapshot_id"]), []).append(row)
-            metadata_rows = connection.execute(
-                """
-                SELECT snapshot_id, sequence_no, observed_at, semester, overall_fill
-                FROM state_snapshot WHERE sequence_no >= ?
-                ORDER BY sequence_no
-                """,
-                (first_sequence_no,),
-            ).fetchall()
-
-        for metadata in metadata_rows:
-            snapshot_id = int(metadata["snapshot_id"])
-            for row in course_events.get(snapshot_id, []):
-                code = row["course_code"]
-                if row["event_kind"] == "REMOVE":
-                    courses.pop(code, None)
-                else:
-                    courses[code] = (
-                        row["new_title"] or "",
-                        row["new_department"],
-                    )
-            for row in section_events.get(snapshot_id, []):
-                key = (row["course_code"], row["section_code"])
-                if row["event_kind"] == "REMOVE":
-                    sections.pop(key, None)
-                else:
-                    sections[key] = (
-                        row["new_section_type"],
-                        row["new_enrollment_count"],
-                        row["new_capacity_count"],
-                        row["new_instructor"],
-                    )
-            yield snapshot_id, self._build_snapshot(metadata, courses, sections)
+        return StateReplay(courses, sections, course_events, section_events)
 
     def get_course_history(
         self, course_code: str, semester: str | None = None

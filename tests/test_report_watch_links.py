@@ -66,7 +66,7 @@ def reporter(tmp_path, make_settings):
 
     settings = make_settings(
         directories={"text_reports": str(tmp_path)},
-        notifications={"file_write_delay": 0, "dry_run": False},
+        notifications={"dry_run": False},
         telegram_bot_token=SecretStr("t"),
         telegram_chat_id=SecretStr("1"),
     )

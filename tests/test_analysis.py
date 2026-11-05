@@ -1,4 +1,4 @@
-"""Tests for DuckDB cross-semester analysis and Parquet export.
+"""Tests for DuckDB cross-semester analysis.
 
 DuckDB's ``sqlite`` extension is downloaded on first use, so it may be missing
 offline. Most tests replace only the attach step with a copy of the SQLite
@@ -181,40 +181,6 @@ def test_non_v2_database_is_rejected(tmp_path: Path, config: Settings) -> None:
         analysis.open_analysis({"Old": legacy}, config)
 
 
-def test_export_parquet_writes_flat_per_snapshot_rows(
-    config: Settings, copy_attach: None, tmp_path: Path
-) -> None:
-    out = tmp_path / "open"
-    target = analysis.export_parquet("Fall 2026", out, config)
-
-    assert target == out / "fall_2026.parquet"
-    assert not list(out.glob("*.partial"))
-    reader = duckdb.connect()
-    columns = [
-        row[0]
-        for row in reader.execute(f"DESCRIBE SELECT * FROM '{target}'").fetchall()
-    ]
-    assert columns[:5] == [
-        "semester",
-        "snapshot_id",
-        "sequence_no",
-        "observed_at",
-        "course_code",
-    ]
-    found = reader.execute(
-        f"SELECT count(*), list(DISTINCT semester) FROM '{target}'"
-    ).fetchone()
-    assert found is not None
-    count, semesters = found
-    assert count == 6  # 5 distinct states, 2L present in one
-    assert semesters == ["Fall 2026"]
-
-
-def test_export_unknown_semester(config: Settings, tmp_path: Path) -> None:
-    with pytest.raises(analysis.AnalysisError, match="no database"):
-        analysis.export_parquet("Spring 2027", tmp_path, config)
-
-
 def test_real_sqlite_extension_attaches_read_only(
     config: Settings, tmp_path: Path
 ) -> None:
@@ -233,7 +199,7 @@ def test_real_sqlite_extension_attaches_read_only(
     connection.close()
 
 
-def test_cli_handlers_print_table_write_csv_and_export(
+def test_cli_handlers_print_table_and_write_csv(
     config: Settings,
     copy_attach: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -261,12 +227,6 @@ def test_cli_handlers_print_table_write_csv_and_export(
 
     ask = argparse.Namespace(name="missing", csv=None)
     assert asyncio.run(main.handle_analyze_command(ask)) == 1
-
-    export = argparse.Namespace(semester="Fall 2026", out=tmp_path / "pq")
-    assert asyncio.run(main.handle_export_parquet_command(export)) == 0
-    assert (tmp_path / "pq" / "fall_2026.parquet").is_file()
-    export = argparse.Namespace(semester="Nope", out=tmp_path / "pq")
-    assert asyncio.run(main.handle_export_parquet_command(export)) == 1
 
 
 def test_missing_extension_is_reported(

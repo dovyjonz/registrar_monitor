@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+from registrarmonitor.data.database_manager import DatabaseManager
+from registrarmonitor.models import Course, EnrollmentSnapshot, Section
 from registrarmonitor.website.catalog import build_publication_catalog
 from registrarmonitor.website.config import semester_sort_key
 
@@ -38,10 +40,7 @@ def test_future_config_without_database_stays_hidden():
         catalog = build_publication_catalog(
             existing_labels={"Summer 2026"},
             database_factory=lambda semester: SimpleNamespace(
-                get_latest_snapshot_id=lambda: 1,
-                get_snapshot_data=lambda _: SimpleNamespace(
-                    semester=semester, courses={"ANT 140": object()}
-                ),
+                latest_snapshot_has_courses=lambda label: label == semester,
             ),
         )
 
@@ -52,10 +51,7 @@ def test_matching_snapshot_is_publishable_but_mismatch_is_hidden():
     def database(semester):
         embedded = "Fall 2026" if semester == "Fall 2026" else "Spring 2026"
         return SimpleNamespace(
-            get_latest_snapshot_id=lambda: 1,
-            get_snapshot_data=lambda _: SimpleNamespace(
-                semester=embedded, courses={"ANT 140": object()}
-            ),
+            latest_snapshot_has_courses=lambda label: label == embedded,
         )
 
     with (
@@ -74,3 +70,25 @@ def test_matching_snapshot_is_publishable_but_mismatch_is_hidden():
         )
 
     assert [entry.label for entry in catalog] == ["Fall 2026"]
+
+
+def test_latest_snapshot_has_courses_reads_the_stored_latest_snapshot(tmp_path):
+    db = DatabaseManager(db_path=str(tmp_path / "fall.db"), semester="Fall 2026")
+    assert db.latest_snapshot_has_courses("Fall 2026") is False
+
+    section = Section("10L", "L", 5, 10, 0.5, "Dr. Smith")
+    db.store_enrollment_snapshot(
+        EnrollmentSnapshot(
+            "2026-11-01 10:00:00",
+            "Fall 2026",
+            0.5,
+            {"CS 101": Course("CS 101", "CS", {"10L": section}, 0.5, "Intro")},
+        )
+    )
+    assert db.latest_snapshot_has_courses("Fall 2026") is True
+    assert db.latest_snapshot_has_courses("Spring 2026") is False
+
+    db.store_enrollment_snapshot(
+        EnrollmentSnapshot("2026-11-01 11:00:00", "Fall 2026", 0.0, {})
+    )
+    assert db.latest_snapshot_has_courses("Fall 2026") is False

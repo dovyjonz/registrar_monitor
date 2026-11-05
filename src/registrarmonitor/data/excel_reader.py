@@ -1,5 +1,4 @@
 import datetime as dt
-import os
 import re
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
@@ -9,6 +8,11 @@ import xlrd
 
 class ExcelReader:
     """Reads and processes Excel data files."""
+
+    def read_semester(self, input_file: str) -> str:
+        """Return the semester label in the first cell without parsing the rows."""
+        wb = xlrd.open_workbook(input_file, ignore_workbook_corruption=True)
+        return str(wb.sheet_by_index(0).cell_value(0, 0)).strip()
 
     def read_excel_data(self, input_file: str) -> tuple[str, str, list[dict[str, Any]]]:
         """Read and process the Excel data file."""
@@ -136,21 +140,3 @@ class ExcelReader:
             processed_data.append(record)
 
         return semester, ieee_timestamp, processed_data
-
-    def get_timestamp_from_file(self, file_path: str) -> str:
-        """
-        Get the timestamp from the file's modification time.
-
-        Args:
-            file_path: The path to the file.
-
-        Returns:
-            A formatted timestamp string.
-        """
-        try:
-            mtime = os.path.getmtime(file_path)
-            dt_object = dt.datetime.fromtimestamp(mtime)
-            return dt_object.strftime("%Y-%m-%d %H:%M:%S")
-        except FileNotFoundError:
-            # Fallback to current time if file not found, though unlikely
-            return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

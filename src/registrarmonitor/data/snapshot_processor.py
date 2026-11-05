@@ -1,28 +1,25 @@
 import itertools
+import logging
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 
-from ..config import get_settings
 from ..models import (
     Course,
     EnrollmentSnapshot,
     Section,
 )
 from ..utils import get_section_type
-from ..validation import validate_directory_exists
+from .checkpointed_state import WriteResult
 from .database_manager import DatabaseManager
 from .instructor_normalization import aggregate_instructors_by_section
+
+logger = logging.getLogger(__name__)
 
 
 class SnapshotProcessor:
     """Processes data into EnrollmentSnapshot objects and stores them in the database."""
 
-    def __init__(self, data_dir: str | None = None):
-        if data_dir is None:
-            data_dir = get_settings().directories.data_storage
-        self.data_dir = data_dir
-        validate_directory_exists(data_dir, create_if_missing=True)
-
+    def __init__(self):
         # Database manager will be created per semester
         self.db_manager: DatabaseManager | None = None
         self._current_semester: str | None = None
@@ -129,16 +126,28 @@ class SnapshotProcessor:
 
         return snapshot
 
-    def save_snapshot(self, snapshot: EnrollmentSnapshot) -> None:
+    def save_snapshot(
+        self, snapshot: EnrollmentSnapshot, db_manager: DatabaseManager | None = None
+    ) -> WriteResult:
         """Save enrollment snapshot to the database.
 
         Args:
             snapshot: The enrollment snapshot to persist.
-        """
-        # Create or get database manager for this semester
-        if self.db_manager is None or self._current_semester != snapshot.semester:
-            self.db_manager = DatabaseManager.create_for_semester(snapshot.semester)
-            self._current_semester = snapshot.semester
+            db_manager: Manager for the snapshot's semester, when the caller
+                already holds one.
 
-        self.db_manager.store_enrollment_snapshot(snapshot)
-        print("✅ Stored snapshot in database")
+        Returns:
+            Whether a new state was stored or only its last-seen time advanced.
+        """
+        if db_manager is None:
+            if self.db_manager is None or self._current_semester != snapshot.semester:
+                self.db_manager = DatabaseManager.create_for_semester(snapshot.semester)
+                self._current_semester = snapshot.semester
+            db_manager = self.db_manager
+
+        result = db_manager.store_enrollment_snapshot(snapshot)
+        if result.created:
+            logger.info("Stored snapshot semester=%s", snapshot.semester)
+        else:
+            logger.info("Snapshot unchanged; not stored semester=%s", snapshot.semester)
+        return result

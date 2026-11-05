@@ -30,7 +30,7 @@ function runtime(rendered = new Response('png', { status: 200 })) {
     ASSETS: { fetch: (request: Request) => fetch(request) },
     BROWSER: { quickAction },
   } as Env;
-  return { cache, env, quickAction };
+  return { cache, env, quickAction, values };
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -81,6 +81,7 @@ describe('preview request handling', () => {
     );
     expect(missing.status).toBe(404);
     expect(missing.headers.get('Cache-Control')).toBe('no-store');
+    expect(missingRuntime.values.size).toBe(0);
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json(state(hash)));
     const failedRuntime = runtime(new Response('error', { status: 503 }));
@@ -89,6 +90,7 @@ describe('preview request handling', () => {
     );
     expect(failed.status).toBe(502);
     expect(failed.headers.get('Cache-Control')).toBe('no-store');
+    expect(failedRuntime.values.size).toBe(0);
   });
 
   it('rejects an oversized streamed state without relying on Content-Length', async () => {

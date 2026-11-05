@@ -70,18 +70,27 @@ class DataSource(_Section):
 
 
 class Notifications(_Section):
-    file_write_delay: float = 3
     dry_run: bool = False
 
 
 class Website(_Section):
-    update_interval: PositiveInt = 30
     generation_timeout_seconds: PositiveInt = 3600
+    # Hard memory cap (systemd MemoryMax syntax) for the site build and deploy
+    # children, so an out-of-memory kill takes the build and not the poller.
+    build_memory_max: str = "600M"
     base_url: str
     web_analytics_token: str = ""
     # Public https URL of the bot's Telegram Mini App API (Cloudflare Tunnel
     # hostname plus /miniapp). Empty turns the Mini App off.
     miniapp_api_url: str = ""
+
+    @field_validator("build_memory_max")
+    @classmethod
+    def _memory_max(cls, value: str) -> str:
+        value = value.strip()
+        if not re.fullmatch(r"[1-9][0-9]*[KMGT]?", value):
+            raise ValueError("must be a size such as 600M or 1G")
+        return value
 
     @field_validator("base_url")
     @classmethod
@@ -145,7 +154,7 @@ class Semester(_Section):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", env_nested_delimiter="__")
 
     timezone: str = "Asia/Almaty"
     directories: Directories

@@ -26,7 +26,10 @@ website settings.
 ## Commands
 
 ```bash
+monitor db initialize --semester "Fall 2026"  # create a semester's storage (never implicit)
 monitor poll                         # download and store the latest spreadsheet
+monitor poll --file F.xls            # store a downloaded file under its configured semester
+monitor poll --semester "Fall 2026"  # poll a specific semester
 monitor status "CSCI 151"            # inspect current enrollment
 monitor report --stateful            # report new changes
 monitor run                          # poll, report, and generate the dashboard
@@ -34,9 +37,12 @@ monitor schedule                     # run the monitoring daemon
 monitor bot                          # run private Telegram subscriptions
 monitor deploy                       # generate the dashboard
 monitor deploy --deploy              # generate and `wrangler deploy` the site Worker
+monitor deploy --dry-run             # generate, then `wrangler deploy --dry-run` (no upload)
+monitor deploy --upload-only         # deploy the existing output without regenerating
+monitor baseline                     # mark the latest snapshot reported; sends nothing
+monitor rehearse                     # one poll+report cycle on a scratch copy, nothing sent
 monitor analyze                      # list saved DuckDB queries (analysis/*.sql)
 monitor analyze fill_curves_by_department --csv out.csv
-monitor export-parquet "Fall 2026"   # write data/open-data/fall_2026.parquet
 monitor db stats
 monitor doctor
 ```

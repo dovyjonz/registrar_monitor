@@ -88,6 +88,18 @@ class TestCourse:
         course = Course("CS 103", "CS", sections)
         assert course.is_filled is True
 
+    def test_derived_values_follow_section_changes(self):
+        """Totals and fill status reflect sections added or edited after first use."""
+        course = Course("CS 104", "CS", {"10L": Section("10L", "L", 10, 30, 10 / 30)})
+        assert (course.total_enrollment, course.total_capacity) == (10, 30)
+        assert course.is_filled is False
+
+        course.sections["11L"] = Section("11L", "L", 20, 20, 1.0)
+        assert (course.total_enrollment, course.total_capacity) == (30, 50)
+
+        course.sections["10L"].fill = 1.0
+        assert course.is_filled is True
+
 
 class TestEnrollmentSnapshot:
     """Tests for the EnrollmentSnapshot dataclass."""

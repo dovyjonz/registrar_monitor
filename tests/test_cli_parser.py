@@ -26,6 +26,12 @@ from registrarmonitor.main import create_parser
         (["deploy", "--semester", "fall2025"], "deploy"),
         (["deploy", "--no-minify"], "deploy"),
         (["deploy", "--output-dir", "output/site"], "deploy"),
+        (["deploy", "--dry-run"], "deploy"),
+        (["deploy", "--upload-only"], "deploy"),
+        (["baseline"], "baseline"),
+        (["baseline", "--semester", "Fall 2026"], "baseline"),
+        (["rehearse"], "rehearse"),
+        (["rehearse", "--semester", "Fall 2026", "--keep"], "rehearse"),
         (["doctor"], "doctor"),
         (["doctor", "--json"], "doctor"),
         (["doctor", "--output", "output/doctor.json"], "doctor"),
@@ -49,7 +55,7 @@ def test_canonical_commands_parse(argv, command):
     assert args.command == command
 
 
-@pytest.mark.parametrize("alias", ["fetch", "sync", "website"])
+@pytest.mark.parametrize("alias", ["fetch", "sync", "website", "export-parquet"])
 def test_removed_aliases_fail(alias):
     parser = create_parser()
 

@@ -12,7 +12,9 @@ Usage:
     monitor [--debug] run [--no-telegram] [--deploy]
     monitor [--debug] schedule
     monitor [--debug] bot
-    monitor [--debug] deploy [--deploy]
+    monitor [--debug] deploy [--deploy | --dry-run | --upload-only]
+    monitor [--debug] baseline [--semester S]
+    monitor [--debug] rehearse [--semester S] [--keep]
     monitor [--debug] doctor [--json]
     monitor [--debug] db <command>
 """
@@ -20,22 +22,27 @@ Usage:
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 
 from .cli import (
+    BaselineCommand,
     DatabaseCommands,
     DeployCommand,
     PollCommand,
+    RehearseCommand,
     ReportCommand,
     RunCommand,
     ScheduleCommand,
     StatusCommand,
 )
-from .core import get_logger, setup_logging
+from .core import setup_logging
 from .observability import init_sentry
 from .operational import build_doctor_report, write_json
+
+logger = logging.getLogger(__name__)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -53,6 +60,9 @@ Examples:
   monitor report --no-telegram          # Generate reports without sending
   monitor run                           # Complete workflow (poll + report + website)
   monitor schedule                      # Run the scheduler
+  monitor baseline                      # Mark the latest snapshot reported (no posts)
+  monitor rehearse                      # One poll+report cycle on a scratch copy
+  monitor deploy --dry-run              # Generate, then wrangler deploy --dry-run
   monitor bot                           # Run the subscription bot
   monitor db stats                      # Show database statistics
 
@@ -97,6 +107,14 @@ Telegram Control:
         type=str,
         metavar="PATH",
         help="Process a specific Excel file instead of downloading latest",
+    )
+    poll_parser.add_argument(
+        "--semester",
+        type=str,
+        help=(
+            "Semester whose storage receives the poll (default: with --file, the "
+            "file's semester when configured; otherwise the freshest stored one)"
+        ),
     )
     # Status command
     status_parser = subparsers.add_parser(
@@ -178,6 +196,16 @@ Telegram Control:
         help="Run `wrangler deploy` after generation",
     )
     deploy_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate, then validate with `wrangler deploy --dry-run` (uploads nothing)",
+    )
+    deploy_parser.add_argument(
+        "--upload-only",
+        action="store_true",
+        help="Skip generation and deploy the existing output; exits non-zero on failure",
+    )
+    deploy_parser.add_argument(
         "--semester",
         type=str,
         help="Generate only for specific semester (e.g. 'fall2025')",
@@ -196,6 +224,41 @@ Telegram Control:
         "--output-dir",
         type=Path,
         help="Generate into an isolated directory (deployment is refused)",
+    )
+
+    baseline_parser = subparsers.add_parser(
+        "baseline",
+        help="Mark the latest snapshot as reported without sending anything",
+        description=(
+            "After a long stop, record the latest stored snapshot as reported so "
+            "the first scheduler start does not post the catch-up to the channel "
+            "or queue subscriber digests for it. Sends nothing; safe to repeat."
+        ),
+    )
+    baseline_parser.add_argument(
+        "--semester",
+        type=str,
+        help="Semester to baseline (default: the one with the freshest snapshot)",
+    )
+
+    rehearse_parser = subparsers.add_parser(
+        "rehearse",
+        help="Run one poll and report cycle on a scratch copy of the database",
+        description=(
+            "Copy a semester database to a scratch directory, download, store, and "
+            "report once against the copy with Telegram, Cloudflare, and heartbeat "
+            "credentials cleared, then verify the live database files did not change."
+        ),
+    )
+    rehearse_parser.add_argument(
+        "--semester",
+        type=str,
+        help="Semester to rehearse (default: the one with the freshest snapshot)",
+    )
+    rehearse_parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep the scratch directory (copy, download, report) for inspection",
     )
 
     # Database commands
@@ -225,19 +288,6 @@ Telegram Control:
     )
     analyze_parser.add_argument(
         "--csv", type=Path, metavar="PATH", help="Write CSV instead of a table"
-    )
-
-    export_parser = subparsers.add_parser(
-        "export-parquet",
-        help="Export one semester's per-snapshot enrollment as Parquet",
-        description="Write <semester>.parquet, one row per section per snapshot",
-    )
-    export_parser.add_argument("semester", help='Semester name, e.g. "Fall 2026"')
-    export_parser.add_argument(
-        "--out",
-        type=Path,
-        metavar="DIR",
-        help="Output directory (default: data/open-data)",
     )
 
     # Database commands
@@ -274,7 +324,10 @@ Telegram Control:
 async def handle_poll_command(args) -> int:
     """Handle the poll command."""
     command = PollCommand(debug=args.debug)
-    success = await command.run(file_path=getattr(args, "file", None))
+    success = await command.run(
+        file_path=getattr(args, "file", None),
+        semester=getattr(args, "semester", None),
+    )
     return 0 if success else 1
 
 
@@ -326,8 +379,22 @@ async def handle_deploy_command(args) -> int:
         force=getattr(args, "force", False),
         minify=not getattr(args, "no_minify", False),
         output_dir=getattr(args, "output_dir", None),
+        dry_run=getattr(args, "dry_run", False),
+        upload_only=getattr(args, "upload_only", False),
     )
     return 0 if success else 1
+
+
+async def handle_baseline_command(args) -> int:
+    """Mark the latest snapshot as reported."""
+    command = BaselineCommand(debug=args.debug)
+    return 0 if await command.run(semester=getattr(args, "semester", None)) else 1
+
+
+async def handle_rehearse_command(args) -> int:
+    """Rehearse a poll and report cycle on a scratch copy."""
+    command = RehearseCommand(debug=args.debug, keep=getattr(args, "keep", False))
+    return 0 if await command.run(semester=getattr(args, "semester", None)) else 1
 
 
 async def handle_status_command(args) -> int:
@@ -354,28 +421,13 @@ async def handle_analyze_command(args) -> int:
         finally:
             connection.close()
     except analysis.AnalysisError as error:
-        print(f"Error: {error}", file=sys.stderr)
+        logger.warning("Analysis failed: %s", error)
         return 1
     if args.csv:
         analysis.write_csv(args.csv, columns, rows)
         print(f"Wrote {len(rows)} rows to {args.csv}")
     else:
         print(analysis.format_table(columns, rows))
-    return 0
-
-
-async def handle_export_parquet_command(args) -> int:
-    """Export one semester as Parquet."""
-    from . import analysis
-
-    try:
-        target = analysis.export_parquet(
-            args.semester, args.out or analysis.DEFAULT_EXPORT_DIR
-        )
-    except analysis.AnalysisError as error:
-        print(f"Error: {error}", file=sys.stderr)
-        return 1
-    print(f"Wrote {target}")
     return 0
 
 
@@ -391,7 +443,7 @@ async def handle_db_command(args) -> int:
             database=getattr(args, "database", None),
         )
     else:
-        print("❌ Invalid database command")
+        logger.error("Invalid database command: %s", args.db_command)
         return 1
 
     return 0 if success else 1
@@ -424,6 +476,7 @@ async def async_main() -> int:
     # Keep structured doctor output free of log lines and side effects.
     log_level = "DEBUG" if args.debug else args.log_level
     is_doctor = args.command == "doctor"
+    is_rehearsal = args.command == "rehearse"
     # Long-running services log JSON lines for journald; the interactive CLI
     # keeps colored human-readable output.
     is_service = args.command in ("schedule", "bot") or (
@@ -435,14 +488,10 @@ async def async_main() -> int:
         enable_file=not is_doctor,
         json_logs=is_service,
     )
-    if not is_doctor:
+    if not (is_doctor or is_rehearsal):
         init_sentry()
 
-    logger = get_logger(__name__)
-    logger.info("Starting Registrar Monitor CLI with command: %s", args.command)
-
-    if args.debug:
-        print(f"🔍 DEBUG MODE ENABLED - Log level: {log_level}")
+    logger.info("CLI started command=%s log_level=%s", args.command, log_level)
 
     # Handle commands
     try:
@@ -460,12 +509,14 @@ async def async_main() -> int:
             return await handle_bot_command(args)
         elif args.command == "deploy":
             return await handle_deploy_command(args)
+        elif args.command == "baseline":
+            return await handle_baseline_command(args)
+        elif args.command == "rehearse":
+            return await handle_rehearse_command(args)
         elif args.command == "doctor":
             return await handle_doctor_command(args)
         elif args.command == "analyze":
             return await handle_analyze_command(args)
-        elif args.command == "export-parquet":
-            return await handle_export_parquet_command(args)
         elif args.command == "db":
             return await handle_db_command(args)
         else:
@@ -474,17 +525,10 @@ async def async_main() -> int:
             return 1
 
     except KeyboardInterrupt:
-        print("\n\n👋 Operation interrupted by user")
         logger.info("Operation interrupted by user")
         return 130  # Standard exit code for Ctrl+C
-    except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
-        logger.exception("Unexpected error in CLI")
-        if args.debug:
-            import traceback
-
-            print("\n🔍 DEBUG: Full traceback:")
-            traceback.print_exc()
+    except Exception:
+        logger.exception("Unexpected error in CLI command=%s", args.command)
         return 1
 
 
@@ -494,10 +538,10 @@ def cli_main() -> None:
         exit_code = asyncio.run(async_main())
         sys.exit(exit_code)
     except KeyboardInterrupt:
-        print("\n\n👋 Application interrupted")
+        logger.info("Application interrupted")
         sys.exit(130)
-    except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
+    except Exception:
+        logger.exception("Fatal error")
         sys.exit(1)
 
 
